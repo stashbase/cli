@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use super::projects::ProjectCommands;
+use super::{configs::ConfigCommands, projects::ProjectCommands};
 
 #[derive(Debug, Parser)]
 #[command(author, version)]
@@ -16,4 +16,6 @@ pub enum EntityType {
     #[clap(name = "projects")]
     /// Manage projects
     Project(ProjectCommands),
+    /// Your CLI configuration
+    Config(ConfigCommands),
 }
