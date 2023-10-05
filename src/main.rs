@@ -6,8 +6,10 @@ use logging::logger::init_logger;
 use crate::handlers::entry::handle_cli;
 
 mod cmd;
+mod config;
 mod handlers;
 mod logging;
+mod models;
 
 fn main() {
     init_logger();
