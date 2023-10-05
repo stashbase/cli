@@ -7,20 +7,27 @@ use crate::{
         root::{Cli, EntityType},
     },
     config::config,
+    handlers::projects::list::handle_list_projects,
     models::config::UpdateConfig,
 };
 
-pub fn handle_cli(args: Cli) {
+#[tokio::main()]
+pub async fn handle_cli(args: Cli) {
     debug!("args: {:?}", args);
 
     let config = config::get_config();
     debug!("config: {:?}", config);
 
-    if let Ok(_) = config {
+    if let Ok(config) = config {
+        // TODO: check token for api commands
+        let token = config.token.unwrap();
+
         match args.entity_type {
             EntityType::Project(cmd) => match cmd.subcommand {
                 ProjectSubcommand::List(_) => {
-                    todo!("List projects")
+                    handle_list_projects(token).await.unwrap_or_else(|err| {
+                        println!("{:?}", err);
+                    });
                 }
             },
             EntityType::Config(cmd) => match cmd.subcommand {
