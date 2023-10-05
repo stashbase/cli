@@ -36,6 +36,6 @@ pub fn handle_cli(args: Cli) {
         }
     } else {
         let err = config.unwrap_err();
-        println!("Error reading/creating config:\n{}", err);
+        println!("{:?}", err);
     }
 }
