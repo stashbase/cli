@@ -7,7 +7,7 @@ use crate::{
         root::{Cli, EntityType},
     },
     config::config,
-    handlers::projects::list::handle_list_projects,
+    handlers::projects::{create::handle_create_project, list::handle_list_projects},
     models::config::UpdateConfig,
 };
 
@@ -28,6 +28,14 @@ pub async fn handle_cli(args: Cli) {
                     handle_list_projects(token).await.unwrap_or_else(|err| {
                         println!("{:?}", err);
                     });
+                }
+
+                ProjectSubcommand::Create(args) => {
+                    handle_create_project(token, args.name, args.description)
+                        .await
+                        .unwrap_or_else(|err| {
+                            println!("{:?}", err);
+                        });
                 }
             },
             EntityType::Config(cmd) => match cmd.subcommand {
