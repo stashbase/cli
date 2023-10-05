@@ -8,7 +8,7 @@ use super::projects::ProjectCommands;
 
 pub struct Cli {
     #[clap(subcommand)]
-    pub entity_type: Option<EntityType>,
+    pub entity_type: EntityType,
 }
 
 #[derive(Debug, Subcommand)]
