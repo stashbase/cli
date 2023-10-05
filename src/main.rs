@@ -1,3 +1,7 @@
+use logging::logger::init_logger;
+
+mod logging;
+
 fn main() {
-    println!("Hello, world!");
+    init_logger();
 }
