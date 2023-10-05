@@ -8,10 +8,21 @@ pub struct ProjectCommands {
 
 #[derive(Debug, Subcommand)]
 pub enum ProjectSubcommand {
-    /// Manage projects
+    /// List projects
     List(ListProjects),
+    /// Create a new project
+    Create(CreateProject),
 }
+#[derive(Debug, Args)]
+// TODO: perPage, pages + other args
+pub struct ListProjects {}
 
 #[derive(Debug, Args)]
-// TODO: perPage, pages
-pub struct ListProjects {}
+pub struct CreateProject {
+    /// Project name
+    pub name: String,
+
+    /// Project description
+    #[arg(value_enum, short = 'd', long = "description")]
+    pub description: Option<String>,
+}
