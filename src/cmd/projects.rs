@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 #[derive(Debug, Args)]
 pub struct ProjectCommands {
     #[clap(subcommand)]
-    pub command: Option<ProjectSubcommand>,
+    pub subcommand: ProjectSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
