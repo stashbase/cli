@@ -1,11 +1,29 @@
 use anyhow::{bail, Result};
 use log::{debug, error};
+use owo_colors::OwoColorize;
 
 use crate::{
-    api::projects, models::api_client::DeleteRequestApiResponse, utils::spinner::request_spinner,
+    api::projects,
+    models::api_client::DeleteRequestApiResponse,
+    utils::{interaction, spinner::request_spinner},
 };
 
 pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
+    println!("{}", "All environments and secrets will be deleted".red());
+
+    // let confirmation = interaction::confirm_opt("Do you want to delete this project?");
+    //
+    // if confirmation.is_none() || (!confirmation.unwrap()) {
+    //     return Ok(());
+    // }
+
+    let i = interaction::input(&format!("Type '{}' to confirm", name));
+
+    if i != name {
+        println!("Input does not match, action aborted");
+        return Ok(());
+    }
+
     debug!("deleting project...:");
 
     let mut spinner = request_spinner();
