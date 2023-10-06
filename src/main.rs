@@ -15,9 +15,19 @@ mod utils;
 
 fn main() {
     init_logger();
+    set_handlers();
 
     let args = Cli::parse();
     debug!("Args: {:?}", args);
 
     handle_cli(args);
+}
+
+fn set_handlers() {
+    // https://github.com/console-rs/dialoguer/issues/77
+    ctrlc::set_handler(move || {
+        let term = dialoguer::console::Term::stdout();
+        let _ = term.show_cursor();
+    })
+    .expect("Error setting Ctrl-C handler");
 }
