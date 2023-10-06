@@ -5,10 +5,16 @@ use log::{debug, error};
 use crate::{
     api::projects,
     models::{api_client::GetRequestApiResponse, projects::ProjectWithCount},
-    utils::spinner::request_spinner,
+    utils::{spinner::request_spinner, validation::validate_project_name},
 };
 
 pub async fn handle_get_project(token: String, raw: bool, name: String) -> Result<()> {
+    let name_is_valid = validate_project_name(&name);
+
+    if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
     let mut spinner = request_spinner();
     let project_res = projects::get_project(token, name).await;
 
