@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::models::{
     api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostRequestApiResponse,
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
         RequestArgs,
     },
     projects::CreateProjectPayload,
@@ -42,7 +42,7 @@ pub async fn get_project_url(token: String, name: String) -> Result<GetRequestAp
 pub async fn create_project(
     token: String,
     data: CreateProjectPayload,
-) -> Result<PostRequestApiResponse> {
+) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(None),
         token,
