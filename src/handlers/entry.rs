@@ -49,7 +49,7 @@ pub async fn handle_cli(args: Cli) {
                     handle_create_project(token, args.name, args.description)
                         .await
                         .unwrap_or_else(|err| {
-                            eprintln!("Error sending request: {:?}", err);
+                            eprintln!("{:?}", err);
                         });
                 }
 
@@ -57,14 +57,14 @@ pub async fn handle_cli(args: Cli) {
                     handle_delete_project(token, args.name)
                         .await
                         .unwrap_or_else(|err| {
-                            eprintln!("Error sending request: {:?}", err);
+                            eprintln!("{:?}", err);
                         });
                 }
                 ProjectSubcommand::Open(args) => {
                     handle_open_project(token, args.name)
                         .await
                         .unwrap_or_else(|err| {
-                            eprintln!("Error sending request: {:?}", err);
+                            eprintln!("{:?}", err);
                         });
                 }
             },
