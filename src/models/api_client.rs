@@ -5,7 +5,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 #[derive(Debug)]
-pub struct GetRequestArgs {
+pub struct RequestArgs {
     pub token: String,
     pub path: ApiPath,
 }
@@ -26,6 +26,7 @@ impl fmt::Display for ApiPath {
     }
 }
 
+// NOTE: GET
 #[derive(Debug)]
 pub struct GetApiResponseOk {
     pub status: StatusCode,
@@ -38,7 +39,7 @@ pub enum GetRequestApiResponse {
     Err(CustomError),
 }
 
-// post
+// NOTE: POST
 #[derive(Debug)]
 pub enum PostRequestApiResponse {
     Ok(PostApiResponseOk),
@@ -49,6 +50,13 @@ pub enum PostRequestApiResponse {
 pub struct PostApiResponseOk {
     pub status: StatusCode,
     pub text: Option<String>,
+}
+
+// NOTE: DELETE
+#[derive(Debug)]
+pub enum DeleteRequestApiResponse {
+    Ok,
+    Err(CustomError),
 }
 
 // error
@@ -74,6 +82,7 @@ pub enum ApiErrorEntity {
 pub enum ProjectError {
     InvalidName,
     ProjectAlreadyExists,
+    ProjectNotFound,
 }
 
 #[derive(Debug)]
@@ -88,6 +97,11 @@ impl From<ApiError> for CustomError {
             ApiErrorEntity::Project(e) => match e {
                 ProjectError::InvalidName => CustomError {
                     message: format!("Invalid name"),
+                    hint: None,
+                },
+
+                ProjectError::ProjectNotFound => CustomError {
+                    message: format!("Project not found"),
                     hint: None,
                 },
                 ProjectError::ProjectAlreadyExists => CustomError {
