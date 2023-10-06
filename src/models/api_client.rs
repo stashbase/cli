@@ -106,7 +106,7 @@ impl From<ApiError> for CustomError {
                 },
                 ProjectError::ProjectAlreadyExists => CustomError {
                     message: format!("Project already exists"),
-                    hint: Some(format!("Try a different name")),
+                    hint: Some(format!("Use a different name")),
                 },
             },
         }
@@ -117,12 +117,13 @@ impl fmt::Display for CustomError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Error".red().bold())?;
 
-        writeln!(f, "- message: {}", self.message).and_then(|_| {
-            if let Some(hint) = &self.hint {
-                writeln!(f, "- hint: {}", hint)
-            } else {
-                Ok(())
-            }
-        })
+        if let Some(hint) = &self.hint {
+            writeln!(f, "- message: {}", self.message)?;
+            write!(f, "- hint: {}", hint)?;
+        } else {
+            write!(f, "- message: {}", self.message)?;
+        }
+
+        Ok(())
     }
 }
