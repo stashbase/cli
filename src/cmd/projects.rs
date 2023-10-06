@@ -9,10 +9,13 @@ pub struct ProjectCommands {
 #[derive(Debug, Subcommand)]
 pub enum ProjectSubcommand {
     /// List projects
+    #[clap(alias = "l")]
     List(ListProjects),
     /// Create a new project
+    #[clap(aliases = &["c", "new"])]
     Create(CreateProject),
     /// Delete a project
+    #[clap(aliases = &["d", "del"])]
     Delete(DeleteProject),
 }
 #[derive(Debug, Args)]
