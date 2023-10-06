@@ -27,16 +27,31 @@ impl fmt::Display for ApiPath {
 }
 
 #[derive(Debug)]
-pub struct GetRequestApiResponseOk {
+pub struct GetApiResponseOk {
     pub status: StatusCode,
     pub text: String,
 }
 
 #[derive(Debug)]
 pub enum GetRequestApiResponse {
-    Ok(GetRequestApiResponseOk),
+    Ok(GetApiResponseOk),
     Err(CustomError),
 }
+
+// post
+#[derive(Debug)]
+pub enum PostRequestApiResponse {
+    Ok(PostApiResponseOk),
+    Err(CustomError),
+}
+
+#[derive(Debug)]
+pub struct PostApiResponseOk {
+    pub status: StatusCode,
+    pub text: Option<String>,
+}
+
+// error
 
 #[derive(Debug, Deserialize)]
 pub struct ApiErrorResponse {
