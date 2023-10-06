@@ -11,6 +11,9 @@ pub enum ProjectSubcommand {
     /// List projects
     #[clap(alias = "l")]
     List(ListProjects),
+    /// Get project
+    #[clap(alias = "g")]
+    Get(GetProject),
     /// Create a new project
     #[clap(aliases = &["c", "new"])]
     Create(CreateProject),
@@ -34,6 +37,12 @@ pub struct CreateProject {
     /// Project description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct GetProject {
+    /// Project name
+    pub name: String,
 }
 
 #[derive(Debug, Args)]
