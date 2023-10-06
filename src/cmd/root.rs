@@ -13,9 +13,10 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum EntityType {
-    #[clap(name = "projects")]
+    #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
     /// Manage projects
     Project(ProjectCommands),
     /// Your CLI configuration
+    #[clap(aliases = &["c", "conf"])]
     Config(ConfigCommands),
 }

@@ -9,6 +9,7 @@ pub struct ConfigCommands {
 #[derive(Debug, Subcommand)]
 pub enum ConfigSubcommand {
     /// Set values
+    #[clap(alias = "s")]
     Set(SetConfig),
 }
 
@@ -20,6 +21,7 @@ pub struct SetConfig {
 
 #[derive(Debug, Subcommand)]
 pub enum SetConfigSubcommand {
+    #[clap(alias = "t")]
     /// Set token
     Token(SetToken),
 }
