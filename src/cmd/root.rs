@@ -7,6 +7,10 @@ use super::{configs::ConfigCommands, projects::ProjectCommands};
 #[command(about = "Env ease CLI")]
 
 pub struct Cli {
+    /// Output data as raw json
+    #[arg(long = "raw", global = true)]
+    pub raw: bool,
+
     #[clap(subcommand)]
     pub entity_type: EntityType,
 }
