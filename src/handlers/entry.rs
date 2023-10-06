@@ -34,7 +34,7 @@ pub async fn handle_cli(args: Cli) {
                     handle_create_project(token, args.name, args.description)
                         .await
                         .unwrap_or_else(|err| {
-                            println!("{:?}", err);
+                            eprintln!("Error sending request: {:?}", err);
                         });
                 }
             },
