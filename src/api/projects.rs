@@ -19,6 +19,17 @@ pub async fn list_projects(token: String) -> Result<GetRequestApiResponse> {
     client::get_request(args).await
 }
 
+pub async fn get_project_url(token: String, name: String) -> Result<GetRequestApiResponse> {
+    let subpath = format!("{}/link", name);
+
+    let args = RequestArgs {
+        path: ApiPath::Projects(Some(subpath)),
+        token,
+    };
+
+    client::get_request(args).await
+}
+
 pub async fn create_project(
     token: String,
     data: CreateProjectPayload,
