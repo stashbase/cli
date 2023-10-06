@@ -1,4 +1,5 @@
-use anyhow::{bail, Context};
+use anyhow::bail;
+use colored_json::to_colored_json_auto;
 use log::{debug, error};
 
 use crate::{
@@ -26,7 +27,18 @@ pub async fn handle_list_projects(token: String) -> anyhow::Result<()> {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
             let projects = serde_json::from_str::<Vec<Project>>(&data.text);
-            println!("{:?}", projects);
+            match projects {
+                Ok(projects) => {
+                    debug!("{:#?}", &projects);
+                    let value = serde_json::to_value(&projects).unwrap();
+                    let pretty = to_colored_json_auto(&value).unwrap();
+
+                    println!("{}", pretty);
+                }
+                Err(_) => {
+                    bail!("Something went wrong")
+                }
+            }
         }
         GetRequestApiResponse::Err(e) => {
             error!("{:#?}", &e);
