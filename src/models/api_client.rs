@@ -13,6 +13,10 @@ pub struct RequestArgs {
 #[derive(Debug)]
 pub enum ApiPath {
     Projects(Option<String>),
+    Environments {
+        project: String,
+        path: Option<String>,
+    },
 }
 
 impl fmt::Display for ApiPath {
@@ -21,6 +25,10 @@ impl fmt::Display for ApiPath {
             ApiPath::Projects(p) => match p {
                 Some(value) => write!(f, "projects/{}", value),
                 None => write!(f, "projects"),
+            },
+            ApiPath::Environments { project, path } => match path {
+                Some(value) => write!(f, "projects/{}/environments/{}", project, value),
+                None => write!(f, "projects/{}/environments", project),
             },
         }
     }
@@ -75,6 +83,14 @@ pub struct ApiError {
 #[serde(untagged)]
 pub enum ApiErrorEntity {
     Project(ProjectError),
+    Environment(EnvironmentError),
+}
+
+// TODO: env errors
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvironmentError {
+    ProjectNotFound,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +125,12 @@ impl From<ApiError> for CustomError {
                     hint: Some(format!("use a different name")),
                 },
             },
+            ApiErrorEntity::Environment(e) => match e {
+                EnvironmentError::ProjectNotFound => CustomError {
+                    message: format!("project not found"),
+                    hint: None,
+                },
+            },
         }
     }
 }
@@ -121,7 +143,7 @@ impl fmt::Display for CustomError {
             writeln!(f, "- message: {}", self.message)?;
             write!(f, "- hint: {}", hint)?;
         } else {
-            write!(f, "- message: {}", self.message)?;
+            writeln!(f, "- message: {}", self.message)?;
         }
 
         Ok(())
