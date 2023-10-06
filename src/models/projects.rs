@@ -23,6 +23,12 @@ pub struct CreateProjectPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateProjectPayload {
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectWithCount {
     pub name: String,
