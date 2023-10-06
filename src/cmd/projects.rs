@@ -17,6 +17,10 @@ pub enum ProjectSubcommand {
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
     Delete(DeleteProject),
+
+    /// Open project in browser
+    #[clap(alias = "o")]
+    Open(OpenProject),
 }
 #[derive(Debug, Args)]
 // TODO: perPage, pages + other args
@@ -34,6 +38,12 @@ pub struct CreateProject {
 
 #[derive(Debug, Args)]
 pub struct DeleteProject {
+    /// Project name
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+pub struct OpenProject {
     /// Project name
     pub name: String,
 }
