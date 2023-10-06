@@ -19,9 +19,9 @@ pub async fn handle_create_project(
     let mut spinner = request_spinner();
 
     let project_res = projects::create_project(token, data).await;
-    spinner.stop_and_persist("", "");
 
     if let Err(err) = project_res {
+        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
         bail!(err);
     }
@@ -30,11 +30,13 @@ pub async fn handle_create_project(
 
     match project_res {
         PostRequestApiResponse::Ok(_) => {
-            println!("Project created");
+            spinner.stop_with_message("🔥 Project created!");
         }
         PostRequestApiResponse::Err(e) => {
-            error!("{:#?}", &e);
-            eprint!("{}", e);
+            // spinner.stop_and_persist("", "");
+            // eprint!("{}", e);
+            // error!("{:#?}", &e);
+            spinner.stop_with_message(&format!("{}", e));
         }
     }
 
