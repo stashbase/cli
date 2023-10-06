@@ -5,7 +5,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
         RequestArgs,
     },
-    projects::CreateProjectPayload,
+    projects::{CreateProjectPayload, UpdateProjectPayload},
 };
 
 use super::client;
@@ -49,6 +49,19 @@ pub async fn create_project(
     };
 
     client::post_request(args, Some(data)).await
+}
+
+pub async fn update_project(
+    token: String,
+    name: String,
+    data: UpdateProjectPayload,
+) -> Result<PostPatchRequestApiResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Projects(Some(name)),
+        token,
+    };
+
+    client::patch_request(args, Some(data)).await
 }
 
 pub async fn delete_project(token: String, name: String) -> Result<DeleteRequestApiResponse> {
