@@ -29,9 +29,8 @@ pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
     let mut spinner = request_spinner();
     let project_res = projects::delete_project(token, name).await;
 
-    spinner.stop_and_persist("", "");
-
     if let Err(err) = project_res {
+        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
         bail!(err);
     }
@@ -40,11 +39,13 @@ pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
 
     match project_res {
         DeleteRequestApiResponse::Ok => {
-            println!("Project has been deleted");
+            // println!("Project has been deleted");
+            spinner.stop_with_message("🗑️ Project has been deleted!");
         }
         DeleteRequestApiResponse::Err(e) => {
-            error!("{:#?}", &e);
-            eprint!("{}", e);
+            // error!("{:#?}", &e);
+            // eprint!("{}", e);
+            spinner.stop_with_message(&format!("{}", e));
         }
     }
 
