@@ -9,7 +9,7 @@ use crate::{
     config::config,
     handlers::projects::{
         create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
-        list::handle_list_projects, open::handle_open_project,
+        list::handle_list_projects, open::handle_open_project, update::handle_update_project,
     },
     models::config::UpdateConfig,
 };
@@ -62,6 +62,14 @@ pub async fn handle_cli(args: Cli) {
                 }
                 ProjectSubcommand::Open(args) => {
                     handle_open_project(token, args.name)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("{:?}", err);
+                        });
+                }
+
+                ProjectSubcommand::Update(args) => {
+                    handle_update_project(token, args.name, args.new_name, args.description)
                         .await
                         .unwrap_or_else(|err| {
                             eprintln!("{:?}", err);
