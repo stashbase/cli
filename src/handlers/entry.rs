@@ -9,6 +9,7 @@ use crate::{
     config::config,
     handlers::projects::{
         create::handle_create_project, delete::handle_delete_project, list::handle_list_projects,
+        open::handle_open_project,
     },
     models::config::UpdateConfig,
 };
@@ -42,6 +43,13 @@ pub async fn handle_cli(args: Cli) {
 
                 ProjectSubcommand::Delete(args) => {
                     handle_delete_project(token, args.name)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("Error sending request: {:?}", err);
+                        });
+                }
+                ProjectSubcommand::Open(args) => {
+                    handle_open_project(token, args.name)
                         .await
                         .unwrap_or_else(|err| {
                             eprintln!("Error sending request: {:?}", err);
