@@ -4,8 +4,8 @@ use anyhow::{bail, Context, Result};
 use reqwest::{header::HeaderMap, Client, ClientBuilder};
 
 use crate::models::api_client::{
-    ApiErrorResponse, CustomError, GetApiResponseOk, GetRequestApiResponse, GetRequestArgs,
-    PostApiResponseOk, PostRequestApiResponse,
+    ApiErrorResponse, CustomError, DeleteRequestApiResponse, GetApiResponseOk,
+    GetRequestApiResponse, PostApiResponseOk, PostRequestApiResponse, RequestArgs,
 };
 
 pub fn build_client() -> Client {
@@ -33,7 +33,7 @@ pub fn build_client() -> Client {
 // }
 //
 
-pub async fn get_request(args: GetRequestArgs) -> Result<GetRequestApiResponse> {
+pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 
@@ -77,10 +77,50 @@ pub async fn get_request(args: GetRequestArgs) -> Result<GetRequestApiResponse> 
     }
 }
 
-pub async fn post_request<T>(
-    args: GetRequestArgs,
-    data: Option<T>,
-) -> Result<PostRequestApiResponse>
+pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse> {
+    let base_path =
+        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
+
+    let client = build_client();
+    let full_path = format!("{}/{}", base_path, args.path);
+
+    let mut headers = HeaderMap::new();
+    headers.insert("token", args.token.parse().unwrap());
+
+    let res = client
+        .request(reqwest::Method::DELETE, full_path)
+        .headers(headers)
+        .send()
+        .await;
+
+    if let Err(_) = &res {
+        bail!("Could not connect to API")
+    }
+
+    let res = res.unwrap();
+    let status = res.status();
+
+    if status.is_success() {
+        Ok(DeleteRequestApiResponse::Ok)
+    } else {
+        if status == 401 {
+            bail!("Unauthorized")
+        } else if status == 404 {
+            bail!("Something went wrong")
+        } else {
+            let error_response: ApiErrorResponse = res
+                .json()
+                .await
+                .with_context(|| "Failed to deserialize API error response")?;
+
+            // Convert the API error into your custom error type
+            let custom_error: CustomError = error_response.error.into();
+            Ok(DeleteRequestApiResponse::Err(custom_error))
+        }
+    }
+}
+
+pub async fn post_request<T>(args: RequestArgs, data: Option<T>) -> Result<PostRequestApiResponse>
 where
     T: serde::Serialize,
 {
