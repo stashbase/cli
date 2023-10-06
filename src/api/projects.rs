@@ -1,30 +1,29 @@
-use reqwest::{Error, Response};
+use anyhow::Result;
 
 use crate::models::{
-    api_client::{ApiPath, GetRequestApiResponse, GetRequestArgs},
+    api_client::{ApiPath, GetRequestApiResponse, GetRequestArgs, PostRequestApiResponse},
     projects::CreateProjectPayload,
 };
 
 use super::client;
 
-pub async fn list_projects(token: String) -> anyhow::Result<GetRequestApiResponse> {
+pub async fn list_projects(token: String) -> Result<GetRequestApiResponse> {
     let args = GetRequestArgs {
         path: ApiPath::Projects(None),
         token,
     };
 
-    let response = client::get_request(args).await;
-
-    return response;
+    client::get_request(args).await
 }
 
-pub async fn create_project(token: String, data: CreateProjectPayload) -> Result<Response, Error> {
+pub async fn create_project(
+    token: String,
+    data: CreateProjectPayload,
+) -> Result<PostRequestApiResponse> {
     let args = GetRequestArgs {
         path: ApiPath::Projects(None),
         token,
     };
 
-    let request = client::post_request(args, Some(data));
-
-    return request.send().await;
+    client::post_request(args, Some(data)).await
 }
