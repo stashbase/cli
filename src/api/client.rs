@@ -1,11 +1,11 @@
 use std::env;
 
 use anyhow::{bail, Context, Result};
-use reqwest::{header::HeaderMap, Client, ClientBuilder};
+use reqwest::{header::HeaderMap, Client, ClientBuilder, Method};
 
 use crate::models::api_client::{
     ApiErrorResponse, CustomError, DeleteRequestApiResponse, GetApiResponseOk,
-    GetRequestApiResponse, PostApiResponseOk, PostRequestApiResponse, RequestArgs,
+    GetRequestApiResponse, PostPatchApiResponseOk, PostPatchRequestApiResponse, RequestArgs,
 };
 
 pub fn build_client() -> Client {
@@ -120,7 +120,31 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
     }
 }
 
-pub async fn post_request<T>(args: RequestArgs, data: Option<T>) -> Result<PostRequestApiResponse>
+pub async fn post_request<T>(
+    args: RequestArgs,
+    data: Option<T>,
+) -> Result<PostPatchRequestApiResponse>
+where
+    T: serde::Serialize,
+{
+    post_or_pach(args, Some(data), reqwest::Method::POST).await
+}
+
+pub async fn patch_request<T>(
+    args: RequestArgs,
+    data: Option<T>,
+) -> Result<PostPatchRequestApiResponse>
+where
+    T: serde::Serialize,
+{
+    post_or_pach(args, Some(data), reqwest::Method::PATCH).await
+}
+
+pub async fn post_or_pach<T>(
+    args: RequestArgs,
+    data: Option<T>,
+    method: Method,
+) -> Result<PostPatchRequestApiResponse>
 where
     T: serde::Serialize,
 {
@@ -138,7 +162,7 @@ where
             headers.insert("Content-Type", "application/json".parse().unwrap());
 
             client
-                .request(reqwest::Method::POST, full_path)
+                .request(method, full_path)
                 .headers(headers)
                 .json(&data)
                 .send()
@@ -146,7 +170,7 @@ where
         }
         None => {
             client
-                .request(reqwest::Method::POST, full_path)
+                .request(method, full_path)
                 .headers(headers)
                 .send()
                 .await
@@ -163,14 +187,15 @@ where
     if status.is_success() {
         if let Some(_) = res.content_length() {
             let text = res.text().await.context("Could not parse response")?;
-            let response = PostRequestApiResponse::Ok(PostApiResponseOk {
+            let response = PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk {
                 status,
                 text: Some(text),
             });
 
             Ok(response)
         } else {
-            let response = PostRequestApiResponse::Ok(PostApiResponseOk { status, text: None });
+            let response =
+                PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk { status, text: None });
 
             Ok(response)
         }
@@ -185,7 +210,7 @@ where
 
             // Convert the API error into your custom error type
             let custom_error: CustomError = error_response.error.into();
-            Ok(PostRequestApiResponse::Err(custom_error))
+            Ok(PostPatchRequestApiResponse::Err(custom_error))
         }
     }
 }

@@ -41,13 +41,13 @@ pub enum GetRequestApiResponse {
 
 // NOTE: POST
 #[derive(Debug)]
-pub enum PostRequestApiResponse {
-    Ok(PostApiResponseOk),
+pub enum PostPatchRequestApiResponse {
+    Ok(PostPatchApiResponseOk),
     Err(CustomError),
 }
 
 #[derive(Debug)]
-pub struct PostApiResponseOk {
+pub struct PostPatchApiResponseOk {
     pub status: StatusCode,
     pub text: Option<String>,
 }
