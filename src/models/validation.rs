@@ -23,6 +23,12 @@ pub enum InputValidationError {
 pub enum ProjectInputValidationError {
     NameTooShort,
     NameFormat,
+
+    // update
+    NoUpdateFlags,
+    NewNameFormat,
+    NewNameTooShort,
+    SameNewName,
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -38,6 +44,22 @@ impl fmt::Display for ProjectInputValidationError {
             ProjectInputValidationError::NameFormat => {
                 msg = "argument name is invalid";
                 hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+            }
+            ProjectInputValidationError::NoUpdateFlags => {
+                msg = "no update flag specified";
+                hint = Some("use one of: -n (--name), -d (--description)");
+            }
+            ProjectInputValidationError::NewNameFormat => {
+                msg = "name option value is invalid";
+                hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+            }
+            ProjectInputValidationError::NewNameTooShort => {
+                msg = "name option value is too short";
+                hint = Some("minimum is 2 characters");
+            }
+            ProjectInputValidationError::SameNewName => {
+                msg = "name option value is equals to name";
+                hint = Some("use different name option value");
             }
         }
 
