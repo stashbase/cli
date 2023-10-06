@@ -24,7 +24,10 @@ pub struct CreateProjectPayload {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateProjectPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
 
