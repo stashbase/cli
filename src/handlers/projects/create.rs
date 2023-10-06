@@ -2,7 +2,9 @@ use anyhow::{bail, Result};
 use log::{debug, error};
 
 use crate::{
-    api::projects, models::projects::CreateProjectPayload, utils::spinner::request_spinner,
+    api::projects,
+    models::{api_client::PostRequestApiResponse, projects::CreateProjectPayload},
+    utils::spinner::request_spinner,
 };
 
 pub async fn handle_create_project(
@@ -19,20 +21,21 @@ pub async fn handle_create_project(
     let project_res = projects::create_project(token, data).await;
     spinner.stop_and_persist("", "");
 
-    if let Err(err) = &project_res {
+    if let Err(err) = project_res {
         error!("{:#?}", &err);
-        bail!("Could not connect to API")
+        bail!(err);
     }
 
     let project_res = project_res.unwrap();
-    let status = project_res.status();
 
-    if status == 401 {
-        bail!("Unauthorized")
-    } else if !status.is_success() {
-        bail!("Something went wrong")
-    } else if status.is_success() {
-        println!("Project created");
+    match project_res {
+        PostRequestApiResponse::Ok(_) => {
+            println!("Project created");
+        }
+        PostRequestApiResponse::Err(e) => {
+            error!("{:#?}", &e);
+            eprint!("{}", e);
+        }
     }
 
     Ok(())
