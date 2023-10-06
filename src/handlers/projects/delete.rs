@@ -5,17 +5,17 @@ use owo_colors::OwoColorize;
 use crate::{
     api::projects,
     models::api_client::DeleteRequestApiResponse,
-    utils::{interaction, spinner::request_spinner},
+    utils::{interaction, spinner::request_spinner, validation::validate_project_name},
 };
 
 pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
-    println!("{}", "All environments and secrets will be deleted".red());
+    let name_is_valid = validate_project_name(&name);
 
-    // let confirmation = interaction::confirm_opt("Do you want to delete this project?");
-    //
-    // if confirmation.is_none() || (!confirmation.unwrap()) {
-    //     return Ok(());
-    // }
+    if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
+    println!("{}", "All environments and secrets will be deleted".red());
 
     let i = interaction::input(&format!("Type '{}' to confirm", name));
 
@@ -28,9 +28,10 @@ pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
 
     let mut spinner = request_spinner();
     let project_res = projects::delete_project(token, name).await;
+    spinner.stop_and_persist("", "");
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
+        eprintln!();
         error!("{:#?}", &err);
         bail!(err);
     }
@@ -40,12 +41,12 @@ pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
     match project_res {
         DeleteRequestApiResponse::Ok => {
             // println!("Project has been deleted");
-            spinner.stop_with_message("🗑️ Project has been deleted!");
+            println!("🗑️ Project has been deleted!");
         }
         DeleteRequestApiResponse::Err(e) => {
             // error!("{:#?}", &e);
             // eprint!("{}", e);
-            spinner.stop_with_message(&format!("{}", e));
+            eprintln!("{}", e);
         }
     }
 

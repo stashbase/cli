@@ -4,7 +4,7 @@ use log::{debug, error};
 use crate::{
     api::projects,
     models::{api_client::PostRequestApiResponse, projects::CreateProjectPayload},
-    utils::spinner::request_spinner,
+    utils::{spinner::request_spinner, validation::validate_project_name},
 };
 
 pub async fn handle_create_project(
@@ -12,6 +12,12 @@ pub async fn handle_create_project(
     name: String,
     description: Option<String>,
 ) -> Result<()> {
+    let name_is_valid = validate_project_name(&name);
+
+    if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
     debug!("creating project...:");
 
     let data = CreateProjectPayload { name, description };
@@ -23,7 +29,7 @@ pub async fn handle_create_project(
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+        bail!(format!("Error sending request: {}", err));
     }
 
     let project_res = project_res.unwrap();
