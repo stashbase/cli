@@ -101,12 +101,12 @@ impl From<ApiError> for CustomError {
                 },
 
                 ProjectError::ProjectNotFound => CustomError {
-                    message: format!("Project not found"),
+                    message: format!("project not found"),
                     hint: None,
                 },
                 ProjectError::ProjectAlreadyExists => CustomError {
-                    message: format!("Project already exists"),
-                    hint: Some(format!("Use a different name")),
+                    message: format!("project already exists"),
+                    hint: Some(format!("use a different name")),
                 },
             },
         }
