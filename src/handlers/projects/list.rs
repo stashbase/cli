@@ -30,7 +30,7 @@ pub async fn handle_list_projects(token: String) -> anyhow::Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             error!("{:#?}", &e);
-            eprintln!("{}", e);
+            eprint!("{}", e);
         }
     }
 
