@@ -8,7 +8,7 @@ use crate::{
     utils::spinner::request_spinner,
 };
 
-pub async fn handle_list_projects(token: String) -> anyhow::Result<()> {
+pub async fn handle_list_projects(token: String, raw: bool) -> anyhow::Result<()> {
     debug!("listing projects...:");
 
     let mut spinner = request_spinner();
@@ -30,10 +30,21 @@ pub async fn handle_list_projects(token: String) -> anyhow::Result<()> {
             match projects {
                 Ok(projects) => {
                     debug!("{:#?}", &projects);
-                    let value = serde_json::to_value(&projects).unwrap();
-                    let pretty = to_colored_json_auto(&value).unwrap();
 
-                    println!("{}", pretty);
+                    if raw {
+                        let value = serde_json::to_value(&projects).unwrap();
+                        let pretty = to_colored_json_auto(&value).unwrap();
+
+                        println!("{}", pretty);
+                    } else {
+                        for (i, p) in projects.iter().enumerate() {
+                            if i == projects.len() - 1 {
+                                print!("{}", p);
+                            } else {
+                                println!("{}", p);
+                            }
+                        }
+                    }
                 }
                 Err(_) => {
                     bail!("Something went wrong")
