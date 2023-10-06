@@ -3,13 +3,17 @@ use log::debug;
 use crate::{
     cmd::{
         configs::{ConfigSubcommand, SetConfigSubcommand},
+        environments::EnvironmentSubcommand,
         projects::ProjectSubcommand,
         root::{Cli, EntityType},
     },
     config::config,
-    handlers::projects::{
-        create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
-        list::handle_list_projects, open::handle_open_project, update::handle_update_project,
+    handlers::{
+        environments::list::handle_list_environments,
+        projects::{
+            create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
+            list::handle_list_projects, open::handle_open_project, update::handle_update_project,
+        },
     },
     models::config::UpdateConfig,
 };
@@ -70,6 +74,16 @@ pub async fn handle_cli(args: Cli) {
 
                 ProjectSubcommand::Update(args) => {
                     handle_update_project(token, args.name, args.new_name, args.description)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("{:?}", err);
+                        });
+                }
+            },
+
+            EntityType::Environment(cmd) => match cmd.subcommand {
+                EnvironmentSubcommand::List(args) => {
+                    handle_list_environments(token, raw_output, args.project)
                         .await
                         .unwrap_or_else(|err| {
                             eprintln!("{:?}", err);
