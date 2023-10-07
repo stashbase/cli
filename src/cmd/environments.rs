@@ -4,7 +4,7 @@ use clap::{Args, Subcommand};
 
 pub struct EnvironmentCommands {
     /// Project name
-    #[arg(value_enum, short = 'p', required = true)]
+    #[arg(value_enum, short = 'p', long = "project", required = true)]
     pub project: String,
 
     #[clap(subcommand)]
