@@ -8,6 +8,7 @@ use serde::Deserialize;
 pub struct RequestArgs {
     pub token: String,
     pub path: ApiPath,
+    pub query: Option<Vec<(String, String)>>,
 }
 
 #[derive(Debug)]
@@ -92,6 +93,7 @@ pub enum ApiErrorEntity {
 pub enum EnvironmentError {
     ProjectNotFound,
     EnvironmentNotFound,
+    EnvironmentAlreadyExists,
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,6 +136,10 @@ impl From<ApiError> for CustomError {
                 EnvironmentError::EnvironmentNotFound => CustomError {
                     message: format!("environment not found"),
                     hint: None,
+                },
+                EnvironmentError::EnvironmentAlreadyExists => CustomError {
+                    message: format!("environment already exists"),
+                    hint: Some(format!("use a different name")),
                 },
             },
         }
