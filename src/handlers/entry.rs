@@ -12,6 +12,7 @@ use crate::{
         environments::{
             create::handle_create_environment, get::handle_get_environment,
             list::handle_list_environments, open::handle_open_environment,
+            set_lock::handle_set_env_lock,
         },
         projects::{
             create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
@@ -121,6 +122,20 @@ pub async fn handle_cli(args: Cli) {
                     .unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
+                }
+                EnvironmentSubcommand::Lock(args) => {
+                    handle_set_env_lock(token, cmd.project, args.name, true)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("{:?}", err);
+                        });
+                }
+                EnvironmentSubcommand::Unlock(args) => {
+                    handle_set_env_lock(token, cmd.project, args.name, false)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("{:?}", err);
+                        });
                 }
             },
             EntityType::Config(cmd) => match cmd.subcommand {
