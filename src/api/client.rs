@@ -133,14 +133,11 @@ where
     post_or_pach(args, Some(data), reqwest::Method::POST).await
 }
 
-pub async fn patch_request<T>(
+pub async fn patch_request<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<T>,
-) -> Result<PostPatchRequestApiResponse>
-where
-    T: serde::Serialize,
-{
-    post_or_pach(args, Some(data), reqwest::Method::PATCH).await
+) -> Result<PostPatchRequestApiResponse> {
+    post_or_pach(args, data, reqwest::Method::PATCH).await
 }
 
 async fn post_or_pach<T>(
