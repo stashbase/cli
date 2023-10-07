@@ -25,6 +25,13 @@ pub enum EnvironmentSubcommand {
     #[clap(aliases = &["c", "new"])]
     Create(CreateEnvironment),
 
+    /// Lock project
+    Lock(GetEnvironment),
+
+    /// Lock project
+    #[clap(aliases = &["u"])]
+    Unlock(GetEnvironment),
+
     /// Open environment in browser
     #[clap(alias = "o")]
     Open(GetEnvironment),
