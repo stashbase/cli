@@ -77,3 +77,26 @@ pub async fn create(
 
     client::post_request(args, Some(data)).await
 }
+
+pub async fn set_lock(
+    token: String,
+    project: String,
+    environment: String,
+    locked: bool,
+) -> Result<PostPatchRequestApiResponse> {
+    let subpath = match locked {
+        true => format!("{}/lock", environment),
+        false => format!("{}/unlock", environment),
+    };
+
+    let args = RequestArgs {
+        path: ApiPath::Environments {
+            project,
+            path: Some(subpath),
+        },
+        query: None,
+        token,
+    };
+
+    client::patch_request::<()>(args, None).await
+}
