@@ -6,6 +6,7 @@ use crate::{
         environments::EnvironmentSubcommand,
         projects::ProjectSubcommand,
         root::{Cli, EntityType},
+        secrets::SecretSubcommand,
     },
     config::config,
     handlers::{
@@ -19,6 +20,7 @@ use crate::{
             create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
             list::handle_list_projects, open::handle_open_project, update::handle_update_project,
         },
+        secrets::list::{handle_list_secrets, HandleListSecretsArgs},
     },
     models::config::UpdateConfig,
 };
@@ -174,6 +176,21 @@ pub async fn handle_cli(args: Cli) {
                         .unwrap();
                     }
                 },
+            },
+            EntityType::Secret(cmd) => match cmd.subcommand {
+                SecretSubcommand::List(args) => {
+                    let args = HandleListSecretsArgs {
+                        token,
+                        project: cmd.project,
+                        environment: cmd.environment,
+                        raw: raw_output,
+                        format: args.format,
+                    };
+
+                    handle_list_secrets(args).await.unwrap_or_else(|err| {
+                        eprintln!("{:?}", err);
+                    });
+                }
             },
         }
     } else {
