@@ -1,6 +1,7 @@
 use std::env;
 
 use anyhow::{bail, Context, Result};
+use log::debug;
 use reqwest::{header::HeaderMap, Client, ClientBuilder, Method};
 
 use crate::models::api_client::{
@@ -46,6 +47,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
     let res = client
         .request(reqwest::Method::GET, full_path)
         .headers(headers)
+        .query(&args.query)
         .send()
         .await;
 
@@ -90,6 +92,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
     let res = client
         .request(reqwest::Method::DELETE, full_path)
         .headers(headers)
+        .query(&args.query)
         .send()
         .await;
 
@@ -140,7 +143,7 @@ where
     post_or_pach(args, Some(data), reqwest::Method::PATCH).await
 }
 
-pub async fn post_or_pach<T>(
+async fn post_or_pach<T>(
     args: RequestArgs,
     data: Option<T>,
     method: Method,
@@ -157,6 +160,8 @@ where
     let mut headers = HeaderMap::new();
     headers.insert("token", args.token.parse().unwrap());
 
+    debug!("Query: {:#?}", args.query);
+
     let res = match data {
         Some(data) => {
             headers.insert("Content-Type", "application/json".parse().unwrap());
@@ -164,6 +169,7 @@ where
             client
                 .request(method, full_path)
                 .headers(headers)
+                .query(&args.query)
                 .json(&data)
                 .send()
                 .await
@@ -172,6 +178,7 @@ where
             client
                 .request(method, full_path)
                 .headers(headers)
+                .query(&args.query)
                 .send()
                 .await
         }
@@ -185,14 +192,21 @@ where
     let status = res.status();
 
     if status.is_success() {
-        if let Some(_) = res.content_length() {
-            let text = res.text().await.context("Could not parse response")?;
-            let response = PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk {
-                status,
-                text: Some(text),
-            });
+        if let Some(content_length) = res.content_length() {
+            if (content_length as usize) == 0 {
+                let response =
+                    PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk { status, text: None });
 
-            Ok(response)
+                Ok(response)
+            } else {
+                let text = res.text().await.context("Could not parse response")?;
+                let response = PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk {
+                    status,
+                    text: Some(text),
+                });
+
+                Ok(response)
+            }
         } else {
             let response =
                 PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk { status, text: None });
