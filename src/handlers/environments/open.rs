@@ -7,8 +7,8 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
-struct GetEnvUrlResponse {
-    url: String,
+pub struct GetEnvUrlResponse {
+    pub url: String,
 }
 
 pub async fn handle_open_environment(
