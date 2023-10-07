@@ -28,7 +28,7 @@ pub enum EnvironmentSubcommand {
     /// Lock project
     Lock(GetEnvironment),
 
-    /// Lock project
+    /// Unlock project
     #[clap(aliases = &["u"])]
     Unlock(GetEnvironment),
 
