@@ -3,23 +3,34 @@ use std::fmt::Display;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::human_datetime::get_human_datetime;
+use crate::{cmd::environments::EnvironmentType, utils::human_datetime::get_human_datetime};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum EnvironmentType {
+pub enum EnvType {
     DEVELOPMENT,
     TESTING,
     STAGING,
     PRODUCTION,
 }
 
-impl Display for EnvironmentType {
+impl Display for EnvType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EnvironmentType::DEVELOPMENT => write!(f, "Development"),
-            EnvironmentType::TESTING => write!(f, "Testing"),
-            EnvironmentType::STAGING => write!(f, "Staging"),
-            EnvironmentType::PRODUCTION => write!(f, "Production"),
+            EnvType::DEVELOPMENT => write!(f, "Development"),
+            EnvType::TESTING => write!(f, "Testing"),
+            EnvType::STAGING => write!(f, "Staging"),
+            EnvType::PRODUCTION => write!(f, "Production"),
+        }
+    }
+}
+
+impl From<EnvironmentType> for EnvType {
+    fn from(e: EnvironmentType) -> Self {
+        match e {
+            EnvironmentType::Development => EnvType::DEVELOPMENT,
+            EnvironmentType::Testing => EnvType::TESTING,
+            EnvironmentType::Staging => EnvType::STAGING,
+            EnvironmentType::Production => EnvType::PRODUCTION,
         }
     }
 }
@@ -37,7 +48,7 @@ pub struct Environment {
     pub locked: bool,
 
     #[serde(rename = "type")]
-    pub env_type: EnvironmentType,
+    pub env_type: EnvType,
 }
 
 impl Display for Environment {
@@ -56,4 +67,15 @@ impl Display for Environment {
 
         Ok(())
     }
+}
+
+// requests
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreatEnvironmentPayload {
+    pub name: String,
+    pub description: Option<String>,
+
+    #[serde(rename = "type")]
+    pub env_type: EnvType,
 }
