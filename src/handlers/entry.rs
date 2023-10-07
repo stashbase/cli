@@ -9,7 +9,7 @@ use crate::{
     },
     config::config,
     handlers::{
-        environments::list::handle_list_environments,
+        environments::{get::handle_get_environment, list::handle_list_environments},
         projects::{
             create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
             list::handle_list_projects, open::handle_open_project, update::handle_update_project,
@@ -84,6 +84,14 @@ pub async fn handle_cli(args: Cli) {
             EntityType::Environment(cmd) => match cmd.subcommand {
                 EnvironmentSubcommand::List(args) => {
                     handle_list_environments(token, raw_output, args.project)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("{:?}", err);
+                        });
+                }
+
+                EnvironmentSubcommand::Get(args) => {
+                    handle_get_environment(token, raw_output, args.project, args.name)
                         .await
                         .unwrap_or_else(|err| {
                             eprintln!("{:?}", err);

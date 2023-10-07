@@ -14,3 +14,19 @@ pub async fn list(token: String, project: String) -> Result<GetRequestApiRespons
 
     client::get_request(args).await
 }
+
+pub async fn get(
+    token: String,
+    project: String,
+    environment: String,
+) -> Result<GetRequestApiResponse> {
+    let args = RequestArgs {
+        token,
+        path: ApiPath::Environments {
+            project,
+            path: Some(environment),
+        },
+    };
+
+    client::get_request(args).await
+}
