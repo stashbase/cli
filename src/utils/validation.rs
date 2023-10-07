@@ -7,11 +7,11 @@ pub fn validate_project_name(value: &str, is_new_name: bool) -> Result<()> {
     if value.len() < 2 {
         if is_new_name == false {
             bail!(InputValidationError::Projects(
-                ProjectInputValidationError::NewNameTooShort
+                ProjectInputValidationError::NameTooShort
             ))
         } else {
             bail!(InputValidationError::Projects(
-                ProjectInputValidationError::NameTooShort
+                ProjectInputValidationError::NewNameTooShort
             ));
         }
     }
