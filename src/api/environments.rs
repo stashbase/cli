@@ -2,7 +2,10 @@ use anyhow::Result;
 
 use super::client;
 use crate::models::{
-    api_client::{ApiPath, GetRequestApiResponse, PostPatchRequestApiResponse, RequestArgs},
+    api_client::{
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+        RequestArgs,
+    },
     environments::CreatEnvironmentPayload,
 };
 
@@ -99,4 +102,21 @@ pub async fn set_lock(
     };
 
     client::patch_request::<()>(args, None).await
+}
+
+pub async fn delete(
+    token: String,
+    project: String,
+    name: String,
+) -> Result<DeleteRequestApiResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Environments {
+            project,
+            path: Some(name),
+        },
+        query: None,
+        token,
+    };
+
+    client::delete_request(args).await
 }

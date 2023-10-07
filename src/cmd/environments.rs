@@ -32,6 +32,10 @@ pub enum EnvironmentSubcommand {
     #[clap(aliases = &["u"])]
     Unlock(GetEnvironment),
 
+    /// Delete a project
+    #[clap(aliases = &["d", "del"])]
+    Delete(GetEnvironment),
+
     /// Open environment in browser
     #[clap(alias = "o")]
     Open(GetEnvironment),
