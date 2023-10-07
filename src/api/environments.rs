@@ -6,7 +6,9 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
         RequestArgs,
     },
-    environments::{CreatEnvironmentPayload, UpdateEnvironmentTypePayload},
+    environments::{
+        CreatEnvironmentPayload, UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
+    },
 };
 
 pub async fn list(token: String, project: String) -> Result<GetRequestApiResponse> {
@@ -79,6 +81,24 @@ pub async fn create(
     };
 
     client::post_request(args, Some(data)).await
+}
+
+pub async fn update(
+    token: String,
+    project: String,
+    environment: String,
+    data: UpdateEnvironmentPayload,
+) -> Result<PostPatchRequestApiResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Environments {
+            project,
+            path: Some(environment),
+        },
+        query: None,
+        token,
+    };
+
+    client::patch_request(args, Some(data)).await
 }
 
 pub async fn update_type(
