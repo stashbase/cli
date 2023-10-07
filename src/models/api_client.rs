@@ -18,6 +18,11 @@ pub enum ApiPath {
         project: String,
         path: Option<String>,
     },
+    Secrets {
+        project: String,
+        environment: String,
+        path: Option<String>,
+    },
 }
 
 impl fmt::Display for ApiPath {
@@ -30,6 +35,22 @@ impl fmt::Display for ApiPath {
             ApiPath::Environments { project, path } => match path {
                 Some(value) => write!(f, "projects/{}/environments/{}", project, value),
                 None => write!(f, "projects/{}/environments", project),
+            },
+            ApiPath::Secrets {
+                project,
+                environment,
+                path,
+            } => match path {
+                Some(p) => write!(
+                    f,
+                    "projects/{}/environments/{}/secrets/{}",
+                    project, environment, p
+                ),
+                None => write!(
+                    f,
+                    "projects/{}/environments/{}/secrets",
+                    project, environment,
+                ),
             },
         }
     }
