@@ -16,6 +16,10 @@ pub enum EnvironmentSubcommand {
     /// Get environment
     #[clap(alias = "g")]
     Get(GetEnvironment),
+
+    /// Open environment in browser
+    #[clap(alias = "o")]
+    Open(GetEnvironment),
 }
 
 #[derive(Debug, Args)]

@@ -30,3 +30,21 @@ pub async fn get(
 
     client::get_request(args).await
 }
+
+pub async fn get_url(
+    token: String,
+    project: String,
+    environment: String,
+) -> Result<GetRequestApiResponse> {
+    let subpath = format!("{}/link", environment);
+
+    let args = RequestArgs {
+        path: ApiPath::Environments {
+            project,
+            path: Some(subpath),
+        },
+        token,
+    };
+
+    client::get_request(args).await
+}
