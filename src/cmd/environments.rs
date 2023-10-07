@@ -3,6 +3,10 @@ use clap::{Args, Subcommand};
 #[derive(Debug, Args)]
 
 pub struct EnvironmentCommands {
+    /// Project name
+    #[arg(value_enum, short = 'p', required = true)]
+    pub project: String,
+
     #[clap(subcommand)]
     pub subcommand: EnvironmentSubcommand,
 }
@@ -23,18 +27,13 @@ pub enum EnvironmentSubcommand {
 }
 
 #[derive(Debug, Args)]
-pub struct ListEnvironments {
-    /// Project name
-    #[arg(value_enum, short = 'p', required = true)]
-    pub project: String,
-}
+pub struct ListEnvironments {}
 
 #[derive(Debug, Args)]
 pub struct GetEnvironment {
     /// Environment name
     pub name: String,
-
-    /// Project name
-    #[arg(value_enum, short = 'p', required = true)]
-    pub project: String,
+    // /// Project name
+    // #[arg(value_enum, short = 'p', required = true)]
+    // pub project: String,
 }
