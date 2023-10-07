@@ -13,6 +13,7 @@ use super::client;
 pub async fn list_projects(token: String) -> Result<GetRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(None),
+        query: None,
         token,
     };
 
@@ -22,6 +23,7 @@ pub async fn list_projects(token: String) -> Result<GetRequestApiResponse> {
 pub async fn get_project(token: String, name: String) -> Result<GetRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
+        query: None,
         token,
     };
 
@@ -33,6 +35,7 @@ pub async fn get_project_url(token: String, name: String) -> Result<GetRequestAp
 
     let args = RequestArgs {
         path: ApiPath::Projects(Some(subpath)),
+        query: None,
         token,
     };
 
@@ -45,6 +48,7 @@ pub async fn create_project(
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(None),
+        query: None,
         token,
     };
 
@@ -58,6 +62,7 @@ pub async fn update_project(
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
+        query: None,
         token,
     };
 
@@ -67,6 +72,7 @@ pub async fn update_project(
 pub async fn delete_project(token: String, name: String) -> Result<DeleteRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
+        query: None,
         token,
     };
 
