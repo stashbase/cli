@@ -86,7 +86,7 @@ pub async fn handle_cli(args: Cli) {
 
             EntityType::Environment(cmd) => match cmd.subcommand {
                 EnvironmentSubcommand::List(args) => {
-                    handle_list_environments(token, raw_output, args.project)
+                    handle_list_environments(token, raw_output, cmd.project)
                         .await
                         .unwrap_or_else(|err| {
                             eprintln!("{:?}", err);
@@ -94,14 +94,14 @@ pub async fn handle_cli(args: Cli) {
                 }
 
                 EnvironmentSubcommand::Get(args) => {
-                    handle_get_environment(token, raw_output, args.project, args.name)
+                    handle_get_environment(token, raw_output, cmd.project, args.name)
                         .await
                         .unwrap_or_else(|err| {
                             eprintln!("{:?}", err);
                         });
                 }
                 EnvironmentSubcommand::Open(args) => {
-                    handle_open_environment(token, args.project, args.name)
+                    handle_open_environment(token, cmd.project, args.name)
                         .await
                         .unwrap_or_else(|err| {
                             eprintln!("{:?}", err);
