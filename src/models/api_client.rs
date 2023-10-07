@@ -94,6 +94,8 @@ pub enum EnvironmentError {
     ProjectNotFound,
     EnvironmentNotFound,
     EnvironmentAlreadyExists,
+    EnvironmentAlreadyLocked,
+    EnvironmentAlreadyUnlocked,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,6 +142,14 @@ impl From<ApiError> for CustomError {
                 EnvironmentError::EnvironmentAlreadyExists => CustomError {
                     message: format!("environment already exists"),
                     hint: Some(format!("use a different name")),
+                },
+                EnvironmentError::EnvironmentAlreadyLocked => CustomError {
+                    message: format!("environment already locked"),
+                    hint: None,
+                },
+                EnvironmentError::EnvironmentAlreadyUnlocked => CustomError {
+                    message: format!("environment already unlocked"),
+                    hint: None,
                 },
             },
         }
