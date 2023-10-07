@@ -32,6 +32,10 @@ pub enum EnvironmentSubcommand {
     #[clap(aliases = &["c", "new"])]
     Create(CreateEnvironment),
 
+    /// Update environment
+    #[clap(alias = "u")]
+    Update(UpdateEnvironment),
+
     /// Lock project
     Lock(GetEnvironment),
 
@@ -58,6 +62,20 @@ pub struct ListEnvironments {}
 pub struct GetEnvironment {
     /// Environment name
     pub name: String,
+}
+
+#[derive(Debug, Args)]
+pub struct UpdateEnvironment {
+    /// Project name
+    pub name: String,
+
+    /// New environment name
+    #[arg(value_enum, short = 'n', long = "name")]
+    pub new_name: Option<String>,
+
+    /// Environment description
+    #[arg(value_enum, short = 'd', long = "description")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Args)]
