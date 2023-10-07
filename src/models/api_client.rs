@@ -96,6 +96,7 @@ pub enum EnvironmentError {
     EnvironmentAlreadyExists,
     EnvironmentAlreadyLocked,
     EnvironmentAlreadyUnlocked,
+    CurrentEnvironmentType,
 }
 
 #[derive(Debug, Deserialize)]
@@ -150,6 +151,10 @@ impl From<ApiError> for CustomError {
                 EnvironmentError::EnvironmentAlreadyUnlocked => CustomError {
                     message: format!("environment already unlocked"),
                     hint: None,
+                },
+                EnvironmentError::CurrentEnvironmentType => CustomError {
+                    message: format!("current environment type"),
+                    hint: Some(format!("cannot update to same type")),
                 },
             },
         }
