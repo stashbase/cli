@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 use super::{
     configs::ConfigCommands, environments::EnvironmentCommands, projects::ProjectCommands,
+    secrets::SecretArgs,
 };
 
 #[derive(Debug, Parser)]
@@ -26,6 +27,10 @@ pub enum EntityType {
     /// Manage environments
     #[clap(name = "environments", aliases = &["e", "env"])]
     Environment(EnvironmentCommands),
+
+    /// Manage secrets
+    #[clap(name = "secrets", aliases = &["s", "sec"])]
+    Secret(SecretArgs),
 
     /// Your CLI configuration
     #[clap(aliases = &["c", "conf"])]
