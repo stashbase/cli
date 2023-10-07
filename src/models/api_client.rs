@@ -91,6 +91,7 @@ pub enum ApiErrorEntity {
 #[serde(rename_all = "snake_case")]
 pub enum EnvironmentError {
     ProjectNotFound,
+    EnvironmentNotFound,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,6 +131,10 @@ impl From<ApiError> for CustomError {
                     message: format!("project not found"),
                     hint: None,
                 },
+                EnvironmentError::EnvironmentNotFound => CustomError {
+                    message: format!("environment not found"),
+                    hint: None,
+                },
             },
         }
     }
@@ -143,7 +148,7 @@ impl fmt::Display for CustomError {
             writeln!(f, "- message: {}", self.message)?;
             write!(f, "- hint: {}", hint)?;
         } else {
-            writeln!(f, "- message: {}", self.message)?;
+            write!(f, "- message: {}", self.message)?;
         }
 
         Ok(())
