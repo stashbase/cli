@@ -13,6 +13,7 @@ use crate::{
             create::handle_create_environment, delete::handle_delete_environment,
             get::handle_get_environment, list::handle_list_environments,
             open::handle_open_environment, set_lock::handle_set_env_lock,
+            update_type::handle_update_env_type,
         },
         projects::{
             create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
@@ -122,6 +123,14 @@ pub async fn handle_cli(args: Cli) {
                     .unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
+                }
+
+                EnvironmentSubcommand::SetType(args) => {
+                    handle_update_env_type(token, cmd.project, args.name, args.env_type)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("{:?}", err);
+                        });
                 }
                 EnvironmentSubcommand::Lock(args) => {
                     handle_set_env_lock(token, cmd.project, args.name, true)
