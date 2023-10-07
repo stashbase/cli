@@ -10,9 +10,9 @@ use crate::{
     config::config,
     handlers::{
         environments::{
-            create::handle_create_environment, get::handle_get_environment,
-            list::handle_list_environments, open::handle_open_environment,
-            set_lock::handle_set_env_lock,
+            create::handle_create_environment, delete::handle_delete_environment,
+            get::handle_get_environment, list::handle_list_environments,
+            open::handle_open_environment, set_lock::handle_set_env_lock,
         },
         projects::{
             create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
@@ -136,6 +136,13 @@ pub async fn handle_cli(args: Cli) {
                         .unwrap_or_else(|err| {
                             eprintln!("{:?}", err);
                         });
+                }
+                EnvironmentSubcommand::Delete(args) => {
+                    handle_delete_environment(token, cmd.project, args.name)
+                        .await
+                        .unwrap_or_else(|err| {
+                            eprintln!("{:?}", err);
+                        })
                 }
             },
             EntityType::Config(cmd) => match cmd.subcommand {
