@@ -63,6 +63,33 @@ impl fmt::Display for ProjectInputValidationError {
             }
         }
 
+        // match self {
+        //     ProjectInputValidationError::NameTooShort => {
+        //         msg = "project name is too short";
+        //         hint = Some("minimum is 2 characters");
+        //     }
+        //     ProjectInputValidationError::NameFormat => {
+        //         msg = "project name is invalid";
+        //         hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+        //     }
+        //     ProjectInputValidationError::NoUpdateFlags => {
+        //         msg = "no update flag specified";
+        //         hint = Some("use one of: -n (--name), -d (--description)");
+        //     }
+        //     ProjectInputValidationError::NewNameFormat => {
+        //         msg = "new project name is invalid";
+        //         hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+        //     }
+        //     ProjectInputValidationError::NewNameTooShort => {
+        //         msg = "new project name is too short";
+        //         hint = Some("minimum is 2 characters");
+        //     }
+        //     ProjectInputValidationError::SameNewName => {
+        //         msg = "new project name is equals to name";
+        //         hint = Some("use different name option value");
+        //     }
+        // }
+        //
         //
 
         if let Some(hint) = hint {
