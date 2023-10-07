@@ -1,7 +1,14 @@
 use clap::{Args, Subcommand, ValueEnum};
 
-#[derive(Debug, Args)]
+#[derive(Debug, ValueEnum, Clone)]
+pub enum EnvironmentType {
+    Development,
+    Testing,
+    Staging,
+    Production,
+}
 
+#[derive(Debug, Args)]
 pub struct EnvironmentCommands {
     /// Project name
     #[arg(value_enum, short = 'p', long = "project", required = true)]
@@ -29,8 +36,11 @@ pub enum EnvironmentSubcommand {
     Lock(GetEnvironment),
 
     /// Unlock project
-    #[clap(aliases = &["u"])]
     Unlock(GetEnvironment),
+
+    /// Update environment type
+    #[clap(aliases = &["s"])]
+    SetType(SetType),
 
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
@@ -48,9 +58,6 @@ pub struct ListEnvironments {}
 pub struct GetEnvironment {
     /// Environment name
     pub name: String,
-    // /// Project name
-    // #[arg(value_enum, short = 'p', required = true)]
-    // pub project: String,
 }
 
 #[derive(Debug, Args)]
@@ -71,10 +78,11 @@ pub struct CreateEnvironment {
     pub open: bool,
 }
 
-#[derive(Debug, ValueEnum, Clone)]
-pub enum EnvironmentType {
-    Development,
-    Testing,
-    Staging,
-    Production,
+#[derive(Debug, Args)]
+pub struct SetType {
+    pub name: String,
+
+    // #[arg(name = "type")]
+    #[arg(value_enum, name = "type", short = 't', long = "type")]
+    pub env_type: EnvironmentType,
 }

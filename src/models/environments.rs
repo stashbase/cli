@@ -79,3 +79,9 @@ pub struct CreatEnvironmentPayload {
     #[serde(rename = "type")]
     pub env_type: EnvType,
 }
+
+#[derive(Debug, Serialize)]
+pub struct UpdateEnvironmentTypePayload {
+    #[serde(rename = "type")]
+    pub env_type: EnvType,
+}
