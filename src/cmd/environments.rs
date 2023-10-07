@@ -1,4 +1,4 @@
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
 
@@ -21,6 +21,10 @@ pub enum EnvironmentSubcommand {
     #[clap(alias = "g")]
     Get(GetEnvironment),
 
+    /// Create new environment
+    #[clap(aliases = &["c", "new"])]
+    Create(CreateEnvironment),
+
     /// Open environment in browser
     #[clap(alias = "o")]
     Open(GetEnvironment),
@@ -36,4 +40,30 @@ pub struct GetEnvironment {
     // /// Project name
     // #[arg(value_enum, short = 'p', required = true)]
     // pub project: String,
+}
+
+#[derive(Debug, Args)]
+pub struct CreateEnvironment {
+    /// Environment name
+    pub name: String,
+
+    /// Environment type
+    #[arg(value_enum, name = "type", short = 't', long = "type")]
+    pub env_type: EnvironmentType,
+
+    /// Environment description
+    #[arg(value_enum, short = 'd', long = "description")]
+    pub description: Option<String>,
+
+    /// Open environment in browser
+    #[arg(value_enum, long = "open")]
+    pub open: bool,
+}
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum EnvironmentType {
+    Development,
+    Testing,
+    Staging,
+    Production,
 }
