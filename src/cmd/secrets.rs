@@ -23,6 +23,10 @@ pub enum SecretSubcommand {
     /// Get secrets
     #[clap(alias = "g")]
     Get(GetSecrets),
+
+    /// Delete one or multiple secrets
+    #[clap(aliases = &["d", "del"])]
+    Delete(DeleteSecrets),
 }
 
 #[derive(Debug, Args)]
@@ -44,6 +48,17 @@ pub struct GetSecrets {
     /// Format secrets (default list)
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsFromat>,
+}
+
+#[derive(Debug, Args)]
+pub struct DeleteSecrets {
+    /// Secrets (keys) to delete
+    #[clap(value_parser, num_args = 1.., value_delimiter = ' ')]
+    pub keys: Vec<String>,
+
+    /// Delete all secrets
+    #[arg(value_enum, long = "all")]
+    pub all: bool,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq)]
