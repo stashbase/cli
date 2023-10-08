@@ -25,3 +25,8 @@ impl Display for Secret {
         Ok(())
     }
 }
+
+#[derive(Debug, Serialize)]
+pub struct GetSelectedSecretsPayload {
+    pub keys: Vec<String>,
+}
