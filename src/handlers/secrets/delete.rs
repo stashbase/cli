@@ -18,6 +18,7 @@ pub struct HandleDeleteSecretsArgs {
     pub keys: Vec<String>,
 }
 
+// ✓
 pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> {
     let HandleDeleteSecretsArgs {
         token,
