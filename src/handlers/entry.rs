@@ -21,6 +21,7 @@ use crate::{
             list::handle_list_projects, open::handle_open_project, update::handle_update_project,
         },
         secrets::{
+            delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
             get::{handle_get_secrets, HandleGetSecretsArgs},
             list::{handle_list_secrets, HandleListSecretsArgs},
         },
@@ -212,6 +213,18 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     handle_get_secrets(args).await.unwrap_or_else(|err| {
+                        eprintln!("{:?}", err);
+                    });
+                }
+                SecretSubcommand::Delete(args) => {
+                    let args = HandleDeleteSecretsArgs {
+                        token,
+                        project: cmd.project,
+                        environment: cmd.environment,
+                        keys: args.keys,
+                    };
+
+                    handle_delete_secrets(args).await.unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
                 }
