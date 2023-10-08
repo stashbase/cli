@@ -6,7 +6,7 @@ use crate::{
         environments::EnvironmentSubcommand,
         projects::ProjectSubcommand,
         root::{Cli, EntityType},
-        secrets::SecretSubcommand,
+        secrets::{SecretSubcommand, SecretsFromat},
     },
     config::config,
     handlers::{
@@ -20,7 +20,10 @@ use crate::{
             create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
             list::handle_list_projects, open::handle_open_project, update::handle_update_project,
         },
-        secrets::list::{handle_list_secrets, HandleListSecretsArgs},
+        secrets::{
+            get::{handle_get_secrets, HandleGetSecretsArgs},
+            list::{handle_list_secrets, HandleListSecretsArgs},
+        },
     },
     models::config::UpdateConfig,
 };
@@ -183,11 +186,31 @@ pub async fn handle_cli(args: Cli) {
                         token,
                         project: cmd.project,
                         environment: cmd.environment,
-                        raw: raw_output,
-                        format: args.format,
+                        format: args.format.unwrap_or(if raw_output {
+                            SecretsFromat::Json
+                        } else {
+                            SecretsFromat::List
+                        }),
                     };
 
                     handle_list_secrets(args).await.unwrap_or_else(|err| {
+                        eprintln!("{:?}", err);
+                    });
+                }
+                SecretSubcommand::Get(args) => {
+                    let args = HandleGetSecretsArgs {
+                        token,
+                        project: cmd.project,
+                        environment: cmd.environment,
+                        keys: args.keys,
+                        format: args.format.unwrap_or(if raw_output {
+                            SecretsFromat::Json
+                        } else {
+                            SecretsFromat::List
+                        }),
+                    };
+
+                    handle_get_secrets(args).await.unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
                 }
