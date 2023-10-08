@@ -40,3 +40,10 @@ pub struct DeleteSecretsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub not_found: Vec<String>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteAllSecretsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_empty: Option<bool>,
+}
