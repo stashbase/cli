@@ -24,6 +24,10 @@ pub enum SecretSubcommand {
     #[clap(alias = "g")]
     Get(GetSecrets),
 
+    /// Get secrets
+    #[clap(alias = "s")]
+    Set(SetSecrets),
+
     /// Delete one or multiple secrets
     #[clap(aliases = &["d", "del"])]
     Delete(DeleteSecrets),
@@ -59,6 +63,18 @@ pub struct DeleteSecrets {
     /// Delete all secrets
     #[arg(name = "all", value_enum, long = "all")]
     pub delete_all: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SetSecrets {
+    /// Secrets to set: KEY_1=VAL_1 KEY_2=VAL_2
+    #[clap(value_parser, num_args = 1..)]
+    pub secrets: Vec<String>,
+
+    /// Descriptions to set: KEY_1=NOTE_1 KEY_2=NOTE_2
+    // #[clap(value_parser, long="description", short='d', num_args = 1.., value_delimiter = ' ')]
+    #[clap(value_parser, long="description", short='d', num_args = 1..)]
+    pub descriptions: Vec<String>,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq)]
