@@ -24,6 +24,7 @@ use crate::{
             delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
             get::{handle_get_secrets, HandleGetSecretsArgs},
             list::{handle_list_secrets, HandleListSecretsArgs},
+            set::{handle_set_secrets, HandleSetSecretsArgs},
         },
     },
     models::config::UpdateConfig,
@@ -226,6 +227,19 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     handle_delete_secrets(args).await.unwrap_or_else(|err| {
+                        eprintln!("{:?}", err);
+                    });
+                }
+                SecretSubcommand::Set(args) => {
+                    let args = HandleSetSecretsArgs {
+                        token,
+                        project: cmd.project,
+                        environment: cmd.environment,
+                        values: args.secrets,
+                        description: args.descriptions,
+                    };
+
+                    handle_set_secrets(args).await.unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
                 }
