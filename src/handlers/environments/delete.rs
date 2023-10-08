@@ -42,7 +42,7 @@ pub async fn handle_delete_environment(
     let res = res.unwrap();
 
     match res {
-        DeleteRequestApiResponse::Ok => {
+        DeleteRequestApiResponse::Ok(_) => {
             spinner.stop_with_message("🗑️ Environment has been deleted!");
         }
         DeleteRequestApiResponse::Err(e) => {
