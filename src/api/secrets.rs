@@ -10,14 +10,20 @@ pub async fn list(
     token: String,
     project: String,
     environment: String,
+    only_keys: bool,
 ) -> Result<GetRequestApiResponse> {
+    let query = match only_keys {
+        true => Some(vec![(format!("only-keys"), format!("true"))]),
+        false => None,
+    };
+
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
             environment,
             path: None,
         },
-        query: None,
+        query,
         token,
     };
 
