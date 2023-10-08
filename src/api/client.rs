@@ -9,9 +9,13 @@ use crate::models::api_client::{
     GetRequestApiResponse, PostPatchApiResponseOk, PostPatchRequestApiResponse, RequestArgs,
 };
 
-pub fn build_client() -> Client {
+pub fn build_client(token: String) -> Client {
+    let mut headers = HeaderMap::new();
+    headers.insert("token", token.parse().unwrap());
+
     let builder = ClientBuilder::new()
         .timeout(std::time::Duration::from_secs(10))
+        .default_headers(headers)
         .user_agent("env-ease-cli/0.0.1");
 
     let client = builder.build().unwrap();
@@ -38,15 +42,11 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 
-    let client = build_client();
+    let client = build_client(args.token);
     let full_path = format!("{}/{}", base_path, args.path);
-
-    let mut headers = HeaderMap::new();
-    headers.insert("token", args.token.parse().unwrap());
 
     let res = client
         .request(reqwest::Method::GET, full_path)
-        .headers(headers)
         .query(&args.query)
         .send()
         .await;
@@ -83,15 +83,11 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 
-    let client = build_client();
+    let client = build_client(args.token);
     let full_path = format!("{}/{}", base_path, args.path);
-
-    let mut headers = HeaderMap::new();
-    headers.insert("token", args.token.parse().unwrap());
 
     let res = client
         .request(reqwest::Method::DELETE, full_path)
-        .headers(headers)
         .query(&args.query)
         .send()
         .await;
@@ -151,11 +147,10 @@ where
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 
-    let client = build_client();
+    let client = build_client(args.token);
     let full_path = format!("{}/{}", base_path, args.path);
 
     let mut headers = HeaderMap::new();
-    headers.insert("token", args.token.parse().unwrap());
 
     debug!("Query: {:#?}", args.query);
 
