@@ -3,7 +3,7 @@ use anyhow::Result;
 use super::client;
 use crate::models::{
     api_client::{ApiPath, GetRequestApiResponse, PostPatchRequestApiResponse, RequestArgs},
-    secrets::GetSelectedSecretsPayload,
+    secrets::{DeleteSecretsPayload, GetSelectedSecretsPayload},
 };
 
 pub async fn list(
@@ -42,6 +42,25 @@ pub async fn get_selected(
             project,
             environment,
             path: Some(String::from("selected")),
+        },
+        query: None,
+        token,
+    };
+
+    client::post_request(args, Some(data)).await
+}
+
+pub async fn delete(
+    token: String,
+    project: String,
+    environment: String,
+    data: DeleteSecretsPayload,
+) -> Result<PostPatchRequestApiResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Secrets {
+            project,
+            environment,
+            path: Some(String::from("delete")),
         },
         query: None,
         token,
