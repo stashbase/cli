@@ -57,8 +57,8 @@ pub struct DeleteSecrets {
     pub keys: Vec<String>,
 
     /// Delete all secrets
-    #[arg(value_enum, long = "all")]
-    pub all: bool,
+    #[arg(name = "all", value_enum, long = "all")]
+    pub delete_all: bool,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq)]
