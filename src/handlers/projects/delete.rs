@@ -39,7 +39,7 @@ pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
     let project_res = project_res.unwrap();
 
     match project_res {
-        DeleteRequestApiResponse::Ok => {
+        DeleteRequestApiResponse::Ok(_) => {
             // println!("Project has been deleted");
             println!("🗑️ Project has been deleted!");
         }
