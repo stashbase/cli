@@ -30,3 +30,13 @@ impl Display for Secret {
 pub struct GetSelectedSecretsPayload {
     pub keys: Vec<String>,
 }
+
+pub type DeleteSecretsPayload = GetSelectedSecretsPayload;
+
+// response
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSecretsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_found: Vec<String>,
+}
