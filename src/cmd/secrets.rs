@@ -30,6 +30,10 @@ pub struct ListSecrets {
     /// Project description
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsFromat>,
+
+    /// Print only keys
+    #[arg(value_enum, long = "only-keys")]
+    pub only_keys: bool,
 }
 
 #[derive(Debug, Args)]
