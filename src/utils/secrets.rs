@@ -1,4 +1,5 @@
 use colored_json::to_colored_json_auto;
+use owo_colors::OwoColorize;
 
 use crate::{cmd::secrets::SecretsFromat, models::secrets::Secret};
 
@@ -43,6 +44,45 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
         }
         SecretsFromat::Json => {
             let value = serde_json::to_value(&secrets).unwrap();
+            let pretty = to_colored_json_auto(&value).unwrap();
+
+            pretty
+        }
+    }
+}
+
+pub fn format_secret_keys(keys: Vec<String>, format: &SecretsFromat) -> String {
+    match format {
+        SecretsFromat::List => {
+            let mut text_to_print = String::new();
+
+            for (i, p) in keys.iter().enumerate() {
+                // is last
+                if i == keys.len() - 1 {
+                    text_to_print.push_str(&format!("{}", p.green()))
+                } else {
+                    text_to_print.push_str(&format!("{}\n", p.green()))
+                }
+            }
+
+            text_to_print
+        }
+        SecretsFromat::Dotenv => {
+            let mut text_to_print = String::new();
+
+            for (i, p) in keys.iter().enumerate() {
+                // is last
+                if i == keys.len() - 1 {
+                    text_to_print.push_str(&format!("{}", p))
+                } else {
+                    text_to_print.push_str(&format!("{}\n", p))
+                }
+            }
+
+            text_to_print
+        }
+        SecretsFromat::Json => {
+            let value = serde_json::to_value(&keys).unwrap();
             let pretty = to_colored_json_auto(&value).unwrap();
 
             pretty
