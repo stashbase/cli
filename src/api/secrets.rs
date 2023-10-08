@@ -2,7 +2,10 @@ use anyhow::Result;
 
 use super::client;
 use crate::models::{
-    api_client::{ApiPath, GetRequestApiResponse, PostPatchRequestApiResponse, RequestArgs},
+    api_client::{
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+        RequestArgs,
+    },
     secrets::{DeleteSecretsPayload, GetSelectedSecretsPayload},
 };
 
@@ -67,4 +70,22 @@ pub async fn delete(
     };
 
     client::post_request(args, Some(data)).await
+}
+
+pub async fn delete_all(
+    token: String,
+    project: String,
+    environment: String,
+) -> Result<DeleteRequestApiResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Secrets {
+            project,
+            environment,
+            path: None,
+        },
+        query: None,
+        token,
+    };
+
+    client::delete_request(args).await
 }
