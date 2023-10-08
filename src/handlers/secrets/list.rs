@@ -6,15 +6,14 @@ use crate::{
     api::secrets,
     cmd::secrets::SecretsFromat,
     models::{api_client::GetRequestApiResponse, secrets::Secret},
-    utils::{spinner::request_spinner, validation::validate_project_name},
+    utils::{secrets::format_secrets, spinner::request_spinner, validation::validate_project_name},
 };
 
 pub struct HandleListSecretsArgs {
     pub token: String,
-    pub raw: bool,
     pub project: String,
     pub environment: String,
-    pub format: Option<SecretsFromat>,
+    pub format: SecretsFromat,
 }
 
 pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
@@ -22,7 +21,6 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         token,
         project,
         environment: enironment,
-        raw,
         format,
     } = args;
 
@@ -55,42 +53,50 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                 Ok(secrets) => {
                     debug!("{:#?}", &secrets);
 
-                    if format == Some(SecretsFromat::Dotenv) {
-                        let dotenv_string: String = secrets
-                            .iter()
-                            .enumerate()
-                            .map(|(i, s)| {
-                                if let Some(descr) = &s.description {
-                                    if i != secrets.len() - 1 {
-                                        return format!("# {}\n{}={}\n", descr, s.key, s.value);
-                                    } else {
-                                        return format!("# {}\n{}={}", descr, s.key, s.value);
-                                    }
-                                } else {
-                                    if i != secrets.len() - 1 {
-                                        return format!("{}={}\n", s.key, s.value);
-                                    } else {
-                                        return format!("{}={}", s.key, s.value);
-                                    }
-                                }
-                            })
-                            .collect::<_>();
+                    let print_string = format_secrets(secrets, &format);
 
-                        println!("{}", dotenv_string);
-                    } else if raw || format == Some(SecretsFromat::Json) {
-                        let value = serde_json::to_value(&secrets).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-
-                        println!("{}", pretty);
+                    if format == SecretsFromat::List {
+                        print!("{}", print_string);
                     } else {
-                        for (i, p) in secrets.iter().enumerate() {
-                            if i == secrets.len() - 1 {
-                                print!("{}", p);
-                            } else {
-                                println!("{}", p);
-                            }
-                        }
+                        println!("{}", print_string);
                     }
+
+                    // if format == Some(SecretsFromat::Dotenv) {
+                    //     let dotenv_string: String = secrets
+                    //         .iter()
+                    //         .enumerate()
+                    //         .map(|(i, s)| {
+                    //             if let Some(descr) = &s.description {
+                    //                 if i != secrets.len() - 1 {
+                    //                     return format!("# {}\n{}={}\n", descr, s.key, s.value);
+                    //                 } else {
+                    //                     return format!("# {}\n{}={}", descr, s.key, s.value);
+                    //                 }
+                    //             } else {
+                    //                 if i != secrets.len() - 1 {
+                    //                     return format!("{}={}\n", s.key, s.value);
+                    //                 } else {
+                    //                     return format!("{}={}", s.key, s.value);
+                    //                 }
+                    //             }
+                    //         })
+                    //         .collect::<_>();
+                    //
+                    //     println!("{}", dotenv_string);
+                    // } else if raw || format == Some(SecretsFromat::Json) {
+                    //     let value = serde_json::to_value(&secrets).unwrap();
+                    //     let pretty = to_colored_json_auto(&value).unwrap();
+                    //
+                    //     println!("{}", pretty);
+                    // } else {
+                    //     for (i, p) in secrets.iter().enumerate() {
+                    //         if i == secrets.len() - 1 {
+                    //             print!("{}", p);
+                    //         } else {
+                    //             println!("{}", p);
+                    //         }
+                    //     }
+                    // }
                 }
                 Err(_) => {
                     bail!("Something went wrong")
