@@ -165,7 +165,12 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             }
                         }
                         None => {
-                            spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
+                            // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
+                            spinner.stop_with_message(&format!(
+                                "{} {}",
+                                "✓".green(),
+                                "Selected secrets have been delete!"
+                            ));
                         }
                     }
                 }
