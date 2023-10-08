@@ -85,9 +85,11 @@ pub struct PostPatchApiResponseOk {
 // NOTE: DELETE
 #[derive(Debug)]
 pub enum DeleteRequestApiResponse {
-    Ok,
+    Ok(DeleteApiResponseOk),
     Err(CustomError),
 }
+
+pub type DeleteApiResponseOk = PostPatchApiResponseOk;
 
 // error
 
