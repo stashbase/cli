@@ -222,6 +222,7 @@ pub async fn handle_cli(args: Cli) {
                         project: cmd.project,
                         environment: cmd.environment,
                         keys: args.keys,
+                        delete_all: args.delete_all,
                     };
 
                     handle_delete_secrets(args).await.unwrap_or_else(|err| {
