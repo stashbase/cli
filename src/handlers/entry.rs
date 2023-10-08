@@ -184,6 +184,7 @@ pub async fn handle_cli(args: Cli) {
                 SecretSubcommand::List(args) => {
                     let args = HandleListSecretsArgs {
                         token,
+                        only_keys: args.only_keys,
                         project: cmd.project,
                         environment: cmd.environment,
                         format: args.format.unwrap_or(if raw_output {

@@ -1,12 +1,15 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 
 use crate::{
     api::secrets,
     cmd::secrets::SecretsFromat,
     models::{api_client::GetRequestApiResponse, secrets::Secret},
-    utils::{secrets::format_secrets, spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        secrets::{format_secret_keys, format_secrets},
+        spinner::request_spinner,
+        validation::validate_project_name,
+    },
 };
 
 pub struct HandleListSecretsArgs {
@@ -14,6 +17,7 @@ pub struct HandleListSecretsArgs {
     pub project: String,
     pub environment: String,
     pub format: SecretsFromat,
+    pub only_keys: bool,
 }
 
 pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
@@ -22,6 +26,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         project,
         environment: enironment,
         format,
+        only_keys,
     } = args;
 
     // TODO: other validations
@@ -34,7 +39,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     debug!("listing secrets...:");
 
     let mut spinner = request_spinner();
-    let res = secrets::list(token, project, enironment).await;
+    let res = secrets::list(token, project, enironment, only_keys).await;
 
     spinner.stop_and_persist("", "");
 
@@ -46,63 +51,40 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        GetRequestApiResponse::Ok(data) => {
-            let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
+        GetRequestApiResponse::Ok(data) => match only_keys {
+            true => {
+                let keys = serde_json::from_str::<Vec<String>>(&data.text);
 
-            match secrets {
-                Ok(secrets) => {
-                    debug!("{:#?}", &secrets);
+                match keys {
+                    Ok(keys) => {
+                        let print_string = format_secret_keys(keys, &format);
 
-                    let print_string = format_secrets(secrets, &format);
-
-                    if format == SecretsFromat::List {
-                        print!("{}", print_string);
-                    } else {
                         println!("{}", print_string);
                     }
-
-                    // if format == Some(SecretsFromat::Dotenv) {
-                    //     let dotenv_string: String = secrets
-                    //         .iter()
-                    //         .enumerate()
-                    //         .map(|(i, s)| {
-                    //             if let Some(descr) = &s.description {
-                    //                 if i != secrets.len() - 1 {
-                    //                     return format!("# {}\n{}={}\n", descr, s.key, s.value);
-                    //                 } else {
-                    //                     return format!("# {}\n{}={}", descr, s.key, s.value);
-                    //                 }
-                    //             } else {
-                    //                 if i != secrets.len() - 1 {
-                    //                     return format!("{}={}\n", s.key, s.value);
-                    //                 } else {
-                    //                     return format!("{}={}", s.key, s.value);
-                    //                 }
-                    //             }
-                    //         })
-                    //         .collect::<_>();
-                    //
-                    //     println!("{}", dotenv_string);
-                    // } else if raw || format == Some(SecretsFromat::Json) {
-                    //     let value = serde_json::to_value(&secrets).unwrap();
-                    //     let pretty = to_colored_json_auto(&value).unwrap();
-                    //
-                    //     println!("{}", pretty);
-                    // } else {
-                    //     for (i, p) in secrets.iter().enumerate() {
-                    //         if i == secrets.len() - 1 {
-                    //             print!("{}", p);
-                    //         } else {
-                    //             println!("{}", p);
-                    //         }
-                    //     }
-                    // }
-                }
-                Err(_) => {
-                    bail!("Something went wrong")
+                    Err(_) => todo!(),
                 }
             }
-        }
+            false => {
+                let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
+
+                match secrets {
+                    Ok(secrets) => {
+                        debug!("{:#?}", &secrets);
+
+                        let print_string = format_secrets(secrets, &format);
+
+                        if format == SecretsFromat::List {
+                            print!("{}", print_string);
+                        } else {
+                            println!("{}", print_string);
+                        }
+                    }
+                    Err(_) => {
+                        bail!("Something went wrong")
+                    }
+                }
+            }
+        },
         GetRequestApiResponse::Err(e) => {
             bail!("{}", e);
         }
