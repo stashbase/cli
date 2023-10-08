@@ -5,7 +5,7 @@ use log::debug;
 use reqwest::{header::HeaderMap, Client, ClientBuilder, Method};
 
 use crate::models::api_client::{
-    ApiErrorResponse, CustomError, DeleteRequestApiResponse, GetApiResponseOk,
+    ApiErrorResponse, CustomError, DeleteApiResponseOk, DeleteRequestApiResponse, GetApiResponseOk,
     GetRequestApiResponse, PostPatchApiResponseOk, PostPatchRequestApiResponse, RequestArgs,
 };
 
@@ -100,7 +100,27 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
     let status = res.status();
 
     if status.is_success() {
-        Ok(DeleteRequestApiResponse::Ok)
+        if let Some(content_length) = res.content_length() {
+            if (content_length as usize) == 0 {
+                let response =
+                    DeleteRequestApiResponse::Ok(DeleteApiResponseOk { status, text: None });
+
+                Ok(response)
+            } else {
+                let text = res.text().await.context("Could not parse response")?;
+                let response = DeleteRequestApiResponse::Ok(DeleteApiResponseOk {
+                    status,
+                    text: Some(text),
+                });
+
+                Ok(response)
+            }
+        } else {
+            Ok(DeleteRequestApiResponse::Ok(DeleteApiResponseOk {
+                status,
+                text: None,
+            }))
+        }
     } else {
         if status == 401 {
             bail!("Unauthorized")
