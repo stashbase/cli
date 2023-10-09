@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{cmd::environments::EnvironmentType, utils::human_datetime::get_human_datetime};
 
+use super::secrets::Secret;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EnvType {
     DEVELOPMENT,
@@ -78,6 +80,9 @@ pub struct CreatEnvironmentPayload {
 
     #[serde(rename = "type")]
     pub env_type: EnvType,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets: Option<Vec<Secret>>,
 }
 
 #[derive(Debug, Serialize)]
