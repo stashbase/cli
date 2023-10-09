@@ -28,8 +28,12 @@ pub enum SecretSubcommand {
     #[clap(alias = "s")]
     Set(SetSecrets),
 
+    /// Set description of existing secret
+    #[clap(alias = "des")]
+    Description(SetDescription),
+
     /// Delete one or multiple secrets
-    #[clap(aliases = &["d", "del"])]
+    #[clap(aliases = &[ "del"])]
     Delete(DeleteSecrets),
 }
 
@@ -75,6 +79,15 @@ pub struct SetSecrets {
     // #[clap(value_parser, long="description", short='d', num_args = 1.., value_delimiter = ' ')]
     #[clap(value_parser, long="description", short='d', num_args = 1..)]
     pub descriptions: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct SetDescription {
+    /// Secret key
+    pub key: String,
+
+    /// Description
+    pub description: String,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq)]
