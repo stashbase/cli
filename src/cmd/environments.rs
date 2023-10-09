@@ -91,6 +91,11 @@ pub struct CreateEnvironment {
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
 
+    // NOTE: for now only accepts .env
+    /// Add with secrets - path to file (dotenv format)
+    #[arg(value_enum, short = 'f', long = "file")]
+    pub file_path: Option<String>,
+
     /// Open environment in browser
     #[arg(value_enum, long = "open")]
     pub open: bool,
