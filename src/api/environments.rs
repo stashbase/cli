@@ -87,7 +87,7 @@ pub async fn update(
     token: String,
     project: String,
     environment: String,
-    data: UpdateEnvironmentPayload,
+    data: &UpdateEnvironmentPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Environments {
@@ -105,7 +105,7 @@ pub async fn update_type(
     token: String,
     project: String,
     environment: String,
-    data: UpdateEnvironmentTypePayload,
+    data: &UpdateEnvironmentTypePayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let subpath = format!("{}/type", environment);
 

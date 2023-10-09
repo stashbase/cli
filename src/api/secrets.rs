@@ -61,7 +61,7 @@ pub async fn update_description(
     project: String,
     environment: String,
     key: String,
-    data: UpdateSecretDescriptionPayload,
+    data: &UpdateSecretDescriptionPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -136,7 +136,7 @@ pub async fn rename_secrets(
     token: String,
     project: String,
     environment: String,
-    data: RenameSecretsPayload,
+    data: &RenameSecretsPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {

@@ -58,7 +58,7 @@ pub async fn handle_update_environment(
     };
 
     let mut spinner = request_spinner();
-    let project_res = environments::update(token, project, environment, data).await;
+    let project_res = environments::update(token, project, environment, &data).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");

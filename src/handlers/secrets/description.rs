@@ -31,7 +31,7 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
 
     let mut spinner = request_spinner();
 
-    let res = secrets::update_description(token, project, environment, key, payload).await;
+    let res = secrets::update_description(token, project, environment, key, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
