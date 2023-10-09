@@ -22,6 +22,7 @@ use crate::{
         },
         secrets::{
             delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
+            description::{handle_update_description, HandleDescriptionArgs},
             get::{handle_get_secrets, HandleGetSecretsArgs},
             list::{handle_list_secrets, HandleListSecretsArgs},
             set::{handle_set_secrets, HandleSetSecretsArgs},
@@ -240,6 +241,19 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     handle_set_secrets(args).await.unwrap_or_else(|err| {
+                        eprintln!("{:?}", err);
+                    });
+                }
+                SecretSubcommand::Description(args) => {
+                    let args = HandleDescriptionArgs {
+                        token,
+                        project: cmd.project,
+                        environment: cmd.environment,
+                        description: args.description,
+                        key: args.key,
+                    };
+
+                    handle_update_description(args).await.unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
                 }
