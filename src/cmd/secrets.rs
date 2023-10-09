@@ -28,6 +28,10 @@ pub enum SecretSubcommand {
     #[clap(alias = "s")]
     Set(SetSecrets),
 
+    /// Upload secrets
+    #[clap(alias = "upl")]
+    Upload(UploadSecrets),
+
     /// Set description of existing secret
     #[clap(alias = "des")]
     Description(SetDescription),
@@ -79,6 +83,13 @@ pub struct SetSecrets {
     // #[clap(value_parser, long="description", short='d', num_args = 1.., value_delimiter = ' ')]
     #[clap(value_parser, long="description", short='d', num_args = 1..)]
     pub descriptions: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct UploadSecrets {
+    // NOTE: for now only accepts .env
+    /// Path to file (dotenv format)
+    pub file_path: String,
 }
 
 #[derive(Debug, Args)]
