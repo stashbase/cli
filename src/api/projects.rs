@@ -58,7 +58,7 @@ pub async fn create_project(
 pub async fn update_project(
     token: String,
     name: String,
-    data: UpdateProjectPayload,
+    data: &UpdateProjectPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
