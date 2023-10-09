@@ -5,6 +5,7 @@ use crate::{
         description::{handle_update_description, HandleDescriptionArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
+        rename::{handle_rename_secrets, HandleRenameSecretsArgs},
         set::{handle_set_secrets, HandleSetSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
@@ -94,6 +95,18 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
             };
 
             handle_upload_secrets(args).await.unwrap_or_else(|err| {
+                eprintln!("{:?}", err);
+            });
+        }
+        SecretSubcommand::Rename(args) => {
+            let args = HandleRenameSecretsArgs {
+                token,
+                project: cmd.project,
+                environment: cmd.environment,
+                secrets: args.secrets,
+            };
+
+            handle_rename_secrets(args).await.unwrap_or_else(|err| {
                 eprintln!("{:?}", err);
             });
         }
