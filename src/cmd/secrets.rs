@@ -32,6 +32,10 @@ pub enum SecretSubcommand {
     #[clap(alias = "upl")]
     Upload(UploadSecrets),
 
+    /// Rename secrets
+    #[clap(alias = "r")]
+    Rename(RenameSecrets),
+
     /// Set description of existing secret
     #[clap(alias = "des")]
     Description(SetDescription),
@@ -99,6 +103,13 @@ pub struct SetDescription {
 
     /// Description
     pub description: String,
+}
+
+#[derive(Debug, Args)]
+pub struct RenameSecrets {
+    /// Secrets to rename: KEY_1=NEW_KEY_1 KEY_2=NEW_KEY_2
+    #[clap(value_parser, num_args = 1..)]
+    pub secrets: Vec<String>,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq)]
