@@ -87,7 +87,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
                             let print_string = format_secrets(secrets, &format);
 
                             if format == SecretsFromat::List {
-                                println!("{}", print_string);
+                                print!("{}", print_string);
                             } else {
                                 println!("{}", print_string);
                             }
