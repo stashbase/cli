@@ -24,7 +24,7 @@ impl Display for Secret {
         }
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "- description:".green(), description)?;
+            writeln!(f, "{} {}", "- description:".blue(), description)?;
         }
 
         Ok(())
