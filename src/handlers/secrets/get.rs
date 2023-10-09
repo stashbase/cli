@@ -80,11 +80,14 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
                         }
 
                         if !secrets.is_empty() {
-                            eprintln!();
+                            if !secrets_not_found.is_empty() {
+                                eprintln!();
+                            }
+
                             let print_string = format_secrets(secrets, &format);
 
                             if format == SecretsFromat::List {
-                                print!("{}", print_string);
+                                println!("{}", print_string);
                             } else {
                                 println!("{}", print_string);
                             }
