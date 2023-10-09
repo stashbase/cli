@@ -3,7 +3,7 @@ use cmd::root::Cli;
 use log::debug;
 use logging::logger::init_logger;
 
-use crate::handlers::entry::handle_cli;
+use crate::handlers::entry::root::handle_cli;
 
 mod api;
 mod cmd;
