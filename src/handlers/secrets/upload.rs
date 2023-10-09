@@ -41,7 +41,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     match secrets_res {
         Ok(secrets) => {
             let mut spinner = request_spinner();
-            let res = secrets::set_sercrets(token, project, environment, secrets).await;
+            let res = secrets::set_sercrets(token, project, environment, &secrets).await;
             debug!("{:#?}", res);
 
             if let Err(err) = res {

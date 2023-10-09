@@ -141,7 +141,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
 
 pub async fn post_request<T>(
     args: RequestArgs,
-    data: Option<T>,
+    data: Option<&T>,
 ) -> Result<PostPatchRequestApiResponse>
 where
     T: serde::Serialize,

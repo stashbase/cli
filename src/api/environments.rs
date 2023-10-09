@@ -64,7 +64,7 @@ pub async fn create(
     token: String,
     project: String,
     open: bool,
-    data: CreatEnvironmentPayload,
+    data: &CreatEnvironmentPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let query = match open {
         true => Some(vec![(format!("url"), format!("true"))]),
