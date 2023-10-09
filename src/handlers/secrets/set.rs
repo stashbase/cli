@@ -72,7 +72,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         .collect::<_>();
 
     let mut spinner = request_spinner();
-    let res = secrets::set_sercrets(token, project, environment, payload).await;
+    let res = secrets::set_sercrets(token, project, environment, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

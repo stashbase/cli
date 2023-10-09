@@ -92,7 +92,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         false => {
             let payload = DeleteSecretsPayload { keys: keys.clone() };
 
-            let res = secrets::delete(token, project, environment, payload).await;
+            let res = secrets::delete(token, project, environment, &payload).await;
 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");

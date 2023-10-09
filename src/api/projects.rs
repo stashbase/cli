@@ -44,7 +44,7 @@ pub async fn get_project_url(token: String, name: String) -> Result<GetRequestAp
 
 pub async fn create_project(
     token: String,
-    data: CreateProjectPayload,
+    data: &CreateProjectPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(None),

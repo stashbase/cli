@@ -85,7 +85,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
     let mut spinner = request_spinner();
 
-    let project_res = environments::create(token, project, open, data).await;
+    let project_res = environments::create(token, project, open, &data).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");

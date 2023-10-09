@@ -41,7 +41,7 @@ pub async fn get_selected(
     token: String,
     project: String,
     environment: String,
-    data: GetSelectedSecretsPayload,
+    data: &GetSelectedSecretsPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -80,7 +80,7 @@ pub async fn delete(
     token: String,
     project: String,
     environment: String,
-    data: DeleteSecretsPayload,
+    data: &DeleteSecretsPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -117,7 +117,7 @@ pub async fn set_sercrets(
     token: String,
     project: String,
     environment: String,
-    data: Vec<Secret>,
+    data: &Vec<Secret>,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
