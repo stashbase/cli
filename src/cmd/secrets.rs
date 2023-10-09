@@ -24,7 +24,7 @@ pub enum SecretSubcommand {
     #[clap(alias = "g")]
     Get(GetSecrets),
 
-    /// Get secrets
+    /// Set secrets
     #[clap(alias = "s")]
     Set(SetSecrets),
 
