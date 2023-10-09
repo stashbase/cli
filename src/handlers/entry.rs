@@ -26,6 +26,7 @@ use crate::{
             get::{handle_get_secrets, HandleGetSecretsArgs},
             list::{handle_list_secrets, HandleListSecretsArgs},
             set::{handle_set_secrets, HandleSetSecretsArgs},
+            upload::{handle_upload_secrets, HandleUploadSecretsArgs},
         },
     },
     models::config::UpdateConfig,
@@ -254,6 +255,18 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     handle_update_description(args).await.unwrap_or_else(|err| {
+                        eprintln!("{:?}", err);
+                    });
+                }
+                SecretSubcommand::Upload(args) => {
+                    let args = HandleUploadSecretsArgs {
+                        token,
+                        project: cmd.project,
+                        environment: cmd.environment,
+                        file_path: args.file_path,
+                    };
+
+                    handle_upload_secrets(args).await.unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
                 }
