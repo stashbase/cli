@@ -108,6 +108,7 @@ pub struct ApiError {
 pub enum ApiErrorEntity {
     Project(ProjectError),
     Environment(EnvironmentError),
+    Secret(SecretsError),
 }
 
 // TODO: env errors
@@ -129,6 +130,12 @@ pub enum ProjectError {
     InvalidName,
     ProjectAlreadyExists,
     ProjectNotFound,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecretsError {
+    SecretNotFound,
 }
 
 #[derive(Debug)]
@@ -183,6 +190,12 @@ impl From<ApiError> for CustomError {
                 EnvironmentError::EnvironmentLocked => CustomError {
                     message: format!("this environment is locked"),
                     hint: Some(format!("unlock environment to perform this action")),
+                },
+            },
+            ApiErrorEntity::Secret(e) => match e {
+                SecretsError::SecretNotFound => CustomError {
+                    message: format!("secret not found"),
+                    hint: None,
                 },
             },
         }
