@@ -15,11 +15,16 @@ pub struct Secret {
 
 impl Display for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {}", "Key:".green(), self.key)?;
-        writeln!(f, "{} {}", "Value:".green(), self.value)?;
+        // writeln!(f, "{} {}", "Key:".green(), self.key)?;
+        // writeln!(f, "{} {}", "Value:".green(), self.value)?;
+        write!(f, "{} {}", format!("{}:", self.key).green(), self.value)?;
+
+        if self.description.is_some() {
+            writeln!(f, "")?;
+        }
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green(), description)?;
+            writeln!(f, "{} {}", "- description:".green(), description)?;
         }
 
         Ok(())
