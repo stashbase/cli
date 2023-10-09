@@ -11,10 +11,14 @@ use crate::{
     config::config,
     handlers::{
         environments::{
-            create::handle_create_environment, delete::handle_delete_environment,
-            get::handle_get_environment, list::handle_list_environments,
-            open::handle_open_environment, set_lock::handle_set_env_lock,
-            update::handle_update_environment, update_type::handle_update_env_type,
+            create::{handle_create_environment, HandleCreateEnvironmentArgs},
+            delete::handle_delete_environment,
+            get::handle_get_environment,
+            list::handle_list_environments,
+            open::handle_open_environment,
+            set_lock::handle_set_env_lock,
+            update::handle_update_environment,
+            update_type::handle_update_env_type,
         },
         projects::{
             create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
@@ -120,16 +124,17 @@ pub async fn handle_cli(args: Cli) {
                 }
 
                 EnvironmentSubcommand::Create(args) => {
-                    handle_create_environment(
+                    let args = HandleCreateEnvironmentArgs {
                         token,
-                        cmd.project,
-                        args.name,
-                        args.env_type,
-                        args.description,
-                        args.open,
-                    )
-                    .await
-                    .unwrap_or_else(|err| {
+                        project: cmd.project,
+                        name: args.name,
+                        description: args.description,
+                        env_type: args.env_type,
+                        open: args.open,
+                        file_path: args.file_path,
+                    };
+
+                    handle_create_environment(args).await.unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
                 }
