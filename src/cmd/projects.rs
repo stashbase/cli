@@ -32,6 +32,7 @@ pub enum ProjectSubcommand {
     #[clap(alias = "o")]
     Open(OpenProject),
 }
+
 #[derive(Debug, Args)]
 // TODO: perPage, pages + other args
 pub struct ListProjects {}
