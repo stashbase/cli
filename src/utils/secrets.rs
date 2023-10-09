@@ -16,8 +16,8 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
                 // is last
                 if i == secrets.len() - 1 {
                     if p.description.is_some() {
-                        text_to_print.push_str(&format!("\n{}", p))
-                    } else {
+                        //     text_to_print.push_str(&format!("{}", p))
+                        // } else {
                         text_to_print.push_str(&format!("{}", p))
                     }
                 } else {
