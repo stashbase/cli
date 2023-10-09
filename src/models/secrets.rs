@@ -33,6 +33,11 @@ pub struct GetSelectedSecretsPayload {
 
 pub type DeleteSecretsPayload = GetSelectedSecretsPayload;
 
+#[derive(Debug, Serialize)]
+pub struct UpdateSecretDescriptionPayload {
+    pub description: String,
+}
+
 // response
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
