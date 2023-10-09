@@ -46,7 +46,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
     let mut spinner = request_spinner();
 
-    let res = secrets::rename_secrets(token, project, environment, payload.clone()).await;
+    let res = secrets::rename_secrets(token, project, environment, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

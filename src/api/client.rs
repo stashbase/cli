@@ -151,19 +151,16 @@ where
 
 pub async fn patch_request<T: serde::Serialize>(
     args: RequestArgs,
-    data: Option<T>,
+    data: Option<&T>,
 ) -> Result<PostPatchRequestApiResponse> {
     post_or_pach(args, data, reqwest::Method::PATCH).await
 }
 
-async fn post_or_pach<T>(
+async fn post_or_pach<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<T>,
     method: Method,
-) -> Result<PostPatchRequestApiResponse>
-where
-    T: serde::Serialize,
-{
+) -> Result<PostPatchRequestApiResponse> {
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 

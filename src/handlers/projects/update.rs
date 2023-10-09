@@ -55,7 +55,7 @@ pub async fn handle_update_project(
     };
 
     let mut spinner = request_spinner();
-    let project_res = projects::update_project(token, name, data).await;
+    let project_res = projects::update_project(token, name, &data).await;
     spinner.stop_and_persist("", "");
 
     if let Err(err) = project_res {

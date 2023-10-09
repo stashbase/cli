@@ -32,7 +32,7 @@ pub async fn handle_update_env_type(
     };
 
     let mut spinner = request_spinner();
-    let res = environments::update_type(token, project, environment, payload).await;
+    let res = environments::update_type(token, project, environment, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
