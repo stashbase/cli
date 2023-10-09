@@ -6,7 +6,9 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
         RequestArgs,
     },
-    secrets::{DeleteSecretsPayload, GetSelectedSecretsPayload, Secret},
+    secrets::{
+        DeleteSecretsPayload, GetSelectedSecretsPayload, Secret, UpdateSecretDescriptionPayload,
+    },
 };
 
 pub async fn list(
@@ -51,6 +53,26 @@ pub async fn get_selected(
     };
 
     client::post_request(args, Some(data)).await
+}
+
+pub async fn update_description(
+    token: String,
+    project: String,
+    environment: String,
+    key: String,
+    data: UpdateSecretDescriptionPayload,
+) -> Result<PostPatchRequestApiResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Secrets {
+            project,
+            environment,
+            path: Some(key),
+        },
+        query: None,
+        token,
+    };
+
+    client::patch_request(args, Some(data)).await
 }
 
 pub async fn delete(
