@@ -39,7 +39,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         );
     }
 
-    let i = interaction::confirm_opt("Are you sure you want to coninue?");
+    let i = interaction::confirm_opt("Are you sure you want to continue?");
 
     if i.is_none() || (i.unwrap() == false) {
         return Ok(());
