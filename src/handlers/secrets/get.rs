@@ -45,7 +45,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     let payload = GetSelectedSecretsPayload { keys: keys.clone() };
 
     let mut spinner = request_spinner();
-    let res = secrets::get_selected(token, project, environment, payload).await;
+    let res = secrets::get_selected(token, project, environment, &payload).await;
 
     spinner.stop_and_persist("", "");
 
