@@ -8,7 +8,11 @@ use crate::{
         api_client::{DeleteRequestApiResponse, PostPatchRequestApiResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsPayload, DeleteSecretsResponse},
     },
-    utils::{interaction, spinner::request_spinner},
+    utils::{
+        interaction,
+        spinner::request_spinner,
+        validation::{validate_project_name, validate_secret_keys},
+    },
 };
 
 pub struct HandleDeleteSecretsArgs {
@@ -31,6 +35,19 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
 
     // TODO: confirm
     // TODO: validation
+
+    let name_is_valid = validate_project_name(&project, false);
+
+    if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
+    let keys_valid = validate_secret_keys(&keys);
+
+    if let Err(err) = keys_valid {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
+    }
 
     if delete_all {
         eprintln!(
