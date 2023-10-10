@@ -61,7 +61,9 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
 
                         println!("{}", print_string);
                     }
-                    Err(_) => todo!(),
+                    Err(e) => {
+                        bail!("Something went wrong")
+                    }
                 }
             }
             false => {
