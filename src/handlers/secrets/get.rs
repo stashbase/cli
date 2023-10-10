@@ -12,7 +12,7 @@ use crate::{
     utils::{
         secrets::format_secrets,
         spinner::request_spinner,
-        validation::{validate_project_name, validate_secret_keys},
+        validation::{validate_environment_name, validate_project_name, validate_secret_keys},
     },
 };
 
@@ -33,18 +33,10 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
         format,
     } = args;
 
-    // TODO: other validations
-    let name_is_valid = validate_project_name(&project, false);
+    let validation_res = validate_input(&project, &environment, &keys);
 
-    if let Err(err) = name_is_valid {
-        bail!(err);
-    }
-
-    let keys_valid = validate_secret_keys(&keys);
-
-    if let Err(err) = keys_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+    if let Err(e) = validation_res {
+        bail!(e);
     }
 
     debug!("listing secrets...:");
@@ -113,6 +105,29 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
         PostPatchRequestApiResponse::Err(e) => {
             bail!("{}", e);
         }
+    }
+
+    Ok(())
+}
+
+fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Result<()> {
+    let project_name_validation_res = validate_project_name(project, false);
+
+    if let Err(err) = project_name_validation_res {
+        bail!(err);
+    }
+
+    let env_validation_res = validate_environment_name(environment);
+
+    if let Err(err) = env_validation_res {
+        bail!(err);
+    }
+
+    let key_validation_res = validate_secret_keys(keys);
+
+    if let Err(err) = key_validation_res {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
     }
 
     Ok(())
