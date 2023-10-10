@@ -5,7 +5,11 @@ use owo_colors::OwoColorize;
 use crate::{
     api::environments,
     models::api_client::DeleteRequestApiResponse,
-    utils::{interaction, spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        interaction,
+        spinner::request_spinner,
+        validation::{validate_environment_name, validate_project_name},
+    },
 };
 
 pub async fn handle_delete_environment(
@@ -16,6 +20,12 @@ pub async fn handle_delete_environment(
     let name_is_valid = validate_project_name(&project, false);
 
     if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
+    let env_name_is_valid = validate_environment_name(&environment);
+
+    if let Err(err) = env_name_is_valid {
         bail!(err);
     }
 
