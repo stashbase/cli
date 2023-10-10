@@ -5,10 +5,7 @@ use serde::Deserialize;
 use crate::{
     api::environments,
     models::api_client::GetRequestApiResponse,
-    utils::{
-        spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name},
-    },
+    utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
 #[derive(Debug, Deserialize)]
@@ -21,19 +18,13 @@ pub async fn handle_open_environment(
     project: String,
     environment: String,
 ) -> Result<()> {
-    //
-    let project_name_is_valid = validate_project_name(&project, false);
+    let input_valid = validate_project_environment(&project, &environment);
 
-    if let Err(err) = project_name_is_valid {
+    if let Err(err) = input_valid {
         bail!(err);
     }
 
-    let env_name_is_valid = validate_environment_name(&environment);
-
-    if let Err(err) = env_name_is_valid {
-        bail!(err);
-    }
-
+    // OK
     // send request
     let mut spinner = request_spinner();
     let project_res = environments::get_url(token, project, environment).await;
