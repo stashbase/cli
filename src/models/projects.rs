@@ -62,11 +62,11 @@ impl Display for Project {
 
 impl Display for ProjectWithCount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {}", "Project name:".green(), self.name)?;
-
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
         writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
+
+        writeln!(f, "{} {}", "Project name:".green(), self.name)?;
 
         if let Some(description) = &self.description {
             writeln!(f, "{} {}", "Description:".green(), description)?;
