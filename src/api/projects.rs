@@ -1,19 +1,32 @@
 use anyhow::Result;
 
-use crate::models::{
-    api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
-        RequestArgs,
+use crate::{
+    cmd::projects::Sort,
+    models::{
+        api_client::{
+            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+            RequestArgs,
+        },
+        projects::{CreateProjectPayload, UpdateProjectPayload},
     },
-    projects::{CreateProjectPayload, UpdateProjectPayload},
 };
 
 use super::client;
 
-pub async fn list_projects(token: String) -> Result<GetRequestApiResponse> {
+pub async fn list_projects(
+    token: String,
+    sort: Sort,
+    descending: bool,
+) -> Result<GetRequestApiResponse> {
+    let mut query = vec![("sort".to_string(), format!("{}", sort))];
+
+    if descending == true {
+        query.push(("descending".to_string(), "true".to_string()));
+    }
+
     let args = RequestArgs {
         path: ApiPath::Projects(None),
-        query: None,
+        query: Some(query),
         token,
     };
 

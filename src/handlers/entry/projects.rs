@@ -8,8 +8,8 @@ use crate::{
 
 pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_output: bool) {
     match cmd.subcommand {
-        ProjectSubcommand::List(_) => {
-            handle_list_projects(token, raw_output)
+        ProjectSubcommand::List(args) => {
+            handle_list_projects(token, args.sort, args.descending, raw_output)
                 .await
                 .unwrap_or_else(|err| {
                     println!("{:?}", err);
