@@ -4,18 +4,22 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    models::{
-        api_client::GetRequestApiResponse,
-        projects::{Project, ProjectWithCount},
-    },
+    cmd::projects::Sort,
+    models::{api_client::GetRequestApiResponse, projects::ProjectWithCount},
     utils::spinner::request_spinner,
 };
 
-pub async fn handle_list_projects(token: String, raw: bool) -> anyhow::Result<()> {
+pub async fn handle_list_projects(
+    token: String,
+    sort: Option<Sort>,
+    descending: bool,
+    raw: bool,
+) -> anyhow::Result<()> {
     debug!("listing projects...:");
 
     let mut spinner = request_spinner();
-    let project_res = projects::list_projects(token).await;
+    let project_res =
+        projects::list_projects(token, sort.unwrap_or(Sort::Created), descending).await;
 
     spinner.stop_and_persist("", "");
 
