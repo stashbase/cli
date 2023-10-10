@@ -5,7 +5,10 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{api_client::PostPatchRequestApiResponse, secrets::UpdateSecretDescriptionPayload},
-    utils::spinner::request_spinner,
+    utils::{
+        spinner::request_spinner,
+        validation::{validate_project_name, validate_secret_key},
+    },
 };
 
 pub struct HandleDescriptionArgs {
@@ -27,6 +30,20 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
 
     // TODO: validation
 
+    let project_name_is_valid = validate_project_name(&project, false);
+
+    if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    let key_valid = validate_secret_key(&key);
+
+    if let Err(err) = key_valid {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
+    }
+
+    //
     let payload = UpdateSecretDescriptionPayload { description };
 
     let mut spinner = request_spinner();
