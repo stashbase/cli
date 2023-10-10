@@ -7,7 +7,10 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::api_client::PostPatchRequestApiResponse,
-    utils::{secrets::read_dotenv_file, spinner::request_spinner},
+    utils::{
+        secrets::read_dotenv_file, spinner::request_spinner,
+        validation::validate_project_environment,
+    },
 };
 
 pub struct HandleUploadSecretsArgs {
@@ -24,6 +27,12 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         environment,
         file_path,
     } = args;
+
+    let proj_env_validation_res = validate_project_environment(&project, &environment);
+
+    if let Err(err) = proj_env_validation_res {
+        bail!(err);
+    }
 
     let path = Path::new(&file_path);
     debug!("Path: {:#?}", path);
