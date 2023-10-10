@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{api_client::PostPatchRequestApiResponse, secrets::Secret},
-    utils::{separator, spinner::request_spinner},
+    utils::{separator, spinner::request_spinner, validation::validate_secret_keys},
 };
 
 pub struct HandleSetSecretsArgs {
@@ -40,6 +40,19 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     }
 
     let key_value_pairs = key_value_pairs.unwrap();
+
+    // validate keys
+    let keys: Vec<_> = key_value_pairs
+        .iter()
+        .map(|kv| format!("{}", kv.0))
+        .collect();
+
+    let keys_valid = validate_secret_keys(&keys);
+
+    if let Err(err) = keys_valid {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
+    }
 
     let description_pairs = separator::key_value(description);
     debug!("{:#?}", description_pairs);
