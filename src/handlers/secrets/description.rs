@@ -7,7 +7,7 @@ use crate::{
     models::{api_client::PostPatchRequestApiResponse, secrets::UpdateSecretDescriptionPayload},
     utils::{
         spinner::request_spinner,
-        validation::{validate_project_name, validate_secret_key},
+        validation::{validate_environment_name, validate_project_name, validate_secret_key},
     },
 };
 
@@ -28,22 +28,13 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
         key,
     } = args;
 
-    // TODO: validation
+    let input_validation_res = validate_input(&project, &environment, &key);
 
-    let project_name_is_valid = validate_project_name(&project, false);
-
-    if let Err(err) = project_name_is_valid {
-        bail!(err);
+    if let Err(e) = input_validation_res {
+        bail!(e);
     }
 
-    let key_valid = validate_secret_key(&key);
-
-    if let Err(err) = key_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
-    }
-
-    //
+    // ok
     let payload = UpdateSecretDescriptionPayload { description };
 
     let mut spinner = request_spinner();
@@ -70,6 +61,29 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
             debug!("Error: {}", e);
             spinner.stop_with_message(&format!("\n{}", e));
         }
+    }
+
+    Ok(())
+}
+
+fn validate_input(project: &str, environment: &str, key: &str) -> Result<()> {
+    let project_name_validation_res = validate_project_name(project, false);
+
+    if let Err(err) = project_name_validation_res {
+        bail!(err);
+    }
+
+    let env_validation_res = validate_environment_name(environment);
+
+    if let Err(err) = env_validation_res {
+        bail!(err);
+    }
+
+    let key_valid = validate_secret_key(&key);
+
+    if let Err(err) = key_valid {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
     }
 
     Ok(())
