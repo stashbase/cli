@@ -66,7 +66,7 @@ pub struct GetEnvironment {
 
 #[derive(Debug, Args)]
 pub struct UpdateEnvironment {
-    /// Project name
+    /// Environment name
     pub name: String,
 
     /// New environment name
