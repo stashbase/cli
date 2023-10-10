@@ -1,20 +1,34 @@
 use anyhow::Result;
 
 use super::client;
-use crate::models::{
-    api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
-        RequestArgs,
-    },
-    environments::{
-        CreatEnvironmentPayload, UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
+use crate::{
+    cmd::environments::EnvSort,
+    models::{
+        api_client::{
+            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+            RequestArgs,
+        },
+        environments::{
+            CreatEnvironmentPayload, UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
+        },
     },
 };
 
-pub async fn list(token: String, project: String) -> Result<GetRequestApiResponse> {
+pub async fn list(
+    token: String,
+    project: String,
+    sort: EnvSort,
+    descending: bool,
+) -> Result<GetRequestApiResponse> {
+    let mut query = vec![("sort".to_string(), format!("{}", sort))];
+
+    if descending == true {
+        query.push(("descending".to_string(), "true".to_string()));
+    }
+
     let args = RequestArgs {
         token,
-        query: None,
+        query: Some(query),
         path: ApiPath::Environments {
             project,
             path: None,
