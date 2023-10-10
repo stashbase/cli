@@ -37,6 +37,7 @@ pub enum ProjectInputValidationError {
 #[derive(Debug)]
 pub enum SecretsInputValidationError {
     KeyFormat { multiple: bool },
+    // update
     // SameNewKey,
 }
 
@@ -45,6 +46,12 @@ pub enum SecretsInputValidationError {
 pub enum EnvironmentsInputValidationError {
     NameTooShort,
     NameFormat,
+
+    // update
+    SameNewName,
+    NoUpdateFlags,
+    NewNameFormat,
+    NewNameTooShort,
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -161,6 +168,22 @@ impl fmt::Display for EnvironmentsInputValidationError {
             EnvironmentsInputValidationError::NameFormat => {
                 msg = "argument name is invalid";
                 hint = Some("environment name can contain only alphanumeric characters, hyphens or underscores");
+            }
+            EnvironmentsInputValidationError::SameNewName => {
+                msg = "name option value is equals to name";
+                hint = Some("use different name option value");
+            }
+            EnvironmentsInputValidationError::NoUpdateFlags => {
+                msg = "no update flag specified";
+                hint = Some("use one of: -n (--name), -d (--description)");
+            }
+            EnvironmentsInputValidationError::NewNameFormat => {
+                msg = "name option value is invalid";
+                hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+            }
+            EnvironmentsInputValidationError::NewNameTooShort => {
+                msg = "name option value is too short";
+                hint = Some("minimum is 2 characters");
             }
         }
 
