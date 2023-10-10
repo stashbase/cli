@@ -8,7 +8,7 @@ use crate::{
     utils::{
         secrets::{format_secret_keys, format_secrets},
         spinner::request_spinner,
-        validation::validate_project_name,
+        validation::validate_project_environment,
     },
 };
 
@@ -29,10 +29,9 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         only_keys,
     } = args;
 
-    // TODO: other validations
-    let name_is_valid = validate_project_name(&project, false);
+    let validation_res = validate_project_environment(&project, &enironment);
 
-    if let Err(err) = name_is_valid {
+    if let Err(err) = validation_res {
         bail!(err);
     }
 
