@@ -5,7 +5,10 @@ use log::debug;
 use crate::{
     api::environments,
     models::{api_client::GetRequestApiResponse, environments::Environment},
-    utils::{spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        spinner::request_spinner,
+        validation::{validate_environment_name, validate_project_name},
+    },
 };
 
 pub async fn handle_get_environment(
@@ -18,6 +21,11 @@ pub async fn handle_get_environment(
     let project_name_is_valid = validate_project_name(&project, false);
 
     if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    let env_name_is_valid = validate_environment_name(&environment);
+    if let Err(err) = env_name_is_valid {
         bail!(err);
     }
 
