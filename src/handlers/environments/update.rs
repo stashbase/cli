@@ -2,11 +2,11 @@ use anyhow::{bail, Result};
 use log::{debug, error};
 
 use crate::{
-    api::{environments, projects},
+    api::environments,
     models::{
         api_client::PostPatchRequestApiResponse,
         environments::UpdateEnvironmentPayload,
-        validation::{InputValidationError, ProjectInputValidationError},
+        validation::{EnvironmentsInputValidationError, InputValidationError},
     },
     utils::{interaction, spinner::request_spinner, validation::validate_project_name},
 };
@@ -18,32 +18,34 @@ pub async fn handle_update_environment(
     new_name: Option<String>,
     new_description: Option<String>,
 ) -> Result<()> {
-    // TODO: validation
+    // validation
+    let project_name_is_valid = validate_project_name(&project, false);
 
-    // if new_name.is_none() && new_description.is_none() {
-    //     let err = InputValidationError::Projects(ProjectInputValidationError::NoUpdateFlags);
-    //     bail!(err)
-    // }
-    //
-    // let name_is_valid = validate_project_name(&name, false);
-    //
-    // if let Err(err) = name_is_valid {
-    //     bail!(err);
-    // }
-    //
-    // if let Some(new_name) = &new_name {
-    //     if *new_name == name {
-    //         let err = InputValidationError::Projects(ProjectInputValidationError::SameNewName);
-    //         bail!(err)
-    //     }
-    //
-    //     let new_name_is_valid = validate_project_name(new_name, true);
-    //
-    //     if let Err(err) = new_name_is_valid {
-    //         bail!(err);
-    //     }
-    // }
-    //
+    if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    if new_name.is_none() && new_description.is_none() {
+        let err =
+            InputValidationError::Environments(EnvironmentsInputValidationError::NoUpdateFlags);
+        bail!(err)
+    }
+
+    if let Some(new_name) = &new_name {
+        if *new_name == environment {
+            let err =
+                InputValidationError::Environments(EnvironmentsInputValidationError::SameNewName);
+            bail!(err)
+        }
+
+        let new_name_is_valid = validate_project_name(new_name, true);
+
+        if let Err(err) = new_name_is_valid {
+            bail!(err);
+        }
+    }
+
+    // OK
     debug!("updating project...:");
 
     let i = interaction::confirm_opt("Are you sure?");
