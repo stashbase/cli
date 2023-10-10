@@ -4,7 +4,10 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    models::{api_client::GetRequestApiResponse, projects::Project},
+    models::{
+        api_client::GetRequestApiResponse,
+        projects::{Project, ProjectWithCount},
+    },
     utils::spinner::request_spinner,
 };
 
@@ -26,7 +29,7 @@ pub async fn handle_list_projects(token: String, raw: bool) -> anyhow::Result<()
     match project_res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-            let projects = serde_json::from_str::<Vec<Project>>(&data.text);
+            let projects = serde_json::from_str::<Vec<ProjectWithCount>>(&data.text);
             match projects {
                 Ok(projects) => {
                     debug!("{:#?}", &projects);
