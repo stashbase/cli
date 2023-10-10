@@ -51,10 +51,7 @@ pub struct ListProjects {
 pub enum Sort {
     #[clap(alias = "cre")]
     Created,
-
-    #[clap(alias = "alp")]
-    Alphabet,
-
+    Name,
     #[clap(alias = "env")]
     Environments,
 }
@@ -63,7 +60,7 @@ impl fmt::Display for Sort {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Sort::Created => write!(f, "created"),
-            Sort::Alphabet => write!(f, "alphabet"),
+            Sort::Name => write!(f, "name"),
             Sort::Environments => write!(f, "environments"),
         }?;
 
