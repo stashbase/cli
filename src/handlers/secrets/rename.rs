@@ -8,7 +8,7 @@ use crate::{
         api_client::PostPatchRequestApiResponse,
         secrets::{RenameSecretsResponse, RenamedSecret},
     },
-    utils::{separator, spinner::request_spinner},
+    utils::{separator, spinner::request_spinner, validation::validate_secret_key_new_key},
 };
 
 pub struct HandleRenameSecretsArgs {
@@ -35,6 +35,14 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     }
 
     let key_value_pairs = key_value_pairs.unwrap();
+
+    // NOTE: validation - keys + new keys
+    let keys_valid = validate_secret_key_new_key(&key_value_pairs);
+
+    if let Err(err) = keys_valid {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
+    }
 
     let payload: Vec<_> = key_value_pairs
         .into_iter()
