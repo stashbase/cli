@@ -14,8 +14,10 @@ use crate::{
         secrets::Secret,
     },
     utils::{
-        files::check_file_exists, secrets::read_dotenv_file, spinner::request_spinner,
-        validation::validate_project_name,
+        files::check_file_exists,
+        secrets::read_dotenv_file,
+        spinner::request_spinner,
+        validation::{validate_environment_name, validate_project_name},
     },
 };
 
@@ -41,11 +43,19 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     } = args;
 
     // TODO: validate also env name
-    let name_is_valid = validate_project_name(&name, false);
+    let project_name_is_valid = validate_project_name(&project, false);
 
-    if let Err(err) = name_is_valid {
+    if let Err(err) = project_name_is_valid {
         bail!(err);
     }
+
+    let env_name_is_valid = validate_environment_name(&name);
+
+    if let Err(err) = env_name_is_valid {
+        bail!(err);
+    }
+
+    // validate env
 
     let mut secrets: Option<Vec<Secret>> = None;
 

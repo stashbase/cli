@@ -4,7 +4,10 @@ use log::{debug, error};
 use crate::{
     api::environments,
     models::api_client::PostPatchRequestApiResponse,
-    utils::{spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        spinner::request_spinner,
+        validation::{validate_environment_name, validate_project_name},
+    },
 };
 
 pub async fn handle_set_env_lock(
@@ -17,6 +20,11 @@ pub async fn handle_set_env_lock(
     let project_name_is_valid = validate_project_name(&project, false);
 
     if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    let env_name_is_valid = validate_environment_name(&environment);
+    if let Err(err) = env_name_is_valid {
         bail!(err);
     }
 
