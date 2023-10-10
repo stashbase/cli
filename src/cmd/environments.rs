@@ -1,3 +1,5 @@
+use core::fmt;
+
 use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -56,7 +58,43 @@ pub enum EnvironmentSubcommand {
 }
 
 #[derive(Debug, Args)]
-pub struct ListEnvironments {}
+// TODO: order/group by type + locked ???
+pub struct ListEnvironments {
+    /// Sort projects by
+    #[arg(value_enum, short = 's', long = "sort")]
+    pub sort: Option<EnvSort>,
+
+    /// Descending order
+    #[arg(value_enum, long = "desc")]
+    pub descending: bool,
+}
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum EnvSort {
+    #[clap(alias = "cre")]
+    Created,
+
+    #[clap(alias = "alp")]
+    Alphabet,
+
+    #[clap(alias = "sec")]
+    Secrets,
+
+    Lock,
+}
+
+impl fmt::Display for EnvSort {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            EnvSort::Created => write!(f, "created"),
+            EnvSort::Alphabet => write!(f, "alphabet"),
+            EnvSort::Secrets => write!(f, "secrets"),
+            EnvSort::Lock => write!(f, "lock"),
+        }?;
+
+        Ok(())
+    }
+}
 
 #[derive(Debug, Args)]
 pub struct GetEnvironment {
