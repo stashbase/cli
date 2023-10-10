@@ -5,7 +5,11 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{api_client::PostPatchRequestApiResponse, secrets::Secret},
-    utils::{separator, spinner::request_spinner, validation::validate_secret_keys},
+    utils::{
+        separator,
+        spinner::request_spinner,
+        validation::{validate_project_environment, validate_secret_keys},
+    },
 };
 
 pub struct HandleSetSecretsArgs {
@@ -17,7 +21,6 @@ pub struct HandleSetSecretsArgs {
 }
 
 // NOTE: for now must have at least one value -> validate length
-// TODO: validation
 pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let HandleSetSecretsArgs {
         token,
@@ -27,15 +30,19 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         description,
     } = args;
 
+    let proj_env_validation_res = validate_project_environment(&project, &environment);
+
+    if let Err(err) = proj_env_validation_res {
+        bail!(err);
+    }
+
     debug!("{:#?}", description);
-    // TODO: validation
 
     let key_value_pairs = separator::key_value(values);
 
     debug!("{:#?}", key_value_pairs);
 
     if let Err(err) = key_value_pairs {
-        // TODO: error
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
@@ -62,6 +69,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
+    // OK
     let description_pairs = description_pairs.unwrap();
 
     let payload = key_value_pairs
