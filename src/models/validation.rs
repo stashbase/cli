@@ -119,8 +119,8 @@ impl fmt::Display for SecretsInputValidationError {
         match self {
             SecretsInputValidationError::KeyFormat { multiple } => {
                 let message = match multiple {
-                    true => "keys are invalid",
-                    false => "key is invalid",
+                    true => "invalid secret keys",
+                    false => "invalid secret key",
                 };
                 msg = message;
                 hint = Some(
