@@ -1,4 +1,6 @@
-use clap::{Args, Subcommand};
+use core::fmt;
+
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
 pub struct ProjectCommands {
@@ -35,7 +37,39 @@ pub enum ProjectSubcommand {
 
 #[derive(Debug, Args)]
 // TODO: perPage, pages + other args
-pub struct ListProjects {}
+pub struct ListProjects {
+    /// Sort projects by
+    #[arg(value_enum, short = 's', long = "sort")]
+    pub sort: Option<Sort>,
+
+    /// Descending order
+    #[arg(value_enum, long = "desc")]
+    pub descending: bool,
+}
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum Sort {
+    #[clap(alias = "cre")]
+    Created,
+
+    #[clap(alias = "alp")]
+    Alphabet,
+
+    #[clap(alias = "env")]
+    Environments,
+}
+
+impl fmt::Display for Sort {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Sort::Created => write!(f, "created"),
+            Sort::Alphabet => write!(f, "alphabet"),
+            Sort::Environments => write!(f, "environments"),
+        }?;
+
+        Ok(())
+    }
+}
 
 #[derive(Debug, Args)]
 pub struct CreateProject {
