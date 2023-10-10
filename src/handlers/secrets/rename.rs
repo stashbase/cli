@@ -12,7 +12,8 @@ use crate::{
         separator,
         spinner::request_spinner,
         validation::{
-            validate_environment_name, validate_project_name, validate_secret_key_new_key,
+            validate_environment_name, validate_project_environment, validate_project_name,
+            validate_secret_key_new_key,
         },
     },
 };
@@ -32,6 +33,12 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         environment,
         secrets,
     } = args;
+
+    let proj_env_validation_res = validate_project_environment(&project, &environment);
+
+    if let Err(err) = proj_env_validation_res {
+        bail!(err);
+    }
 
     let key_value_pairs = separator::key_value(secrets);
     debug!("{:#?}", key_value_pairs);
