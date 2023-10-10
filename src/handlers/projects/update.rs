@@ -17,28 +17,10 @@ pub async fn handle_update_project(
     new_name: Option<String>,
     new_description: Option<String>,
 ) -> Result<()> {
-    if new_name.is_none() && new_description.is_none() {
-        let err = InputValidationError::Projects(ProjectInputValidationError::NoUpdateFlags);
-        bail!(err)
-    }
+    let validation_res = validate_input(&name, &new_name, &new_description);
 
-    let name_is_valid = validate_project_name(&name, false);
-
-    if let Err(err) = name_is_valid {
-        bail!(err);
-    }
-
-    if let Some(new_name) = &new_name {
-        if *new_name == name {
-            let err = InputValidationError::Projects(ProjectInputValidationError::SameNewName);
-            bail!(err)
-        }
-
-        let new_name_is_valid = validate_project_name(new_name, true);
-
-        if let Err(err) = new_name_is_valid {
-            bail!(err);
-        }
+    if let Err(e) = validation_res {
+        bail!("{}", e);
     }
 
     debug!("updating project...:");
@@ -75,6 +57,38 @@ pub async fn handle_update_project(
             // error!("{:#?}", &e);
             // eprint!("{}", e);
             eprintln!("{}", e);
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_input(
+    name: &str,
+    new_name: &Option<String>,
+    new_description: &Option<String>,
+) -> Result<()> {
+    if new_name.is_none() && new_description.is_none() {
+        let err = InputValidationError::Projects(ProjectInputValidationError::NoUpdateFlags);
+        bail!(err)
+    }
+
+    let name_is_valid = validate_project_name(&name, false);
+
+    if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
+    if let Some(new_name) = &new_name {
+        if *new_name == name {
+            let err = InputValidationError::Projects(ProjectInputValidationError::SameNewName);
+            bail!(err)
+        }
+
+        let new_name_is_valid = validate_project_name(new_name, true);
+
+        if let Err(err) = new_name_is_valid {
+            bail!(err);
         }
     }
 
