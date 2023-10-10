@@ -64,3 +64,19 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
         Ok(())
     }
 }
+
+pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()> {
+    let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
+
+    let invalid = values
+        .into_iter()
+        .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
+
+    if invalid.is_some() {
+        bail!(InputValidationError::Secrets(
+            SecretsInputValidationError::KeyFormat { multiple: true }
+        ));
+    } else {
+        Ok(())
+    }
+}
