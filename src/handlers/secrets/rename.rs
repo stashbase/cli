@@ -34,6 +34,16 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         secrets,
     } = args;
 
+    if secrets.is_empty() {
+        let msg = format!(
+            "{} {}",
+            "Input error:".red(),
+            "no secrets to rename provided"
+        );
+
+        bail!("{}", msg);
+    }
+
     let proj_env_validation_res = validate_project_environment(&project, &environment);
 
     if let Err(err) = proj_env_validation_res {

@@ -30,6 +30,12 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         description,
     } = args;
 
+    if values.is_empty() {
+        let msg = format!("{} {}", "Input error:".red(), "no secrets to set");
+
+        bail!("{}", msg);
+    }
+
     let proj_env_validation_res = validate_project_environment(&project, &environment);
 
     if let Err(err) = proj_env_validation_res {
