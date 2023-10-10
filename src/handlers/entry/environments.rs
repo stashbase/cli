@@ -4,7 +4,7 @@ use crate::{
         create::{handle_create_environment, HandleCreateEnvironmentArgs},
         delete::handle_delete_environment,
         get::handle_get_environment,
-        list::handle_list_environments,
+        list::{handle_list_environments, HandleListEnvironmentsArgs},
         open::handle_open_environment,
         set_lock::handle_set_env_lock,
         update::handle_update_environment,
@@ -18,12 +18,18 @@ pub async fn handle_environment_commands(
     raw_output: bool,
 ) {
     match cmd.subcommand {
-        EnvironmentSubcommand::List(_) => {
-            handle_list_environments(token, raw_output, cmd.project)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+        EnvironmentSubcommand::List(args) => {
+            let args = HandleListEnvironmentsArgs {
+                token,
+                project: cmd.project,
+                sort: args.sort,
+                descending: args.descending,
+                raw: raw_output,
+            };
+
+            handle_list_environments(args).await.unwrap_or_else(|err| {
+                eprintln!("{:?}", err);
+            });
         }
 
         EnvironmentSubcommand::Get(args) => {
