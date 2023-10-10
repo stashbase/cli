@@ -73,10 +73,11 @@ pub struct ListEnvironments {
 pub enum EnvSort {
     #[clap(alias = "cre")]
     Created,
+    Name,
 
-    #[clap(alias = "alp")]
-    Alphabet,
-
+    // #[clap(alias = "alp")]
+    // Alphabet,
+    //
     #[clap(alias = "sec")]
     Secrets,
 
@@ -87,7 +88,7 @@ impl fmt::Display for EnvSort {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             EnvSort::Created => write!(f, "created"),
-            EnvSort::Alphabet => write!(f, "alphabet"),
+            EnvSort::Name => write!(f, "name"),
             EnvSort::Secrets => write!(f, "secrets"),
             EnvSort::Lock => write!(f, "lock"),
         }?;
