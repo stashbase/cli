@@ -33,6 +33,15 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         keys,
     } = args;
 
+    if keys.is_empty() {
+        let msg = format!(
+            "{} {}",
+            "Input error:".red(),
+            "no secrets to delete provided"
+        );
+        bail!("{}", msg);
+    }
+
     let validation_res = validate_input(&project, &environment, &keys);
 
     if let Err(e) = validation_res {
