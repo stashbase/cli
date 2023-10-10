@@ -8,7 +8,13 @@ use crate::{
         api_client::PostPatchRequestApiResponse,
         secrets::{RenameSecretsResponse, RenamedSecret},
     },
-    utils::{separator, spinner::request_spinner, validation::validate_secret_key_new_key},
+    utils::{
+        separator,
+        spinner::request_spinner,
+        validation::{
+            validate_environment_name, validate_project_name, validate_secret_key_new_key,
+        },
+    },
 };
 
 pub struct HandleRenameSecretsArgs {
@@ -36,13 +42,13 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
     let key_value_pairs = key_value_pairs.unwrap();
 
-    // NOTE: validation - keys + new keys
-    let keys_valid = validate_secret_key_new_key(&key_value_pairs);
+    let validation_res = validate_input(&project, &environment, &key_value_pairs);
 
-    if let Err(err) = keys_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+    if let Err(e) = validation_res {
+        bail!("{}", e);
     }
+
+    // OK
 
     let payload: Vec<_> = key_value_pairs
         .into_iter()
@@ -142,6 +148,33 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
             }
         },
         PostPatchRequestApiResponse::Err(_) => todo!(),
+    }
+
+    Ok(())
+}
+
+fn validate_input(
+    project: &str,
+    environment: &str,
+    key_value_pairs: &Vec<(String, String)>,
+) -> Result<()> {
+    let project_name_validation_res = validate_project_name(project, false);
+
+    if let Err(err) = project_name_validation_res {
+        bail!(err);
+    }
+
+    let env_validation_res = validate_environment_name(environment);
+
+    if let Err(err) = env_validation_res {
+        bail!(err);
+    }
+
+    let keys_valid_res = validate_secret_key_new_key(&key_value_pairs);
+
+    if let Err(err) = keys_valid_res {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
     }
 
     Ok(())
