@@ -99,3 +99,20 @@ pub fn validate_environment_name(value: &str) -> Result<()> {
         }
     }
 }
+
+pub fn validate_project_environment(project: &str, environment: &str) -> Result<()> {
+    let project_name_is_valid = validate_project_name(project, false);
+
+    if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    // validate env
+    let env_name_is_valid = validate_environment_name(environment);
+
+    if let Err(err) = env_name_is_valid {
+        bail!(err);
+    }
+
+    Ok(())
+}
