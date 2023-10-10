@@ -17,6 +17,7 @@ use owo_colors::OwoColorize;
 #[derive(Debug)]
 pub enum InputValidationError {
     Projects(ProjectInputValidationError),
+    Secrets(SecretsInputValidationError),
 }
 
 #[derive(Debug)]
@@ -29,6 +30,13 @@ pub enum ProjectInputValidationError {
     NewNameFormat,
     NewNameTooShort,
     SameNewName,
+}
+
+// TODO: key length (min = 2 ???)
+#[derive(Debug)]
+pub enum SecretsInputValidationError {
+    KeyFormat { multiple: bool },
+    // SameNewKey,
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -103,11 +111,41 @@ impl fmt::Display for ProjectInputValidationError {
     }
 }
 
+impl fmt::Display for SecretsInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
+        match self {
+            SecretsInputValidationError::KeyFormat { multiple } => {
+                let message = match multiple {
+                    true => "keys are invalid",
+                    false => "key is invalid",
+                };
+                msg = message;
+                hint = Some(
+                    "secret key can contain only uppercase alphanumeric characters and underscores",
+                );
+            }
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
         match self {
             InputValidationError::Projects(inner) => write!(f, "{}", inner),
+            InputValidationError::Secrets(inner) => write!(f, "{}", inner),
         }
     }
 }
