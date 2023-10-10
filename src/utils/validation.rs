@@ -2,7 +2,8 @@ use anyhow::{bail, Result};
 use regex::Regex;
 
 use crate::models::validation::{
-    InputValidationError, ProjectInputValidationError, SecretsInputValidationError,
+    EnvironmentsInputValidationError, InputValidationError, ProjectInputValidationError,
+    SecretsInputValidationError,
 };
 
 pub fn validate_project_name(value: &str, is_new_name: bool) -> Result<()> {
@@ -78,5 +79,23 @@ pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()>
         ));
     } else {
         Ok(())
+    }
+}
+
+pub fn validate_environment_name(value: &str) -> Result<()> {
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
+
+    if value.len() < 2 {
+        let err =
+            InputValidationError::Environments(EnvironmentsInputValidationError::NameTooShort);
+        bail!("{}", err)
+    } else {
+        if !regex.is_match(value) {
+            let err =
+                InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat);
+            bail!("{}", err)
+        } else {
+            Ok(())
+        }
     }
 }
