@@ -18,6 +18,7 @@ use owo_colors::OwoColorize;
 pub enum InputValidationError {
     Projects(ProjectInputValidationError),
     Secrets(SecretsInputValidationError),
+    Environments(EnvironmentsInputValidationError),
 }
 
 #[derive(Debug)]
@@ -37,6 +38,13 @@ pub enum ProjectInputValidationError {
 pub enum SecretsInputValidationError {
     KeyFormat { multiple: bool },
     // SameNewKey,
+}
+
+// TODO: check if is used as value (env cmd) or as arg (secrets cmd)
+#[derive(Debug)]
+pub enum EnvironmentsInputValidationError {
+    NameTooShort,
+    NameFormat,
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -140,12 +148,40 @@ impl fmt::Display for SecretsInputValidationError {
     }
 }
 
+impl fmt::Display for EnvironmentsInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
+        match self {
+            EnvironmentsInputValidationError::NameTooShort => {
+                msg = "argument name is too short";
+                hint = Some("minimum is 2 characters");
+            }
+            EnvironmentsInputValidationError::NameFormat => {
+                msg = "argument name is invalid";
+                hint = Some("environment name can contain only alphanumeric characters, hyphens or underscores");
+            }
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
         match self {
             InputValidationError::Projects(inner) => write!(f, "{}", inner),
             InputValidationError::Secrets(inner) => write!(f, "{}", inner),
+            InputValidationError::Environments(inner) => write!(f, "{}", inner),
         }
     }
 }
