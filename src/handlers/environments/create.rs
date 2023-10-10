@@ -42,20 +42,18 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         open,
     } = args;
 
-    // TODO: validate also env name
     let project_name_is_valid = validate_project_name(&project, false);
 
     if let Err(err) = project_name_is_valid {
         bail!(err);
     }
 
+    // validate env
     let env_name_is_valid = validate_environment_name(&name);
 
     if let Err(err) = env_name_is_valid {
         bail!(err);
     }
-
-    // validate env
 
     let mut secrets: Option<Vec<Secret>> = None;
 
