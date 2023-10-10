@@ -11,7 +11,7 @@ use crate::{
     utils::{
         interaction,
         spinner::request_spinner,
-        validation::{validate_project_name, validate_secret_keys},
+        validation::{validate_environment_name, validate_project_name, validate_secret_keys},
     },
 };
 
@@ -33,22 +33,13 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         keys,
     } = args;
 
-    // TODO: confirm
-    // TODO: validation
+    let validation_res = validate_input(&project, &environment, &keys);
 
-    let name_is_valid = validate_project_name(&project, false);
-
-    if let Err(err) = name_is_valid {
-        bail!(err);
+    if let Err(e) = validation_res {
+        bail!("{}", e);
     }
 
-    let keys_valid = validate_secret_keys(&keys);
-
-    if let Err(err) = keys_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
-    }
-
+    // op
     if delete_all {
         eprintln!(
             "{}",
@@ -196,6 +187,29 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Result<()> {
+    let name_is_valid = validate_project_name(project, false);
+
+    if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
+    let env_name_validation = validate_environment_name(environment);
+
+    if let Err(err) = env_name_validation {
+        bail!(err);
+    }
+
+    let keys_valid = validate_secret_keys(keys);
+
+    if let Err(err) = keys_valid {
+        debug!("Error: {:#?}", &err);
+        bail!(err);
     }
 
     Ok(())
