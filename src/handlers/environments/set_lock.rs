@@ -4,10 +4,7 @@ use log::{debug, error};
 use crate::{
     api::environments,
     models::api_client::PostPatchRequestApiResponse,
-    utils::{
-        spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name},
-    },
+    utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
 pub async fn handle_set_env_lock(
@@ -16,18 +13,13 @@ pub async fn handle_set_env_lock(
     environment: String,
     lock: bool,
 ) -> Result<()> {
-    // TODO: check valid name
-    let project_name_is_valid = validate_project_name(&project, false);
+    let input_valid = validate_project_environment(&project, &environment);
 
-    if let Err(err) = project_name_is_valid {
+    if let Err(err) = input_valid {
         bail!(err);
     }
 
-    let env_name_is_valid = validate_environment_name(&environment);
-    if let Err(err) = env_name_is_valid {
-        bail!(err);
-    }
-
+    // OK
     debug!("updating lock status...:");
     let mut spinner = request_spinner();
 

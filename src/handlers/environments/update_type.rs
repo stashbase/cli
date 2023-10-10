@@ -8,10 +8,7 @@ use crate::{
         api_client::PostPatchRequestApiResponse,
         environments::{EnvType, UpdateEnvironmentTypePayload},
     },
-    utils::{
-        spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name},
-    },
+    utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
 pub async fn handle_update_env_type(
@@ -20,14 +17,9 @@ pub async fn handle_update_env_type(
     environment: String,
     env_type: EnvironmentType,
 ) -> Result<()> {
-    let name_is_valid = validate_project_name(&project, false);
+    let input_valid_res = validate_project_environment(&project, &environment);
 
-    if let Err(err) = name_is_valid {
-        bail!(err);
-    }
-
-    let env_name_is_valid = validate_environment_name(&environment);
-    if let Err(err) = env_name_is_valid {
+    if let Err(err) = input_valid_res {
         bail!(err);
     }
 

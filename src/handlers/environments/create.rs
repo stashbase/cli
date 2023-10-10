@@ -14,10 +14,8 @@ use crate::{
         secrets::Secret,
     },
     utils::{
-        files::check_file_exists,
-        secrets::read_dotenv_file,
-        spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name},
+        files::check_file_exists, secrets::read_dotenv_file, spinner::request_spinner,
+        validation::validate_project_environment,
     },
 };
 
@@ -42,16 +40,9 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         open,
     } = args;
 
-    let project_name_is_valid = validate_project_name(&project, false);
+    let input_valid = validate_project_environment(&project, &name);
 
-    if let Err(err) = project_name_is_valid {
-        bail!(err);
-    }
-
-    // validate env
-    let env_name_is_valid = validate_environment_name(&name);
-
-    if let Err(err) = env_name_is_valid {
+    if let Err(err) = input_valid {
         bail!(err);
     }
 

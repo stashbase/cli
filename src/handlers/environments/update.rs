@@ -8,7 +8,11 @@ use crate::{
         environments::UpdateEnvironmentPayload,
         validation::{EnvironmentsInputValidationError, InputValidationError},
     },
-    utils::{interaction, spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        interaction,
+        spinner::request_spinner,
+        validation::{validate_environment_name, validate_project_name},
+    },
 };
 
 pub async fn handle_update_environment(
@@ -19,30 +23,10 @@ pub async fn handle_update_environment(
     new_description: Option<String>,
 ) -> Result<()> {
     // validation
-    let project_name_is_valid = validate_project_name(&project, false);
+    let input_valid_res = validate_input(&project, &environment, &new_name, &new_description);
 
-    if let Err(err) = project_name_is_valid {
+    if let Err(err) = input_valid_res {
         bail!(err);
-    }
-
-    if new_name.is_none() && new_description.is_none() {
-        let err =
-            InputValidationError::Environments(EnvironmentsInputValidationError::NoUpdateFlags);
-        bail!(err)
-    }
-
-    if let Some(new_name) = &new_name {
-        if *new_name == environment {
-            let err =
-                InputValidationError::Environments(EnvironmentsInputValidationError::SameNewName);
-            bail!(err)
-        }
-
-        let new_name_is_valid = validate_project_name(new_name, true);
-
-        if let Err(err) = new_name_is_valid {
-            bail!(err);
-        }
     }
 
     // OK
@@ -76,6 +60,42 @@ pub async fn handle_update_environment(
         }
         PostPatchRequestApiResponse::Err(e) => {
             spinner.stop_with_message(&format!("\n{}", e));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_input(
+    project: &str,
+    environment: &str,
+    new_env_name: &Option<String>,
+    new_description: &Option<String>,
+) -> Result<()> {
+    let project_name_is_valid = validate_project_name(&project, false);
+
+    if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    if new_env_name.is_none() && new_description.is_none() {
+        let err =
+            InputValidationError::Environments(EnvironmentsInputValidationError::NoUpdateFlags);
+        bail!(err)
+    }
+
+    if let Some(new_name) = &new_env_name {
+        if *new_name == environment {
+            let err =
+                InputValidationError::Environments(EnvironmentsInputValidationError::SameNewName);
+            bail!(err)
+        }
+
+        // TODO new arg
+        let new_name_is_valid = validate_environment_name(new_name);
+
+        if let Err(err) = new_name_is_valid {
+            bail!(err);
         }
     }
 
