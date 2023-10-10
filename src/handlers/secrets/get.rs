@@ -11,8 +11,8 @@ use crate::{
     },
     utils::{
         secrets::format_secrets,
-        spinner::{self, request_spinner},
-        validation::validate_project_name,
+        spinner::request_spinner,
+        validation::{validate_project_name, validate_secret_keys},
     },
 };
 
@@ -37,6 +37,13 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     let name_is_valid = validate_project_name(&project, false);
 
     if let Err(err) = name_is_valid {
+        bail!(err);
+    }
+
+    let keys_valid = validate_secret_keys(&keys);
+
+    if let Err(err) = keys_valid {
+        debug!("Error: {:#?}", &err);
         bail!(err);
     }
 
