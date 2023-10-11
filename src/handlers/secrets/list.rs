@@ -66,7 +66,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                 match keys {
                     Ok(keys) => {
                         if keys.is_empty() {
-                            spinner.stop_and_persist("", "");
+                            spinner.stop_with_message("No secrets found");
                         } else {
                             let print_string = format_secret_keys(keys, &format);
 
@@ -93,11 +93,12 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                             spinner.stop_and_persist("", "");
                             let print_string = format_secrets(secrets, &format);
 
-                            if format == SecretsFromat::List {
-                                print!("{}", print_string);
-                            } else {
-                                println!("{}", print_string);
-                            }
+                            println!("{}", print_string);
+
+                            //     if format == SecretsFromat::List {
+                            //     } else {
+                            //         println!("{}", print_string);
+                            //     }
                         }
                     }
                     Err(_) => {
