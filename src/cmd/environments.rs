@@ -4,10 +4,30 @@ use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, ValueEnum, Clone)]
 pub enum EnvironmentType {
+    #[clap(alias = "dev")]
     Development,
+
+    #[clap(alias = "test")]
     Testing,
+
+    #[clap(alias = "stg")]
     Staging,
+
+    #[clap(alias = "prod")]
     Production,
+}
+
+impl fmt::Display for EnvironmentType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            EnvironmentType::Development => write!(f, "development"),
+            EnvironmentType::Testing => write!(f, "testing"),
+            EnvironmentType::Staging => write!(f, "staging"),
+            EnvironmentType::Production => write!(f, "production"),
+        }?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Args)]
@@ -67,6 +87,10 @@ pub struct ListEnvironments {
     /// Descending order
     #[arg(value_enum, long = "desc")]
     pub descending: bool,
+
+    /// Filter environment types
+    #[arg(value_enum, name = "types", short = 't', long = "types", num_args = 1..)]
+    pub types: Vec<EnvironmentType>,
 }
 
 #[derive(Debug, ValueEnum, Clone)]
