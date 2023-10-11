@@ -70,7 +70,8 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    debug!("Err: {}", e);
                     bail!("Something went wrong")
                 }
             }
