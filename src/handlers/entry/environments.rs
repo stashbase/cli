@@ -25,6 +25,8 @@ pub async fn handle_environment_commands(
                 sort: args.sort,
                 descending: args.descending,
                 types: args.types,
+                locked: args.locked,
+                unlocked: args.unlocked,
                 raw: raw_output,
             };
 
