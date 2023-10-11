@@ -38,10 +38,10 @@ pub async fn handle_update_project(
 
     let mut spinner = request_spinner();
     let project_res = projects::update_project(token, name, &data).await;
-    spinner.stop_and_persist("", "");
 
     if let Err(err) = project_res {
-        eprintln!();
+        // eprintln!();
+        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
         bail!(err);
     }
@@ -51,12 +51,11 @@ pub async fn handle_update_project(
     match project_res {
         PostPatchRequestApiResponse::Ok(_) => {
             // println!("Project has been deleted");
-            println!("✏️ Project has been updated!");
+            spinner.stop_with_message("✏️ Project has been updated!");
         }
         PostPatchRequestApiResponse::Err(e) => {
-            // error!("{:#?}", &e);
-            // eprint!("{}", e);
-            eprintln!("{}", e);
+            // eprintln!("{}", e);
+            spinner.stop_with_message(&format!("\n{}", e));
         }
     }
 
