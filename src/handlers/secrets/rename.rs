@@ -181,7 +181,7 @@ fn validate_input(
         bail!(err);
     }
 
-    let env_validation_res = validate_environment_name(environment);
+    let env_validation_res = validate_environment_name(environment, false);
 
     if let Err(err) = env_validation_res {
         bail!(err);
