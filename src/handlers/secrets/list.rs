@@ -29,7 +29,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         only_keys,
     } = args;
 
-    let validation_res = validate_project_environment(&project, &enironment);
+    let validation_res = validate_project_environment(&project, &enironment, false);
 
     if let Err(err) = validation_res {
         bail!(err);

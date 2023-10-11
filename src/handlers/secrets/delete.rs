@@ -208,7 +208,7 @@ fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Resul
         bail!(err);
     }
 
-    let env_name_validation = validate_environment_name(environment, false);
+    let env_name_validation = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_name_validation {
         bail!(err);

@@ -81,12 +81,14 @@ pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()>
     Ok(())
 }
 
-pub fn validate_environment_name(value: &str, is_new_name: bool) -> Result<()> {
+pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if value.len() < 2 {
         let err = if is_new_name == false {
-            InputValidationError::Environments(EnvironmentsInputValidationError::NameTooShort)
+            InputValidationError::Environments(EnvironmentsInputValidationError::NameTooShort {
+                is_root,
+            })
         } else {
             InputValidationError::Environments(EnvironmentsInputValidationError::NewNameTooShort)
         };
@@ -95,7 +97,9 @@ pub fn validate_environment_name(value: &str, is_new_name: bool) -> Result<()> {
     } else {
         if !regex.is_match(value) {
             let err = if is_new_name == false {
-                InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat)
+                InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat {
+                    is_root,
+                })
             } else {
                 InputValidationError::Environments(EnvironmentsInputValidationError::NewNameFormat)
             };
@@ -107,7 +111,11 @@ pub fn validate_environment_name(value: &str, is_new_name: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_project_environment(project: &str, environment: &str) -> Result<()> {
+pub fn validate_project_environment(
+    project: &str,
+    environment: &str,
+    env_is_root: bool,
+) -> Result<()> {
     let project_name_is_valid = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_is_valid {
@@ -115,7 +123,7 @@ pub fn validate_project_environment(project: &str, environment: &str) -> Result<
     }
 
     // validate env
-    let env_name_is_valid = validate_environment_name(environment, false);
+    let env_name_is_valid = validate_environment_name(environment, false, env_is_root);
 
     if let Err(err) = env_name_is_valid {
         bail!(err);
