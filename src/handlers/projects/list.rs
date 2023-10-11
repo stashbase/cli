@@ -87,9 +87,10 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
-            error!("{:#?}", &e);
-            eprint!("{}", e);
+            spinner.stop_with_message(&format!("{}", e));
+            // spinner.stop_and_persist("", "");
+            // error!("{:#?}", &e);
+            // eprint!("{}", e);
         }
     }
 
