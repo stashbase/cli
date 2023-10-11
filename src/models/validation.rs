@@ -13,6 +13,9 @@ pub enum ProjectInputValidationError {
     NameTooShort { is_root: bool },
     NameFormat { is_root: bool },
 
+    SearchTooShort,
+    SearchFormat,
+
     // update
     NoUpdateFlags,
     NewNameFormat,
@@ -83,6 +86,15 @@ impl fmt::Display for ProjectInputValidationError {
             ProjectInputValidationError::SameNewName => {
                 msg = "name option value is equals to name";
                 hint = Some("use different name option value");
+            }
+            ProjectInputValidationError::SearchTooShort => {
+                msg = "argument search is too short";
+                hint = Some("minimum is 2 characters");
+            }
+            ProjectInputValidationError::SearchFormat => {
+                msg = "argument search is invalid";
+                hint =
+                    Some("search can contain only alphanumeric characters, hyphens or underscores");
             }
         }
 
