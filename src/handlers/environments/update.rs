@@ -92,7 +92,7 @@ pub fn validate_input(
         }
 
         // TODO new arg
-        let new_name_is_valid = validate_environment_name(new_name);
+        let new_name_is_valid = validate_environment_name(new_name, true);
 
         if let Err(err) = new_name_is_valid {
             bail!(err);
