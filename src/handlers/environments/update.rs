@@ -72,7 +72,7 @@ pub fn validate_input(
     new_env_name: &Option<String>,
     new_description: &Option<String>,
 ) -> Result<()> {
-    let project_name_is_valid = validate_project_name(&project, false);
+    let project_name_is_valid = validate_project_name(&project, false, false);
 
     if let Err(err) = project_name_is_valid {
         bail!(err);
