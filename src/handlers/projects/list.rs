@@ -21,9 +21,8 @@ pub async fn handle_list_projects(
     let project_res =
         projects::list_projects(token, sort.unwrap_or(Sort::Created), descending).await;
 
-    spinner.stop_and_persist("", "");
-
     if let Err(err) = project_res {
+        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
         bail!(err);
     }
@@ -34,6 +33,7 @@ pub async fn handle_list_projects(
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
             let projects = serde_json::from_str::<Vec<ProjectWithCount>>(&data.text);
+
             match projects {
                 Ok(projects) => {
                     debug!("{:#?}", &projects);
@@ -44,21 +44,27 @@ pub async fn handle_list_projects(
 
                         println!("{}", pretty);
                     } else {
-                        for (i, p) in projects.iter().enumerate() {
-                            if i == projects.len() - 1 {
-                                print!("{}", p);
-                            } else {
-                                println!("{}", p);
+                        if projects.is_empty() {
+                            spinner.stop_with_message("No projects found");
+                        } else {
+                            for (i, p) in projects.iter().enumerate() {
+                                if i == projects.len() - 1 {
+                                    print!("{}", p);
+                                } else {
+                                    println!("{}", p);
+                                }
                             }
                         }
                     }
                 }
                 Err(_) => {
+                    spinner.stop_and_persist("", "");
                     bail!("Something went wrong")
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
+            spinner.stop_and_persist("", "");
             error!("{:#?}", &e);
             eprint!("{}", e);
         }
