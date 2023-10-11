@@ -80,6 +80,10 @@ pub enum EnvironmentSubcommand {
 #[derive(Debug, Args)]
 // TODO: order/group by type + locked ???
 pub struct ListEnvironments {
+    /// Search name
+    #[arg(value_enum, long = "search")]
+    pub search: Option<String>,
+
     /// Filter environment types
     #[arg(value_enum, name = "types", short = 't', long = "types", num_args = 1..)]
     pub types: Vec<EnvironmentType>,
