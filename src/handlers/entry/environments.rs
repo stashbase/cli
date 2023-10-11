@@ -24,6 +24,7 @@ pub async fn handle_environment_commands(
                 project: cmd.project,
                 sort: args.sort,
                 descending: args.descending,
+                types: args.types,
                 raw: raw_output,
             };
 

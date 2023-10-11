@@ -4,7 +4,7 @@ use log::debug;
 
 use crate::{
     api::environments,
-    cmd::environments::EnvSort,
+    cmd::environments::{EnvSort, EnvironmentType},
     models::{api_client::GetRequestApiResponse, environments::Environment},
     utils::{spinner::request_spinner, validation::validate_project_name},
 };
@@ -14,6 +14,7 @@ pub struct HandleListEnvironmentsArgs {
     pub project: String,
     pub sort: Option<EnvSort>,
     pub descending: bool,
+    pub types: Vec<EnvironmentType>,
     pub raw: bool,
 }
 
@@ -23,8 +24,11 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         project,
         sort,
         descending,
+        types,
         raw,
     } = args;
+
+    debug!("{:#?}", types);
 
     let name_is_valid = validate_project_name(&project, false, false);
 
@@ -35,8 +39,14 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     debug!("listing environments...:");
 
     let mut spinner = request_spinner();
-    let env_res =
-        environments::list(token, project, sort.unwrap_or(EnvSort::Created), descending).await;
+    let env_res = environments::list(
+        token,
+        project,
+        sort.unwrap_or(EnvSort::Created),
+        descending,
+        types,
+    )
+    .await;
 
     spinner.stop_and_persist("", "");
 

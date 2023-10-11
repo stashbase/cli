@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use super::client;
 use crate::{
-    cmd::environments::EnvSort,
+    cmd::environments::{EnvSort, EnvironmentType},
     models::{
         api_client::{
             ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
@@ -19,11 +19,19 @@ pub async fn list(
     project: String,
     sort: EnvSort,
     descending: bool,
+    types: Vec<EnvironmentType>,
 ) -> Result<GetRequestApiResponse> {
     let mut query = vec![("sort".to_string(), format!("{}", sort))];
 
     if descending == true {
         query.push(("descending".to_string(), "true".to_string()));
+    }
+
+    if !types.is_empty() {
+        let strings: Vec<_> = types.into_iter().map(|t| t.to_string()).collect::<_>();
+        let joined = strings.join(",");
+
+        query.push(("types".to_string(), joined));
     }
 
     let args = RequestArgs {
