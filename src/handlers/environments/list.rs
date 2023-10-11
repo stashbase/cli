@@ -3,7 +3,7 @@ use colored_json::to_colored_json_auto;
 use log::debug;
 
 use crate::{
-    api::environments,
+    api::environments::{self, ListEnvsRequestArgs},
     cmd::environments::{EnvSort, EnvironmentType},
     models::{api_client::GetRequestApiResponse, environments::Environment},
     utils::{spinner::request_spinner, validation::validate_project_name},
@@ -15,6 +15,8 @@ pub struct HandleListEnvironmentsArgs {
     pub sort: Option<EnvSort>,
     pub descending: bool,
     pub types: Vec<EnvironmentType>,
+    pub locked: bool,
+    pub unlocked: bool,
     pub raw: bool,
 }
 
@@ -25,6 +27,8 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         sort,
         descending,
         types,
+        locked,
+        unlocked,
         raw,
     } = args;
 
@@ -39,14 +43,18 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     debug!("listing environments...:");
 
     let mut spinner = request_spinner();
-    let env_res = environments::list(
+
+    let args = ListEnvsRequestArgs {
         token,
         project,
-        sort.unwrap_or(EnvSort::Created),
-        descending,
         types,
-    )
-    .await;
+        locked,
+        unlocked,
+        sort: sort.unwrap_or(EnvSort::Created),
+        descending,
+    };
+
+    let env_res = environments::list(args).await;
 
     spinner.stop_and_persist("", "");
 

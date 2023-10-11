@@ -14,13 +14,27 @@ use crate::{
     },
 };
 
-pub async fn list(
-    token: String,
-    project: String,
-    sort: EnvSort,
-    descending: bool,
-    types: Vec<EnvironmentType>,
-) -> Result<GetRequestApiResponse> {
+pub struct ListEnvsRequestArgs {
+    pub token: String,
+    pub project: String,
+    pub types: Vec<EnvironmentType>,
+    pub locked: bool,
+    pub unlocked: bool,
+    pub sort: EnvSort,
+    pub descending: bool,
+}
+
+pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
+    let ListEnvsRequestArgs {
+        token,
+        project,
+        types,
+        locked,
+        unlocked,
+        sort,
+        descending,
+    } = args;
+
     let mut query = vec![("sort".to_string(), format!("{}", sort))];
 
     if descending == true {
@@ -28,10 +42,18 @@ pub async fn list(
     }
 
     if !types.is_empty() {
-        let strings: Vec<_> = types.into_iter().map(|t| t.to_string()).collect::<_>();
+        let strings: Vec<_> = types.into_iter().map(|t| t.to_string()).collect();
         let joined = strings.join(",");
 
         query.push(("types".to_string(), joined));
+    }
+
+    if locked && !unlocked {
+        query.push(("status".to_string(), "locked".to_string()));
+    }
+
+    if !locked && unlocked {
+        query.push(("status".to_string(), "unlocked".to_string()));
     }
 
     let args = RequestArgs {
