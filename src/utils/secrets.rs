@@ -15,11 +15,11 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
             for (i, p) in secrets.iter().enumerate() {
                 // is last
                 if i == secrets.len() - 1 {
-                    if p.description.is_some() {
-                        //     text_to_print.push_str(&format!("{}", p))
-                        // } else {
-                        text_to_print.push_str(&format!("{}", p))
-                    }
+                    // if p.description.is_some() {
+                    //     text_to_print.push_str(&format!("{}", p))
+                    // } else {
+                    text_to_print.push_str(&format!("{}", p))
+                    // }
                 } else {
                     if i != 0 && p.description.is_some() {
                         text_to_print.push_str(&format!("\n{}\n", p))
