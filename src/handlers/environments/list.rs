@@ -56,9 +56,8 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
     let env_res = environments::list(args).await;
 
-    spinner.stop_and_persist("", "");
-
     if let Err(err) = env_res {
+        spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
         bail!(err);
     }
@@ -74,16 +73,23 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                     debug!("{:#?}", &envs);
 
                     if raw {
+                        spinner.stop_and_persist("", "");
                         let value = serde_json::to_value(&envs).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
 
                         println!("{}", pretty);
                     } else {
-                        for (i, p) in envs.iter().enumerate() {
-                            if i == envs.len() - 1 {
-                                print!("{}", p);
-                            } else {
-                                println!("{}", p);
+                        if envs.is_empty() {
+                            spinner.stop_with_message("No environments found");
+                        } else {
+                            spinner.stop_and_persist("", "");
+
+                            for (i, p) in envs.iter().enumerate() {
+                                if i == envs.len() - 1 {
+                                    print!("{}", p);
+                                } else {
+                                    println!("{}", p);
+                                }
                             }
                         }
                     }
