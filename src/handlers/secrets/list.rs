@@ -40,9 +40,8 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     let mut spinner = request_spinner();
     let res = secrets::list(token, project, enironment, only_keys).await;
 
-    spinner.stop_and_persist("", "");
-
     if let Err(err) = res {
+        spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
         bail!(err);
     }
@@ -56,11 +55,17 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
 
                 match keys {
                     Ok(keys) => {
-                        let print_string = format_secret_keys(keys, &format);
+                        if keys.is_empty() {
+                            spinner.stop_and_persist("", "");
+                        } else {
+                            let print_string = format_secret_keys(keys, &format);
 
-                        println!("{}", print_string);
+                            println!("{}", print_string);
+                        }
                     }
                     Err(e) => {
+                        debug!("{}", e);
+                        spinner.stop_and_persist("", "");
                         bail!("Something went wrong")
                     }
                 }
@@ -72,21 +77,28 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                     Ok(secrets) => {
                         debug!("{:#?}", &secrets);
 
-                        let print_string = format_secrets(secrets, &format);
-
-                        if format == SecretsFromat::List {
-                            print!("{}", print_string);
+                        if secrets.is_empty() {
+                            spinner.stop_with_message("No secrets found");
                         } else {
-                            println!("{}", print_string);
+                            spinner.stop_and_persist("", "");
+                            let print_string = format_secrets(secrets, &format);
+
+                            if format == SecretsFromat::List {
+                                print!("{}", print_string);
+                            } else {
+                                println!("{}", print_string);
+                            }
                         }
                     }
                     Err(_) => {
+                        spinner.stop_and_persist("", "");
                         bail!("Something went wrong")
                     }
                 }
             }
         },
         GetRequestApiResponse::Err(e) => {
+            spinner.stop_and_persist("", "");
             bail!("{}", e);
         }
     }
