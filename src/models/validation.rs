@@ -170,7 +170,7 @@ impl fmt::Display for EnvironmentsInputValidationError {
                 hint = Some("environment name can contain only alphanumeric characters, hyphens or underscores");
             }
             EnvironmentsInputValidationError::SameNewName => {
-                msg = "name option value is equals to name";
+                msg = "new name option value is equals to name";
                 hint = Some("use different name option value");
             }
             EnvironmentsInputValidationError::NoUpdateFlags => {
@@ -178,7 +178,7 @@ impl fmt::Display for EnvironmentsInputValidationError {
                 hint = Some("use one of: -n (--name), -d (--description)");
             }
             EnvironmentsInputValidationError::NewNameFormat => {
-                msg = "name option value is invalid";
+                msg = "new name option value is invalid";
                 hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
             }
             EnvironmentsInputValidationError::NewNameTooShort => {
