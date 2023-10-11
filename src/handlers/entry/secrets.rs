@@ -19,6 +19,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
                 only_keys: args.only_keys,
                 project: cmd.project,
                 environment: cmd.environment,
+                search: args.search,
                 format: args.format.unwrap_or(if raw_output {
                     SecretsFromat::Json
                 } else {
