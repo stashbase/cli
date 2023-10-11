@@ -17,6 +17,7 @@ use crate::{
 pub struct ListEnvsRequestArgs {
     pub token: String,
     pub project: String,
+    pub search: Option<String>,
     pub types: Vec<EnvironmentType>,
     pub locked: bool,
     pub unlocked: bool,
@@ -28,6 +29,7 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
     let ListEnvsRequestArgs {
         token,
         project,
+        search,
         types,
         locked,
         unlocked,
@@ -39,6 +41,10 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
 
     if descending == true {
         query.push(("descending".to_string(), "true".to_string()));
+    }
+
+    if let Some(search) = search {
+        query.push(("search".to_string(), search));
     }
 
     if !types.is_empty() {
