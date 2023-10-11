@@ -44,7 +44,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         bail!("{}", msg);
     }
 
-    let proj_env_validation_res = validate_project_environment(&project, &environment);
+    let proj_env_validation_res = validate_project_environment(&project, &environment, false);
 
     if let Err(err) = proj_env_validation_res {
         bail!(err);
@@ -181,7 +181,7 @@ fn validate_input(
         bail!(err);
     }
 
-    let env_validation_res = validate_environment_name(environment, false);
+    let env_validation_res = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_validation_res {
         bail!(err);
