@@ -175,7 +175,7 @@ fn validate_input(
     environment: &str,
     key_value_pairs: &Vec<(String, String)>,
 ) -> Result<()> {
-    let project_name_validation_res = validate_project_name(project, false);
+    let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
         bail!(err);

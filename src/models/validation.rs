@@ -23,8 +23,8 @@ pub enum InputValidationError {
 
 #[derive(Debug)]
 pub enum ProjectInputValidationError {
-    NameTooShort,
-    NameFormat,
+    NameTooShort { is_root: bool },
+    NameFormat { is_root: bool },
 
     // update
     NoUpdateFlags,
@@ -60,13 +60,23 @@ impl fmt::Display for ProjectInputValidationError {
         let hint: Option<&str>;
 
         match self {
-            ProjectInputValidationError::NameTooShort => {
-                msg = "argument name is too short";
-                hint = Some("minimum is 2 characters");
+            ProjectInputValidationError::NameTooShort { is_root } => {
+                if *is_root {
+                    msg = "argument name is too short";
+                    hint = Some("minimum is 2 characters");
+                } else {
+                    msg = "project argument is too short";
+                    hint = Some("minimum is 2 characters");
+                }
             }
-            ProjectInputValidationError::NameFormat => {
-                msg = "argument name is invalid";
-                hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+            ProjectInputValidationError::NameFormat { is_root } => {
+                if *is_root {
+                    msg = "argument name is invalid";
+                    hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+                } else {
+                    msg = "argument project is invalid";
+                    hint = Some("project name can contain only alphanumeric characters, hyphens or underscores");
+                }
             }
             ProjectInputValidationError::NoUpdateFlags => {
                 msg = "no update flag specified";

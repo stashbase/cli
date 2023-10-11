@@ -202,7 +202,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
 }
 
 fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Result<()> {
-    let name_is_valid = validate_project_name(project, false);
+    let name_is_valid = validate_project_name(project, false, false);
 
     if let Err(err) = name_is_valid {
         bail!(err);

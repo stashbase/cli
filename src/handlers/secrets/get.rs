@@ -111,7 +111,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
 }
 
 fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Result<()> {
-    let project_name_validation_res = validate_project_name(project, false);
+    let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
         bail!(err);
