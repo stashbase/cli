@@ -67,7 +67,7 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
 }
 
 fn validate_input(project: &str, environment: &str, key: &str) -> Result<()> {
-    let project_name_validation_res = validate_project_name(project, false);
+    let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
         bail!(err);

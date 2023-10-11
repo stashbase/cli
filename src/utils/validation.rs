@@ -6,12 +6,12 @@ use crate::models::validation::{
     SecretsInputValidationError,
 };
 
-pub fn validate_project_name(value: &str, is_new_name: bool) -> Result<()> {
+pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
     if value.len() < 2 {
         let err = if is_new_name {
             InputValidationError::Projects(ProjectInputValidationError::NewNameTooShort)
         } else {
-            InputValidationError::Projects(ProjectInputValidationError::NameTooShort)
+            InputValidationError::Projects(ProjectInputValidationError::NameTooShort { is_root })
         };
 
         bail!(err)
@@ -21,9 +21,9 @@ pub fn validate_project_name(value: &str, is_new_name: bool) -> Result<()> {
 
     if !regex.is_match(value) {
         let err = if is_new_name {
-            InputValidationError::Projects(ProjectInputValidationError::NameFormat)
-        } else {
             InputValidationError::Projects(ProjectInputValidationError::NewNameFormat)
+        } else {
+            InputValidationError::Projects(ProjectInputValidationError::NameFormat { is_root })
         };
 
         bail!(err)
@@ -108,7 +108,7 @@ pub fn validate_environment_name(value: &str, is_new_name: bool) -> Result<()> {
 }
 
 pub fn validate_project_environment(project: &str, environment: &str) -> Result<()> {
-    let project_name_is_valid = validate_project_name(project, false);
+    let project_name_is_valid = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_is_valid {
         bail!(err);

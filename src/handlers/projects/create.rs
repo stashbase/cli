@@ -12,7 +12,7 @@ pub async fn handle_create_project(
     name: String,
     description: Option<String>,
 ) -> Result<()> {
-    let name_is_valid = validate_project_name(&name, false);
+    let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
         bail!(err);

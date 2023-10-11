@@ -26,7 +26,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         raw,
     } = args;
 
-    let name_is_valid = validate_project_name(&project, false);
+    let name_is_valid = validate_project_name(&project, false, false);
 
     if let Err(err) = name_is_valid {
         bail!(err);
