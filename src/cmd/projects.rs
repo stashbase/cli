@@ -38,6 +38,10 @@ pub enum ProjectSubcommand {
 #[derive(Debug, Args)]
 // TODO: perPage, pages + other args
 pub struct ListProjects {
+    /// Search name
+    #[arg(value_enum, long = "search")]
+    pub search: Option<String>,
+
     /// Sort projects by
     #[arg(value_enum, short = 's', long = "sort")]
     pub sort: Option<Sort>,
