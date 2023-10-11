@@ -164,7 +164,10 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
                 ));
             }
         },
-        PostPatchRequestApiResponse::Err(_) => todo!(),
+        PostPatchRequestApiResponse::Err(e) => {
+            debug!("Error: {}", e);
+            spinner.stop_with_message(&format!("{}", e));
+        }
     }
 
     Ok(())

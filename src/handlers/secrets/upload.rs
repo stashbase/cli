@@ -71,7 +71,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
                 }
                 PostPatchRequestApiResponse::Err(e) => {
                     debug!("Error: {}", e);
-                    spinner.stop_with_message(&format!("\n{}", e));
+                    spinner.stop_with_message(&format!("{}", e));
                 }
             }
         }
