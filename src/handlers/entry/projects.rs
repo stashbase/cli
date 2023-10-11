@@ -1,19 +1,29 @@
 use crate::{
     cmd::projects::{ProjectCommands, ProjectSubcommand},
     handlers::projects::{
-        create::handle_create_project, delete::handle_delete_project, get::handle_get_project,
-        list::handle_list_projects, open::handle_open_project, update::handle_update_project,
+        create::handle_create_project,
+        delete::handle_delete_project,
+        get::handle_get_project,
+        list::{handle_list_projects, HandleListProjectsArgs},
+        open::handle_open_project,
+        update::handle_update_project,
     },
 };
 
 pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_output: bool) {
     match cmd.subcommand {
         ProjectSubcommand::List(args) => {
-            handle_list_projects(token, args.sort, args.descending, raw_output)
-                .await
-                .unwrap_or_else(|err| {
-                    println!("{:?}", err);
-                });
+            let args = HandleListProjectsArgs {
+                token,
+                search: args.search,
+                sort: args.sort,
+                descending: args.descending,
+                raw: raw_output,
+            };
+
+            handle_list_projects(args).await.unwrap_or_else(|err| {
+                println!("{:?}", err);
+            });
         }
 
         ProjectSubcommand::Get(args) => {
