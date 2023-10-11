@@ -15,6 +15,7 @@ use super::client;
 
 pub async fn list_projects(
     token: String,
+    search: Option<String>,
     sort: Sort,
     descending: bool,
 ) -> Result<GetRequestApiResponse> {
@@ -22,6 +23,10 @@ pub async fn list_projects(
 
     if descending == true {
         query.push(("descending".to_string(), "true".to_string()));
+    }
+
+    if let Some(search) = search {
+        query.push(("search".to_string(), search));
     }
 
     let args = RequestArgs {

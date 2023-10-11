@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
 use log::{debug, error};
 
@@ -6,20 +6,40 @@ use crate::{
     api::projects,
     cmd::projects::Sort,
     models::{api_client::GetRequestApiResponse, projects::ProjectWithCount},
-    utils::spinner::request_spinner,
+    utils::{spinner::request_spinner, validation::validate_project_search},
 };
 
-pub async fn handle_list_projects(
-    token: String,
-    sort: Option<Sort>,
-    descending: bool,
-    raw: bool,
-) -> anyhow::Result<()> {
+pub struct HandleListProjectsArgs {
+    pub token: String,
+    pub search: Option<String>,
+    pub sort: Option<Sort>,
+    pub descending: bool,
+    pub raw: bool,
+}
+
+pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
+    let HandleListProjectsArgs {
+        token,
+        search,
+        sort,
+        descending,
+        raw,
+    } = args;
+
+    // validate search
+    if let Some(search) = &search {
+        let search_validation_res = validate_project_search(&search);
+
+        if let Err(err) = search_validation_res {
+            bail!(err);
+        }
+    }
+
     debug!("listing projects...:");
 
     let mut spinner = request_spinner();
     let project_res =
-        projects::list_projects(token, sort.unwrap_or(Sort::Created), descending).await;
+        projects::list_projects(token, search, sort.unwrap_or(Sort::Created), descending).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
@@ -42,11 +62,14 @@ pub async fn handle_list_projects(
                         let value = serde_json::to_value(&projects).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
 
+                        spinner.stop_and_persist("", "");
                         println!("{}", pretty);
                     } else {
                         if projects.is_empty() {
                             spinner.stop_with_message("No projects found");
                         } else {
+                            spinner.stop_and_persist("", "");
+
                             for (i, p) in projects.iter().enumerate() {
                                 if i == projects.len() - 1 {
                                     print!("{}", p);
