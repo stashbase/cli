@@ -51,6 +51,8 @@ pub struct Environment {
 
     #[serde(rename = "type")]
     pub env_type: EnvType,
+
+    pub secret_count: usize,
 }
 
 impl Display for Environment {
@@ -66,6 +68,8 @@ impl Display for Environment {
         if let Some(description) = &self.description {
             writeln!(f, "{} {}", "Description:".green(), description)?;
         }
+
+        writeln!(f, "{} {}", "Secret count:".green(), self.secret_count)?;
 
         Ok(())
     }
