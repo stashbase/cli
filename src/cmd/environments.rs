@@ -80,6 +80,18 @@ pub enum EnvironmentSubcommand {
 #[derive(Debug, Args)]
 // TODO: order/group by type + locked ???
 pub struct ListEnvironments {
+    /// Filter environment types
+    #[arg(value_enum, name = "types", short = 't', long = "types", num_args = 1..)]
+    pub types: Vec<EnvironmentType>,
+
+    /// Filter locked
+    #[arg(value_enum, long = "locked")]
+    pub locked: bool,
+
+    /// Filter unlocked
+    #[arg(value_enum, long = "unlocked")]
+    pub unlocked: bool,
+
     /// Sort projects by
     #[arg(value_enum, short = 's', long = "sort")]
     pub sort: Option<EnvSort>,
@@ -87,10 +99,6 @@ pub struct ListEnvironments {
     /// Descending order
     #[arg(value_enum, long = "desc")]
     pub descending: bool,
-
-    /// Filter environment types
-    #[arg(value_enum, name = "types", short = 't', long = "types", num_args = 1..)]
-    pub types: Vec<EnvironmentType>,
 }
 
 #[derive(Debug, ValueEnum, Clone)]
