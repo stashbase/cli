@@ -68,6 +68,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         if keys.is_empty() {
                             spinner.stop_with_message("No secrets found");
                         } else {
+                            spinner.stop_and_persist("", "");
                             let print_string = format_secret_keys(keys, &format);
 
                             println!("{}", print_string);
