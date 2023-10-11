@@ -27,6 +27,9 @@ pub enum ProjectInputValidationError {
 #[derive(Debug)]
 pub enum SecretsInputValidationError {
     KeyFormat { multiple: bool },
+
+    SearchTooShort,
+    SearchFormat,
     // update
     // SameNewKey,
 }
@@ -124,6 +127,16 @@ impl fmt::Display for SecretsInputValidationError {
                 hint = Some(
                     "secret key can contain only uppercase alphanumeric characters and underscores",
                 );
+            }
+            SecretsInputValidationError::SearchFormat => {
+                msg = "argument search is invalid";
+                hint = Some(
+                    "secret key can contain only uppercase alphanumeric characters and underscores",
+                );
+            }
+            SecretsInputValidationError::SearchTooShort => {
+                msg = "argument search is too short";
+                hint = Some("minimum is 2 characters");
             }
         }
 
