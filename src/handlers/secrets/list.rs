@@ -8,7 +8,7 @@ use crate::{
     utils::{
         secrets::{format_secret_keys, format_secrets},
         spinner::request_spinner,
-        validation::validate_project_environment,
+        validation::{validate_project_environment, validate_secret_search},
     },
 };
 
@@ -16,6 +16,7 @@ pub struct HandleListSecretsArgs {
     pub token: String,
     pub project: String,
     pub environment: String,
+    pub search: Option<String>,
     pub format: SecretsFromat,
     pub only_keys: bool,
 }
@@ -25,6 +26,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         token,
         project,
         environment: enironment,
+        search,
         format,
         only_keys,
     } = args;
@@ -35,10 +37,18 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         bail!(err);
     }
 
+    if let Some(search) = &search {
+        let search_validation_res = validate_secret_search(search);
+
+        if let Err(err) = search_validation_res {
+            bail!(err);
+        }
+    }
+
     debug!("listing secrets...:");
 
     let mut spinner = request_spinner();
-    let res = secrets::list(token, project, enironment, only_keys).await;
+    let res = secrets::list(token, project, enironment, search, only_keys).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
