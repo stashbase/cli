@@ -8,46 +8,43 @@ use crate::models::validation::{
 
 pub fn validate_project_name(value: &str, is_new_name: bool) -> Result<()> {
     if value.len() < 2 {
-        if is_new_name == false {
-            bail!(InputValidationError::Projects(
-                ProjectInputValidationError::NameTooShort
-            ))
+        let err = if is_new_name {
+            InputValidationError::Projects(ProjectInputValidationError::NewNameTooShort)
         } else {
-            bail!(InputValidationError::Projects(
-                ProjectInputValidationError::NewNameTooShort
-            ));
-        }
+            InputValidationError::Projects(ProjectInputValidationError::NameTooShort)
+        };
+
+        bail!(err)
     }
+
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if !regex.is_match(value) {
-        if is_new_name == false {
-            bail!(InputValidationError::Projects(
-                ProjectInputValidationError::NameFormat
-            ))
+        let err = if is_new_name {
+            InputValidationError::Projects(ProjectInputValidationError::NameFormat)
         } else {
-            bail!(InputValidationError::Projects(
-                ProjectInputValidationError::NewNameFormat
-            ))
-        }
+            InputValidationError::Projects(ProjectInputValidationError::NewNameFormat)
+        };
+
+        bail!(err)
     }
 
     Ok(())
 }
-
-// TODO: validate env name
 
 // name of secret
 pub fn validate_secret_key(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
     if !regex.is_match(value) {
-        bail!(InputValidationError::Secrets(
-            SecretsInputValidationError::KeyFormat { multiple: false }
-        ));
-    } else {
-        Ok(())
+        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
+            multiple: false,
+        });
+
+        bail!(err)
     }
+
+    Ok(())
 }
 
 pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
@@ -57,13 +54,13 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
 
     if invalid.is_some() {
         let multiple = values.len() > 1;
+        let err =
+            InputValidationError::Secrets(SecretsInputValidationError::KeyFormat { multiple });
 
-        bail!(InputValidationError::Secrets(
-            SecretsInputValidationError::KeyFormat { multiple }
-        ));
-    } else {
-        Ok(())
+        bail!(err)
     }
+
+    Ok(())
 }
 
 pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()> {
@@ -74,30 +71,40 @@ pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()>
         .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
 
     if invalid.is_some() {
-        bail!(InputValidationError::Secrets(
-            SecretsInputValidationError::KeyFormat { multiple: true }
-        ));
-    } else {
-        Ok(())
+        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
+            multiple: true,
+        });
+
+        bail!(err)
     }
+
+    Ok(())
 }
 
-pub fn validate_environment_name(value: &str) -> Result<()> {
+pub fn validate_environment_name(value: &str, is_new_name: bool) -> Result<()> {
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if value.len() < 2 {
-        let err =
-            InputValidationError::Environments(EnvironmentsInputValidationError::NameTooShort);
-        bail!("{}", err)
+        let err = if is_new_name == false {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NameTooShort)
+        } else {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NewNameTooShort)
+        };
+
+        bail!(err)
     } else {
         if !regex.is_match(value) {
-            let err =
-                InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat);
-            bail!("{}", err)
-        } else {
-            Ok(())
+            let err = if is_new_name == false {
+                InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat)
+            } else {
+                InputValidationError::Environments(EnvironmentsInputValidationError::NewNameFormat)
+            };
+
+            bail!(err)
         }
     }
+
+    Ok(())
 }
 
 pub fn validate_project_environment(project: &str, environment: &str) -> Result<()> {
@@ -108,7 +115,7 @@ pub fn validate_project_environment(project: &str, environment: &str) -> Result<
     }
 
     // validate env
-    let env_name_is_valid = validate_environment_name(environment);
+    let env_name_is_valid = validate_environment_name(environment, false);
 
     if let Err(err) = env_name_is_valid {
         bail!(err);
