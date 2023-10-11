@@ -59,7 +59,7 @@ pub async fn handle_update_environment(
             spinner.stop_with_message("✏️ Environment has been updated!");
         }
         PostPatchRequestApiResponse::Err(e) => {
-            spinner.stop_with_message(&format!("\n{}", e));
+            spinner.stop_with_message(&format!("{}", e));
         }
     }
 
