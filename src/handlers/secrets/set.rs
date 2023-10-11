@@ -115,7 +115,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         }
         PostPatchRequestApiResponse::Err(e) => {
             debug!("Error: {}", e);
-            spinner.stop_with_message(&format!("\n{}", e));
+            spinner.stop_with_message(&format!("{}", e));
         }
     }
 

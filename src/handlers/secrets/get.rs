@@ -90,7 +90,6 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
                             //     print!("{}", print_string);
                             // } else {
                             // }
-
                         }
                     }
                     Err(e) => {
@@ -104,7 +103,9 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
             }
         }
         PostPatchRequestApiResponse::Err(e) => {
-            bail!("{}", e);
+            // bail!("{}", e);
+            debug!("Error: {}", e);
+            eprintln!("{}", e);
         }
     }
 
