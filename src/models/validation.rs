@@ -34,6 +34,9 @@ pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
     NameFormat { is_root: bool },
 
+    SearchTooShort,
+    SearchFormat,
+
     // update
     SameNewName,
     NoUpdateFlags,
@@ -164,6 +167,15 @@ impl fmt::Display for EnvironmentsInputValidationError {
             EnvironmentsInputValidationError::NewNameTooShort => {
                 msg = "name option value is too short";
                 hint = Some("minimum is 2 characters");
+            }
+            EnvironmentsInputValidationError::SearchTooShort => {
+                msg = "argument search is too short";
+                hint = Some("minimum is 2 characters");
+            }
+            EnvironmentsInputValidationError::SearchFormat => {
+                msg = "argument search is invalid";
+                hint =
+                    Some("search can contain only alphanumeric characters, hyphens or underscores");
             }
         }
 
