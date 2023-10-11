@@ -49,7 +49,7 @@ pub async fn handle_delete_environment(
         DeleteRequestApiResponse::Err(e) => {
             // error!("{:#?}", &e);
             // eprint!("{}", e);
-            spinner.stop_with_message(&format!("\n{}", e));
+            spinner.stop_with_message(&format!("{}", e));
         }
     }
 
