@@ -78,6 +78,12 @@ pub fn validate_input(
         bail!(err);
     }
 
+    let env_name_validation_res = validate_environment_name(environment, false);
+
+    if let Err(err) = env_name_validation_res {
+        bail!(err);
+    }
+
     if new_env_name.is_none() && new_description.is_none() {
         let err =
             InputValidationError::Environments(EnvironmentsInputValidationError::NoUpdateFlags);
