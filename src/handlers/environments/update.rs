@@ -78,7 +78,7 @@ pub fn validate_input(
         bail!(err);
     }
 
-    let env_name_validation_res = validate_environment_name(environment, false);
+    let env_name_validation_res = validate_environment_name(environment, false, true);
 
     if let Err(err) = env_name_validation_res {
         bail!(err);
@@ -98,7 +98,7 @@ pub fn validate_input(
         }
 
         // TODO new arg
-        let new_name_is_valid = validate_environment_name(new_name, true);
+        let new_name_is_valid = validate_environment_name(new_name, true, true);
 
         if let Err(err) = new_name_is_valid {
             bail!(err);

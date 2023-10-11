@@ -17,7 +17,7 @@ pub async fn handle_update_env_type(
     environment: String,
     env_type: EnvironmentType,
 ) -> Result<()> {
-    let input_valid_res = validate_project_environment(&project, &environment);
+    let input_valid_res = validate_project_environment(&project, &environment, true);
 
     if let Err(err) = input_valid_res {
         bail!(err);

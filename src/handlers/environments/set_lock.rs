@@ -13,7 +13,7 @@ pub async fn handle_set_env_lock(
     environment: String,
     lock: bool,
 ) -> Result<()> {
-    let input_valid = validate_project_environment(&project, &environment);
+    let input_valid = validate_project_environment(&project, &environment, true);
 
     if let Err(err) = input_valid {
         bail!(err);

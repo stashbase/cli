@@ -1,17 +1,4 @@
-// #[derive(Debug)]
-// pub struct InputValidationError {
-//     pub message: String,
-//     pub hint: Option<String>,
-// }
-//
-// #[derive(Debug)]
-// pub enum ProjectInputValidationError {
-//     NameTooShort,
-// }
-//
-
 use core::fmt;
-
 use owo_colors::OwoColorize;
 
 #[derive(Debug)]
@@ -44,8 +31,8 @@ pub enum SecretsInputValidationError {
 // TODO: check if is used as value (env cmd) or as arg (secrets cmd)
 #[derive(Debug)]
 pub enum EnvironmentsInputValidationError {
-    NameTooShort,
-    NameFormat,
+    NameTooShort { is_root: bool },
+    NameFormat { is_root: bool },
 
     // update
     SameNewName,
@@ -96,35 +83,6 @@ impl fmt::Display for ProjectInputValidationError {
             }
         }
 
-        // match self {
-        //     ProjectInputValidationError::NameTooShort => {
-        //         msg = "project name is too short";
-        //         hint = Some("minimum is 2 characters");
-        //     }
-        //     ProjectInputValidationError::NameFormat => {
-        //         msg = "project name is invalid";
-        //         hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
-        //     }
-        //     ProjectInputValidationError::NoUpdateFlags => {
-        //         msg = "no update flag specified";
-        //         hint = Some("use one of: -n (--name), -d (--description)");
-        //     }
-        //     ProjectInputValidationError::NewNameFormat => {
-        //         msg = "new project name is invalid";
-        //         hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
-        //     }
-        //     ProjectInputValidationError::NewNameTooShort => {
-        //         msg = "new project name is too short";
-        //         hint = Some("minimum is 2 characters");
-        //     }
-        //     ProjectInputValidationError::SameNewName => {
-        //         msg = "new project name is equals to name";
-        //         hint = Some("use different name option value");
-        //     }
-        // }
-        //
-        //
-
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("- message: {}", msg),)?;
             write!(f, "{}", format!("- hint: {}", hint),)?;
@@ -171,13 +129,25 @@ impl fmt::Display for EnvironmentsInputValidationError {
         let hint: Option<&str>;
 
         match self {
-            EnvironmentsInputValidationError::NameTooShort => {
-                msg = "argument name is too short";
-                hint = Some("minimum is 2 characters");
+            EnvironmentsInputValidationError::NameTooShort { is_root } => {
+                if *is_root {
+                    msg = "argument name is too short";
+                    hint = Some("minimum is 2 characters");
+                } else {
+                    msg = "environment argument is too short";
+                    hint = Some("minimum is 2 characters");
+                }
             }
-            EnvironmentsInputValidationError::NameFormat => {
-                msg = "argument name is invalid";
-                hint = Some("environment name can contain only alphanumeric characters, hyphens or underscores");
+            EnvironmentsInputValidationError::NameFormat { is_root } => {
+                if *is_root {
+                    msg = "argument name is invalid";
+                    hint = Some(
+                        "name can contain only alphanumeric characters, hyphens or underscores",
+                    );
+                } else {
+                    msg = "argument environment is invalid";
+                    hint = Some("environment name can contain only alphanumeric characters, hyphens or underscores");
+                }
             }
             EnvironmentsInputValidationError::SameNewName => {
                 msg = "new name option value is equals to name";
