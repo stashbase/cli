@@ -22,6 +22,7 @@ pub async fn handle_environment_commands(
             let args = HandleListEnvironmentsArgs {
                 token,
                 project: cmd.project,
+                search: args.search,
                 sort: args.sort,
                 descending: args.descending,
                 types: args.types,

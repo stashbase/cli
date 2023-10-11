@@ -6,12 +6,16 @@ use crate::{
     api::environments::{self, ListEnvsRequestArgs},
     cmd::environments::{EnvSort, EnvironmentType},
     models::{api_client::GetRequestApiResponse, environments::Environment},
-    utils::{spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        spinner::request_spinner,
+        validation::{validate_env_search, validate_project_name},
+    },
 };
 
 pub struct HandleListEnvironmentsArgs {
     pub token: String,
     pub project: String,
+    pub search: Option<String>,
     pub sort: Option<EnvSort>,
     pub descending: bool,
     pub types: Vec<EnvironmentType>,
@@ -24,6 +28,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let HandleListEnvironmentsArgs {
         token,
         project,
+        search,
         sort,
         descending,
         types,
@@ -40,6 +45,15 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         bail!(err);
     }
 
+    // validate search
+    if let Some(search) = &search {
+        let search_validation_res = validate_env_search(&search);
+
+        if let Err(err) = search_validation_res {
+            bail!(err);
+        }
+    }
+
     debug!("listing environments...:");
 
     let mut spinner = request_spinner();
@@ -50,6 +64,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         types,
         locked,
         unlocked,
+        search,
         sort: sort.unwrap_or(EnvSort::Created),
         descending,
     };
