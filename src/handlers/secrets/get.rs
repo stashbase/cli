@@ -84,12 +84,13 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
                             }
 
                             let print_string = format_secrets(secrets, &format);
+                            println!("{}", print_string);
 
-                            if format == SecretsFromat::List {
-                                print!("{}", print_string);
-                            } else {
-                                println!("{}", print_string);
-                            }
+                            // if format == SecretsFromat::List {
+                            //     print!("{}", print_string);
+                            // } else {
+                            // }
+
                         }
                     }
                     Err(e) => {
