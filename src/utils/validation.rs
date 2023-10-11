@@ -170,3 +170,19 @@ pub fn validate_project_search(value: &str) -> Result<()> {
 
     Ok(())
 }
+
+pub fn validate_secret_search(value: &str) -> Result<()> {
+    let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
+
+    if value.len() < 2 {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::SearchTooShort);
+        bail!(err)
+    }
+
+    if !regex.is_match(value) {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::SearchFormat);
+        bail!(err)
+    }
+
+    Ok(())
+}
