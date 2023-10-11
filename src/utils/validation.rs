@@ -131,3 +131,24 @@ pub fn validate_project_environment(
 
     Ok(())
 }
+
+//
+pub fn validate_env_search(value: &str) -> Result<()> {
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
+
+    if value.len() < 2 {
+        let err =
+            InputValidationError::Environments(EnvironmentsInputValidationError::SearchTooShort);
+
+        bail!(err)
+    } else {
+        if !regex.is_match(value) {
+            let err =
+                InputValidationError::Environments(EnvironmentsInputValidationError::SearchFormat);
+
+            bail!(err)
+        }
+    }
+
+    Ok(())
+}
