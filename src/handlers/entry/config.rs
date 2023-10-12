@@ -1,17 +1,13 @@
 use crate::{
     cmd::configs::{ConfigCommands, ConfigSubcommand, SetConfigSubcommand},
-    config::config,
-    models::config::UpdateConfig,
+    handlers::config::set::set_token,
 };
 
 pub async fn handle_config_commands(cmd: ConfigCommands) {
     match cmd.subcommand {
         ConfigSubcommand::Set(args) => match args.subcommand {
             SetConfigSubcommand::Token(t) => {
-                config::update_config(UpdateConfig {
-                    token: Some(t.value),
-                })
-                .unwrap();
+                set_token(t.value);
             }
         },
     }
