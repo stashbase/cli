@@ -33,7 +33,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         keys,
     } = args;
 
-    if keys.is_empty() {
+    if keys.is_empty() && !delete_all {
         let msg = format!(
             "{} {}",
             "Input error:".red(),
