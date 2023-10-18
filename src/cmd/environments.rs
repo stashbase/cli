@@ -205,4 +205,8 @@ pub enum EnvChangelogSubcommand {
 pub struct ListChangelog {
     /// Environment name
     pub name: String,
+
+    /// Show secret values
+    #[arg(value_enum, long = "show-secrets")]
+    pub show_secrets: bool,
 }
