@@ -1,14 +1,17 @@
 use crate::{
-    cmd::environments::{EnvironmentCommands, EnvironmentSubcommand},
-    handlers::environments::{
-        create::{handle_create_environment, HandleCreateEnvironmentArgs},
-        delete::handle_delete_environment,
-        get::handle_get_environment,
-        list::{handle_list_environments, HandleListEnvironmentsArgs},
-        open::handle_open_environment,
-        set_lock::handle_set_env_lock,
-        update::handle_update_environment,
-        update_type::handle_update_env_type,
+    cmd::environments::{EnvChangelogSubcommand, EnvironmentCommands, EnvironmentSubcommand},
+    handlers::{
+        env_changelog::list::{handle_list_changelog, HandleEnvChangelogListArgs},
+        environments::{
+            create::{handle_create_environment, HandleCreateEnvironmentArgs},
+            delete::handle_delete_environment,
+            get::handle_get_environment,
+            list::{handle_list_environments, HandleListEnvironmentsArgs},
+            open::handle_open_environment,
+            set_lock::handle_set_env_lock,
+            update::handle_update_environment,
+            update_type::handle_update_env_type,
+        },
     },
 };
 
@@ -106,5 +109,18 @@ pub async fn handle_environment_commands(
         .unwrap_or_else(|err| {
             eprintln!("{:?}", err);
         }),
+        EnvironmentSubcommand::Changelog(args) => match args.subcommand {
+            EnvChangelogSubcommand::List(args) => {
+                let args = HandleEnvChangelogListArgs {
+                    token,
+                    project: cmd.project,
+                    environment: args.name,
+                    raw: raw_output,
+                };
+                handle_list_changelog(args).await.unwrap_or_else(|err| {
+                    eprintln!("{:?}", err);
+                });
+            }
+        },
     }
 }
