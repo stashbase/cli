@@ -1,0 +1,87 @@
+use anyhow::{bail, Result};
+use colored_json::to_colored_json_auto;
+use log::debug;
+
+use crate::{
+    api::env_changelog,
+    models::{api_client::GetRequestApiResponse, env_changelog::EnvChangelogList},
+    utils::{spinner::request_spinner, validation::validate_project_environment},
+};
+
+pub struct HandleEnvChangelogGetArgs {
+    pub token: String,
+    pub project: String,
+    pub environment: String,
+    pub change_id: String,
+    pub raw: bool,
+}
+
+pub async fn handle_get_changelog(args: HandleEnvChangelogGetArgs) -> Result<()> {
+    let HandleEnvChangelogGetArgs {
+        token,
+        project,
+        environment,
+        raw,
+        change_id,
+    } = args;
+
+    let input_valid = validate_project_environment(&project, &environment, true);
+
+    if let Err(err) = input_valid {
+        bail!(err);
+    }
+
+    // OK
+    debug!("listing env changelog...");
+
+    let mut spinner = request_spinner();
+
+    let args = env_changelog::GetArgs {
+        token,
+        project,
+        environment,
+        change_id,
+    };
+
+    let res = env_changelog::get(args).await;
+
+    if let Err(err) = res {
+        spinner.stop_and_persist("", "");
+        debug!("Error: {:#?}", &err);
+        bail!(err);
+    }
+
+    let res = res.unwrap();
+
+    match res {
+        GetRequestApiResponse::Ok(data) => {
+            debug!("{:#?}", &data.text);
+            spinner.stop_and_persist("", "");
+
+            let response_data = serde_json::from_str::<EnvChangelogList>(&data.text);
+
+            match response_data {
+                Ok(list) => {
+                    debug!("{:#?}", &list);
+
+                    if raw {
+                        let value = serde_json::to_value(&list).unwrap();
+                        let pretty = to_colored_json_auto(&value).unwrap();
+                        println!("{}", pretty);
+                    } else {
+                        print!("{}", list);
+                    }
+                }
+                Err(e) => {
+                    debug!("Error: {:#?}", e);
+                    bail!("Something went wrong")
+                }
+            }
+        }
+        GetRequestApiResponse::Err(e) => {
+            debug!("Error: {:#?}", e);
+        }
+    }
+
+    Ok(())
+}
