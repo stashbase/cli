@@ -67,7 +67,16 @@ pub enum EnvChangelogItemChange {
 pub enum EnvChangelogItemSecretsAction {
     Renamed {
         key: String,
+
+        #[serde(rename = "newKey")]
+        new_key: String,
+
         value: String,
+    },
+    Updated {
+        key: String,
+        old: String,
+        new: String,
     },
     Created {
         key: String,
@@ -76,11 +85,6 @@ pub enum EnvChangelogItemSecretsAction {
     Deleted {
         key: String,
         old: String,
-    },
-    Updated {
-        key: String,
-        old: String,
-        new: String,
     },
 }
 
@@ -95,7 +99,7 @@ impl Display for EnvChangelogList {
 
         writeln!(f, "{}", list_string)?;
 
-        writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
+        writeln!(f, "\n{} {}", "Has more:".green(), self.has_more)?;
 
         Ok(())
     }
@@ -114,6 +118,16 @@ impl Display for EnvChangelogListItem {
         writeln!(f, "{} {} ({})", "Date:".green(), formatted, relative)?;
         writeln!(f, "{} {}", "Change:".green(), self.change)?;
 
+        if let EnvChangelogChange::SecretsChange(change) = &self.change {
+            let secrets_changes = change
+                .iter()
+                .map(|item| format!("{}", item))
+                .collect::<Vec<String>>()
+                .join("\n");
+
+            writeln!(f, "\n{}", secrets_changes)?;
+        }
+
         Ok(())
     }
 }
@@ -122,7 +136,7 @@ impl Display for EnvChangelogChange {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EnvChangelogChange::Change(change) => write!(f, "{change}"),
-            EnvChangelogChange::SecretsChange(_) => write!(f, "Secrets changed"),
+            EnvChangelogChange::SecretsChange(_) => write!(f, "Secrets modified"),
         }?;
 
         Ok(())
@@ -151,6 +165,45 @@ impl Display for EnvChangelogItemChange {
         };
 
         write!(f, "{msg}")?;
+        Ok(())
+    }
+}
+
+// TODO: table print ???
+impl Display for EnvChangelogItemSecretsAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnvChangelogItemSecretsAction::Renamed {
+                key,
+                new_key,
+                value: _,
+            } => {
+                // write!(f, "{key} {} {}", "|+/-|".yellow(), new_key,)?;
+                // write!(f, "{key} {} {} | {}", "->".yellow(), new_key, "••••••••")?;
+                write!(f, "{key} {} {}", "->".yellow(), new_key,)?;
+            }
+            EnvChangelogItemSecretsAction::Created { key, new: _ } => {
+                write!(f, "{key}: {} {}", "|+|".green(), "••••••••")?;
+            }
+            EnvChangelogItemSecretsAction::Deleted { key, old: _ } => {
+                write!(f, "{key}: {} {}", "|+|".red(), "••••••••")?;
+            }
+            EnvChangelogItemSecretsAction::Updated {
+                key,
+                old: _,
+                new: _,
+            } => {
+                write!(
+                    f,
+                    "{key}: {} {} {} {}",
+                    "|-|".red(),
+                    "••••••••",
+                    "|+|".green(),
+                    "••••••••"
+                )?;
+            }
+        };
+
         Ok(())
     }
 }
