@@ -22,6 +22,7 @@ pub enum ApiPath {
     EnvChangelog {
         project: String,
         environment: String,
+        path: Option<String>,
     },
     Secrets {
         project: String,
@@ -60,13 +61,23 @@ impl fmt::Display for ApiPath {
             ApiPath::EnvChangelog {
                 project,
                 environment,
-            } => {
-                write!(
-                    f,
-                    "projects/{}/environments/{}/changelog",
-                    project, environment
-                )
-            }
+                path,
+            } => match path {
+                Some(p) => {
+                    write!(
+                        f,
+                        "projects/{}/environments/{}/changelog/{}",
+                        project, environment, p
+                    )
+                }
+                None => {
+                    write!(
+                        f,
+                        "projects/{}/environments/{}/changelog",
+                        project, environment
+                    )
+                }
+            },
         }
     }
 }
