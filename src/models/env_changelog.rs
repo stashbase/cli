@@ -1,0 +1,156 @@
+use std::fmt::Display;
+
+use owo_colors::OwoColorize;
+use serde::{Deserialize, Serialize};
+
+use crate::utils::human_datetime::get_human_datetime;
+
+use super::environments::EnvType;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvChangelogList {
+    pub has_more: bool,
+    pub data: Vec<EnvChangelogListItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvChangelogListItem {
+    // short uuid
+    pub id: String,
+    pub created_at: String,
+    pub user: Option<EnvChangelogUser>,
+    pub change: EnvChangelogChange,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvChangelogUser {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged, rename_all = "camelCase")]
+pub enum EnvChangelogChange {
+    Change(EnvChangelogItemChange),
+    SecretsChange(Vec<EnvChangelogItemSecretsAction>),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged, rename_all = "camelCase")]
+pub enum EnvChangelogItemChange {
+    Locked {
+        locked: bool,
+    },
+    TypeChange {
+        #[serde(rename = "oldType")]
+        old_type: EnvType,
+
+        #[serde(rename = "newType")]
+        new_type: EnvType,
+    },
+    Renamed {
+        #[serde(rename = "newName")]
+        new_name: String,
+
+        #[serde(rename = "oldName")]
+        old_name: String,
+    },
+    Created {
+        action: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged, rename_all = "camelCase")]
+pub enum EnvChangelogItemSecretsAction {
+    Renamed {
+        key: String,
+        value: String,
+    },
+    Created {
+        key: String,
+        new: String,
+    },
+    Deleted {
+        key: String,
+        old: String,
+    },
+    Updated {
+        key: String,
+        old: String,
+        new: String,
+    },
+}
+
+impl Display for EnvChangelogList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let list_string = self
+            .data
+            .iter()
+            .map(|item| format!("{}", item))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        writeln!(f, "{}", list_string)?;
+
+        writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
+
+        Ok(())
+    }
+}
+
+impl Display for EnvChangelogListItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} {}", "Id:".green(), self.id)?;
+
+        if let Some(user) = &self.user {
+            writeln!(f, "{} {}", "User:".green(), user.name)?;
+        }
+
+        let (formatted, relative) = get_human_datetime(&self.created_at);
+
+        writeln!(f, "{} {} ({})", "Date:".green(), formatted, relative)?;
+        writeln!(f, "{} {}", "Change:".green(), self.change)?;
+
+        Ok(())
+    }
+}
+
+impl Display for EnvChangelogChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnvChangelogChange::Change(change) => write!(f, "{change}"),
+            EnvChangelogChange::SecretsChange(_) => write!(f, "Secrets changed"),
+        }?;
+
+        Ok(())
+    }
+}
+
+impl Display for EnvChangelogItemChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            EnvChangelogItemChange::Locked { locked } => {
+                if *locked {
+                    "Environment locked".to_string()
+                } else {
+                    "Environment unlocked".to_string()
+                }
+            }
+            EnvChangelogItemChange::TypeChange { old_type, new_type } => {
+                format!("Environment type changed from {} to {}", old_type, new_type)
+            }
+            EnvChangelogItemChange::Renamed { new_name, old_name } => {
+                format!("Environment renamed from {} to {}", old_name, new_name)
+            }
+            EnvChangelogItemChange::Created { action: _ } => {
+                format!("Environment created",)
+            }
+        };
+
+        write!(f, "{msg}")?;
+        Ok(())
+    }
+}
