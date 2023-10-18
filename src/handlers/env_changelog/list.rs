@@ -12,6 +12,7 @@ pub struct HandleEnvChangelogListArgs {
     pub token: String,
     pub project: String,
     pub environment: String,
+    pub show_secrets: bool,
     pub raw: bool,
 }
 
@@ -20,6 +21,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         token,
         project,
         environment,
+        show_secrets,
         raw,
     } = args;
 
@@ -38,6 +40,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         token,
         project,
         environment,
+        show_secrets,
     };
 
     let res = env_changelog::list(args).await;
