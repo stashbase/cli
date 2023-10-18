@@ -115,6 +115,7 @@ pub async fn handle_environment_commands(
                     token,
                     project: cmd.project,
                     environment: args.name,
+                    show_secrets: args.show_secrets,
                     raw: raw_output,
                 };
                 handle_list_changelog(args).await.unwrap_or_else(|err| {
