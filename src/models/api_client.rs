@@ -18,6 +18,11 @@ pub enum ApiPath {
         project: String,
         path: Option<String>,
     },
+
+    EnvChangelog {
+        project: String,
+        environment: String,
+    },
     Secrets {
         project: String,
         environment: String,
@@ -52,6 +57,16 @@ impl fmt::Display for ApiPath {
                     project, environment,
                 ),
             },
+            ApiPath::EnvChangelog {
+                project,
+                environment,
+            } => {
+                write!(
+                    f,
+                    "projects/{}/environments/{}/changelog",
+                    project, environment
+                )
+            }
         }
     }
 }
