@@ -72,6 +72,9 @@ pub enum EnvironmentSubcommand {
     #[clap(aliases = &["d", "del"])]
     Delete(GetEnvironment),
 
+    // Env changelog
+    Changelog(EnvChangelog),
+
     /// Open environment in browser
     #[clap(alias = "o")]
     Open(GetEnvironment),
@@ -183,4 +186,23 @@ pub struct SetType {
     // #[arg(name = "type")]
     #[arg(value_enum, name = "type", short = 't', long = "type")]
     pub env_type: EnvironmentType,
+}
+
+#[derive(Debug, Args)]
+pub struct EnvChangelog {
+    #[clap(subcommand)]
+    pub subcommand: EnvChangelogSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum EnvChangelogSubcommand {
+    /// List changelog records
+    #[clap(alias = "l")]
+    List(ListChangelog),
+}
+
+#[derive(Debug, Args)]
+pub struct ListChangelog {
+    /// Environment name
+    pub name: String,
 }
