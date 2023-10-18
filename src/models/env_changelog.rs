@@ -34,7 +34,22 @@ pub struct EnvChangelogUser {
 #[serde(untagged, rename_all = "camelCase")]
 pub enum EnvChangelogChange {
     Change(EnvChangelogItemChange),
-    SecretsChange(Vec<EnvChangelogItemSecretsAction>),
+    SecretsChange(SecretsChange),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretsChange {
+    pub renamed: Option<Vec<RenamedSecret>>,
+    pub new: Option<Vec<String>>,
+    pub deleted: Option<Vec<String>>,
+    pub updated: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenamedSecret {
+    pub key: String,
+    pub new_key: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -99,7 +114,7 @@ impl Display for EnvChangelogList {
 
         writeln!(f, "{}", list_string)?;
 
-        writeln!(f, "\n{} {}", "Has more:".green(), self.has_more)?;
+        writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
 
         Ok(())
     }
@@ -119,15 +134,83 @@ impl Display for EnvChangelogListItem {
         writeln!(f, "{} {}", "Change:".green(), self.change)?;
 
         if let EnvChangelogChange::SecretsChange(change) = &self.change {
-            let secrets_changes = change
-                .iter()
-                .map(|item| format!("{}", item))
-                .collect::<Vec<String>>()
-                .join("\n");
+            // renamed
+            if let Some(renamed) = &change.renamed {
+                if !renamed.is_empty() {
+                    writeln!(f, "\n{}", "Renamed".blue())?;
 
-            writeln!(f, "\n{}", secrets_changes)?;
+                    let renamed_string = renamed
+                        .into_iter()
+                        .map(|item| format!("{}", item))
+                        .collect::<Vec<String>>()
+                        .join("\n");
+
+                    writeln!(f, "{}", renamed_string)?;
+                }
+            }
+
+            // updated
+            if let Some(updated) = &change.updated {
+                if !updated.is_empty() {
+                    writeln!(f, "\n{}", "Updated".yellow())?;
+
+                    let updated_string = updated
+                        .into_iter()
+                        .map(|item| format!("{}", item))
+                        .collect::<Vec<String>>()
+                        .join("\n");
+
+                    writeln!(f, "{}", updated_string)?;
+                }
+            }
+
+            if let Some(new) = &change.new {
+                if !new.is_empty() {
+                    writeln!(f, "\n{}", "New".green())?;
+
+                    let new_string = new
+                        .into_iter()
+                        .map(|item| format!("{}", item))
+                        .collect::<Vec<String>>()
+                        .join("\n");
+
+                    writeln!(f, "{}", new_string)?;
+                }
+            }
+
+            if let Some(deleted) = &change.deleted {
+                if !deleted.is_empty() {
+                    writeln!(f, "\n{}", "Deleted".red())?;
+
+                    let deleted_string = deleted
+                        .into_iter()
+                        .map(|item| format!("{}", item))
+                        .collect::<Vec<String>>()
+                        .join("\n");
+
+                    writeln!(f, "{}", deleted_string)?;
+                }
+            }
+
+            write!(f, "\n")?;
         }
+        // if let EnvChangelogChange::SecretsChange(change) = &self.change {
+        //     let secrets_changes = change
+        //         .iter()
+        //         .map(|item| format!("{}", item))
+        //         .collect::<Vec<String>>()
+        //         .join("\n");
+        //
+        //     writeln!(f, "\n{}", secrets_changes)?;
+        // }
+        //
+        Ok(())
+    }
+}
 
+impl Display for RenamedSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} -> {}", self.key, self.new_key)?;
         Ok(())
     }
 }
