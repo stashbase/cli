@@ -11,8 +11,10 @@ use super::environments::EnvType;
 #[serde(rename_all = "camelCase")]
 pub struct EnvChangelogList {
     // pub has_more: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<usize>,
     pub pages: usize,
+
     pub data: Vec<EnvChangelogListItem>,
 }
 
@@ -48,9 +50,16 @@ pub enum SecretsChange {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SecretsChangeWithValues {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub renamed: Option<Vec<RenamedSecretWithValue>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub new: Option<Vec<SecretChangeKeyValue>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub deleted: Option<Vec<SecretChangeKeyValue>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub updated: Option<Vec<UpdatedSecretWithValues>>,
 }
 
