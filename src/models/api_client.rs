@@ -127,6 +127,8 @@ pub struct ApiErrorResponse {
 #[derive(Debug, Deserialize)]
 pub struct ApiError {
     pub code: ApiErrorEntity,
+    // now onl for env chagnelog - max page
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +137,7 @@ pub enum ApiErrorEntity {
     Project(ProjectError),
     Environment(EnvironmentError),
     Secret(SecretsError),
+    EnvChangelog(EnvChangelogError),
 }
 
 // TODO: env errors
@@ -162,6 +165,12 @@ pub enum ProjectError {
 #[serde(rename_all = "snake_case")]
 pub enum SecretsError {
     SecretNotFound,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvChangelogError {
+    PageNotFound,
 }
 
 #[derive(Debug)]
@@ -222,6 +231,12 @@ impl From<ApiError> for CustomError {
                 SecretsError::SecretNotFound => CustomError {
                     message: format!("secret not found"),
                     hint: None,
+                },
+            },
+            ApiErrorEntity::EnvChangelog(e) => match e {
+                EnvChangelogError::PageNotFound => CustomError {
+                    message: format!("page not found"),
+                    hint: api_error.details,
                 },
             },
         }
