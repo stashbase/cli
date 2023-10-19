@@ -6,6 +6,7 @@ pub enum InputValidationError {
     Projects(ProjectInputValidationError),
     Secrets(SecretsInputValidationError),
     Environments(EnvironmentsInputValidationError),
+    EnvChangelog(EnvChangelogInputValidationError),
 }
 
 #[derive(Debug)]
@@ -48,6 +49,12 @@ pub enum EnvironmentsInputValidationError {
     NoUpdateFlags,
     NewNameFormat,
     NewNameTooShort,
+}
+
+#[derive(Debug)]
+pub enum EnvChangelogInputValidationError {
+    InvalidIdFormat,
+    InvalidIdLength,
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -215,6 +222,33 @@ impl fmt::Display for EnvironmentsInputValidationError {
     }
 }
 
+impl fmt::Display for EnvChangelogInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
+        match self {
+            EnvChangelogInputValidationError::InvalidIdFormat => {
+                msg = "invalid id";
+                hint = Some("is must be alphanumeric");
+            }
+            EnvChangelogInputValidationError::InvalidIdLength => {
+                msg = "invalid id";
+                hint = Some("id must be 22 characters long");
+            }
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
@@ -222,6 +256,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Projects(inner) => write!(f, "{}", inner),
             InputValidationError::Secrets(inner) => write!(f, "{}", inner),
             InputValidationError::Environments(inner) => write!(f, "{}", inner),
+            InputValidationError::EnvChangelog(inner) => write!(f, "{}", inner),
         }
     }
 }
