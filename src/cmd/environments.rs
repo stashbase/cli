@@ -207,6 +207,10 @@ pub struct ListChangelog {
     pub name: String,
 
     /// Show secret values
+    #[arg(value_enum, short = 'p', long = "page")]
+    pub page: Option<usize>,
+
+    /// Show secret values
     #[arg(value_enum, long = "show-secrets")]
     pub show_secrets: bool,
 }
