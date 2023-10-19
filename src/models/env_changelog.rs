@@ -167,7 +167,13 @@ impl Display for EnvChangelogList {
         let list_string = self
             .data
             .iter()
-            .map(|item| format!("{}", item))
+            .map(|item| match &item.change {
+                EnvChangelogChange::Change(_) => format!("{}", item),
+                EnvChangelogChange::SecretsChange(s) => match s {
+                    SecretsChange::WithValues(_) => format!("{}\n", item),
+                    SecretsChange::NoValues(_) => format!("{}", item),
+                },
+            })
             .collect::<Vec<String>>()
             .join("\n");
 
@@ -355,7 +361,7 @@ impl Display for EnvChangelogListItem {
                         }
                     }
 
-                    write!(f, "\n")?;
+                    // write!(f, "\n")?;
                 }
             }
         }
