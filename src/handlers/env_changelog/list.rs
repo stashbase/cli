@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
 use log::debug;
+use owo_colors::OwoColorize;
 
 use crate::{
     api::env_changelog,
@@ -12,6 +13,7 @@ pub struct HandleEnvChangelogListArgs {
     pub token: String,
     pub project: String,
     pub environment: String,
+    pub page: Option<usize>,
     pub show_secrets: bool,
     pub raw: bool,
 }
@@ -21,6 +23,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         token,
         project,
         environment,
+        page,
         show_secrets,
         raw,
     } = args;
@@ -29,6 +32,20 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
 
     if let Err(err) = input_valid {
         bail!(err);
+    }
+
+    if let Some(page) = page {
+        if page < 1 {
+            let error_msg = "argument page is invalid";
+            let hint = "page must be greater than 0";
+
+            let formatted_err = format!(
+                "{}\n{}",
+                "Input error".red().bold(),
+                format!("- message: {error_msg}\n- hint: {hint}")
+            );
+            bail!(formatted_err);
+        }
     }
 
     // OK
@@ -40,6 +57,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         token,
         project,
         environment,
+        page,
         show_secrets,
     };
 
