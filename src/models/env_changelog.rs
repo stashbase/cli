@@ -285,7 +285,7 @@ impl Display for EnvChangelogListItem {
                                     )
                                 })
                                 .collect::<Vec<String>>()
-                                .join("\n");
+                                .join("\n\n");
 
                             writeln!(f, "{}", renamed_string)?;
                         }
@@ -309,7 +309,7 @@ impl Display for EnvChangelogListItem {
                                     )
                                 })
                                 .collect::<Vec<String>>()
-                                .join("\n");
+                                .join("\n\n");
 
                             writeln!(f, "{}", updated_string)?;
                         }
