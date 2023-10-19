@@ -240,7 +240,7 @@ impl From<ApiError> for CustomError {
                     hint: api_error.details,
                 },
                 EnvChangelogError::ChangeNotFound => CustomError {
-                    message: format!("change to revert not found"),
+                    message: format!("change record not found"),
                     hint: Some(format!("make sure that the id is correct")),
                 },
             },
