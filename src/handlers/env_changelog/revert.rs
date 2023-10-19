@@ -81,7 +81,7 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
                 spinner.stop_with_message(&format!(
                     "\n{} {}",
                     "✓".green(),
-                    "Change has been reverted".green()
+                    "Change has been reverted"
                 ));
             }
         }
