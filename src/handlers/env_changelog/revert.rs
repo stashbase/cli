@@ -5,7 +5,11 @@ use owo_colors::OwoColorize;
 use crate::{
     api::env_changelog,
     models::api_client::PostPatchRequestApiResponse,
-    utils::{interaction, spinner::request_spinner, validation::validate_project_environment},
+    utils::{
+        interaction,
+        spinner::request_spinner,
+        validation::{validate_env_changelog_id, validate_project_environment},
+    },
 };
 
 pub struct HandleRevertEnvChangelogChange {
@@ -26,6 +30,12 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
     let input_valid = validate_project_environment(&project, &environment, true);
 
     if let Err(err) = input_valid {
+        bail!(err);
+    }
+
+    let id_validation = validate_env_changelog_id(&change_id);
+
+    if let Err(err) = id_validation {
         bail!(err);
     }
 
