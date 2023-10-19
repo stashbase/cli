@@ -2,6 +2,7 @@ use crate::{
     cmd::environments::{EnvChangelogSubcommand, EnvironmentCommands, EnvironmentSubcommand},
     handlers::{
         env_changelog::{
+            get::{handle_get_changelog_item, HandleGetEnvChangelogItemArgs},
             list::{handle_list_changelog, HandleEnvChangelogListArgs},
             revert::{handle_revert_changelog_change, HandleRevertEnvChangelogChange},
         },
@@ -140,6 +141,19 @@ pub async fn handle_environment_commands(
                     .unwrap_or_else(|err| {
                         eprintln!("{:?}", err);
                     });
+            }
+            EnvChangelogSubcommand::Get(args) => {
+                let args = HandleGetEnvChangelogItemArgs {
+                    token,
+                    project: cmd.project,
+                    environment: args.name,
+                    change_id: args.id,
+                    raw: raw_output,
+                };
+
+                handle_get_changelog_item(args).await.unwrap_or_else(|err| {
+                    eprintln!("{:?}", err);
+                });
             }
         },
     }
