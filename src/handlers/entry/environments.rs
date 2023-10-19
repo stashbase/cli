@@ -1,7 +1,10 @@
 use crate::{
     cmd::environments::{EnvChangelogSubcommand, EnvironmentCommands, EnvironmentSubcommand},
     handlers::{
-        env_changelog::list::{handle_list_changelog, HandleEnvChangelogListArgs},
+        env_changelog::{
+            list::{handle_list_changelog, HandleEnvChangelogListArgs},
+            revert::{handle_revert_changelog_change, HandleRevertEnvChangelogChange},
+        },
         environments::{
             create::{handle_create_environment, HandleCreateEnvironmentArgs},
             delete::handle_delete_environment,
@@ -119,9 +122,24 @@ pub async fn handle_environment_commands(
                     page: args.page,
                     raw: raw_output,
                 };
+
                 handle_list_changelog(args).await.unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
+            }
+            EnvChangelogSubcommand::Revert(args) => {
+                let args = HandleRevertEnvChangelogChange {
+                    token,
+                    project: cmd.project,
+                    environment: args.name,
+                    change_id: args.id,
+                };
+
+                handle_revert_changelog_change(args)
+                    .await
+                    .unwrap_or_else(|err| {
+                        eprintln!("{:?}", err);
+                    });
             }
         },
     }
