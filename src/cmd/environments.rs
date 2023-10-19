@@ -72,7 +72,7 @@ pub enum EnvironmentSubcommand {
     #[clap(aliases = &["d", "del"])]
     Delete(GetEnvironment),
 
-    // Env changelog
+    /// Environment changelog
     Changelog(EnvChangelog),
 
     /// Open environment in browser
@@ -190,6 +190,10 @@ pub struct SetType {
 
 #[derive(Debug, Args)]
 pub struct EnvChangelog {
+    /// Environmentname
+    #[arg(value_enum, short = 'e', long = "environment", required = true)]
+    pub environment: String,
+
     #[clap(subcommand)]
     pub subcommand: EnvChangelogSubcommand,
 }
@@ -211,9 +215,8 @@ pub enum EnvChangelogSubcommand {
 
 #[derive(Debug, Args)]
 pub struct ListChangelog {
-    /// Environment name
-    pub name: String,
-
+    // /// Environment name
+    // pub name: String,
     /// Show secret values
     #[arg(value_enum, short = 'p', long = "page")]
     pub page: Option<usize>,
@@ -225,20 +228,20 @@ pub struct ListChangelog {
 
 #[derive(Debug, Args)]
 pub struct GetChangelogItem {
-    /// Environment name
-    pub name: String,
+    // /// Environment name
+    // pub name: String,
 
-    // Change id
-    #[arg(value_enum, short = 'i', long = "id")]
+    // #[arg(value_enum, short = 'i', long = "id")]
+    /// Item id
     pub id: String,
 }
 
 #[derive(Debug, Args)]
 pub struct RevertChangelog {
-    /// Environment name
-    pub name: String,
+    // /// Environment name
+    // pub name: String,
 
-    // Change id
-    #[arg(value_enum, short = 'i', long = "id")]
+    // #[arg(value_enum, short = 'i', long = "id")]
+    /// Item id
     pub id: String,
 }
