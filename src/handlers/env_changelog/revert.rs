@@ -48,6 +48,7 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
     // OK
     debug!("reverting env changelog...");
 
+    eprintln!();
     let mut spinner = request_spinner();
 
     let args = env_changelog::RevertArgs {
@@ -74,12 +75,12 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
             // nothning to revert
             if data.status == 200 {
                 spinner.stop_with_message(&format!(
-                    "\n{}",
+                    "{}",
                     "Nothing to revert\n- details: this is current state"
                 ))
             } else {
                 spinner.stop_with_message(&format!(
-                    "\n{} {}",
+                    "{} {}",
                     "✓".green(),
                     "Change has been reverted"
                 ));
