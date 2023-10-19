@@ -200,6 +200,10 @@ pub enum EnvChangelogSubcommand {
     #[clap(alias = "l")]
     List(ListChangelog),
 
+    /// List changelog record
+    #[clap(alias = "g")]
+    Get(GetChangelogItem),
+
     /// List changelog records
     #[clap(alias = "r")]
     Revert(RevertChangelog),
@@ -220,10 +224,21 @@ pub struct ListChangelog {
 }
 
 #[derive(Debug, Args)]
+pub struct GetChangelogItem {
+    /// Environment name
+    pub name: String,
+
+    // Change id
+    #[arg(value_enum, short = 'i', long = "id")]
+    pub id: String,
+}
+
+#[derive(Debug, Args)]
 pub struct RevertChangelog {
     /// Environment name
     pub name: String,
 
+    // Change id
     #[arg(value_enum, short = 'i', long = "id")]
     pub id: String,
 }
