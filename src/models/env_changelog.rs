@@ -44,8 +44,8 @@ pub enum EnvChangelogChange {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged, rename_all = "camelCase")]
 pub enum SecretsChange {
-    NoValues(SecretsChangeNoValues),
     WithValues(SecretsChangeWithValues),
+    NoValues(SecretsChangeNoValues),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -201,7 +201,8 @@ impl Display for EnvChangelogListItem {
                     // renamed
                     if let Some(renamed) = &change.renamed {
                         if !renamed.is_empty() {
-                            writeln!(f, "\n{}", "Renamed".blue())?;
+                            // writeln!(f, "\n{}", "Renamed".blue())?;
+                            writeln!(f, "\n{}", "Renamed".yellow())?;
 
                             let renamed_string = renamed
                                 .into_iter()
