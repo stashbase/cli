@@ -61,19 +61,13 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
         change_id,
     } = args;
 
-    let mut query = vec![];
-
-    // if descending == true {
-    //     query.push(("descending".to_string(), "true".to_string()));
-    // }
-
     let args = RequestArgs {
         path: ApiPath::EnvChangelog {
             project,
             environment,
             path: Some(change_id),
         },
-        query: Some(query),
+        query: None,
         token,
     };
 
