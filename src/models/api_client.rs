@@ -171,6 +171,7 @@ pub enum SecretsError {
 #[serde(rename_all = "snake_case")]
 pub enum EnvChangelogError {
     PageNotFound,
+    ChangeNotFound,
 }
 
 #[derive(Debug)]
@@ -237,6 +238,10 @@ impl From<ApiError> for CustomError {
                 EnvChangelogError::PageNotFound => CustomError {
                     message: format!("page not found"),
                     hint: api_error.details,
+                },
+                EnvChangelogError::ChangeNotFound => CustomError {
+                    message: format!("change to revert not found"),
+                    hint: Some(format!("make sure that the id is correct")),
                 },
             },
         }
