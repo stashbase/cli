@@ -113,12 +113,12 @@ pub async fn handle_environment_commands(
         .unwrap_or_else(|err| {
             eprintln!("{:?}", err);
         }),
-        EnvironmentSubcommand::Changelog(args) => match args.subcommand {
+        EnvironmentSubcommand::Changelog(changelog_args) => match changelog_args.subcommand {
             EnvChangelogSubcommand::List(args) => {
                 let args = HandleEnvChangelogListArgs {
                     token,
                     project: cmd.project,
-                    environment: args.name,
+                    environment: changelog_args.environment,
                     show_secrets: args.show_secrets,
                     page: args.page,
                     raw: raw_output,
@@ -132,7 +132,7 @@ pub async fn handle_environment_commands(
                 let args = HandleRevertEnvChangelogChange {
                     token,
                     project: cmd.project,
-                    environment: args.name,
+                    environment: changelog_args.environment,
                     change_id: args.id,
                 };
 
@@ -146,7 +146,7 @@ pub async fn handle_environment_commands(
                 let args = HandleGetEnvChangelogItemArgs {
                     token,
                     project: cmd.project,
-                    environment: args.name,
+                    environment: changelog_args.environment,
                     change_id: args.id,
                     raw: raw_output,
                 };
