@@ -98,6 +98,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         }
         GetRequestApiResponse::Err(e) => {
             debug!("Error: {:#?}", e);
+            spinner.stop_with_message(&format!("{}", e));
         }
     }
 
