@@ -10,7 +10,9 @@ use super::environments::EnvType;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvChangelogList {
-    pub has_more: bool,
+    // pub has_more: bool,
+    pub page: Option<usize>,
+    pub pages: usize,
     pub data: Vec<EnvChangelogListItem>,
 }
 
@@ -162,7 +164,10 @@ impl Display for EnvChangelogList {
 
         writeln!(f, "{}", list_string)?;
 
-        writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
+        // writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
+        let page = self.page.unwrap_or(1);
+
+        writeln!(f, "{} {}/{}", "Pages:".green(), page, self.pages)?;
 
         Ok(())
     }
