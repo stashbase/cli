@@ -22,7 +22,7 @@ pub struct EnvChangelogList {
 #[serde(rename_all = "camelCase")]
 pub struct EnvChangelogListItem {
     // short uuid
-    pub id: String,
+    pub id: Option<String>, // no id for created chnange
     pub created_at: String,
     pub user: Option<EnvChangelogUser>,
     pub change: EnvChangelogChange,
@@ -184,7 +184,9 @@ impl Display for EnvChangelogList {
 
 impl Display for EnvChangelogListItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {}", "Id:".green(), self.id)?;
+        if let Some(id) = &self.id {
+            writeln!(f, "{} {}", "Id:".green(), id)?;
+        }
 
         if let Some(user) = &self.user {
             writeln!(f, "{} {}", "User:".green(), user.name)?;
