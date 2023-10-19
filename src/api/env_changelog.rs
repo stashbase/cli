@@ -1,6 +1,8 @@
 use anyhow::Result;
 
-use crate::models::api_client::{ApiPath, GetRequestApiResponse, RequestArgs};
+use crate::models::api_client::{
+    ApiPath, GetRequestApiResponse, PostPatchRequestApiResponse, RequestArgs,
+};
 
 use super::client;
 
@@ -76,4 +78,34 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
     };
 
     client::get_request(args).await
+}
+
+pub struct RevertArgs {
+    pub token: String,
+    pub project: String,
+    pub environment: String,
+    pub change_id: String,
+}
+
+pub async fn revert(args: RevertArgs) -> Result<PostPatchRequestApiResponse> {
+    let RevertArgs {
+        token,
+        project,
+        environment,
+        change_id,
+    } = args;
+
+    let path = format!("{}/rollback", change_id);
+
+    let args = RequestArgs {
+        path: ApiPath::EnvChangelog {
+            project,
+            environment,
+            path: Some(path),
+        },
+        query: None,
+        token,
+    };
+
+    client::post_request::<()>(args, None).await
 }
