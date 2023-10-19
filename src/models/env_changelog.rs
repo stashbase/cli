@@ -230,7 +230,7 @@ impl Display for EnvChangelogListItem {
 
                     if let Some(new) = &change.new {
                         if !new.is_empty() {
-                            writeln!(f, "\n{}", "New".green())?;
+                            writeln!(f, "\n{}", "Created".green())?;
 
                             let new_string = new
                                 .into_iter()
