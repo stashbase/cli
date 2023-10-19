@@ -199,6 +199,10 @@ pub enum EnvChangelogSubcommand {
     /// List changelog records
     #[clap(alias = "l")]
     List(ListChangelog),
+
+    /// List changelog records
+    #[clap(alias = "r")]
+    Revert(RevertChangelog),
 }
 
 #[derive(Debug, Args)]
@@ -213,4 +217,13 @@ pub struct ListChangelog {
     /// Show secret values
     #[arg(value_enum, long = "show-secrets")]
     pub show_secrets: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RevertChangelog {
+    /// Environment name
+    pub name: String,
+
+    #[arg(value_enum, short = 'i', long = "id")]
+    pub id: String,
 }
