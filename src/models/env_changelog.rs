@@ -131,7 +131,7 @@ pub enum EnvChangelogItemChange {
         #[serde(rename = "oldName")]
         old_name: String,
     },
-    Created {
+    CreatedOrDescription {
         action: String,
     },
 }
@@ -404,8 +404,12 @@ impl Display for EnvChangelogItemChange {
             EnvChangelogItemChange::Renamed { new_name, old_name } => {
                 format!("Environment renamed from {} to {}", old_name, new_name)
             }
-            EnvChangelogItemChange::Created { action: _ } => {
-                format!("Environment created",)
+            EnvChangelogItemChange::CreatedOrDescription { action } => {
+                if action == "created" {
+                    format!("Environment created",)
+                } else {
+                    format!("Environment description updated",)
+                }
             }
         };
 
