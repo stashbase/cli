@@ -12,6 +12,7 @@ pub struct ListArgs {
     pub environment: String,
     pub page: Option<usize>,
     pub show_secrets: bool,
+    pub only_secrets: bool,
 }
 
 pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse> {
@@ -20,13 +21,18 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse> {
         project,
         environment,
         show_secrets,
+        only_secrets,
         page,
     } = args;
 
     let mut query = vec![];
 
     if show_secrets == true {
-        query.push(("secrets".to_string(), "true".to_string()));
+        query.push(("hidden".to_string(), "true".to_string()));
+    }
+
+    if only_secrets == true {
+        query.push(("only-secrets".to_string(), "true".to_string()));
     }
 
     if let Some(page) = page {
