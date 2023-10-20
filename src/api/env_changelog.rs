@@ -89,7 +89,7 @@ pub async fn revert(args: RevertArgs) -> Result<PostPatchRequestApiResponse> {
         change_id,
     } = args;
 
-    let path = format!("{}/rollback", change_id);
+    let path = format!("{}/revert", change_id);
 
     let args = RequestArgs {
         path: ApiPath::EnvChangelog {
