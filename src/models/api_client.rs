@@ -172,6 +172,7 @@ pub enum SecretsError {
 pub enum EnvChangelogError {
     PageNotFound,
     ChangeNotFound,
+    RenameEnvironmentAlreadyExists,
 }
 
 #[derive(Debug)]
@@ -242,6 +243,11 @@ impl From<ApiError> for CustomError {
                 EnvChangelogError::ChangeNotFound => CustomError {
                     message: format!("change record not found"),
                     hint: Some(format!("make sure that the id is correct")),
+                },
+
+                EnvChangelogError::RenameEnvironmentAlreadyExists => CustomError {
+                    message: format!("cannot revert environment rename"),
+                    hint: Some(format!("environment with the name already exists")),
                 },
             },
         }
