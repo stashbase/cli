@@ -119,7 +119,8 @@ pub async fn handle_environment_commands(
                     token,
                     project: cmd.project,
                     environment: changelog_args.environment,
-                    show_secrets: args.show_secrets,
+                    show_secrets: args.show_hidden,
+                    only_secrets: args.only_secrets,
                     page: args.page,
                     raw: raw_output,
                 };
