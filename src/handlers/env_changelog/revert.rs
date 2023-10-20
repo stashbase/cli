@@ -88,7 +88,7 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
         }
         PostPatchRequestApiResponse::Err(e) => {
             debug!("Error: {:#?}", e);
-            spinner.stop_with_message(&format!("\n{}", e));
+            spinner.stop_with_message(&format!("{}", e));
         }
     }
 
