@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 
 use super::{
-    configs::ConfigCommands, environments::EnvironmentCommands, projects::ProjectCommands,
-    secrets::SecretArgs,
+    configs::ConfigCommands, environments::EnvironmentCommands, load::LoadCommand,
+    projects::ProjectCommands, secrets::SecretArgs,
 };
 
 #[derive(Debug, Parser)]
@@ -20,6 +20,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum EntityType {
+    /// Load environment
+    Load(LoadCommand),
+
     #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
     /// Manage projects
     Project(ProjectCommands),
