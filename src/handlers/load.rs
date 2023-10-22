@@ -51,7 +51,7 @@ pub async fn handle_load_environment(
         .expect("Failed to start npm run dev");
 
     // Create a buffer to read the child process's output
-    let mut buffer = Vec::new();
+    let mut buffer = vec![0; 1024];
 
     // Read and display the child process's output
     loop {
