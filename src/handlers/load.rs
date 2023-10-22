@@ -25,13 +25,23 @@ pub async fn handle_load_environment(
         bail!(err);
     }
 
-    let big_cmd = cmd!("npm", "run", "dev").env("FORCE_COLOR", "true");
+    let big_cmd = cmd!("python3", "main.py")
+        .env("FORCE_COLOR", "true")
+        .env("--color", "always");
+
     let reader = big_cmd.stderr_to_stdout().reader()?;
     let mut lines = BufReader::new(reader).lines();
 
     loop {
-        let line = lines.next().unwrap();
-        println!("{}", line?);
+        if let Some(line) = lines.next() {
+            if let Ok(line) = line {
+                println!("{}", line);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
     }
 
     return Ok(());
