@@ -6,6 +6,7 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
+use std::thread;
 
 use crate::cmd;
 use crate::{
@@ -25,26 +26,25 @@ pub async fn handle_load_environment(
         bail!(err);
     }
 
-    let big_cmd = cmd!("python3", "main.py")
-        .env("FORCE_COLOR", "true")
-        .env("--color", "always");
-
-    let reader = big_cmd.stderr_to_stdout().reader()?;
-    let mut lines = BufReader::new(reader).lines();
-
-    loop {
-        if let Some(line) = lines.next() {
-            if let Ok(line) = line {
-                println!("{}", line);
-            } else {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-
-    return Ok(());
+    // let big_cmd = cmd!("npm", "run", "dev")
+    //     .env("FORCE_COLOR", "true")
+    //     .env("--color", "always");
+    // let reader = big_cmd.reader()?;
+    // let mut lines = BufReader::new(reader).lines();
+    //
+    // loop {
+    //     if let Some(line) = lines.next() {
+    //         if let Ok(line) = line {
+    //             println!("{}", line);
+    //         } else {
+    //             break;
+    //         }
+    //     } else {
+    //         break;
+    //     }
+    // }
+    //
+    // // return Ok(());
 
     // OK
     debug!("loading env...");
@@ -61,9 +61,10 @@ pub async fn handle_load_environment(
 
     // testing
     // Create a Command to run the 'npm run dev' script
-    let mut child = Command::new("npm")
-        .arg("run")
-        .arg("dev")
+    let mut child = Command::new("python3")
+        // .arg("-c")
+        .arg("main.py")
+        // .arg("dev")
         // .current_dir(working_dir) // remove
         .env("FORCE_COLOR", "true")
         .envs(&env_vars)
@@ -74,6 +75,70 @@ pub async fn handle_load_environment(
         //.stderr(Stdio::inherit()) // This preserves colored error output
         .spawn()
         .expect("Failed to start npm run dev");
+
+    // Create threads for reading stdout and stderr
+    let stdout_thread = thread::spawn(move || {
+        let stdout = child.stdout.take().expect("Failed to capture stdout");
+        let stdout_reader = BufReader::new(stdout);
+        for line in stdout_reader.lines() {
+            if let Ok(line) = line {
+                println!("Python stdout: {}", line);
+            }
+        }
+    });
+
+    let stderr_thread = thread::spawn(move || {
+        let stderr = child.stderr.take().expect("Failed to capture stderr");
+        let stderr_reader = BufReader::new(stderr);
+        for line in stderr_reader.lines() {
+            if let Ok(line) = line {
+                eprintln!("Python stderr: {}", line);
+            }
+        }
+    });
+
+    // Wait for both threads to finish
+    stdout_thread.join().expect("stdout thread panicked");
+    stderr_thread.join().expect("stderr thread panicked");
+
+    // Wait for the Python process to complete
+    // let status = child.wait().expect("Failed to wait for Python process");
+    // if status.success() {
+    //     println!("Python process completed successfully");
+    // } else {
+    //     eprintln!("Python process failed");
+    // }
+
+    return Ok(());
+
+    // Read and print the Node.js output in real-time
+    let stdout = child.stdout.take().expect("Failed to capture stdout");
+    let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+    let stdout_reader = BufReader::new(stdout);
+    let stderr_reader = BufReader::new(stderr);
+
+    for line in stdout_reader.lines() {
+        if let Ok(line) = line {
+            println!("Node.js stdout: {}", line);
+        }
+    }
+
+    for line in stderr_reader.lines() {
+        if let Ok(line) = line {
+            eprintln!("Node.js stderr: {}", line);
+        }
+    }
+
+    // Wait for the Node.js process to complete
+    let status = child.wait().expect("Failed to wait for Node.js process");
+    if status.success() {
+        println!("Node.js process completed successfully");
+    } else {
+        eprintln!("Node.js process failed");
+    }
+
+    return Ok(());
 
     // Create a buffer to read the child process's output
     let mut buffer = vec![0; 1024];
@@ -98,6 +163,51 @@ pub async fn handle_load_environment(
     // Wait for the child process to finish
     let status = child.wait().expect("Failed to wait for child process");
     debug!("Child process exited with: {}", status);
+
+    // // Create a thread for reading stdout
+    // let stdout_thread = thread::spawn(move || {
+    //     let mut buffer = vec![0; 1024];
+    //
+    //     let stdout = child.stdout.take().unwrap();
+    //     let mut stdout_reader = stdout;
+    //     loop {
+    //         match stdout_reader.read(&mut buffer) {
+    //             Ok(0) => break, // End of output
+    //             Ok(n) => {
+    //                 io::stdout()
+    //                     .write_all(&buffer[0..n])
+    //                     .expect("Failed to write to stdout");
+    //                 io::stdout().flush().expect("Failed to flush stdout");
+    //             }
+    //             Err(e) => {
+    //                 eprintln!("Error reading stdout: {}", e);
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // });
+    //
+    // let stderr_thread = thread::spawn(move || {
+    //     let mut buffer = vec![0; 1024];
+    //
+    //     let stdout = child.stderr.take().unwrap();
+    //     let mut stdout_reader = stdout;
+    //     loop {
+    //         match stdout_reader.read(&mut buffer) {
+    //             Ok(0) => break, // End of output
+    //             Ok(n) => {
+    //                 io::stdout()
+    //                     .write_all(&buffer[0..n])
+    //                     .expect("Failed to write to stdout");
+    //                 io::stdout().flush().expect("Failed to flush stdout");
+    //             }
+    //             Err(e) => {
+    //                 eprintln!("Error reading stdout: {}", e);
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // });
 
     // // for (key, value) in env_vars {
     // //     child.env(key, value);
