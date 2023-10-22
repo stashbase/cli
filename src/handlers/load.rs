@@ -62,17 +62,12 @@ pub async fn handle_load_environment(
     // testing
     // Create a Command to run the 'npm run dev' script
     let mut child = Command::new("python3")
-        // .arg("-c")
         .arg("main.py")
-        // .arg("dev")
-        // .current_dir(working_dir) // remove
         .env("FORCE_COLOR", "true")
         .envs(&env_vars)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        //.stdout(Stdio::inherit()) // This preserves colored output
-        //.stderr(Stdio::inherit()) // This preserves colored error output
         .spawn()
         .expect("Failed to start npm run dev");
 
