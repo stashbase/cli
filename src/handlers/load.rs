@@ -1,9 +1,13 @@
 use anyhow::{bail, Result};
+use duct::cmd;
 use log::debug;
 use std::collections::HashMap;
+use std::io::prelude::*;
+use std::io::BufReader;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 
+use crate::cmd;
 use crate::{
     api::{environments, secrets},
     models::{api_client::GetRequestApiResponse, environments::Environment, secrets::Secret},
@@ -20,6 +24,17 @@ pub async fn handle_load_environment(
     if let Err(err) = input_valid {
         bail!(err);
     }
+
+    let big_cmd = cmd!("npm", "run", "dev").env("FORCE_COLOR", "true");
+    let reader = big_cmd.stderr_to_stdout().reader()?;
+    let mut lines = BufReader::new(reader).lines();
+
+    loop {
+        let line = lines.next().unwrap();
+        println!("{}", line?);
+    }
+
+    return Ok(());
 
     // OK
     debug!("loading env...");
