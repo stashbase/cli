@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use log::debug;
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
 use std::{env, thread};
 
@@ -25,6 +25,8 @@ pub async fn handle_load_environment(
     // OK
     debug!("loading env...");
 
+    let working_dir = "/home/radim/code/env-vault/env-vault-api";
+
     let secrets = vec![Secret {
         key: "JWT_SECRET".to_string(),
         value: "234234".to_string(),
@@ -38,6 +40,7 @@ pub async fn handle_load_environment(
     let mut child = Command::new("npm")
         .arg("run")
         .arg("dev")
+        .current_dir(working_dir) // remove
         .envs(&env_vars)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -47,43 +50,67 @@ pub async fn handle_load_environment(
         .spawn()
         .expect("Failed to start npm run dev");
 
-    // for (key, value) in env_vars {
-    //     child.env(key, value);
-    // }
-    //
-    // Obtain handles to the child process's standard input, output, and error streams
-    let mut stdin = child.stdin.take().expect("Failed to get stdin");
-    let mut stdout = child.stdout.take().expect("Failed to get stdout");
-    let stderr = child.stderr.take().expect("Failed to get stderr");
-
-    // You can interact with the child process here, for example, reading from stdout
+    // Create a buffer to read the child process's output
     let mut buffer = [0; 1024];
-    thread::spawn(move || {
-        loop {
-            match stdout.read(&mut buffer) {
-                Ok(0) => break, // End of stream
-                Ok(n) => {
-                    print!("{}", String::from_utf8_lossy(&buffer[0..n]));
-                }
-                Err(e) => {
-                    eprintln!("Error reading stdout: {}", e);
-                    break;
-                }
+
+    // Read and display the child process's output
+    loop {
+        match child.stdout.as_mut().unwrap().read(&mut buffer) {
+            Ok(0) => break, // End of output
+            Ok(n) => {
+                io::stdout()
+                    .write_all(&buffer[0..n])
+                    .expect("Failed to write to stdout");
+                io::stdout().flush().expect("Failed to flush stdout");
+            }
+            Err(e) => {
+                eprintln!("Error reading stdout: {}", e);
+                break;
             }
         }
-    });
-
-    // You can also write to the child process's standard input, for example, sending input
-    let input = "Some input for the child process\n";
-    stdin
-        .write_all(input.as_bytes())
-        .expect("Failed to write to stdin");
-
-    // You can handle the child process's standard error in a similar way
+    }
 
     // Wait for the child process to finish
     let status = child.wait().expect("Failed to wait for child process");
     println!("Child process exited with: {}", status);
+
+    // // for (key, value) in env_vars {
+    // //     child.env(key, value);
+    // // }
+    // //
+    // // Obtain handles to the child process's standard input, output, and error streams
+    // let mut stdin = child.stdin.take().expect("Failed to get stdin");
+    // let mut stdout = child.stdout.take().expect("Failed to get stdout");
+    // let stderr = child.stderr.take().expect("Failed to get stderr");
+    //
+    // // You can interact with the child process here, for example, reading from stdout
+    // let mut buffer = [0; 1024];
+    // thread::spawn(move || {
+    //     loop {
+    //         match stdout.read(&mut buffer) {
+    //             Ok(0) => break, // End of stream
+    //             Ok(n) => {
+    //                 print!("{}", String::from_utf8_lossy(&buffer[0..n]));
+    //             }
+    //             Err(e) => {
+    //                 eprintln!("Error reading stdout: {}", e);
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // });
+    //
+    // // You can also write to the child process's standard input, for example, sending input
+    // let input = "Some input for the child process\n";
+    // stdin
+    //     .write_all(input.as_bytes())
+    //     .expect("Failed to write to stdin");
+    //
+    // // You can handle the child process's standard error in a similar way
+    //
+    // // Wait for the child process to finish
+    // let status = child.wait().expect("Failed to wait for child process");
+    // println!("Child process exited with: {}", status);
 
     return Ok(());
 
