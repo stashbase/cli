@@ -39,10 +39,10 @@ pub async fn handle_load_environment(
         .arg("run")
         .arg("dev")
         .envs(&env_vars)
-        // .stdin(Stdio::piped())
-        // .stdout(Stdio::piped())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         //   .stdout(Stdio::inherit()) // This preserves colored output
-        .stderr(Stdio::inherit()) // This preserves colored error output
+        // .stderr(Stdio::inherit()) // This preserves colored error output
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start npm run dev");
