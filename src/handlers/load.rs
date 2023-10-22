@@ -3,7 +3,6 @@ use log::debug;
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
-use std::{env, thread};
 
 use crate::{
     api::{environments, secrets},
@@ -25,7 +24,7 @@ pub async fn handle_load_environment(
     // OK
     debug!("loading env...");
 
-    let working_dir = "/home/radim/code/env-vault/env-vault-api";
+    // let working_dir = "/home/radim/code/env-vault/env-vault-api";
 
     let secrets = vec![Secret {
         key: "JWT_SECRET".to_string(),
@@ -40,18 +39,19 @@ pub async fn handle_load_environment(
     let mut child = Command::new("npm")
         .arg("run")
         .arg("dev")
-        .current_dir(working_dir) // remove
+        // .current_dir(working_dir) // remove
+        .env("FORCE_COLOR", "true")
         .envs(&env_vars)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        //   .stdout(Stdio::inherit()) // This preserves colored output
-        // .stderr(Stdio::inherit()) // This preserves colored error output
         .stderr(Stdio::piped())
+        //.stdout(Stdio::inherit()) // This preserves colored output
+        //.stderr(Stdio::inherit()) // This preserves colored error output
         .spawn()
         .expect("Failed to start npm run dev");
 
     // Create a buffer to read the child process's output
-    let mut buffer = [0; 1024];
+    let mut buffer = Vec::new();
 
     // Read and display the child process's output
     loop {
@@ -72,7 +72,7 @@ pub async fn handle_load_environment(
 
     // Wait for the child process to finish
     let status = child.wait().expect("Failed to wait for child process");
-    println!("Child process exited with: {}", status);
+    debug!("Child process exited with: {}", status);
 
     // // for (key, value) in env_vars {
     // //     child.env(key, value);
