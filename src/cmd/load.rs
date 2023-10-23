@@ -20,4 +20,8 @@ pub struct LoadCommand {
     /// Exclude secret keys
     #[clap(value_parser, long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
+
+    /// Print loaded secrets
+    #[arg(value_enum, long = "print")]
+    pub print_secrets: bool,
 }
