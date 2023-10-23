@@ -107,3 +107,19 @@ pub struct UpdateEnvironmentPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
+
+// load
+#[derive(Debug, Serialize)]
+pub struct LoadEnvironmentPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub only: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exclude: Option<Vec<String>>,
+}
+
+impl LoadEnvironmentPayload {
+    pub fn new(only: Option<Vec<String>>, exclude: Option<Vec<String>>) -> Self {
+        Self { only, exclude }
+    }
+}
