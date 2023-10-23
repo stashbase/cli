@@ -8,8 +8,15 @@ use spinoff::{spinners, Color, Spinner, Streams};
 use crate::{
     api::environments,
     handlers::load::run::run_command,
-    models::{api_client::GetRequestApiResponse, secrets::SecretWithoutDescription},
-    utils::{tables::build::build_secrets_table, validation::validate_project_environment},
+    models::{
+        api_client::{GetApiResponseOk, GetRequestApiResponse},
+        secrets::SecretWithoutDescription,
+        validation::{InputValidationError, LoadEnvironmentInputValidationError},
+    },
+    utils::{
+        tables::build::build_secrets_table,
+        validation::{validate_project_environment, validate_secret_keys},
+    },
 };
 
 #[derive(Debug)]
@@ -38,6 +45,37 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
 
     if let Err(e) = validation_res {
         bail!(e);
+    }
+
+    if !only.is_empty() && !exclude.is_empty() {
+        let err = InputValidationError::LoadEnvironment(
+            LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
+        );
+        bail!(err);
+    }
+
+    if !only.is_empty() {
+        let key_validation_res = validate_secret_keys(&only);
+
+        if let Err(_) = key_validation_res {
+            let err = InputValidationError::LoadEnvironment(
+                LoadEnvironmentInputValidationError::OnlyKeyFormat,
+            );
+
+            bail!(err);
+        }
+    }
+
+    if !exclude.is_empty() {
+        let key_validation_res = validate_secret_keys(&exclude);
+
+        if let Err(_) = key_validation_res {
+            let err = InputValidationError::LoadEnvironment(
+                LoadEnvironmentInputValidationError::ExcludeKeyFormat,
+            );
+
+            bail!(err);
+        }
     }
 
     // let test_secrets: Vec<Secret> = vec![Secret {
@@ -83,66 +121,77 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
 
     match res {
         GetRequestApiResponse::Ok(data) => {
-            let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
-
-            match secrets {
-                Ok(secrets) => {
-                    // success msg
-                    spinner.stop_with_message(&format!(
-                        "{} {} ({} {})",
-                        "✓".green(),
-                        "Environment loaded",
-                        secrets.len(),
-                        if secrets.len() == 1 {
-                            "secret"
-                        } else {
-                            "secrets"
-                        }
-                    ));
-
-                    debug!("{:#?}", &secrets);
-
-                    if print_secrets {
-                        print_table(&secrets);
-                    }
-
-                    let mut parts = command.split_whitespace();
-                    // Get the first part as the command itself
-                    let command = parts.next().expect("No command specified");
-                    // Collect the rest as arguments
-                    let arguments: Vec<&str> = parts.collect();
-
-                    let env_vars = create_env_vars(secrets);
-
-                    // TODO: errors: no such file or directory
-                    run_command(command, arguments, env_vars)
-                        .await
-                        .expect("failed to run command");
-                }
-                Err(e) => {
-                    spinner.stop_with_message(&format!("{}", e));
-                    // panic!("{}", e);
-                }
-            }
+            handle_ok_response(&mut spinner, command, print_secrets, data).await?;
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
-            // panic!("{}", e);
         }
     }
 
     Ok(())
 }
 
-fn set_vars_from_secrets(secrets: Vec<SecretWithoutDescription>) {
-    let env_vars = create_env_vars(secrets);
-    apply_env_vars(env_vars);
-}
+async fn handle_ok_response(
+    spinner: &mut Spinner,
+    command: String,
+    print_secrets: bool,
+    data: GetApiResponseOk,
+) -> Result<()> {
+    let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
 
-fn apply_env_vars(env_vars: HashMap<String, String>) {
-    for (key, value) in env_vars {
-        env::set_var(key, value);
+    if let Ok(secrets) = secrets {
+        if secrets.is_empty() {
+            spinner.stop_with_message(&format!(
+                "{}\n{}",
+                "Error".red(),
+                "- message: no secrets found"
+            ));
+            return Ok(());
+        }
+
+        let mut success_msg = format!(
+            "{} {} ({} {})",
+            "✓".green(),
+            "Environment loaded",
+            secrets.len(),
+            if secrets.len() == 1 {
+                "secret"
+            } else {
+                "secrets"
+            }
+        );
+        if print_secrets {
+            success_msg.insert_str(0, "\n");
+            spinner.stop_with_message(&success_msg);
+        } else {
+            spinner.stop_with_message(&success_msg);
+        }
+        // success msg
+
+        debug!("{:#?}", &secrets);
+
+        if print_secrets {
+            print_table(&secrets);
+        }
+
+        let mut parts = command.split_whitespace();
+        // Get the first part as the command itself
+        let command = parts.next().expect("No command specified");
+        // Collect the rest as arguments
+        let arguments: Vec<&str> = parts.collect();
+
+        let env_vars = create_env_vars(secrets);
+
+        // TODO: errors: no such file or directory
+        run_command(command, arguments, env_vars)
+            .await
+            .expect("failed to run command");
+    } else {
+        let err = secrets.unwrap_err();
+        spinner.stop_with_message(&format!("{}", err));
     }
+
+    Ok(())
 }
 
 fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, String> {
@@ -157,5 +206,5 @@ fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, St
 
 fn print_table(secrets: &Vec<SecretWithoutDescription>) {
     let table = build_secrets_table(secrets);
-    println!("{}", table);
+    println!("{}\n", table);
 }
