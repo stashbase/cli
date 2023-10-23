@@ -2,12 +2,13 @@ use std::{collections::HashMap, env, hash::Hash};
 
 use anyhow::{bail, Result};
 use log::debug;
+use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
     api::secrets,
     handlers::load::run::run_command,
     models::{api_client::GetRequestApiResponse, secrets::Secret},
-    utils::validation::validate_project_environment,
+    utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
 #[derive(Debug)]
@@ -36,29 +37,36 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         bail!(e);
     }
 
-    let test_secrets: Vec<Secret> = vec![Secret {
-        key: "JWT_SECRET".to_string(),
-        value: "secret".to_string(),
-        description: None,
-    }];
+    // let test_secrets: Vec<Secret> = vec![Secret {
+    //     key: "JWT_SECRET".to_string(),
+    //     value: "secret".to_string(),
+    //     description: None,
+    // }];
+    //
+    // let mut parts = command.split_whitespace();
+    // // Get the first part as the command itself
+    // let command = parts.next().expect("No command specified");
+    // // Collect the rest as arguments
+    // let mut arguments: Vec<&str> = parts.collect();
+    //
+    // if command == "npm" {
+    //     arguments.push("--color=always");
+    // }
+    //
+    // let env_vars = create_env_vars(test_secrets);
+    //
+    // run_command(command, arguments, env_vars)
+    //     .await
+    //     .expect("failed to run command");
+    //
+    // return Ok(());
 
-    let mut parts = command.split_whitespace();
-    // Get the first part as the command itself
-    let command = parts.next().expect("No command specified");
-    // Collect the rest as arguments
-    let mut arguments: Vec<&str> = parts.collect();
-
-    if command == "npm" {
-        arguments.push("--color=always");
-    }
-
-    let env_vars = create_env_vars(test_secrets);
-
-    run_command(command, arguments, env_vars)
-        .await
-        .expect("failed to run command");
-
-    return Ok(());
+    let mut spinner = Spinner::new_with_stream(
+        spinners::Dots,
+        "Loading environment...",
+        Color::White,
+        Streams::Stderr,
+    );
 
     let res = secrets::list(token, project, environment, None, false).await;
 
@@ -69,6 +77,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     }
 
     let res = res.unwrap();
+    spinner.stop_and_persist("", "");
 
     match res {
         GetRequestApiResponse::Ok(data) => {
@@ -85,6 +94,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
 
                     let env_vars = create_env_vars(secrets);
 
+                    // TODO: errors: no such file or directory
                     run_command(command, arguments, env_vars)
                         .await
                         .expect("failed to run command");
