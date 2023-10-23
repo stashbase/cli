@@ -49,9 +49,9 @@ pub async fn handle_cli(args: Cli) {
                     print_secrets: args.print_secrets,
                 };
 
-                handle_load_environment(args)
-                    .await
-                    .expect("failed to run handler");
+                handle_load_environment(args).await.unwrap_or_else(|err| {
+                    eprintln!("{:?}", err);
+                });
             }
         }
     } else {
