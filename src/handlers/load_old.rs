@@ -1,21 +1,21 @@
-use anyhow::Result;
-use duct::cmd;
-use log::debug;
-use std::collections::HashMap;
-use std::io::prelude::*;
-use std::io::{self, Read, Write};
-use std::process::{Command, Stdio};
-use std::thread;
-use tokio::select;
-
-use tokio::io::{AsyncBufReadExt, BufReader};
-
-use crate::cmd;
-use crate::{
-    api::{environments, secrets},
-    models::{api_client::GetRequestApiResponse, environments::Environment, secrets::Secret},
-    utils::{spinner::request_spinner, validation::validate_project_environment},
-};
+// use anyhow::Result;
+// use duct::cmd;
+// use log::debug;
+// use std::collections::HashMap;
+// use std::io::prelude::*;
+// use std::io::{self, Read, Write};
+// use std::process::{Command, Stdio};
+// use std::thread;
+// use tokio::select;
+//
+// use tokio::io::{AsyncBufReadExt, BufReader};
+//
+// use crate::cmd;
+// use crate::{
+//     api::{environments, secrets},
+//     models::{api_client::GetRequestApiResponse, environments::Environment, secrets::Secret},
+//     utils::{spinner::request_spinner, validation::validate_project_environment},
+// };
 
 // #[tokio::main]
 // async fn main() -> Result<(), Box<dyn std::error::Error>> {
