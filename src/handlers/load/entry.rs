@@ -14,6 +14,7 @@ use crate::{
         validation::{InputValidationError, LoadEnvironmentInputValidationError},
     },
     utils::{
+        interaction,
         tables::build::build_secrets_table,
         validation::{validate_project_environment, validate_secret_keys},
     },
@@ -109,6 +110,8 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         Streams::Stderr,
     );
 
+    let only_len = only.len();
+
     let res = environments::load(token, project, environment, only, exclude).await;
 
     if let Err(err) = res {
@@ -121,7 +124,46 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
 
     match res {
         GetRequestApiResponse::Ok(data) => {
-            handle_ok_response(&mut spinner, command, print_secrets, data).await?;
+            // handle_ok_response(&mut spinner, command, only_len, print_secrets, data).await?;
+
+            let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
+
+            if let Ok(secrets) = secrets {
+                if secrets.is_empty() {
+                    spinner.stop_with_message(&format!(
+                        "{}\n{}",
+                        "Error".red(),
+                        "- message: no secrets found"
+                    ));
+                    return Ok(());
+                }
+
+                if only_len > 0 && secrets.len() < only_len {
+                    spinner.stop_with_message(&format!(
+                        "\n{} {} secret(s) found, {} secret(s) requested",
+                        "Error:".red(),
+                        secrets.len(),
+                        only_len
+                    ));
+
+                    let confirmation = interaction::confirm_opt("Do you still want to proceed?");
+
+                    if let Some(true) = confirmation {
+                        if !print_secrets {
+                            eprintln!();
+                        }
+
+                        handle_run(&mut None, command, print_secrets, secrets).await?;
+                    } else {
+                        return Ok(());
+                    }
+                } else {
+                    handle_run(&mut Some(spinner), command, print_secrets, secrets).await?;
+                }
+            } else {
+                let err = secrets.unwrap_err();
+                spinner.stop_with_message(&format!("{}", err));
+            }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
@@ -131,65 +173,58 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     Ok(())
 }
 
-async fn handle_ok_response(
-    spinner: &mut Spinner,
+async fn handle_run(
+    spinner: &mut Option<Spinner>,
     command: String,
     print_secrets: bool,
-    data: GetApiResponseOk,
+    secrets: Vec<SecretWithoutDescription>,
 ) -> Result<()> {
-    let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
-
-    if let Ok(secrets) = secrets {
-        if secrets.is_empty() {
-            spinner.stop_with_message(&format!(
-                "{}\n{}",
-                "Error".red(),
-                "- message: no secrets found"
-            ));
-            return Ok(());
+    let mut success_msg = format!(
+        "{} {} ({} {})",
+        "✓".green(),
+        "Environment loaded",
+        secrets.len(),
+        if secrets.len() == 1 {
+            "secret"
+        } else {
+            "secrets"
         }
+    );
 
-        let mut success_msg = format!(
-            "{} {} ({} {})",
-            "✓".green(),
-            "Environment loaded",
-            secrets.len(),
-            if secrets.len() == 1 {
-                "secret"
-            } else {
-                "secrets"
-            }
-        );
-        if print_secrets {
-            success_msg.insert_str(0, "\n");
+    if print_secrets {
+        success_msg.insert_str(0, "\n");
+        if let Some(spinner) = spinner {
             spinner.stop_with_message(&success_msg);
         } else {
-            spinner.stop_with_message(&success_msg);
+            println!("{}", success_msg);
         }
-        // success msg
-
-        debug!("{:#?}", &secrets);
-
-        if print_secrets {
-            print_table(&secrets);
-        }
-
-        let mut parts = command.split_whitespace();
-        // Get the first part as the command itself
-        let command = parts.next().expect("No command specified");
-        // Collect the rest as arguments
-        let arguments: Vec<&str> = parts.collect();
-
-        let env_vars = create_env_vars(secrets);
-
-        // TODO: errors: no such file or directory
-        run_command(command, arguments, env_vars)
-            .await
-            .expect("failed to run command");
     } else {
-        let err = secrets.unwrap_err();
-        spinner.stop_with_message(&format!("{}", err));
+        if let Some(spinner) = spinner {
+            spinner.stop_with_message(&success_msg);
+        } else {
+            println!("{}", success_msg);
+        }
     }
+    // success msg
+
+    debug!("{:#?}", &secrets);
+
+    if print_secrets {
+        print_table(&secrets);
+    }
+
+    let mut parts = command.split_whitespace();
+    // Get the first part as the command itself
+    let command = parts.next().expect("No command specified");
+    // Collect the rest as arguments
+    let arguments: Vec<&str> = parts.collect();
+
+    let env_vars = create_env_vars(secrets);
+
+    // TODO: errors: no such file or directory
+    run_command(command, arguments, env_vars)
+        .await
+        .expect("failed to run command");
 
     Ok(())
 }
