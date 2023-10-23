@@ -6,9 +6,13 @@ use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
-    api::secrets,
+    api::{environments, secrets},
     handlers::load::run::run_command,
-    models::{api_client::GetRequestApiResponse, secrets::Secret},
+    models::{
+        api_client::{GetRequestApiResponse, PostPatchRequestApiResponse},
+        environments::LoadEnvironmentPayload,
+        secrets::Secret,
+    },
     utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
@@ -62,6 +66,20 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     //
     // return Ok(());
 
+    let payload = match only.is_empty() && exclude.is_empty() {
+        true => None,
+        false => {
+            let only = if only.is_empty() { None } else { Some(only) };
+            let exclude = if exclude.is_empty() {
+                None
+            } else {
+                Some(exclude)
+            };
+
+            Some(LoadEnvironmentPayload { only, exclude })
+        }
+    };
+
     let mut spinner = Spinner::new_with_stream(
         spinners::Dots,
         "Loading environment...",
@@ -69,44 +87,63 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         Streams::Stderr,
     );
 
-    let res = secrets::list(token, project, environment, None, false).await;
+    let res = environments::load(token, project, environment, &payload).await;
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
-        panic!("{}", err);
-        return Ok(());
+        spinner.stop_and_persist("", "");
+        bail!(err);
     }
 
     let res = res.unwrap();
-    spinner.stop_with_message(&format!("{} {}", "✓".green(), "Environment loaded"));
 
     match res {
-        GetRequestApiResponse::Ok(data) => {
-            let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
-            match secrets {
-                Ok(secrets) => {
-                    debug!("{:#?}", &secrets);
+        PostPatchRequestApiResponse::Ok(data) => {
+            if let Some(text) = data.text {
+                let secrets = serde_json::from_str::<Vec<Secret>>(&text);
+                match secrets {
+                    Ok(secrets) => {
+                        // success msg
+                        spinner.stop_with_message(&format!(
+                            "{} {} ({} {})",
+                            "✓".green(),
+                            "Environment loaded",
+                            secrets.len(),
+                            if secrets.len() == 1 {
+                                "secret"
+                            } else {
+                                "secrets"
+                            }
+                        ));
 
-                    let mut parts = command.split_whitespace();
-                    // Get the first part as the command itself
-                    let command = parts.next().expect("No command specified");
-                    // Collect the rest as arguments
-                    let arguments: Vec<&str> = parts.collect();
+                        debug!("{:#?}", &secrets);
 
-                    let env_vars = create_env_vars(secrets);
+                        let mut parts = command.split_whitespace();
+                        // Get the first part as the command itself
+                        let command = parts.next().expect("No command specified");
+                        // Collect the rest as arguments
+                        let arguments: Vec<&str> = parts.collect();
 
-                    // TODO: errors: no such file or directory
-                    run_command(command, arguments, env_vars)
-                        .await
-                        .expect("failed to run command");
+                        let env_vars = create_env_vars(secrets);
+
+                        // TODO: errors: no such file or directory
+                        run_command(command, arguments, env_vars)
+                            .await
+                            .expect("failed to run command");
+                    }
+                    Err(e) => {
+                        spinner.stop_with_message(&format!("{}", e));
+                        // panic!("{}", e);
+                    }
                 }
-                Err(e) => {
-                    panic!("{}", e);
-                }
+            } else {
+                spinner.stop_with_message("Something went wrong");
+                // panic!();
             }
         }
-        GetRequestApiResponse::Err(e) => {
-            panic!("{}", e);
+        PostPatchRequestApiResponse::Err(e) => {
+            spinner.stop_with_message(&format!("{}", e));
+            // panic!("{}", e);
         }
     }
 
