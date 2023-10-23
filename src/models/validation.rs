@@ -7,6 +7,7 @@ pub enum InputValidationError {
     Secrets(SecretsInputValidationError),
     Environments(EnvironmentsInputValidationError),
     EnvChangelog(EnvChangelogInputValidationError),
+    LoadEnvironment(LoadEnvironmentInputValidationError),
 }
 
 #[derive(Debug)]
@@ -55,6 +56,13 @@ pub enum EnvironmentsInputValidationError {
 pub enum EnvChangelogInputValidationError {
     InvalidIdFormat,
     InvalidIdLength,
+}
+
+#[derive(Debug)]
+pub enum LoadEnvironmentInputValidationError {
+    UseOfBothExcludeAndOnly,
+    OnlyKeyFormat,
+    ExcludeKeyFormat,
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -249,6 +257,37 @@ impl fmt::Display for EnvChangelogInputValidationError {
     }
 }
 
+impl fmt::Display for LoadEnvironmentInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
+        match self {
+            LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly => {
+                msg = "use of both --exclude and --only flag";
+                hint = Some("use only one of them");
+            }
+            LoadEnvironmentInputValidationError::OnlyKeyFormat => {
+                msg = "invalid only argument";
+                hint = Some("accepts only uppercase alphanumeric characters and underscores");
+            }
+            LoadEnvironmentInputValidationError::ExcludeKeyFormat => {
+                msg = "invalid exclude argument";
+                hint = Some("accepts only uppercase alphanumeric characters and underscores");
+            }
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
@@ -257,6 +296,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Secrets(inner) => write!(f, "{}", inner),
             InputValidationError::Environments(inner) => write!(f, "{}", inner),
             InputValidationError::EnvChangelog(inner) => write!(f, "{}", inner),
+            InputValidationError::LoadEnvironment(inner) => write!(f, "{}", inner),
         }
     }
 }
