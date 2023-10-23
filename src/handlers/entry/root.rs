@@ -8,7 +8,7 @@ use crate::{
             config::handle_config_commands, environments::handle_environment_commands,
             projects::handle_project_commands, secrets::handle_secrets_commands,
         },
-        load::handle_load_environment,
+        load::entry::{handle_load_environment, HandleLoadEnvironmentArgs},
     },
 };
 
@@ -39,7 +39,14 @@ pub async fn handle_cli(args: Cli) {
                 handle_secrets_commands(cmd, token, raw_output).await;
             }
             EntityType::Load(args) => {
-                handle_load_environment(token, args.project, args.environment).await;
+                let args = HandleLoadEnvironmentArgs {
+                    token,
+                    project: args.project,
+                    environment: args.environment,
+                    command: args.command,
+                };
+
+                handle_load_environment(args).await;
             }
         }
     } else {
