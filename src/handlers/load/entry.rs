@@ -2,6 +2,7 @@ use std::{collections::HashMap, env, hash::Hash};
 
 use anyhow::{bail, Result};
 use log::debug;
+use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
@@ -77,7 +78,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     }
 
     let res = res.unwrap();
-    spinner.stop_and_persist("", "");
+    spinner.stop_with_message(&format!("{} {}", "✓".green(), "Environment loaded"));
 
     match res {
         GetRequestApiResponse::Ok(data) => {
