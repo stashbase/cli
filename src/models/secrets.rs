@@ -1,7 +1,15 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 use owo_colors::OwoColorize;
-use serde::{Deserialize, Serialize};
+use tabled::Tabled;
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretWithoutDescription {
+    pub key: String,
+    pub value: String,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
