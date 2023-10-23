@@ -1,19 +1,24 @@
-use std::{collections::HashMap, env, hash::Hash};
+use std::{collections::HashMap, env};
 
 use anyhow::{bail, Result};
 use log::debug;
 use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
+use tabled::{
+    settings::{
+        format::Format,
+        measurement::Percent,
+        object::{Columns, Segment},
+        Modify, Width,
+    },
+    Table,
+};
 
 use crate::{
-    api::{environments, secrets},
+    api::environments,
     handlers::load::run::run_command,
-    models::{
-        api_client::{GetRequestApiResponse, PostPatchRequestApiResponse},
-        environments::LoadEnvironmentPayload,
-        secrets::Secret,
-    },
-    utils::{spinner::request_spinner, validation::validate_project_environment},
+    models::{api_client::GetRequestApiResponse, secrets::SecretWithoutDescription},
+    utils::{tables::build::build_secrets_table, validation::validate_project_environment},
 };
 
 #[derive(Debug)]
@@ -68,20 +73,6 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     //
     // return Ok(());
 
-    let payload = match only.is_empty() && exclude.is_empty() {
-        true => None,
-        false => {
-            let only = if only.is_empty() { None } else { Some(only) };
-            let exclude = if exclude.is_empty() {
-                None
-            } else {
-                Some(exclude)
-            };
-
-            Some(LoadEnvironmentPayload { only, exclude })
-        }
-    };
-
     let mut spinner = Spinner::new_with_stream(
         spinners::Dots,
         "Loading environment...",
@@ -89,7 +80,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         Streams::Stderr,
     );
 
-    let res = environments::load(token, project, environment, &payload).await;
+    let res = environments::load(token, project, environment, only, exclude).await;
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
@@ -100,50 +91,50 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(data) => {
-            if let Some(text) = data.text {
-                let secrets = serde_json::from_str::<Vec<Secret>>(&text);
-                match secrets {
-                    Ok(secrets) => {
-                        // success msg
-                        spinner.stop_with_message(&format!(
-                            "{} {} ({} {})",
-                            "✓".green(),
-                            "Environment loaded",
-                            secrets.len(),
-                            if secrets.len() == 1 {
-                                "secret"
-                            } else {
-                                "secrets"
-                            }
-                        ));
+        GetRequestApiResponse::Ok(data) => {
+            let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
 
-                        debug!("{:#?}", &secrets);
+            match secrets {
+                Ok(secrets) => {
+                    // success msg
+                    spinner.stop_with_message(&format!(
+                        "{} {} ({} {})",
+                        "✓".green(),
+                        "Environment loaded",
+                        secrets.len(),
+                        if secrets.len() == 1 {
+                            "secret"
+                        } else {
+                            "secrets"
+                        }
+                    ));
 
-                        let mut parts = command.split_whitespace();
-                        // Get the first part as the command itself
-                        let command = parts.next().expect("No command specified");
-                        // Collect the rest as arguments
-                        let arguments: Vec<&str> = parts.collect();
+                    debug!("{:#?}", &secrets);
 
-                        let env_vars = create_env_vars(secrets);
-
-                        // TODO: errors: no such file or directory
-                        run_command(command, arguments, env_vars)
-                            .await
-                            .expect("failed to run command");
+                    if print_secrets {
+                        print_table(&secrets);
                     }
-                    Err(e) => {
-                        spinner.stop_with_message(&format!("{}", e));
-                        // panic!("{}", e);
-                    }
+
+                    let mut parts = command.split_whitespace();
+                    // Get the first part as the command itself
+                    let command = parts.next().expect("No command specified");
+                    // Collect the rest as arguments
+                    let arguments: Vec<&str> = parts.collect();
+
+                    let env_vars = create_env_vars(secrets);
+
+                    // TODO: errors: no such file or directory
+                    run_command(command, arguments, env_vars)
+                        .await
+                        .expect("failed to run command");
                 }
-            } else {
-                spinner.stop_with_message("Something went wrong");
-                // panic!();
+                Err(e) => {
+                    spinner.stop_with_message(&format!("{}", e));
+                    // panic!("{}", e);
+                }
             }
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        GetRequestApiResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
             // panic!("{}", e);
         }
@@ -152,7 +143,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     Ok(())
 }
 
-fn set_vars_from_secrets(secrets: Vec<Secret>) {
+fn set_vars_from_secrets(secrets: Vec<SecretWithoutDescription>) {
     let env_vars = create_env_vars(secrets);
     apply_env_vars(env_vars);
 }
@@ -163,7 +154,7 @@ fn apply_env_vars(env_vars: HashMap<String, String>) {
     }
 }
 
-fn create_env_vars(secrets: Vec<Secret>) -> HashMap<String, String> {
+fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
 
     for secret in secrets {
@@ -171,4 +162,9 @@ fn create_env_vars(secrets: Vec<Secret>) -> HashMap<String, String> {
     }
 
     map
+}
+
+fn print_table(secrets: &Vec<SecretWithoutDescription>) {
+    let table = build_secrets_table(secrets);
+    println!("{}", table);
 }
