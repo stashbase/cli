@@ -12,4 +12,12 @@ pub struct LoadCommand {
     /// Enviornment name
     #[arg(value_enum, short = 'e', long = "environment", required = true)]
     pub environment: String,
+
+    /// Select secret keys
+    #[clap(value_parser, long="only", num_args = 1..)]
+    pub only: Vec<String>,
+
+    /// Exclude secret keys
+    #[clap(value_parser, long="exclude", num_args = 1..)]
+    pub exclude: Vec<String>,
 }
