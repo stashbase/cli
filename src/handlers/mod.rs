@@ -5,3 +5,4 @@ pub mod environments;
 pub mod load;
 pub mod projects;
 pub mod secrets;
+pub mod test;
