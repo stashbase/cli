@@ -9,7 +9,8 @@ use crate::{
             RequestArgs,
         },
         environments::{
-            CreatEnvironmentPayload, UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
+            CreatEnvironmentPayload, LoadEnvironmentPayload, UpdateEnvironmentPayload,
+            UpdateEnvironmentTypePayload,
         },
     },
 };
@@ -89,6 +90,30 @@ pub async fn get(
     };
 
     client::get_request(args).await
+}
+
+pub async fn load(
+    token: String,
+    project: String,
+    environment: String,
+    data: &Option<LoadEnvironmentPayload>,
+) -> Result<PostPatchRequestApiResponse> {
+    let subpath = format!("{}/load", environment);
+
+    let args = RequestArgs {
+        token,
+        query: None,
+        path: ApiPath::Environments {
+            project,
+            path: Some(subpath),
+        },
+    };
+
+    if let Some(data) = data {
+        client::post_request(args, Some(data)).await
+    } else {
+        client::post_request::<()>(args, None).await
+    }
 }
 
 pub async fn get_url(
