@@ -47,7 +47,10 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     let command = parts.next().expect("No command specified");
     // Collect the rest as arguments
     let mut arguments: Vec<&str> = parts.collect();
-    // arguments.push("--color=always");
+
+    if command == "npm" {
+        arguments.push("--color=always");
+    }
 
     let env_vars = create_env_vars(test_secrets);
 
