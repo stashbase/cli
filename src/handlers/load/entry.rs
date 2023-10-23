@@ -4,15 +4,6 @@ use anyhow::{bail, Result};
 use log::debug;
 use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
-use tabled::{
-    settings::{
-        format::Format,
-        measurement::Percent,
-        object::{Columns, Segment},
-        Modify, Width,
-    },
-    Table,
-};
 
 use crate::{
     api::environments,
