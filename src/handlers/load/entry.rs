@@ -16,6 +16,8 @@ pub struct HandleLoadEnvironmentArgs {
     pub project: String,
     pub environment: String,
     pub command: String,
+    pub only: Vec<String>,
+    pub exclude: Vec<String>,
 }
 
 pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<()> {
@@ -24,6 +26,8 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         project,
         environment,
         command,
+        only,
+        exclude,
     } = args;
 
     let validation_res = validate_project_environment(&project, &environment, true);
