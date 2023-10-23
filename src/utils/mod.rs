@@ -4,4 +4,6 @@ pub mod interaction;
 pub mod secrets;
 pub mod separator;
 pub mod spinner;
+pub mod tables;
+pub mod term_size;
 pub mod validation;
