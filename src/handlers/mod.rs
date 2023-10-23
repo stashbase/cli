@@ -3,6 +3,7 @@ pub mod entry;
 pub mod env_changelog;
 pub mod environments;
 pub mod load;
+pub mod load_old;
 pub mod projects;
 pub mod secrets;
 pub mod test;
