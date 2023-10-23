@@ -44,9 +44,13 @@ pub async fn handle_cli(args: Cli) {
                     project: args.project,
                     environment: args.environment,
                     command: args.command,
+                    exclude: args.exclude,
+                    only: args.only,
                 };
 
-                handle_load_environment(args).await;
+                handle_load_environment(args)
+                    .await
+                    .expect("failed to run handler");
             }
         }
     } else {
