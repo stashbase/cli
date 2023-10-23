@@ -96,24 +96,39 @@ pub async fn load(
     token: String,
     project: String,
     environment: String,
-    data: &Option<LoadEnvironmentPayload>,
-) -> Result<PostPatchRequestApiResponse> {
+    // data: &Option<LoadEnvironmentPayload>,
+    only: Vec<String>,
+    exclude: Vec<String>,
+) -> Result<GetRequestApiResponse> {
     let subpath = format!("{}/load", environment);
+
+    let query = match !only.is_empty() || !exclude.is_empty() {
+        true => {
+            let mut query = vec![];
+
+            if !only.is_empty() {
+                query.push(("only".to_string(), only.join(",")));
+            }
+
+            if !exclude.is_empty() {
+                query.push(("exclude".to_string(), exclude.join(",")));
+            }
+
+            Some(query)
+        }
+        false => None,
+    };
 
     let args = RequestArgs {
         token,
-        query: None,
+        query,
         path: ApiPath::Environments {
             project,
             path: Some(subpath),
         },
     };
 
-    if let Some(data) = data {
-        client::post_request(args, Some(data)).await
-    } else {
-        client::post_request::<()>(args, None).await
-    }
+    client::get_request(args).await
 }
 
 pub async fn get_url(
