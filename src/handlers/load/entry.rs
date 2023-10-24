@@ -102,7 +102,7 @@ pub async fn handle_load_environment(mut args: HandleLoadEnvironmentArgs) -> Res
 
         environments::load(token, project, environment, only, exclude).await
     } else {
-        // TODO: valdiate project + env len
+        // TODO: valdiate project + env len + args
         let file_config = handle_file()?;
 
         match file_config {
@@ -113,7 +113,16 @@ pub async fn handle_load_environment(mut args: HandleLoadEnvironmentArgs) -> Res
                     Color::White,
                     Streams::Stderr,
                 );
+
                 // TODO: args
+                if let Some(secrets) = config.secrets {
+                    if let Some(only) = secrets.only {
+                        only_len = only.len();
+                    }
+                }
+
+                // TODO: merge exclude + only args OR use only cli args???
+
                 environments::load(token, config.project, config.environment, vec![], vec![]).await
             }
             None => todo!(),
