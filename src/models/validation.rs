@@ -60,7 +60,7 @@ pub enum EnvChangelogInputValidationError {
 
 #[derive(Debug)]
 pub enum LoadEnvironmentInputValidationError {
-    NoConfigFile,
+    NoConfigFile { custom_path: bool },
     NoConfigFileEntries,
     FileArgWithInline,
     MissingProjectArg,
@@ -280,9 +280,17 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "invalid exclude argument";
                 hint = Some("accepts only uppercase alphanumeric characters and underscores");
             }
-            LoadEnvironmentInputValidationError::NoConfigFile => {
-                msg = "no 'env-ease.yaml' config file found";
-                hint = Some("create file or use '-p' and '-e' flags");
+            LoadEnvironmentInputValidationError::NoConfigFile { custom_path } => {
+                match custom_path {
+                    true => {
+                        msg = "no config file found";
+                        hint = Some("make sure the file exists");
+                    }
+                    false => {
+                        msg = "no 'env-ease.yaml' config file found";
+                        hint = Some("create file or use '-p' and '-e' flags");
+                    }
+                };
             }
             LoadEnvironmentInputValidationError::NoConfigFileEntries => {
                 msg = "no entries found in 'env-ease.yaml'";

@@ -321,7 +321,7 @@ async fn handle_run(
 
 fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
     // Load from file
-    let file_path = match relative_path {
+    let file_path = match &relative_path {
         Some(relative_path) => {
             let mut path = std::env::current_dir()?;
             path.push(relative_path);
@@ -333,7 +333,9 @@ fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>
 
     if !file_exists {
         let err = InputValidationError::LoadEnvironment(
-            LoadEnvironmentInputValidationError::NoConfigFile,
+            LoadEnvironmentInputValidationError::NoConfigFile {
+                custom_path: if relative_path.is_some() { true } else { false },
+            },
         );
 
         bail!(err);
