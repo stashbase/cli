@@ -61,6 +61,7 @@ pub enum EnvChangelogInputValidationError {
 #[derive(Debug)]
 pub enum LoadEnvironmentInputValidationError {
     NoConfigFile,
+    NoConfigFileEntries,
     UseOfBothExcludeAndOnly,
     OnlyKeyFormat,
     ExcludeKeyFormat,
@@ -279,6 +280,10 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::NoConfigFile => {
                 msg = "no 'env-ease.yaml' config file found";
                 hint = Some("create file or use '-p' and '-e' flags");
+            }
+            LoadEnvironmentInputValidationError::NoConfigFileEntries => {
+                msg = "no entries found in 'env-ease.yaml'";
+                hint = Some("add entries to the file or use '-p' and '-e' flags");
             }
         }
 
