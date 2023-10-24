@@ -1,6 +1,6 @@
 use std::{collections::HashMap, env};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use log::debug;
 use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
@@ -9,7 +9,7 @@ use crate::{
     api::environments,
     handlers::load::run::run_command,
     models::{
-        api_client::{GetApiResponseOk, GetRequestApiResponse},
+        api_client::GetRequestApiResponse,
         config_env::EnvConfigItem,
         secrets::SecretWithoutDescription,
         validation::{InputValidationError, LoadEnvironmentInputValidationError},
@@ -32,35 +32,100 @@ pub struct HandleLoadEnvironmentArgs {
     pub print_secrets: bool,
 }
 
-pub async fn handle_load_environment(mut args: HandleLoadEnvironmentArgs) -> Result<()> {
+pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<()> {
     let HandleLoadEnvironmentArgs {
         token,
-        project,
-        environment,
         command,
-        only,
-        exclude,
-        print_secrets,
+        mut project,
+        mut environment,
+        mut only,
+        mut exclude,
+        mut print_secrets,
     } = args;
 
-    if project.is_some() && environment.is_some() {
-        let validation_res = validate_project_environment(
-            project.as_ref().unwrap(),
-            environment.as_ref().unwrap(),
-            true,
-        );
+    let mut is_from_file = true;
 
-        if let Err(e) = validation_res {
-            bail!(e);
-        }
+    if let (Some(_), Some(_)) = (&project, &environment) {
+        is_from_file = false;
+    } else if let Some(_) = project {
+        // missing env arg
+        let err = InputValidationError::LoadEnvironment(
+            LoadEnvironmentInputValidationError::MissingEnvArg,
+        );
+        bail!(err);
+    } else if let Some(_) = environment {
+        // missing project error
+        let err = InputValidationError::LoadEnvironment(
+            LoadEnvironmentInputValidationError::MissingProjectArg,
+        );
+        bail!(err);
     } else {
-        // panic!("error");
+        // LOAD from file
+        let file_config = load_from_file()?;
+
+        if let Some(config) = file_config {
+            project = Some(config.project);
+            environment = Some(config.environment);
+
+            if let Some(secrets) = config.secrets {
+                // print
+                if let Some(print_secrets_val) = secrets.print {
+                    print_secrets = print_secrets_val;
+                }
+
+                // only
+                if let Some(only_val) = secrets.only {
+                    if only_val.is_empty() == false {
+                        for only_secret in only_val {
+                            let already_exists = only.contains(&only_secret);
+
+                            if !already_exists {
+                                only.push(only_secret);
+                            }
+                        }
+                    }
+                }
+
+                // exclude
+                if let Some(exclude_val) = secrets.exclude {
+                    if exclude_val.is_empty() == false {
+                        for exclude_secret in exclude_val {
+                            let already_exists = exclude.contains(&exclude_secret);
+
+                            if !already_exists {
+                                exclude.push(exclude_secret);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            eprintln!("\nRun command exited");
+            return Ok(());
+        }
+    }
+
+    let project = project.unwrap();
+    let environment = environment.unwrap();
+
+    let validation_res = validate_project_environment(project.as_ref(), environment.as_ref(), true);
+
+    if let Err(e) = validation_res {
+        if is_from_file {
+            eprintln!();
+        }
+        bail!(e);
     }
 
     if !only.is_empty() && !exclude.is_empty() {
         let err = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
         );
+
+        if is_from_file {
+            eprintln!();
+        }
+
         bail!(err);
     }
 
@@ -71,6 +136,10 @@ pub async fn handle_load_environment(mut args: HandleLoadEnvironmentArgs) -> Res
             let err = InputValidationError::LoadEnvironment(
                 LoadEnvironmentInputValidationError::OnlyKeyFormat,
             );
+
+            if is_from_file {
+                eprintln!();
+            }
 
             bail!(err);
         }
@@ -84,50 +153,28 @@ pub async fn handle_load_environment(mut args: HandleLoadEnvironmentArgs) -> Res
                 LoadEnvironmentInputValidationError::ExcludeKeyFormat,
             );
 
+            if is_from_file {
+                eprintln!();
+            }
+
             bail!(err);
         }
     }
 
-    let mut only_len = only.len();
+    let only_len = only.len();
 
-    let mut spinner: Spinner;
+    if is_from_file {
+        eprintln!();
+    }
 
-    let res = if let (Some(project), Some(environment)) = (project, environment) {
-        spinner = Spinner::new_with_stream(
-            spinners::Dots,
-            "Loading environment...",
-            Color::White,
-            Streams::Stderr,
-        );
+    let mut spinner = Spinner::new_with_stream(
+        spinners::Dots,
+        "Loading environment...",
+        Color::White,
+        Streams::Stderr,
+    );
 
-        environments::load(token, project, environment, only, exclude).await
-    } else {
-        // TODO: valdiate project + env len + args
-        let file_config = handle_file()?;
-
-        match file_config {
-            Some(config) => {
-                spinner = Spinner::new_with_stream(
-                    spinners::Dots,
-                    "Loading environment...",
-                    Color::White,
-                    Streams::Stderr,
-                );
-
-                // TODO: args
-                if let Some(secrets) = config.secrets {
-                    if let Some(only) = secrets.only {
-                        only_len = only.len();
-                    }
-                }
-
-                // TODO: merge exclude + only args OR use only cli args???
-
-                environments::load(token, config.project, config.environment, vec![], vec![]).await
-            }
-            None => todo!(),
-        }
-    };
+    let res = environments::load(token, project, environment, only, exclude).await;
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
@@ -145,28 +192,36 @@ pub async fn handle_load_environment(mut args: HandleLoadEnvironmentArgs) -> Res
 
             if let Ok(secrets) = secrets {
                 if secrets.is_empty() {
-                    spinner.stop_with_message(&format!(
-                        "{}\n{}",
-                        "Error".red(),
-                        "- message: no secrets found"
-                    ));
+                    let msg = if only_len == 0 {
+                        format!("{}\n{}", "Error".red(), "- message: no secrets found")
+                    } else {
+                        format!(
+                            "{}\n{}",
+                            "Error".red(),
+                            "- message: no secrets found (only {} secret(s) requested)"
+                        )
+                    };
+
+                    spinner.stop_with_message(&msg);
                     return Ok(());
                 }
 
                 if only_len > 0 && secrets.len() < only_len {
-                    spinner.stop_with_message(&format!(
+                    let msg = format!(
                         "\n{} {} secret(s) found, {} secret(s) requested",
                         "Error:".red(),
                         secrets.len(),
                         only_len
-                    ));
+                    );
+
+                    spinner.stop_with_message(&msg);
 
                     let confirmation = interaction::confirm_opt("Do you still want to proceed?");
 
                     if let Some(true) = confirmation {
-                        if !print_secrets {
-                            eprintln!();
-                        }
+                        // if !print_secrets {
+                        //     eprintln!();
+                        // }
 
                         handle_run(&mut None, command, print_secrets, secrets).await?;
                     } else {
@@ -244,7 +299,7 @@ async fn handle_run(
     Ok(())
 }
 
-fn handle_file() -> Result<Option<EnvConfigItem>> {
+fn load_from_file() -> Result<Option<EnvConfigItem>> {
     // Load from file
     let file_path = env::current_dir()?.join("env-ease.yaml");
     let file_exists = file_path.exists();
@@ -257,23 +312,23 @@ fn handle_file() -> Result<Option<EnvConfigItem>> {
         bail!(err);
     } else {
         let file_content = std::fs::read_to_string(file_path)?;
-        let deserialized_config = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content)?;
+        let deserialized_config = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content)
+            .context(format!("{}", "Failed to read env config file".red()))?;
+
         debug!("deserialized_config: {:?}", deserialized_config);
 
         let len = deserialized_config.len();
 
         if len == 0 {
-            // TODO: err
-            panic!("error: no projects found");
+            let err = InputValidationError::LoadEnvironment(
+                LoadEnvironmentInputValidationError::NoConfigFileEntries,
+            );
+
+            bail!(err);
         } else {
             if len == 1 {
-                let item = deserialized_config.get(0).cloned();
-                if let Some(item) = item {
-                    return Ok(Some(item));
-                } else {
-                    // TODO: error
-                    panic!("error");
-                }
+                let item = deserialized_config[0].clone();
+                return Ok(Some(item));
             } else {
                 let items = deserialized_config
                     .iter()
@@ -285,14 +340,10 @@ fn handle_file() -> Result<Option<EnvConfigItem>> {
                 debug!("selection: {:?}", selection);
 
                 if let Some(selection) = selection {
-                    let item = deserialized_config.get(selection).cloned();
-
+                    let item = deserialized_config[selection].clone();
                     debug!("item: {:?}", item);
 
-                    match item {
-                        Some(item) => return Ok(Some(item)),
-                        None => panic!("error"),
-                    }
+                    return Ok(Some(item));
                 } else {
                     return Ok(None);
                 }
