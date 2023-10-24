@@ -1,0 +1,13 @@
+- project: hero-hub
+  environment: aws
+  description: select only database url
+  secrets:
+    only:
+      - DATABASE_URL
+
+- project: hero-hub
+  environment: vercel
+
+  # non existing
+- project: hero-hub
+  environment: gdsjfkhlsd
