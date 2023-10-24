@@ -62,6 +62,8 @@ pub enum EnvChangelogInputValidationError {
 pub enum LoadEnvironmentInputValidationError {
     NoConfigFile,
     NoConfigFileEntries,
+    MissingProjectArg,
+    MissingEnvArg,
     UseOfBothExcludeAndOnly,
     OnlyKeyFormat,
     ExcludeKeyFormat,
@@ -284,6 +286,14 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::NoConfigFileEntries => {
                 msg = "no entries found in 'env-ease.yaml'";
                 hint = Some("add entries to the file or use '-p' and '-e' flags");
+            }
+            LoadEnvironmentInputValidationError::MissingProjectArg => {
+                msg = "missing project argument";
+                hint = Some("use '-p' flag to specify the project");
+            }
+            LoadEnvironmentInputValidationError::MissingEnvArg => {
+                msg = "missing environment argument";
+                hint = Some("use '-e' flag to specify the environment");
             }
         }
 
