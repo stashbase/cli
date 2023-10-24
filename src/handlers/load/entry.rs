@@ -30,18 +30,28 @@ pub struct HandleLoadEnvironmentArgs {
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub print_secrets: bool,
+    pub file: Option<String>,
 }
 
 pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<()> {
     let HandleLoadEnvironmentArgs {
         token,
         command,
+        file,
         mut project,
         mut environment,
         mut only,
         mut exclude,
         mut print_secrets,
     } = args;
+
+    if file.is_some() && (project.is_some() || environment.is_some()) {
+        let err = InputValidationError::LoadEnvironment(
+            LoadEnvironmentInputValidationError::FileArgWithInline,
+        );
+
+        bail!(err);
+    }
 
     let mut is_from_file = true;
 
@@ -61,7 +71,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         bail!(err);
     } else {
         // LOAD from file
-        let file_config = load_from_file()?;
+        let file_config = load_from_file(file)?;
 
         if let Some(config) = file_config {
             project = Some(config.project);
@@ -196,9 +206,10 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
                         format!("{}\n{}", "Error".red(), "- message: no secrets found")
                     } else {
                         format!(
-                            "{}\n{}",
+                            "{}\n{} ({} requested)",
                             "Error".red(),
-                            "- message: no secrets found (only {} secret(s) requested)"
+                            "- message: no secrets found",
+                            only_len
                         )
                     };
 
@@ -223,12 +234,20 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
                         //     eprintln!();
                         // }
 
-                        handle_run(&mut None, command, print_secrets, secrets).await?;
+                        handle_run(&mut None, command, print_secrets, secrets, is_from_file)
+                            .await?;
                     } else {
                         return Ok(());
                     }
                 } else {
-                    handle_run(&mut Some(spinner), command, print_secrets, secrets).await?;
+                    handle_run(
+                        &mut Some(spinner),
+                        command,
+                        print_secrets,
+                        secrets,
+                        is_from_file,
+                    )
+                    .await?;
                 }
             } else {
                 let err = secrets.unwrap_err();
@@ -248,6 +267,7 @@ async fn handle_run(
     command: String,
     print_secrets: bool,
     secrets: Vec<SecretWithoutDescription>,
+    is_from_file: bool,
 ) -> Result<()> {
     let mut success_msg = format!(
         "{} {} ({} {})",
@@ -261,7 +281,7 @@ async fn handle_run(
         }
     );
 
-    if print_secrets {
+    if print_secrets && !is_from_file {
         success_msg.insert_str(0, "\n");
         if let Some(spinner) = spinner {
             spinner.stop_with_message(&success_msg);
@@ -299,9 +319,16 @@ async fn handle_run(
     Ok(())
 }
 
-fn load_from_file() -> Result<Option<EnvConfigItem>> {
+fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
     // Load from file
-    let file_path = env::current_dir()?.join("env-ease.yaml");
+    let file_path = match relative_path {
+        Some(relative_path) => {
+            let mut path = std::env::current_dir()?;
+            path.push(relative_path);
+            path
+        }
+        None => env::current_dir()?.join("env-ease.yaml"),
+    };
     let file_exists = file_path.exists();
 
     if !file_exists {

@@ -47,6 +47,7 @@ pub async fn handle_cli(args: Cli) {
                     exclude: args.exclude,
                     only: args.only,
                     print_secrets: args.print_secrets,
+                    file: args.file,
                 };
 
                 handle_load_environment(args).await.unwrap_or_else(|err| {
