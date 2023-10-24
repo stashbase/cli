@@ -34,5 +34,5 @@ pub fn select(prompt: &str, selections: Vec<String>) -> Option<usize> {
         .default(0)
         .items(&selections[..])
         .interact_opt()
-        .unwrap()
+        .unwrap_or_else(|_| None)
 }
