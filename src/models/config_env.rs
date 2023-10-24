@@ -8,12 +8,12 @@ pub struct EnvConfigItem {
     pub environment: String,
     pub description: Option<String>,
 
-    pub print: Option<bool>,
     pub secrets: Option<EnvConfigItemSecrets>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvConfigItemSecrets {
+    pub print: Option<bool>,
     // Select secret keys
     pub only: Option<Vec<String>>,
     // Exclude secret keys
