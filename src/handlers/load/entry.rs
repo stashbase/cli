@@ -10,11 +10,12 @@ use crate::{
     handlers::load::run::run_command,
     models::{
         api_client::{GetApiResponseOk, GetRequestApiResponse},
+        config_env::EnvConfigItem,
         secrets::SecretWithoutDescription,
         validation::{InputValidationError, LoadEnvironmentInputValidationError},
     },
     utils::{
-        interaction,
+        interaction::{self, select},
         tables::build::build_secrets_table,
         validation::{validate_project_environment, validate_secret_keys},
     },
@@ -23,15 +24,15 @@ use crate::{
 #[derive(Debug)]
 pub struct HandleLoadEnvironmentArgs {
     pub token: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub command: String,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub print_secrets: bool,
 }
 
-pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<()> {
+pub async fn handle_load_environment(mut args: HandleLoadEnvironmentArgs) -> Result<()> {
     let HandleLoadEnvironmentArgs {
         token,
         project,
@@ -42,10 +43,18 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         print_secrets,
     } = args;
 
-    let validation_res = validate_project_environment(&project, &environment, true);
+    if project.is_some() && environment.is_some() {
+        let validation_res = validate_project_environment(
+            project.as_ref().unwrap(),
+            environment.as_ref().unwrap(),
+            true,
+        );
 
-    if let Err(e) = validation_res {
-        bail!(e);
+        if let Err(e) = validation_res {
+            bail!(e);
+        }
+    } else {
+        // panic!("error");
     }
 
     if !only.is_empty() && !exclude.is_empty() {
@@ -79,40 +88,37 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
         }
     }
 
-    // let test_secrets: Vec<Secret> = vec![Secret {
-    //     key: "JWT_SECRET".to_string(),
-    //     value: "secret".to_string(),
-    //     description: None,
-    // }];
-    //
-    // let mut parts = command.split_whitespace();
-    // // Get the first part as the command itself
-    // let command = parts.next().expect("No command specified");
-    // // Collect the rest as arguments
-    // let mut arguments: Vec<&str> = parts.collect();
-    //
-    // if command == "npm" {
-    //     arguments.push("--color=always");
-    // }
-    //
-    // let env_vars = create_env_vars(test_secrets);
-    //
-    // run_command(command, arguments, env_vars)
-    //     .await
-    //     .expect("failed to run command");
-    //
-    // return Ok(());
+    let mut only_len = only.len();
 
-    let mut spinner = Spinner::new_with_stream(
-        spinners::Dots,
-        "Loading environment...",
-        Color::White,
-        Streams::Stderr,
-    );
+    let mut spinner: Spinner;
 
-    let only_len = only.len();
+    let res = if let (Some(project), Some(environment)) = (project, environment) {
+        spinner = Spinner::new_with_stream(
+            spinners::Dots,
+            "Loading environment...",
+            Color::White,
+            Streams::Stderr,
+        );
 
-    let res = environments::load(token, project, environment, only, exclude).await;
+        environments::load(token, project, environment, only, exclude).await
+    } else {
+        // TODO: valdiate project + env len
+        let file_config = handle_file()?;
+
+        match file_config {
+            Some(config) => {
+                spinner = Spinner::new_with_stream(
+                    spinners::Dots,
+                    "Loading environment...",
+                    Color::White,
+                    Streams::Stderr,
+                );
+                // TODO: args
+                environments::load(token, config.project, config.environment, vec![], vec![]).await
+            }
+            None => todo!(),
+        }
+    };
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
@@ -121,7 +127,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
     }
 
     let res = res.unwrap();
-
+    //
     match res {
         GetRequestApiResponse::Ok(data) => {
             // handle_ok_response(&mut spinner, command, only_len, print_secrets, data).await?;
@@ -169,7 +175,7 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
             spinner.stop_with_message(&format!("{}", e));
         }
     }
-
+    //
     Ok(())
 }
 
@@ -229,6 +235,63 @@ async fn handle_run(
     Ok(())
 }
 
+fn handle_file() -> Result<Option<EnvConfigItem>> {
+    // Load from file
+    let file_path = env::current_dir()?.join("env-ease.yaml");
+    let file_exists = file_path.exists();
+
+    if !file_exists {
+        let err = InputValidationError::LoadEnvironment(
+            LoadEnvironmentInputValidationError::NoConfigFile,
+        );
+
+        bail!(err);
+    } else {
+        let file_content = std::fs::read_to_string(file_path)?;
+        let deserialized_config = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content)?;
+        debug!("deserialized_config: {:?}", deserialized_config);
+
+        let len = deserialized_config.len();
+
+        if len == 0 {
+            // TODO: err
+            panic!("error: no projects found");
+        } else {
+            if len == 1 {
+                let item = deserialized_config.get(0).cloned();
+                if let Some(item) = item {
+                    return Ok(Some(item));
+                } else {
+                    // TODO: error
+                    panic!("error");
+                }
+            } else {
+                let items = deserialized_config
+                    .iter()
+                    .map(|item| item.to_string())
+                    .collect();
+                // select project
+                let selection = select("Select environment config", items);
+
+                debug!("selection: {:?}", selection);
+
+                if let Some(selection) = selection {
+                    let item = deserialized_config.get(selection).cloned();
+
+                    debug!("item: {:?}", item);
+
+                    match item {
+                        Some(item) => return Ok(Some(item)),
+                        None => panic!("error"),
+                    }
+                } else {
+                    return Ok(None);
+                }
+            }
+        }
+    }
+}
+
 fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
 
@@ -242,4 +305,30 @@ fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, St
 fn print_table(secrets: &Vec<SecretWithoutDescription>) {
     let table = build_secrets_table(secrets);
     println!("{}\n", table);
+}
+
+fn test() {
+    // let test_secrets: Vec<Secret> = vec![Secret {
+    //     key: "JWT_SECRET".to_string(),
+    //     value: "secret".to_string(),
+    //     description: None,
+    // }];
+    //
+    // let mut parts = command.split_whitespace();
+    // // Get the first part as the command itself
+    // let command = parts.next().expect("No command specified");
+    // // Collect the rest as arguments
+    // let mut arguments: Vec<&str> = parts.collect();
+    //
+    // if command == "npm" {
+    //     arguments.push("--color=always");
+    // }
+    //
+    // let env_vars = create_env_vars(test_secrets);
+    //
+    // run_command(command, arguments, env_vars)
+    //     .await
+    //     .expect("failed to run command");
+    //
+    // return Ok(());
 }
