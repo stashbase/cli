@@ -60,6 +60,7 @@ pub enum EnvChangelogInputValidationError {
 
 #[derive(Debug)]
 pub enum LoadEnvironmentInputValidationError {
+    NoConfigFile,
     UseOfBothExcludeAndOnly,
     OnlyKeyFormat,
     ExcludeKeyFormat,
@@ -274,6 +275,10 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::ExcludeKeyFormat => {
                 msg = "invalid exclude argument";
                 hint = Some("accepts only uppercase alphanumeric characters and underscores");
+            }
+            LoadEnvironmentInputValidationError::NoConfigFile => {
+                msg = "no 'env-ease.yaml' config file found";
+                hint = Some("create file or use '-p' and '-e' flags");
             }
         }
 
