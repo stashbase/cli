@@ -62,6 +62,7 @@ pub enum EnvChangelogInputValidationError {
 pub enum LoadEnvironmentInputValidationError {
     NoConfigFile,
     NoConfigFileEntries,
+    FileArgWithInline,
     MissingProjectArg,
     MissingEnvArg,
     UseOfBothExcludeAndOnly,
@@ -121,10 +122,10 @@ impl fmt::Display for ProjectInputValidationError {
         }
 
         if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
-            write!(f, "{}", format!("- hint: {}", hint),)?;
+            writeln!(f, "{}", format!("- message: {}", msg))?;
+            write!(f, "{}", format!("- hint: {}", hint))?;
         } else {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            writeln!(f, "{}", format!("- message: {}", msg))?;
         }
 
         Ok(())
@@ -294,6 +295,10 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::MissingEnvArg => {
                 msg = "missing environment argument";
                 hint = Some("use '-e' flag to specify the environment");
+            }
+            LoadEnvironmentInputValidationError::FileArgWithInline => {
+                msg = "cannot use '--file' flag and '-p' or '-e' flag at the same time";
+                hint = None;
             }
         }
 
