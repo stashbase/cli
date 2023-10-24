@@ -5,6 +5,10 @@ pub struct LoadCommand {
     /// Command to run
     pub command: String,
 
+    /// Relative path to a config file (default: env-ease.yaml)
+    #[arg(value_enum, long = "file")]
+    pub file: Option<String>,
+
     /// Project name
     #[arg(value_enum, short = 'p', long = "project")]
     pub project: Option<String>,
