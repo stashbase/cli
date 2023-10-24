@@ -6,12 +6,12 @@ pub struct LoadCommand {
     pub command: String,
 
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = true)]
-    pub project: String,
+    #[arg(value_enum, short = 'p', long = "project")]
+    pub project: Option<String>,
 
     /// Enviornment name
-    #[arg(value_enum, short = 'e', long = "environment", required = true)]
-    pub environment: String,
+    #[arg(value_enum, short = 'e', long = "environment")]
+    pub environment: Option<String>,
 
     /// Select secret keys
     #[clap(value_parser, long="only", num_args = 1..)]
