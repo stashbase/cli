@@ -5,7 +5,10 @@ use log::{debug, error};
 use crate::{
     api::projects,
     cmd::projects::{ProjectsFromat, Sort},
-    models::{api_client::GetRequestApiResponse, projects::ProjectWithCount},
+    models::{
+        api_client::GetRequestApiResponse,
+        projects::{ProjectWithCount, ProjectWithCountNoDescription},
+    },
     utils::{
         human_datetime::get_human_datetime, spinner::request_spinner, tables,
         validation::validate_project_search,
@@ -161,15 +164,30 @@ fn output_json(projects: Vec<ProjectWithCount>) {
 }
 
 fn output_table(projects: Vec<ProjectWithCount>) {
-    let projects_formatted: Vec<_> = projects
-        .into_iter()
-        .map(|mut p| {
-            let (formatted, relative) = get_human_datetime(&p.created_at);
-            p.created_at = format!("{} ({})", formatted, relative);
-            p
-        })
-        .collect();
+    let has_description = projects.iter().any(|p| p.description.is_some());
+    if has_description {
+        let projects_formatted: Vec<_> = projects
+            .into_iter()
+            .map(|mut p| {
+                let (formatted, relative) = get_human_datetime(&p.created_at);
+                p.created_at = format!("{} ({})", formatted, relative);
+                p
+            })
+            .collect();
 
-    let table = tables::build::build_table(&projects_formatted);
-    println!("{}", table);
+        let table = tables::build::build_table(&projects_formatted);
+        println!("{}", table);
+    } else {
+        let projects_formatted: Vec<_> = projects
+            .into_iter()
+            .map(|mut p| {
+                let (formatted, relative) = get_human_datetime(&p.created_at);
+                p.created_at = format!("{} ({})", formatted, relative);
+                ProjectWithCountNoDescription::from(p)
+            })
+            .collect();
+
+        let table = tables::build::build_table(&projects_formatted);
+        println!("{}", table);
+    }
 }
