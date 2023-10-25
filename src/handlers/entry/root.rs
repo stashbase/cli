@@ -8,6 +8,7 @@ use crate::{
             config::handle_config_commands, environments::handle_environment_commands,
             projects::handle_project_commands, secrets::handle_secrets_commands,
         },
+        open::handle_open_dashboard,
         run::entry::{handle_load_env_run, HandleRunArgs},
     },
 };
@@ -53,6 +54,9 @@ pub async fn handle_cli(args: Cli) {
                 handle_load_env_run(args).await.unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
+            }
+            EntityType::Open => {
+                handle_open_dashboard();
             }
         }
     } else {
