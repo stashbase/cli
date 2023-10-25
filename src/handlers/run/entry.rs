@@ -110,8 +110,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 }
             }
         } else {
-            // eprintln!("\nRun command exited");
-            eprintln!("Run command exited");
+            eprintln!("\nRun command exited");
+            // eprintln!("Run command exited");
             return Ok(());
         }
     }
@@ -181,7 +181,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     let mut spinner = Spinner::new_with_stream(
         spinners::Dots,
         "Loading environment...",
-        Color::White,
+        Color::Cyan,
         Streams::Stderr,
     );
 
