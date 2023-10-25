@@ -65,7 +65,7 @@ pub struct GetSecrets {
     // #[clap(short='v', long="k", value_parser, num_args = 1.., value_delimiter = ' ')]
     pub keys: Vec<String>,
 
-    /// Format secrets (default list)
+    /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsFromat>,
 }
