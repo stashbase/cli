@@ -49,6 +49,18 @@ pub struct ListProjects {
     /// Descending order
     #[arg(value_enum, long = "desc")]
     pub descending: bool,
+
+    /// Format output
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<ProjectsFromat>,
+}
+
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
+pub enum ProjectsFromat {
+    #[default]
+    List,
+    Json,
+    Table,
 }
 
 #[derive(Debug, ValueEnum, Clone)]
