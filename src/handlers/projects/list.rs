@@ -4,9 +4,12 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    cmd::projects::Sort,
+    cmd::projects::{ProjectsFromat, Sort},
     models::{api_client::GetRequestApiResponse, projects::ProjectWithCount},
-    utils::{spinner::request_spinner, validation::validate_project_search},
+    utils::{
+        human_datetime::get_human_datetime, spinner::request_spinner, tables,
+        validation::validate_project_search,
+    },
 };
 
 pub struct HandleListProjectsArgs {
@@ -15,6 +18,7 @@ pub struct HandleListProjectsArgs {
     pub sort: Option<Sort>,
     pub descending: bool,
     pub raw: bool,
+    pub format: ProjectsFromat,
 }
 
 pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
@@ -24,6 +28,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         sort,
         descending,
         raw,
+        format,
     } = args;
 
     // validate search
@@ -55,26 +60,30 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
             let projects = serde_json::from_str::<Vec<ProjectWithCount>>(&data.text);
 
             match projects {
-                Ok(projects) => {
+                Ok(mut projects) => {
                     debug!("{:#?}", &projects);
 
                     if raw {
-                        let value = serde_json::to_value(&projects).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-
                         spinner.stop_and_persist("", "");
-                        println!("{}", pretty);
+                        output_json(projects);
                     } else {
                         if projects.is_empty() {
                             spinner.stop_with_message("No projects found");
                         } else {
                             spinner.stop_and_persist("", "");
 
-                            for (i, p) in projects.iter().enumerate() {
-                                if i == projects.len() - 1 {
-                                    print!("{}", p);
-                                } else {
-                                    println!("{}", p);
+                            match format {
+                                ProjectsFromat::List => {
+                                    output_list(projects);
+                                }
+                                ProjectsFromat::Json => {
+                                    output_json(projects);
+                                }
+                                ProjectsFromat::Table => {
+                                    // reverse because returned fro list -> last is first (for
+                                    // lists)
+                                    projects.reverse();
+                                    output_table(projects);
                                 }
                             }
                         }
@@ -139,4 +148,35 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     // }
     //
     // Ok(())
+}
+
+fn output_list(projects: Vec<ProjectWithCount>) {
+    for (i, p) in projects.iter().enumerate() {
+        if i == projects.len() - 1 {
+            print!("{}", p);
+        } else {
+            println!("{}", p);
+        }
+    }
+}
+
+fn output_json(projects: Vec<ProjectWithCount>) {
+    let value = serde_json::to_value(&projects).unwrap();
+    let pretty = to_colored_json_auto(&value).unwrap();
+
+    println!("{}", pretty);
+}
+
+fn output_table(projects: Vec<ProjectWithCount>) {
+    let projects_formatted: Vec<_> = projects
+        .into_iter()
+        .map(|mut p| {
+            let (formatted, relative) = get_human_datetime(&p.created_at);
+            p.created_at = format!("{} ({})", formatted, relative);
+            p
+        })
+        .collect();
+
+    let table = tables::build::build_table(&projects_formatted);
+    println!("{}", table);
 }
