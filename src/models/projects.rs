@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
+use tabled::Tabled;
 
 use crate::utils::human_datetime::get_human_datetime;
 
@@ -31,17 +32,29 @@ pub struct UpdateProjectPayload {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectWithCount {
+    #[tabled(rename = "Name", order = 0)]
     pub name: String,
     // date string
+    #[tabled(rename = "Created at", order = 1)]
     pub created_at: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Description", order = 3)]
     pub description: Option<String>,
 
+    #[tabled(rename = "Environments", order = 2)]
     pub environment_count: usize,
+}
+
+fn display_option(d: &Option<String>) -> String {
+    match d {
+        Some(s) => format!("{}", s),
+        None => format!(""),
+    }
 }
 
 impl Display for Project {
