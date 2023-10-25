@@ -29,6 +29,7 @@ fn set_handlers() {
         let term = dialoguer::console::Term::stdout();
         let _ = term.show_cursor();
 
+        eprintln!("");
         // exit process
         std::process::exit(0);
     })
