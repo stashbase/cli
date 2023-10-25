@@ -16,7 +16,7 @@ use crate::{
     },
     utils::{
         interaction::{self, select},
-        tables::build::build_secrets_table,
+        tables::build::build_table,
         validation::{validate_project_environment, validate_secret_keys},
     },
 };
@@ -401,7 +401,7 @@ fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, St
 }
 
 fn print_table(secrets: &Vec<SecretWithoutDescription>) {
-    let table = build_secrets_table(secrets);
+    let table = build_table(secrets);
     println!("{}\n", table);
 }
 
