@@ -19,6 +19,7 @@ pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_ou
                 sort: args.sort,
                 descending: args.descending,
                 raw: raw_output,
+                format: args.format.unwrap_or_default(),
             };
 
             handle_list_projects(args).await.unwrap_or_else(|err| {
