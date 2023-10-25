@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 
 use super::{
     configs::ConfigCommands, environments::EnvironmentCommands, projects::ProjectCommands,
@@ -10,9 +10,13 @@ use super::{
 #[command(about = "Env ease CLI")]
 
 pub struct Cli {
-    /// Output data as raw json
-    #[arg(long = "raw", global = true)]
+    /// Output data as pretty json
+    #[arg(long = "json", name = "json", global = true)]
     pub raw: bool,
+
+    // /// Output data as raw json
+    // #[arg(long = "raw", global = true)]
+    // pub raw: bool,
 
     // #[clap(long, value_enum, global = true, default_value = "auto")]
     // pub color: Color,
