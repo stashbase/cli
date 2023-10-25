@@ -123,7 +123,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
     if let Err(e) = validation_res {
         if is_from_file {
-            eprintln!();
+            // eprintln!();
         }
         bail!(e);
     }
@@ -189,8 +189,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
-        spinner.stop_and_persist("", "");
-        bail!(err);
+        spinner.stop_with_message(&err.to_string());
+
+        return Ok(());
     }
 
     let res = res.unwrap();
