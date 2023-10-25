@@ -5,7 +5,7 @@ use tabled::{
 
 use crate::utils::term_size::get_terminal_size;
 
-pub fn build_secrets_table<T>(secrets: &Vec<T>) -> Table
+pub fn build_table<T>(secrets: &Vec<T>) -> Table
 where
     T: Tabled,
 {
