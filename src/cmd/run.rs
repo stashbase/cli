@@ -1,7 +1,7 @@
 use clap::Args;
 
 #[derive(Debug, Args)]
-pub struct LoadCommand {
+pub struct RunCommand {
     /// Command to run
     pub command: String,
 
