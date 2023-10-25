@@ -4,11 +4,18 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    models::{api_client::GetRequestApiResponse, projects::ProjectWithCount},
-    utils::{spinner::request_spinner, validation::validate_project_name},
+    cmd::projects::ProjectsFromat,
+    models::{
+        api_client::GetRequestApiResponse,
+        projects::{ProjectWithCount, ProjectWithCountNoDescription},
+    },
+    utils::{
+        human_datetime::get_human_datetime, spinner::request_spinner, tables,
+        validation::validate_project_name,
+    },
 };
 
-pub async fn handle_get_project(token: String, raw: bool, name: String) -> Result<()> {
+pub async fn handle_get_project(token: String, format: ProjectsFromat, name: String) -> Result<()> {
     let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
@@ -34,15 +41,38 @@ pub async fn handle_get_project(token: String, raw: bool, name: String) -> Resul
             let project = serde_json::from_str::<ProjectWithCount>(&data.text);
 
             match project {
-                Ok(project) => {
+                Ok(mut project) => {
                     debug!("{:#?}", &project);
 
-                    if raw {
-                        let value = serde_json::to_value(&project).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-                        println!("{}", pretty);
-                    } else {
-                        print!("{}", project);
+                    match format {
+                        ProjectsFromat::List => {
+                            print!("{}", project);
+                        }
+                        ProjectsFromat::Json => {
+                            let value = serde_json::to_value(&project).unwrap();
+                            let pretty = to_colored_json_auto(&value).unwrap();
+                            println!("{}", pretty);
+                        }
+                        ProjectsFromat::Table => {
+                            let (formatted, relative) = get_human_datetime(&project.created_at);
+                            project.created_at = format!("{} ({})", formatted, relative);
+
+                            match &project.description {
+                                Some(_) => {
+                                    let table = tables::build::build_table(&Vec::from([project]));
+                                    println!("{}", table);
+                                }
+                                None => {
+                                    let without_description: ProjectWithCountNoDescription =
+                                        project.into();
+
+                                    let table = tables::build::build_table(&Vec::from([
+                                        without_description,
+                                    ]));
+                                    println!("{}", table);
+                                }
+                            }
+                        }
                     }
                 }
                 Err(_) => {
