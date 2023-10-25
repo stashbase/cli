@@ -120,5 +120,6 @@ pub struct RenameSecrets {
 pub enum SecretsFromat {
     List,
     Dotenv,
+    Table,
     Json,
 }
