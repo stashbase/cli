@@ -1,5 +1,7 @@
 use crate::{
-    cmd::environments::{EnvChangelogSubcommand, EnvironmentCommands, EnvironmentSubcommand},
+    cmd::environments::{
+        EnvChangelogSubcommand, EnvironmentCommands, EnvironmentFormat, EnvironmentSubcommand,
+    },
     handlers::{
         env_changelog::{
             get::{handle_get_changelog_item, HandleGetEnvChangelogItemArgs},
@@ -35,7 +37,10 @@ pub async fn handle_environment_commands(
                 types: args.types,
                 locked: args.locked,
                 unlocked: args.unlocked,
-                raw: raw_output,
+                format: match raw_output {
+                    true => EnvironmentFormat::Json,
+                    false => args.format.unwrap_or_default(),
+                },
             };
 
             handle_list_environments(args).await.unwrap_or_else(|err| {
@@ -44,11 +49,19 @@ pub async fn handle_environment_commands(
         }
 
         EnvironmentSubcommand::Get(args) => {
-            handle_get_environment(token, raw_output, cmd.project, args.name)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+            handle_get_environment(
+                token,
+                match raw_output {
+                    true => EnvironmentFormat::Json,
+                    false => args.format.unwrap_or_default(),
+                },
+                cmd.project,
+                args.name,
+            )
+            .await
+            .unwrap_or_else(|err| {
+                eprintln!("{:?}", err);
+            });
         }
         EnvironmentSubcommand::Open(args) => {
             handle_open_environment(token, cmd.project, args.name)
