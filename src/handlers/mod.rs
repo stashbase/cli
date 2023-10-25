@@ -7,3 +7,4 @@ pub mod projects;
 pub mod run;
 pub mod secrets;
 pub mod test;
+pub mod open;
