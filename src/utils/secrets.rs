@@ -5,7 +5,12 @@ use std::{fs, path::Path};
 use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
 
-use crate::{cmd::secrets::SecretsFromat, models::secrets::Secret};
+use crate::{
+    cmd::secrets::SecretsFromat,
+    models::secrets::{Secret, SecretOnlyKey, SecretWithDescription, SecretWithoutDescription},
+};
+
+use super::tables::build::build_secrets_table;
 
 pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
     match format {
@@ -60,6 +65,32 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
 
             pretty
         }
+        SecretsFromat::Table => {
+            // TODO: cehck no have description -> dont show descr col
+            let has_some_description = secrets.iter().any(|s| s.has_description());
+
+            if has_some_description {
+                let table_secrets = secrets
+                    .into_iter()
+                    .map(|s| {
+                        let secret: SecretWithDescription = s.into();
+                        secret
+                    })
+                    .collect::<Vec<_>>();
+
+                build_secrets_table(&table_secrets).to_string()
+            } else {
+                let table_secrets = secrets
+                    .into_iter()
+                    .map(|s| {
+                        let secret: SecretWithoutDescription = s.into();
+                        secret
+                    })
+                    .collect::<Vec<_>>();
+
+                build_secrets_table(&table_secrets).to_string()
+            }
+        }
     }
 }
 
@@ -98,6 +129,17 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsFromat) -> String {
             let pretty = to_colored_json_auto(&value).unwrap();
 
             pretty
+        }
+        SecretsFromat::Table => {
+            let table_secrets = keys
+                .into_iter()
+                .map(|s| {
+                    let secret: SecretOnlyKey = s.into();
+                    secret
+                })
+                .collect::<Vec<_>>();
+
+            build_secrets_table(&table_secrets).to_string()
         }
     }
 }
