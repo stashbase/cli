@@ -7,8 +7,17 @@ use tabled::Tabled;
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithoutDescription {
+    #[tabled(rename = "Key")]
     pub key: String,
+
+    #[tabled(rename = "Value")]
     pub value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct SecretOnlyKey {
+    #[tabled(rename = "Key")]
+    pub key: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -19,6 +28,50 @@ pub struct Secret {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+impl Secret {
+    pub fn has_description(&self) -> bool {
+        self.description.is_some()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretWithDescription {
+    #[tabled(rename = "Key")]
+    pub key: String,
+
+    #[tabled(rename = "Value")]
+    pub value: String,
+
+    #[tabled(rename = "Description")]
+    pub description: String,
+}
+
+impl From<String> for SecretOnlyKey {
+    fn from(key: String) -> Self {
+        Self { key }
+    }
+}
+
+impl From<Secret> for SecretWithDescription {
+    fn from(secret: Secret) -> Self {
+        Self {
+            key: secret.key,
+            value: secret.value,
+            description: secret.description.unwrap_or("".to_string()),
+        }
+    }
+}
+
+impl From<Secret> for SecretWithoutDescription {
+    fn from(secret: Secret) -> Self {
+        Self {
+            key: secret.key,
+            value: secret.value,
+        }
+    }
 }
 
 impl Display for Secret {
