@@ -10,7 +10,7 @@ use crate::{
     models::secrets::{Secret, SecretOnlyKey, SecretWithDescription, SecretWithoutDescription},
 };
 
-use super::tables::build::build_secrets_table;
+use super::tables::build::build_table;
 
 pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
     match format {
@@ -78,7 +78,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
                     })
                     .collect::<Vec<_>>();
 
-                build_secrets_table(&table_secrets).to_string()
+                build_table(&table_secrets).to_string()
             } else {
                 let table_secrets = secrets
                     .into_iter()
@@ -88,7 +88,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
                     })
                     .collect::<Vec<_>>();
 
-                build_secrets_table(&table_secrets).to_string()
+                build_table(&table_secrets).to_string()
             }
         }
     }
@@ -139,7 +139,7 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsFromat) -> String {
                 })
                 .collect::<Vec<_>>();
 
-            build_secrets_table(&table_secrets).to_string()
+            build_table(&table_secrets).to_string()
         }
     }
 }
