@@ -50,10 +50,33 @@ pub struct ProjectWithCount {
     pub environment_count: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWithCountNoDescription {
+    #[tabled(rename = "Name", order = 0)]
+    pub name: String,
+    // date string
+    #[tabled(rename = "Created at", order = 1)]
+    pub created_at: String,
+
+    #[tabled(rename = "Environments", order = 2)]
+    pub environment_count: usize,
+}
+
 fn display_option(d: &Option<String>) -> String {
     match d {
         Some(s) => format!("{}", s),
         None => format!(""),
+    }
+}
+
+impl From<ProjectWithCount> for ProjectWithCountNoDescription {
+    fn from(project: ProjectWithCount) -> Self {
+        Self {
+            name: project.name,
+            created_at: project.created_at,
+            environment_count: project.environment_count,
+        }
     }
 }
 
