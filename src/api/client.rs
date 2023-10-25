@@ -1,24 +1,54 @@
-use std::env;
+use std::{env, process};
 
 use anyhow::{bail, Context, Result};
 use log::debug;
-use reqwest::{header::HeaderMap, Client, ClientBuilder, Method};
+use reqwest::{header::HeaderMap, Client, Method};
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{
+    default_on_request_failure, policies::ExponentialBackoff, RetryTransientMiddleware, Retryable,
+    RetryableStrategy,
+};
 
 use crate::models::api_client::{
     ApiErrorResponse, CustomError, DeleteApiResponseOk, DeleteRequestApiResponse, GetApiResponseOk,
     GetRequestApiResponse, PostPatchApiResponseOk, PostPatchRequestApiResponse, RequestArgs,
 };
 
-pub fn build_client(token: String) -> Client {
+struct RetryReqPolicy;
+impl RetryableStrategy for RetryReqPolicy {
+    fn handle(&self, res: &reqwest_middleware::Result<reqwest::Response>) -> Option<Retryable> {
+        match res {
+            // retry if 500
+            Ok(success) if success.status() == 500 => Some(Retryable::Transient),
+            // otherwise do not retry a successful request
+            Ok(_) => None,
+            // but maybe retry a request failure
+            Err(error) => default_on_request_failure(error),
+        }
+    }
+}
+
+pub fn build_client(token: String) -> ClientWithMiddleware {
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
+
+    // Create the actual middleware, with the exponential backoff and custom retry stategy.
+    let ret_s =
+        RetryTransientMiddleware::new_with_policy_and_strategy(retry_policy, RetryReqPolicy);
+
     let mut headers = HeaderMap::new();
     headers.insert("token", token.parse().unwrap());
 
-    let builder = ClientBuilder::new()
-        .timeout(std::time::Duration::from_secs(10))
-        .default_headers(headers)
-        .user_agent("env-ease-cli/0.0.1");
+    let builder = ClientBuilder::new(
+        reqwest::ClientBuilder::new()
+            .timeout(std::time::Duration::from_secs(10))
+            .default_headers(headers)
+            .user_agent("env-ease-cli/0.0.1")
+            .build()
+            .unwrap(),
+    )
+    .with(ret_s);
 
-    let client = builder.build().unwrap();
+    let client = builder.build();
     client
 }
 
