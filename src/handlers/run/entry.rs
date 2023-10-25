@@ -219,18 +219,25 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 }
 
                 if only_len > 0 && secrets.len() < only_len {
-                    let msg = format!(
-                        "\n{} {} secret(s) found, {} secret(s) requested",
+                    let mut msg = format!(
+                        "{} {} secret(s) found, {} secret(s) requested",
                         "Error:".red(),
                         secrets.len(),
                         only_len
                     );
+
+                    if !is_from_file {
+                        msg.insert_str(0, "\n");
+                    }
 
                     spinner.stop_with_message(&msg);
 
                     let confirmation = interaction::confirm_opt("Do you still want to proceed?");
 
                     if let Some(true) = confirmation {
+                        if print_secrets {
+                            eprintln!();
+                        }
                         // if !print_secrets {
                         //     eprintln!();
                         // }
