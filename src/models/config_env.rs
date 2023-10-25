@@ -22,19 +22,48 @@ pub struct EnvConfigItemSecrets {
 
 impl fmt::Display for EnvConfigItem {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let args_str = match &self.secrets {
+            Some(s) => match (&s.only, &s.exclude) {
+                (Some(only), Some(exclude)) => {
+                    let only_len = only.len();
+                    let exclude_len = exclude.len();
+
+                    Some(format!("only - ({}), exclude ({})", only_len, exclude_len))
+                }
+                (None, None) => None,
+                (None, Some(exclude)) => {
+                    let exclude_len = exclude.len();
+
+                    Some(format!("exclude ({})", exclude_len))
+                }
+                (Some(only), None) => {
+                    let only_len = only.len();
+                    Some(format!("only ({})", only_len))
+                }
+            },
+            None => None,
+        };
+
         let str = match &self.description {
             Some(description) => {
-                format!(
-                    "{} -> {}\n   🗎 {}",
-                    self.project, self.environment, description
-                )
-                //     format!(
-                //         "{} -> {}\n   📄{}",
-                //         self.project, self.environment, description
-                //     )
+                if let Some(args) = args_str {
+                    format!(
+                        "{} -> {} | {}\n   🗎 {}",
+                        self.project, self.environment, args, description
+                    )
+                } else {
+                    format!(
+                        "{} -> {}\n   🗎 {}",
+                        self.project, self.environment, description
+                    )
+                }
             }
             None => {
-                format!("{} -> {}", self.project, self.environment)
+                if let Some(args) = args_str {
+                    format!("{} -> {} | {}", self.project, self.environment, args)
+                } else {
+                    format!("{} -> {}", self.project, self.environment)
+                }
             }
         };
 
