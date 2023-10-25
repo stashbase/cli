@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
+use tabled::Tabled;
 
 use crate::{cmd::environments::EnvironmentType, utils::human_datetime::get_human_datetime};
 
@@ -57,6 +58,99 @@ pub struct Environment {
     pub env_type: EnvType,
 
     pub secret_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct TableEnvironment {
+    // date string
+    #[tabled(rename = "Created at", order = 1)]
+    pub created_at: String,
+    #[tabled(rename = "Name", order = 0)]
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Description", order = 5)]
+    pub description: Option<String>,
+
+    #[tabled(rename = "Locked", order = 3)]
+    pub locked: bool,
+
+    #[serde(rename = "type")]
+    #[tabled(rename = "Type", order = 2)]
+    pub env_type: String,
+
+    #[tabled(rename = "Secrets", order = 4)]
+    pub secret_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct TableEnvironmentWithoutDescription {
+    // date string
+    #[tabled(rename = "Created at", order = 1)]
+    pub created_at: String,
+    #[tabled(rename = "Name", order = 0)]
+    pub name: String,
+
+    #[tabled(rename = "Locked", order = 3)]
+    pub locked: bool,
+
+    #[serde(rename = "type")]
+    #[tabled(rename = "Type", order = 2)]
+    pub env_type: String,
+
+    #[tabled(rename = "Secrets", order = 4)]
+    pub secret_count: usize,
+}
+
+impl From<Environment> for TableEnvironment {
+    fn from(env: Environment) -> Self {
+        let (formatted, relative) = get_human_datetime(&env.created_at);
+        let created_at = format!("{} ({})", formatted, relative);
+
+        Self {
+            created_at,
+            name: env.name,
+            description: env.description,
+            locked: env.locked,
+            env_type: match env.env_type {
+                EnvType::DEVELOPMENT => "Development".to_string(),
+                EnvType::TESTING => "Testing".to_string(),
+                EnvType::STAGING => "Staging".to_string(),
+                EnvType::PRODUCTION => "Production".to_string(),
+            },
+            secret_count: env.secret_count,
+        }
+    }
+}
+
+impl From<Environment> for TableEnvironmentWithoutDescription {
+    fn from(env: Environment) -> Self {
+        let (formatted, relative) = get_human_datetime(&env.created_at);
+        let created_at = format!("{} ({})", formatted, relative);
+
+        Self {
+            created_at,
+            name: env.name,
+            locked: env.locked,
+            env_type: match env.env_type {
+                EnvType::DEVELOPMENT => "Development".to_string(),
+                EnvType::TESTING => "Testing".to_string(),
+                EnvType::STAGING => "Staging".to_string(),
+                EnvType::PRODUCTION => "Production".to_string(),
+            },
+            secret_count: env.secret_count,
+        }
+    }
+}
+
+fn display_option(d: &Option<String>) -> String {
+    match d {
+        Some(s) => format!("{}", s),
+        None => format!(""),
+    }
 }
 
 impl Display for Environment {
