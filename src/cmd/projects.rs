@@ -112,6 +112,10 @@ pub struct UpdateProject {
 pub struct GetProject {
     /// Project name
     pub name: String,
+
+    /// Format output
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<ProjectsFromat>,
 }
 
 #[derive(Debug, Args)]

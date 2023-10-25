@@ -1,5 +1,5 @@
 use crate::{
-    cmd::projects::{ProjectCommands, ProjectSubcommand},
+    cmd::projects::{ProjectCommands, ProjectSubcommand, ProjectsFromat},
     handlers::projects::{
         create::handle_create_project,
         delete::handle_delete_project,
@@ -28,11 +28,18 @@ pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_ou
         }
 
         ProjectSubcommand::Get(args) => {
-            handle_get_project(token, raw_output, args.name)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+            handle_get_project(
+                token,
+                match raw_output {
+                    true => ProjectsFromat::Json,
+                    false => args.format.unwrap_or_default(),
+                },
+                args.name,
+            )
+            .await
+            .unwrap_or_else(|err| {
+                eprintln!("{:?}", err);
+            });
         }
 
         ProjectSubcommand::Create(args) => {
