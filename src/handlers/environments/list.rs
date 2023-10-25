@@ -4,10 +4,14 @@ use log::debug;
 
 use crate::{
     api::environments::{self, ListEnvsRequestArgs},
-    cmd::environments::{EnvSort, EnvironmentType},
-    models::{api_client::GetRequestApiResponse, environments::Environment},
+    cmd::environments::{EnvSort, EnvironmentFormat, EnvironmentType},
+    models::{
+        api_client::GetRequestApiResponse,
+        environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
+    },
     utils::{
         spinner::request_spinner,
+        tables,
         validation::{validate_env_search, validate_project_name},
     },
 };
@@ -21,7 +25,7 @@ pub struct HandleListEnvironmentsArgs {
     pub types: Vec<EnvironmentType>,
     pub locked: bool,
     pub unlocked: bool,
-    pub raw: bool,
+    pub format: EnvironmentFormat,
 }
 
 pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Result<()> {
@@ -34,7 +38,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         types,
         locked,
         unlocked,
-        raw,
+        format,
     } = args;
 
     debug!("{:#?}", types);
@@ -87,7 +91,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                 Ok(envs) => {
                     debug!("{:#?}", &envs);
 
-                    if raw {
+                    if let EnvironmentFormat::Json = format {
                         spinner.stop_and_persist("", "");
                         let value = serde_json::to_value(&envs).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
@@ -98,14 +102,44 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                             spinner.stop_with_message("No environments found");
                         } else {
                             spinner.stop_and_persist("", "");
+                        }
 
-                            for (i, p) in envs.iter().enumerate() {
-                                if i == envs.len() - 1 {
-                                    print!("{}", p);
-                                } else {
-                                    println!("{}", p);
+                        match format {
+                            EnvironmentFormat::List => {
+                                for (i, p) in envs.iter().enumerate() {
+                                    if i == envs.len() - 1 {
+                                        print!("{}", p);
+                                    } else {
+                                        println!("{}", p);
+                                    }
                                 }
                             }
+                            EnvironmentFormat::Table => {
+                                let has_description = envs.iter().any(|e| e.description.is_some());
+
+                                if has_description {
+                                    let mut table_envs: Vec<_> = envs
+                                        .into_iter()
+                                        .map(|env| TableEnvironment::from(env))
+                                        .collect();
+
+                                    table_envs.reverse();
+
+                                    let table = tables::build::build_table(&table_envs);
+                                    println!("{}", table);
+                                } else {
+                                    let mut table_envs: Vec<_> = envs
+                                        .into_iter()
+                                        .map(|env| TableEnvironmentWithoutDescription::from(env))
+                                        .collect();
+
+                                    table_envs.reverse();
+
+                                    let table = tables::build::build_table(&table_envs);
+                                    println!("{}", table);
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
