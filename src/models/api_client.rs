@@ -256,6 +256,11 @@ impl From<ApiError> for CustomError {
 
 impl fmt::Display for CustomError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // writeln!(
+        //     f,
+        //     "{}",
+        //     "Error".if_supports_color(Stream::Stderr, |text| text.red())
+        // )?;
         writeln!(f, "{}", "Error".red().bold())?;
 
         if let Some(hint) = &self.hint {
