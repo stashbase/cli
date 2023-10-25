@@ -28,6 +28,9 @@ fn set_handlers() {
     ctrlc::set_handler(move || {
         let term = dialoguer::console::Term::stdout();
         let _ = term.show_cursor();
+
+        // exit process
+        std::process::exit(0);
     })
     .expect("Error setting Ctrl-C handler");
 }
