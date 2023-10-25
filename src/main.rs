@@ -31,6 +31,7 @@ fn set_handlers() {
 
         eprintln!("");
         // exit process
+        // exits also subprocess if using run command
         std::process::exit(0);
     })
     .expect("Error setting Ctrl-C handler");
