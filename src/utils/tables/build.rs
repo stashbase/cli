@@ -1,11 +1,14 @@
 use tabled::{
     settings::{object::Rows, peaker::PriorityMax, Color, Modify, Settings, Style, Width},
-    Table,
+    Table, Tabled,
 };
 
-use crate::{models::secrets::SecretWithoutDescription, utils::term_size::get_terminal_size};
+use crate::utils::term_size::get_terminal_size;
 
-pub fn build_secrets_table(secrets: &Vec<SecretWithoutDescription>) -> Table {
+pub fn build_secrets_table<T>(secrets: &Vec<T>) -> Table
+where
+    T: Tabled,
+{
     let (width, _) = get_terminal_size();
 
     let term_size_settings = Settings::default()
