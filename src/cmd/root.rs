@@ -61,4 +61,6 @@ pub enum EntityType {
     /// Your CLI configuration
     #[clap(aliases = &["c", "conf"])]
     Config(ConfigCommands),
+
+    Open,
 }
