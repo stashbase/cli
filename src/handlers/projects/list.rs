@@ -17,7 +17,6 @@ pub struct HandleListProjectsArgs {
     pub search: Option<String>,
     pub sort: Option<Sort>,
     pub descending: bool,
-    pub raw: bool,
     pub format: ProjectsFromat,
 }
 
@@ -27,7 +26,6 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         search,
         sort,
         descending,
-        raw,
         format,
     } = args;
 
@@ -63,28 +61,23 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                 Ok(mut projects) => {
                     debug!("{:#?}", &projects);
 
-                    if raw {
-                        spinner.stop_and_persist("", "");
-                        output_json(projects);
+                    if projects.is_empty() {
+                        spinner.stop_with_message("No projects found");
                     } else {
-                        if projects.is_empty() {
-                            spinner.stop_with_message("No projects found");
-                        } else {
-                            spinner.stop_and_persist("", "");
+                        spinner.stop_and_persist("", "");
 
-                            match format {
-                                ProjectsFromat::List => {
-                                    output_list(projects);
-                                }
-                                ProjectsFromat::Json => {
-                                    output_json(projects);
-                                }
-                                ProjectsFromat::Table => {
-                                    // reverse because returned fro list -> last is first (for
-                                    // lists)
-                                    projects.reverse();
-                                    output_table(projects);
-                                }
+                        match format {
+                            ProjectsFromat::List => {
+                                output_list(projects);
+                            }
+                            ProjectsFromat::Json => {
+                                output_json(projects);
+                            }
+                            ProjectsFromat::Table => {
+                                // reverse because returned fro list -> last is first (for
+                                // lists)
+                                projects.reverse();
+                                output_table(projects);
                             }
                         }
                     }
