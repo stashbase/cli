@@ -106,6 +106,18 @@ pub struct ListEnvironments {
     /// Descending order
     #[arg(value_enum, long = "desc")]
     pub descending: bool,
+
+    /// Format output
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<EnvironmentFormat>,
+}
+
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
+pub enum EnvironmentFormat {
+    #[default]
+    List,
+    Json,
+    Table,
 }
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -140,6 +152,10 @@ impl fmt::Display for EnvSort {
 pub struct GetEnvironment {
     /// Environment name
     pub name: String,
+
+    /// Format output
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<EnvironmentFormat>,
 }
 
 #[derive(Debug, Args)]
