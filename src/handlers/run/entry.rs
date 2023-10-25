@@ -7,7 +7,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
     api::environments,
-    handlers::load::run::run_command,
+    handlers::run::subprocess,
     models::{
         api_client::GetRequestApiResponse,
         config_env::EnvConfigItem,
@@ -22,7 +22,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct HandleLoadEnvironmentArgs {
+pub struct HandleRunArgs {
     pub token: String,
     pub project: Option<String>,
     pub environment: Option<String>,
@@ -33,8 +33,8 @@ pub struct HandleLoadEnvironmentArgs {
     pub file: Option<String>,
 }
 
-pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<()> {
-    let HandleLoadEnvironmentArgs {
+pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
+    let HandleRunArgs {
         token,
         command,
         file,
@@ -110,7 +110,8 @@ pub async fn handle_load_environment(args: HandleLoadEnvironmentArgs) -> Result<
                 }
             }
         } else {
-            eprintln!("\nRun command exited");
+            // eprintln!("\nRun command exited");
+            eprintln!("Run command exited");
             return Ok(());
         }
     }
@@ -312,7 +313,7 @@ async fn handle_run(
     let env_vars = create_env_vars(secrets);
 
     // TODO: errors: no such file or directory
-    run_command(command, arguments, env_vars)
+    subprocess::run_command(command, arguments, env_vars)
         .await
         .expect("failed to run command");
 
