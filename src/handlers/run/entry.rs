@@ -317,11 +317,15 @@ async fn handle_run(
     let command = parts.next().expect("No command specified");
     // Collect the rest as arguments
     let arguments: Vec<&str> = parts.collect();
+    let args_strings = arguments
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>();
 
     let env_vars = create_env_vars(secrets);
 
     // TODO: errors: no such file or directory
-    subprocess::run_command(command, arguments, env_vars)
+    subprocess::run_command(command, args_strings, env_vars)
         .await
         .expect("failed to run command");
 
