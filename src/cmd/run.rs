@@ -25,6 +25,10 @@ pub struct RunCommand {
     #[clap(value_parser, long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
 
+    /// Manually set secrets
+    #[clap(value_parser, long="set", num_args = 1..)]
+    pub set: Vec<String>,
+
     /// Print loaded secrets
     #[arg(value_enum, long = "print")]
     pub print_secrets: bool,
