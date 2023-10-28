@@ -11,11 +11,13 @@ use crate::{
     models::{
         api_client::GetRequestApiResponse,
         config_env::EnvConfigItem,
+        environments::LoadEnvironmentPayload,
         secrets::SecretWithoutDescription,
         validation::{InputValidationError, LoadEnvironmentInputValidationError},
     },
     utils::{
         interaction::{self, select},
+        separator,
         tables::build::build_table,
         validation::{validate_project_environment, validate_secret_keys},
     },
@@ -29,6 +31,7 @@ pub struct HandleRunArgs {
     pub command: String,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
+    pub set: Vec<String>,
     pub print_secrets: bool,
     pub file: Option<String>,
 }
@@ -38,6 +41,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         token,
         command,
         file,
+        set,
         mut project,
         mut environment,
         mut only,
@@ -54,6 +58,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     }
 
     let mut is_from_file = true;
+
+    let mut setted_secrets = HashMap::<String, String>::new();
 
     if let (Some(_), Some(_)) = (&project, &environment) {
         is_from_file = false;
@@ -106,6 +112,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                                 exclude.push(exclude_secret);
                             }
                         }
+                    }
+                }
+
+                // manually set
+                if let Some(set_val) = secrets.set {
+                    if set_val.is_empty() == false {
+                        setted_secrets = set_val;
                     }
                 }
             }
@@ -172,6 +185,36 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         }
     }
 
+    if !set.is_empty() {
+        let key_value_pairs = separator::key_value(set);
+
+        match key_value_pairs {
+            Ok(secrets) => {
+                for (key, value) in secrets {
+                    setted_secrets.insert(key, value);
+                }
+            }
+            Err(_) => {
+                // TODO;
+                panic!();
+            }
+        };
+    }
+
+    // exclude manually
+    if !setted_secrets.is_empty() {
+        for secret in setted_secrets.iter() {
+            let key = secret.0;
+
+            let exists = exclude.contains(&key);
+            if !exists {
+                exclude.push(key.to_string());
+            }
+        }
+    }
+
+    debug!("{:#?}", exclude);
+
     let only_len = only.len();
 
     if is_from_file {
@@ -184,6 +227,41 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         Color::Cyan,
         Streams::Stderr,
     );
+
+    // let payload = match only.is_empty() && exclude.is_empty() && setted_secrets.is_empty() {
+    //     true => None,
+    //     false => {
+    //         let exclude = if exclude.is_empty() && setted_secrets.is_empty() {
+    //             None
+    //         } else {
+    //             let mut exclude_vec: Vec<String> = vec![];
+    //
+    //             if setted_secrets.is_empty() {
+    //                 for key in &exclude {
+    //                     exclude_vec.push(key.to_string());
+    //                 }
+    //             }
+    //
+    //             if !exclude.is_empty() {
+    //                 for exclude_secret in exclude {
+    //                     let exists = exclude_vec.contains(&exclude_secret);
+    //
+    //                     if !exists {
+    //                         exclude_vec.push(exclude_secret.to_string());
+    //                     }
+    //                 }
+    //             }
+    //
+    //             Some(exclude_vec)
+    //         };
+    //
+    //         let only = if only.is_empty() { None } else { Some(only) };
+    //
+    //         let payload = LoadEnvironmentPayload { only, exclude };
+    //
+    //         Some(payload)
+    //     }
+    // };
 
     let res = environments::load(token, project, environment, only, exclude).await;
 
@@ -202,8 +280,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
             let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
 
-            if let Ok(secrets) = secrets {
-                if secrets.is_empty() {
+            if let Ok(mut secrets) = secrets {
+                if secrets.is_empty() && setted_secrets.is_empty() {
                     let msg = if only_len == 0 {
                         format!("{}\n{}", "Error".red(), "- message: no secrets found")
                     } else {
@@ -243,12 +321,24 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                         //     eprintln!();
                         // }
 
+                        if !setted_secrets.is_empty() {
+                            for (key, value) in setted_secrets {
+                                secrets.push(SecretWithoutDescription { key, value })
+                            }
+                        }
+
                         handle_run(&mut None, command, print_secrets, secrets, is_from_file)
                             .await?;
                     } else {
                         return Ok(());
                     }
                 } else {
+                    if !setted_secrets.is_empty() {
+                        for (key, value) in setted_secrets {
+                            secrets.push(SecretWithoutDescription { key, value })
+                        }
+                    }
+
                     handle_run(
                         &mut Some(spinner),
                         command,
