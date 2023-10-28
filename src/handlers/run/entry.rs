@@ -278,7 +278,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         GetRequestApiResponse::Ok(data) => {
             // handle_ok_response(&mut spinner, command, only_len, print_secrets, data).await?;
 
-            let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
+            let secrets = serde_json::from_str::<HashMap<String, String>>(&data.text);
 
             if let Ok(mut secrets) = secrets {
                 if secrets.is_empty() && setted_secrets.is_empty() {
@@ -323,7 +323,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
                         if !setted_secrets.is_empty() {
                             for (key, value) in setted_secrets {
-                                secrets.push(SecretWithoutDescription { key, value })
+                                // secrets.push(SecretWithoutDescription { key, value })
+                                secrets.insert(key, value);
                             }
                         }
 
@@ -335,7 +336,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 } else {
                     if !setted_secrets.is_empty() {
                         for (key, value) in setted_secrets {
-                            secrets.push(SecretWithoutDescription { key, value })
+                            secrets.insert(key, value);
                         }
                     }
 
@@ -365,7 +366,7 @@ async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: String,
     print_secrets: bool,
-    secrets: Vec<SecretWithoutDescription>,
+    secrets: HashMap<String, String>,
     is_from_file: bool,
 ) -> Result<()> {
     let mut success_msg = format!(
@@ -399,7 +400,18 @@ async fn handle_run(
     debug!("{:#?}", &secrets);
 
     if print_secrets {
-        print_table(&secrets);
+        // Sort the secrets
+        let mut sorted_secrets: Vec<_> = secrets
+            .iter()
+            .map(|s| SecretWithoutDescription {
+                key: s.0.to_string(),
+                value: s.1.to_string(),
+            })
+            .collect();
+
+        sorted_secrets.sort_by(|a, b| a.key.cmp(&b.key));
+
+        print_table(&sorted_secrets);
     }
 
     let mut parts = command.split_whitespace();
@@ -412,7 +424,7 @@ async fn handle_run(
         .map(|s| s.to_string())
         .collect::<Vec<String>>();
 
-    let env_vars = create_env_vars(secrets);
+    let env_vars = secrets;
 
     // TODO: errors: no such file or directory
     subprocess::run_command(command, args_strings, env_vars)
