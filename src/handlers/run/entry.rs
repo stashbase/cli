@@ -21,6 +21,7 @@ use crate::{
         tables::build::build_table,
         validation::{validate_project_environment, validate_secret_keys},
     },
+    SUBPROCESS_RUNNING,
 };
 
 #[derive(Debug)]
@@ -425,6 +426,9 @@ async fn handle_run(
         .collect::<Vec<String>>();
 
     let env_vars = secrets;
+
+    let mut mutex = SUBPROCESS_RUNNING.lock().unwrap();
+    *mutex = true;
 
     // TODO: errors: no such file or directory
     subprocess::run_command(command, args_strings, env_vars)
