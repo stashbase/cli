@@ -414,6 +414,7 @@ dependencies = [
  "duct",
  "env_logger",
  "log",
+ "once_cell",
  "owo-colors",
  "regex",
  "reqwest",
