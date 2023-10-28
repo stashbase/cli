@@ -4,6 +4,8 @@
   secrets:
     only:
       - DATABASE_URL
+    set:
+       DATABASE_URL: THIS_IS_DB_URL
 
 - project: hero-hub
   environment: vercel
