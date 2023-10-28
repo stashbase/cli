@@ -1,4 +1,5 @@
 use core::fmt;
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +19,7 @@ pub struct EnvConfigItemSecrets {
     pub only: Option<Vec<String>>,
     // Exclude secret keys
     pub exclude: Option<Vec<String>>,
+    pub set: Option<HashMap<String, String>>,
 }
 
 impl fmt::Display for EnvConfigItem {
