@@ -2,10 +2,15 @@
   environment: aws
   description: select only database url
   secrets:
-    only:
-      - DATABASE_URL
+    # only:
+    #   - DATABASE_URL
     set:
-       DATABASE_URL: THIS_IS_DB_URL
+      DATABASE_URL: THIS_IS_DB_URL
+      DATABASE_URLs: THIS_IS_DB_URL
+      dsad: dsada
+      DATABASES_URL: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786
+      DATABASES_URL2: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786
+      XXDATABASES_URL2: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786jkhvdfjlksghvhjkdfgjv
 
 - project: hero-hub
   environment: vercel
