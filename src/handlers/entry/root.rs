@@ -47,6 +47,7 @@ pub async fn handle_cli(args: Cli) {
                     command: args.command,
                     exclude: args.exclude,
                     only: args.only,
+                    set: args.set,
                     print_secrets: args.print_secrets,
                     file: args.file,
                 };
