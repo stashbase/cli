@@ -187,19 +187,18 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     }
 
     if !set.is_empty() {
-        let key_value_pairs = separator::key_value(set);
+        let key_values_pairs = get_set_key_value_pairs(set);
 
-        match key_value_pairs {
+        match key_values_pairs {
             Ok(secrets) => {
                 for (key, value) in secrets {
                     setted_secrets.insert(key, value);
                 }
             }
-            Err(_) => {
-                // TODO;
-                panic!();
+            Err(e) => {
+                bail!(e);
             }
-        };
+        }
     }
 
     // exclude manually
@@ -513,6 +512,42 @@ fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, St
 fn print_table(secrets: &Vec<SecretWithoutDescription>) {
     let table = build_table(secrets);
     println!("{}\n", table);
+}
+
+fn get_set_key_value_pairs(values: Vec<String>) -> Result<Vec<(String, String)>> {
+    let key_value_pairs_res = separator::key_value(values);
+
+    match key_value_pairs_res {
+        Ok(key_value_pairs) => {
+            let keys = key_value_pairs
+                .iter()
+                .map(|kv| format!("{}", kv.0))
+                .collect::<Vec<String>>();
+            // ok
+
+            let keys_validation = validate_secret_keys(&keys);
+
+            match keys_validation {
+                Ok(_) => {
+                    return Ok(key_value_pairs);
+                }
+                Err(_) => {
+                    let err = InputValidationError::LoadEnvironment(
+                        LoadEnvironmentInputValidationError::SetKeyValueFormat,
+                    );
+
+                    bail!(err);
+                }
+            }
+        }
+        Err(_) => {
+            let err = InputValidationError::LoadEnvironment(
+                LoadEnvironmentInputValidationError::SetKeyValueSeparator,
+            );
+
+            bail!(err);
+        }
+    }
 }
 
 fn test() {
