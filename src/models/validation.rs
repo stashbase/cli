@@ -68,6 +68,8 @@ pub enum LoadEnvironmentInputValidationError {
     UseOfBothExcludeAndOnly,
     OnlyKeyFormat,
     ExcludeKeyFormat,
+    SetKeyValueSeparator,
+    SetKeyValueFormat,
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -307,6 +309,16 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::FileArgWithInline => {
                 msg = "cannot use '--file' flag and '-p' or '-e' flag at the same time";
                 hint = None;
+            }
+            LoadEnvironmentInputValidationError::SetKeyValueSeparator => {
+                msg = "invalid set argument";
+                hint = Some("expected a key-value pair (separated by '=')");
+            }
+            LoadEnvironmentInputValidationError::SetKeyValueFormat => {
+                msg = "invalid set argument";
+                hint = Some(
+                    "secret key can contain only uppercase alphanumeric characters and underscores",
+                );
             }
         }
 
