@@ -159,6 +159,7 @@ pub enum ProjectError {
     InvalidName,
     ProjectAlreadyExists,
     ProjectNotFound,
+    MissingPermission,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,6 +198,10 @@ impl From<ApiError> for CustomError {
                 ProjectError::ProjectAlreadyExists => CustomError {
                     message: format!("project already exists"),
                     hint: Some(format!("use a different name")),
+                },
+                ProjectError::MissingPermission => CustomError {
+                    message: format!("missing permission"),
+                    hint: Some(format!("you do not have permission to perform this action")),
                 },
             },
             ApiErrorEntity::Environment(e) => match e {
