@@ -52,7 +52,68 @@ pub struct ProjectWithCount {
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectWithCountNoDescription {
+pub struct SingleProjectTable {
+    #[tabled(rename = "Name", order = 0)]
+    pub name: String,
+    // date string
+    #[tabled(rename = "Created at", order = 1)]
+    pub created_at: String,
+
+    #[tabled(rename = "User role", order = 2)]
+    pub role: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Description", order = 4)]
+    pub description: Option<String>,
+
+    #[tabled(rename = "Environments", order = 3)]
+    pub environment_count: usize,
+
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleProject {
+    pub name: String,
+    // date string
+    pub created_at: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    pub environment_count: usize,
+    pub role: ProjectUserRole,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleProjectWithCountNoDescriptionTable {
+    #[tabled(rename = "Name", order = 0)]
+    pub name: String,
+    // date string
+    #[tabled(rename = "Created at", order = 1)]
+    pub created_at: String,
+
+    #[tabled(rename = "Environments", order = 3)]
+    pub environment_count: usize,
+
+    #[tabled(rename = "User role", order = 2)]
+    pub role: String,
+}
+
+// TODO: rename roles?
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ProjectUserRole {
+    Member,
+    Admin,
+    Owner,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWithCountNoDescriptionTable {
     #[tabled(rename = "Name", order = 0)]
     pub name: String,
     // date string
@@ -70,7 +131,7 @@ fn display_option(d: &Option<String>) -> String {
     }
 }
 
-impl From<ProjectWithCount> for ProjectWithCountNoDescription {
+impl From<ProjectWithCount> for ProjectWithCountNoDescriptionTable {
     fn from(project: ProjectWithCount) -> Self {
         Self {
             name: project.name,
@@ -116,5 +177,68 @@ impl Display for ProjectWithCount {
         )?;
 
         Ok(())
+    }
+}
+
+impl Display for ProjectUserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProjectUserRole::Member => write!(f, "{}", "Member"),
+            ProjectUserRole::Admin => write!(f, "{}", "Admin"),
+            ProjectUserRole::Owner => write!(f, "{}", "Owner"),
+        }
+    }
+}
+
+impl Display for SingleProject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (formatted, relative) = get_human_datetime(&self.created_at);
+
+        writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
+        writeln!(f, "{} {}", "User role:".green(), self.role)?;
+
+        writeln!(f, "{} {}", "Project name:".green(), self.name)?;
+
+        if let Some(description) = &self.description {
+            writeln!(f, "{} {}", "Description:".green(), description)?;
+        }
+
+        writeln!(
+            f,
+            "{} {}",
+            "Environment count:".green(),
+            self.environment_count
+        )?;
+
+        Ok(())
+    }
+}
+
+impl From<SingleProject> for SingleProjectTable {
+    fn from(env: SingleProject) -> Self {
+        let (formatted, relative) = get_human_datetime(&env.created_at);
+        let created_at = format!("{} ({})", formatted, relative);
+
+        Self {
+            created_at,
+            name: env.name,
+            role: env.role.to_string(),
+            environment_count: env.environment_count,
+            description: env.description,
+        }
+    }
+}
+
+impl From<SingleProject> for SingleProjectWithCountNoDescriptionTable {
+    fn from(env: SingleProject) -> Self {
+        let (formatted, relative) = get_human_datetime(&env.created_at);
+        let created_at = format!("{} ({})", formatted, relative);
+
+        Self {
+            created_at,
+            name: env.name,
+            role: env.role.to_string(),
+            environment_count: env.environment_count,
+        }
     }
 }
