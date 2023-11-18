@@ -7,7 +7,10 @@ use crate::{
     cmd::projects::ProjectsFromat,
     models::{
         api_client::GetRequestApiResponse,
-        projects::{ProjectWithCount, ProjectWithCountNoDescription},
+        projects::{
+            ProjectWithCount, ProjectWithCountNoDescriptionTable, SingleProject,
+            SingleProjectTable, SingleProjectWithCountNoDescriptionTable,
+        },
     },
     utils::{
         human_datetime::get_human_datetime, spinner::request_spinner, tables,
@@ -38,7 +41,7 @@ pub async fn handle_get_project(token: String, format: ProjectsFromat, name: Str
             debug!("{:#?}", &data.text);
             spinner.stop_and_persist("", "");
 
-            let project = serde_json::from_str::<ProjectWithCount>(&data.text);
+            let project = serde_json::from_str::<SingleProject>(&data.text);
 
             match project {
                 Ok(mut project) => {
@@ -53,26 +56,22 @@ pub async fn handle_get_project(token: String, format: ProjectsFromat, name: Str
                             let pretty = to_colored_json_auto(&value).unwrap();
                             println!("{}", pretty);
                         }
-                        ProjectsFromat::Table => {
-                            let (formatted, relative) = get_human_datetime(&project.created_at);
-                            project.created_at = format!("{} ({})", formatted, relative);
+                        ProjectsFromat::Table => match &project.description {
+                            Some(_) => {
+                                let project_item: SingleProjectTable = project.into();
 
-                            match &project.description {
-                                Some(_) => {
-                                    let table = tables::build::build_table(&Vec::from([project]));
-                                    println!("{}", table);
-                                }
-                                None => {
-                                    let without_description: ProjectWithCountNoDescription =
-                                        project.into();
-
-                                    let table = tables::build::build_table(&Vec::from([
-                                        without_description,
-                                    ]));
-                                    println!("{}", table);
-                                }
+                                let table = tables::build::build_table(&Vec::from([project_item]));
+                                println!("{}", table);
                             }
-                        }
+                            None => {
+                                let without_description: SingleProjectWithCountNoDescriptionTable =
+                                    project.into();
+
+                                let table =
+                                    tables::build::build_table(&Vec::from([without_description]));
+                                println!("{}", table);
+                            }
+                        },
                     }
                 }
                 Err(_) => {
