@@ -7,7 +7,7 @@ use crate::{
     cmd::projects::{ProjectsFromat, Sort},
     models::{
         api_client::GetRequestApiResponse,
-        projects::{ProjectWithCount, ProjectWithCountNoDescription},
+        projects::{ProjectWithCount, ProjectWithCountNoDescriptionTable},
     },
     utils::{
         human_datetime::get_human_datetime, spinner::request_spinner, tables,
@@ -183,7 +183,7 @@ fn output_table(projects: Vec<ProjectWithCount>) {
             .map(|mut p| {
                 let (formatted, relative) = get_human_datetime(&p.created_at);
                 p.created_at = format!("{} ({})", formatted, relative);
-                ProjectWithCountNoDescription::from(p)
+                ProjectWithCountNoDescriptionTable::from(p)
             })
             .collect();
 
