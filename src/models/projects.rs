@@ -69,7 +69,6 @@ pub struct SingleProjectTable {
 
     #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
-
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -106,9 +105,9 @@ pub struct SingleProjectWithCountNoDescriptionTable {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ProjectUserRole {
-    Member,
+    Viewer,
+    Editor,
     Admin,
-    Owner,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -183,9 +182,9 @@ impl Display for ProjectWithCount {
 impl Display for ProjectUserRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProjectUserRole::Member => write!(f, "{}", "Member"),
+            ProjectUserRole::Viewer => write!(f, "{}", "Viewer"),
+            ProjectUserRole::Editor => write!(f, "{}", "Editor"),
             ProjectUserRole::Admin => write!(f, "{}", "Admin"),
-            ProjectUserRole::Owner => write!(f, "{}", "Owner"),
         }
     }
 }
