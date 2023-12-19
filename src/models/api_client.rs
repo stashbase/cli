@@ -4,6 +4,8 @@ use owo_colors::OwoColorize;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
+use super::secrets::RenamedSecret;
+
 #[derive(Debug)]
 pub struct RequestArgs {
     pub token: String,
@@ -166,6 +168,8 @@ pub enum ProjectError {
 #[serde(rename_all = "snake_case")]
 pub enum SecretsError {
     SecretNotFound,
+    DuplicateNewKeys,
+    ExistingDuplicates,
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,6 +242,19 @@ impl From<ApiError> for CustomError {
                 SecretsError::SecretNotFound => CustomError {
                     message: format!("secret not found"),
                     hint: None,
+                },
+
+                SecretsError::DuplicateNewKeys => CustomError {
+                    message: format!("duplicate new keys"),
+                    hint: Some(format!("cannot change multiple secrets to the same key")),
+                },
+
+                SecretsError::ExistingDuplicates => CustomError {
+                    message: format!("cannot renamed to already existing keys"),
+                    hint: Some(format!(
+                        "secrets already exists: {}",
+                        api_error.details.unwrap()
+                    )),
                 },
             },
             ApiErrorEntity::EnvChangelog(e) => match e {
