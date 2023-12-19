@@ -9,7 +9,7 @@ use crate::{
         secrets::{RenameSecretsResponse, RenamedSecret},
     },
     utils::{
-        separator,
+        duplicates, separator,
         spinner::request_spinner,
         validation::{
             validate_environment_name, validate_project_environment, validate_project_name,
@@ -63,6 +63,23 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
     if let Err(e) = validation_res {
         bail!("{}", e);
+    }
+
+    let new_keys = key_value_pairs
+        .iter()
+        .map(|k| k.1.to_string())
+        .collect::<Vec<_>>();
+
+    let duplicate_new_keys = duplicates::find_duplicates(new_keys);
+
+    if !duplicate_new_keys.is_empty() {
+        let msg = format!(
+            "{} {} {}",
+            "Input error:".red(),
+            "duplicate new keys provided:",
+            duplicate_new_keys.join(", ")
+        );
+        bail!("{}", msg);
     }
 
     // OK
