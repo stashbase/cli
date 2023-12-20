@@ -74,7 +74,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
     if !duplicate_new_keys.is_empty() {
         let msg = format!(
-        "{} {} {}",
+            "{} {} {}",
             "Input error:".red(),
             "duplicate new keys provided:",
             duplicate_new_keys.join(", ")
