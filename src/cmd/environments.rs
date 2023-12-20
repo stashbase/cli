@@ -238,12 +238,12 @@ pub struct ListChangelog {
     pub page: Option<usize>,
 
     /// Show secret values
-    #[arg(value_enum, long = "only-secrets")]
-    pub only_secrets: bool,
+    // #[arg(value_enum, long = "only-secrets")]
+    // pub only_secrets: bool,
 
     /// Show secret values
-    #[arg(value_enum, long = "show-hidden")]
-    pub show_hidden: bool,
+    #[arg(value_enum, long = "show-values")]
+    pub show_values: bool,
 }
 
 #[derive(Debug, Args)]
