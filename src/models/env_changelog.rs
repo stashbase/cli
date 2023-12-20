@@ -25,7 +25,8 @@ pub struct EnvChangelogListItem {
     pub id: Option<String>, // no id for created chnange
     pub created_at: String,
     pub user: Option<EnvChangelogUser>,
-    pub change: EnvChangelogChange,
+    // pub change: EnvChangelogChange,
+    pub change: SecretsChange,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,10 +55,10 @@ pub struct SecretsChangeWithValues {
     pub renamed: Option<Vec<RenamedSecretWithValue>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub new: Option<Vec<SecretChangeKeyValue>>,
+    pub new: Option<Vec<NewSecretWithValues>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deleted: Option<Vec<SecretChangeKeyValue>>,
+    pub deleted: Option<Vec<DeletedSecretWithValues>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated: Option<Vec<UpdatedSecretWithValues>>,
@@ -65,15 +66,23 @@ pub struct SecretsChangeWithValues {
 
 // with values
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SecretChangeKeyValue {
-    pub key: String,
-    pub value: String,
+#[serde(rename_all = "camelCase")]
+pub struct NewSecretWithValues {
+    pub new_key: String,
+    pub new_value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedSecretWithValues {
+    pub old_key: String,
+    pub old_value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenamedSecretWithValue {
-    pub key: String,
+    pub old_key: String,
     pub new_key: String,
     pub value: String,
 }
@@ -82,8 +91,8 @@ pub struct RenamedSecretWithValue {
 #[serde(rename_all = "camelCase")]
 pub struct UpdatedSecretWithValues {
     pub key: String,
-    pub old: String,
-    pub new: String,
+    pub old_value: String,
+    pub new_value: String,
 }
 
 // NO values
@@ -105,7 +114,7 @@ pub struct SecretsChangeNoValues {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenamedSecret {
-    pub key: String,
+    pub old_key: String,
     pub new_key: String,
 }
 
@@ -164,25 +173,44 @@ pub enum EnvChangelogItemSecretsAction {
 
 impl Display for EnvChangelogList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // let list_string = self
+        //     .data
+        //     .iter()
+        //     .map(|item| match &item.change {
+        //         EnvChangelogChange::Change(_) => format!("{}", item),
+        //         EnvChangelogChange::SecretsChange(s) => match s {
+        //             SecretsChange::WithValues(_) => format!("{}\n", item),
+        //             SecretsChange::NoValues(_) => format!("{}", item),
+        //         },
+        //     })
+        //     .collect::<Vec<String>>()
+        //     .join("\n");
+        //
         let list_string = self
             .data
             .iter()
             .map(|item| match &item.change {
-                EnvChangelogChange::Change(_) => format!("{}", item),
-                EnvChangelogChange::SecretsChange(s) => match s {
-                    SecretsChange::WithValues(_) => format!("{}\n", item),
-                    SecretsChange::NoValues(_) => format!("{}", item),
-                },
+                SecretsChange::WithValues(_) => format!("{}\n", item),
+                SecretsChange::NoValues(_) => format!("{}", item),
             })
             .collect::<Vec<String>>()
             .join("\n");
 
+        // let list_string = match self.data.change {
+        // //     SecretsChange::WithValues(_) => format!("{}\n", self),
+        // //     SecretsChange::NoValues(_) => format!("{}", self),
+        // // };
+        // //
         writeln!(f, "{}", list_string)?;
 
         // writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
         let page = self.page.unwrap_or(1);
 
-        writeln!(f, "{} {}/{}", "Pages:".green(), page, self.pages)?;
+        if self.pages == 0 {
+            writeln!(f, "No changes")?;
+        } else {
+            writeln!(f, "{} {}/{}", "Pages:".green(), page, self.pages)?;
+        }
 
         Ok(())
     }
@@ -201,170 +229,331 @@ impl Display for EnvChangelogListItem {
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
         writeln!(f, "{} {} ({})", "Date:".green(), formatted, relative)?;
-        writeln!(f, "{} {}", "Change:".green(), self.change)?;
+        // writeln!(f, "{} {}", "Change:".green(), self.secrets)?;
 
-        if let EnvChangelogChange::SecretsChange(change) = &self.change {
-            match change {
-                SecretsChange::NoValues(change) => {
-                    // renamed
-                    if let Some(renamed) = &change.renamed {
-                        if !renamed.is_empty() {
-                            // writeln!(f, "\n{}", "Renamed".blue())?;
-                            writeln!(f, "\n{}", "Renamed".yellow())?;
+        match &self.change {
+            SecretsChange::NoValues(change) => {
+                // renamed
+                if let Some(renamed) = &change.renamed {
+                    if !renamed.is_empty() {
+                        // writeln!(f, "\n{}", "Renamed".blue())?;
+                        writeln!(f, "\n{}", "Renamed".yellow())?;
 
-                            let renamed_string = renamed
-                                .into_iter()
-                                .map(|item| format!("{}", item))
-                                .collect::<Vec<String>>()
-                                .join("\n");
+                        let renamed_string = renamed
+                            .into_iter()
+                            .map(|item| format!("{}", item))
+                            .collect::<Vec<String>>()
+                            .join("\n");
 
-                            writeln!(f, "{}", renamed_string)?;
-                        }
+                        writeln!(f, "{}", renamed_string)?;
                     }
-
-                    // updated
-                    if let Some(updated) = &change.updated {
-                        if !updated.is_empty() {
-                            writeln!(f, "\n{}", "Updated".yellow())?;
-
-                            let updated_string = updated
-                                .into_iter()
-                                .map(|item| format!("{}", item))
-                                .collect::<Vec<String>>()
-                                .join("\n");
-
-                            writeln!(f, "{}", updated_string)?;
-                        }
-                    }
-
-                    if let Some(new) = &change.new {
-                        if !new.is_empty() {
-                            writeln!(f, "\n{}", "Created".green())?;
-
-                            let new_string = new
-                                .into_iter()
-                                .map(|item| format!("{}", item))
-                                .collect::<Vec<String>>()
-                                .join("\n");
-
-                            writeln!(f, "{}", new_string)?;
-                        }
-                    }
-
-                    if let Some(deleted) = &change.deleted {
-                        if !deleted.is_empty() {
-                            writeln!(f, "\n{}", "Deleted".red())?;
-
-                            let deleted_string = deleted
-                                .into_iter()
-                                .map(|item| format!("{}", item))
-                                .collect::<Vec<String>>()
-                                .join("\n");
-
-                            writeln!(f, "{}", deleted_string)?;
-                        }
-                    }
-
-                    write!(f, "\n")?;
                 }
-                SecretsChange::WithValues(data) => {
-                    if let Some(renamed) = &data.renamed {
-                        if !renamed.is_empty() {
-                            // writeln!(f, "\n{}", "Renamed".blue())?;
-                            writeln!(f)?;
 
-                            let renamed_string = renamed
-                                .into_iter()
-                                .map(|item| {
-                                    format!(
-                                        "{} {} {} \n value: {}",
-                                        item.key.yellow(),
-                                        "->".yellow(),
-                                        item.new_key.yellow(),
-                                        item.value
-                                    )
-                                })
-                                .collect::<Vec<String>>()
-                                .join("\n\n");
+                // updated
+                if let Some(updated) = &change.updated {
+                    if !updated.is_empty() {
+                        writeln!(f, "\n{}", "Updated".yellow())?;
 
-                            writeln!(f, "{}", renamed_string)?;
-                        }
+                        let updated_string = updated
+                            .into_iter()
+                            .map(|item| format!("{}", item))
+                            .collect::<Vec<String>>()
+                            .join("\n");
+
+                        writeln!(f, "{}", updated_string)?;
                     }
-
-                    if let Some(updated) = &data.updated {
-                        if !updated.is_empty() {
-                            // writeln!(f, "\n{}", "Updated".yellow())?;
-                            writeln!(f)?;
-
-                            let updated_string = updated
-                                .into_iter()
-                                .map(|item| {
-                                    format!(
-                                        "{} \n {} {}\n {} {}",
-                                        item.key,
-                                        "- old:".red(),
-                                        item.old,
-                                        "+ new:".green(),
-                                        item.new
-                                    )
-                                })
-                                .collect::<Vec<String>>()
-                                .join("\n\n");
-
-                            writeln!(f, "{}", updated_string)?;
-                        }
-                    }
-
-                    if let Some(new) = &data.new {
-                        if !new.is_empty() {
-                            // writeln!(f, "\n{}", "New".green())?;
-                            writeln!(f)?;
-
-                            let new_string = new
-                                .into_iter()
-                                .map(|item| {
-                                    format!(
-                                        "{} {}{} {}",
-                                        "+".green(),
-                                        item.key.green(),
-                                        ":".green(),
-                                        item.value
-                                    )
-                                })
-                                .collect::<Vec<String>>()
-                                .join("\n");
-
-                            writeln!(f, "{}", new_string)?;
-                        }
-                    }
-
-                    if let Some(deleted) = &data.deleted {
-                        if !deleted.is_empty() {
-                            // writeln!(f, "\n{}", "New".green())?;
-                            // writeln!(f)?;
-
-                            let new_string = deleted
-                                .into_iter()
-                                .map(|item| {
-                                    format!(
-                                        "{} {}{} {}",
-                                        "-".red(),
-                                        item.key.red(),
-                                        ":".red(),
-                                        item.value
-                                    )
-                                })
-                                .collect::<Vec<String>>()
-                                .join("\n");
-
-                            writeln!(f, "{}", new_string)?;
-                        }
-                    }
-
-                    // write!(f, "\n")?;
                 }
+
+                if let Some(new) = &change.new {
+                    if !new.is_empty() {
+                        writeln!(f, "\n{}", "Created".green())?;
+
+                        let new_string = new
+                            .into_iter()
+                            .map(|item| format!("{}", item))
+                            .collect::<Vec<String>>()
+                            .join("\n");
+
+                        writeln!(f, "{}", new_string)?;
+                    }
+                }
+
+                if let Some(deleted) = &change.deleted {
+                    if !deleted.is_empty() {
+                        writeln!(f, "\n{}", "Deleted".red())?;
+
+                        let deleted_string = deleted
+                            .into_iter()
+                            .map(|item| format!("{}", item))
+                            .collect::<Vec<String>>()
+                            .join("\n");
+
+                        writeln!(f, "{}", deleted_string)?;
+                    }
+                }
+
+                write!(f, "\n")?;
+            }
+            SecretsChange::WithValues(data) => {
+                if let Some(renamed) = &data.renamed {
+                    if !renamed.is_empty() {
+                        // writeln!(f, "\n{}", "Renamed".blue())?;
+                        writeln!(f)?;
+
+                        let renamed_string = renamed
+                            .into_iter()
+                            .map(|item| {
+                                format!(
+                                    "{} {} {} \n value: {}",
+                                    item.old_key.yellow(),
+                                    "->".yellow(),
+                                    item.new_key.yellow(),
+                                    item.value
+                                )
+                            })
+                            .collect::<Vec<String>>()
+                            .join("\n\n");
+
+                        writeln!(f, "{}", renamed_string)?;
+                    }
+                }
+
+                if let Some(updated) = &data.updated {
+                    if !updated.is_empty() {
+                        // writeln!(f, "\n{}", "Updated".yellow())?;
+                        writeln!(f)?;
+
+                        let updated_string = updated
+                            .into_iter()
+                            .map(|item| {
+                                format!(
+                                    "{} \n {} {}\n {} {}",
+                                    item.key,
+                                    "- old:".red(),
+                                    item.old_value,
+                                    "+ new:".green(),
+                                    item.new_value
+                                )
+                            })
+                            .collect::<Vec<String>>()
+                            .join("\n\n");
+
+                        writeln!(f, "{}", updated_string)?;
+                    }
+                }
+
+                if let Some(new) = &data.new {
+                    if !new.is_empty() {
+                        // writeln!(f, "\n{}", "New".green())?;
+                        writeln!(f)?;
+
+                        let new_string = new
+                            .into_iter()
+                            .map(|item| {
+                                format!(
+                                    "{} {}{} {}",
+                                    "+".green(),
+                                    item.new_key.green(),
+                                    ":".green(),
+                                    item.new_value
+                                )
+                            })
+                            .collect::<Vec<String>>()
+                            .join("\n");
+
+                        writeln!(f, "{}", new_string)?;
+                    }
+                }
+
+                if let Some(deleted) = &data.deleted {
+                    if !deleted.is_empty() {
+                        // writeln!(f, "\n{}", "New".green())?;
+                        // writeln!(f)?;
+
+                        let new_string = deleted
+                            .into_iter()
+                            .map(|item| {
+                                format!(
+                                    "{} {}{} {}",
+                                    "-".red(),
+                                    item.old_key.red(),
+                                    ":".red(),
+                                    item.old_value
+                                )
+                            })
+                            .collect::<Vec<String>>()
+                            .join("\n");
+
+                        writeln!(f, "{}", new_string)?;
+                    }
+                }
+
+                // write!(f, "\n")?;
             }
         }
+
+        // if let EnvChangelogChange::SecretsChange(change) = &self.secrets {
+        //     match change {
+        //         SecretsChange::NoValues(change) => {
+        //             // renamed
+        //             if let Some(renamed) = &change.renamed {
+        //                 if !renamed.is_empty() {
+        //                     // writeln!(f, "\n{}", "Renamed".blue())?;
+        //                     writeln!(f, "\n{}", "Renamed".yellow())?;
+        //
+        //                     let renamed_string = renamed
+        //                         .into_iter()
+        //                         .map(|item| format!("{}", item))
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n");
+        //
+        //                     writeln!(f, "{}", renamed_string)?;
+        //                 }
+        //             }
+        //
+        //             // updated
+        //             if let Some(updated) = &change.updated {
+        //                 if !updated.is_empty() {
+        //                     writeln!(f, "\n{}", "Updated".yellow())?;
+        //
+        //                     let updated_string = updated
+        //                         .into_iter()
+        //                         .map(|item| format!("{}", item))
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n");
+        //
+        //                     writeln!(f, "{}", updated_string)?;
+        //                 }
+        //             }
+        //
+        //             if let Some(new) = &change.new {
+        //                 if !new.is_empty() {
+        //                     writeln!(f, "\n{}", "Created".green())?;
+        //
+        //                     let new_string = new
+        //                         .into_iter()
+        //                         .map(|item| format!("{}", item))
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n");
+        //
+        //                     writeln!(f, "{}", new_string)?;
+        //                 }
+        //             }
+        //
+        //             if let Some(deleted) = &change.deleted {
+        //                 if !deleted.is_empty() {
+        //                     writeln!(f, "\n{}", "Deleted".red())?;
+        //
+        //                     let deleted_string = deleted
+        //                         .into_iter()
+        //                         .map(|item| format!("{}", item))
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n");
+        //
+        //                     writeln!(f, "{}", deleted_string)?;
+        //                 }
+        //             }
+        //
+        //             write!(f, "\n")?;
+        //         }
+        //         SecretsChange::WithValues(data) => {
+        //             if let Some(renamed) = &data.renamed {
+        //                 if !renamed.is_empty() {
+        //                     // writeln!(f, "\n{}", "Renamed".blue())?;
+        //                     writeln!(f)?;
+        //
+        //                     let renamed_string = renamed
+        //                         .into_iter()
+        //                         .map(|item| {
+        //                             format!(
+        //                                 "{} {} {} \n value: {}",
+        //                                 item.key.yellow(),
+        //                                 "->".yellow(),
+        //                                 item.new_key.yellow(),
+        //                                 item.value
+        //                             )
+        //                         })
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n\n");
+        //
+        //                     writeln!(f, "{}", renamed_string)?;
+        //                 }
+        //             }
+        //
+        //             if let Some(updated) = &data.updated {
+        //                 if !updated.is_empty() {
+        //                     // writeln!(f, "\n{}", "Updated".yellow())?;
+        //                     writeln!(f)?;
+        //
+        //                     let updated_string = updated
+        //                         .into_iter()
+        //                         .map(|item| {
+        //                             format!(
+        //                                 "{} \n {} {}\n {} {}",
+        //                                 item.key,
+        //                                 "- old:".red(),
+        //                                 item.old,
+        //                                 "+ new:".green(),
+        //                                 item.new
+        //                             )
+        //                         })
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n\n");
+        //
+        //                     writeln!(f, "{}", updated_string)?;
+        //                 }
+        //             }
+        //
+        //             if let Some(new) = &data.new {
+        //                 if !new.is_empty() {
+        //                     // writeln!(f, "\n{}", "New".green())?;
+        //                     writeln!(f)?;
+        //
+        //                     let new_string = new
+        //                         .into_iter()
+        //                         .map(|item| {
+        //                             format!(
+        //                                 "{} {}{} {}",
+        //                                 "+".green(),
+        //                                 item.key.green(),
+        //                                 ":".green(),
+        //                                 item.value
+        //                             )
+        //                         })
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n");
+        //
+        //                     writeln!(f, "{}", new_string)?;
+        //                 }
+        //             }
+        //
+        //             if let Some(deleted) = &data.deleted {
+        //                 if !deleted.is_empty() {
+        //                     // writeln!(f, "\n{}", "New".green())?;
+        //                     // writeln!(f)?;
+        //
+        //                     let new_string = deleted
+        //                         .into_iter()
+        //                         .map(|item| {
+        //                             format!(
+        //                                 "{} {}{} {}",
+        //                                 "-".red(),
+        //                                 item.key.red(),
+        //                                 ":".red(),
+        //                                 item.value
+        //                             )
+        //                         })
+        //                         .collect::<Vec<String>>()
+        //                         .join("\n");
+        //
+        //                     writeln!(f, "{}", new_string)?;
+        //                 }
+        //             }
+        //
+        //             // write!(f, "\n")?;
+        //         }
+        //     }
+        // }
 
         Ok(())
     }
@@ -372,7 +561,7 @@ impl Display for EnvChangelogListItem {
 
 impl Display for RenamedSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} -> {}", self.key, self.new_key)?;
+        write!(f, "{} -> {}", self.old_key, self.new_key)?;
         Ok(())
     }
 }
