@@ -31,6 +31,9 @@ pub enum ApiPath {
         environment: String,
         path: Option<String>,
     },
+    Workspace {
+        path: Option<String>,
+    },
 }
 
 impl fmt::Display for ApiPath {
@@ -79,6 +82,12 @@ impl fmt::Display for ApiPath {
                         project, environment
                     )
                 }
+            },
+            ApiPath::Workspace { path } => match path {
+                Some(p) => {
+                    write!(f, "workspace/{}", p)
+                }
+                None => write!(f, "workspace"),
             },
         }
     }
