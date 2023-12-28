@@ -57,11 +57,13 @@ pub async fn handle_cli(args: Cli) {
                 });
             }
             EntityType::Open => {
-                handle_open_dashboard();
+                handle_open_dashboard(token).await.unwrap_or_else(|err| {
+                    eprintln!("{:?}", err);
+                });
             }
         }
     } else {
         let err = config.unwrap_err();
-        println!("{:?}", err);
+        eprintln!("{:?}", err);
     }
 }
