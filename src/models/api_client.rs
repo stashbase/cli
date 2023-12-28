@@ -4,8 +4,6 @@ use owo_colors::OwoColorize;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use super::secrets::RenamedSecret;
-
 #[derive(Debug)]
 pub struct RequestArgs {
     pub token: String,
