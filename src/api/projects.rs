@@ -49,7 +49,7 @@ pub async fn get_project(token: String, name: String) -> Result<GetRequestApiRes
 }
 
 pub async fn get_project_url(token: String, name: String) -> Result<GetRequestApiResponse> {
-    let subpath = format!("{}/link", name);
+    let subpath = format!("{}/url", name);
 
     let args = RequestArgs {
         path: ApiPath::Projects(Some(subpath)),
