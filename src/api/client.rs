@@ -36,7 +36,7 @@ pub fn build_client(token: String) -> ClientWithMiddleware {
         RetryTransientMiddleware::new_with_policy_and_strategy(retry_policy, RetryReqPolicy);
 
     let mut headers = HeaderMap::new();
-    headers.insert("token", token.parse().unwrap());
+    headers.insert("x-cli-token", token.parse().unwrap());
 
     let builder = ClientBuilder::new(
         reqwest::ClientBuilder::new()
