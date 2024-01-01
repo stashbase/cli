@@ -3,7 +3,8 @@ use clap::Args;
 #[derive(Debug, Args)]
 pub struct RunCommand {
     /// Command to run
-    pub command: String,
+    #[clap(value_parser, num_args = 1..)]
+    pub command: Vec<String>,
 
     /// Relative path to a config file (default: env-ease.yaml)
     #[arg(value_enum, long = "file")]
