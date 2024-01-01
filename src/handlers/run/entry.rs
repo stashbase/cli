@@ -11,7 +11,6 @@ use crate::{
     models::{
         api_client::GetRequestApiResponse,
         config_env::EnvConfigItem,
-        environments::LoadEnvironmentPayload,
         secrets::SecretWithoutDescription,
         validation::{InputValidationError, LoadEnvironmentInputValidationError},
     },
@@ -29,7 +28,7 @@ pub struct HandleRunArgs {
     pub token: String,
     pub project: Option<String>,
     pub environment: Option<String>,
-    pub command: String,
+    pub command: Vec<String>,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -364,7 +363,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
 async fn handle_run(
     spinner: &mut Option<Spinner>,
-    command: String,
+    command: Vec<String>,
     print_secrets: bool,
     secrets: HashMap<String, String>,
     is_from_file: bool,
@@ -414,25 +413,36 @@ async fn handle_run(
         print_table(&sorted_secrets);
     }
 
-    let mut parts = command.split_whitespace();
+    debug!("{:#?}", command);
+    // let mut parts = command.split_whitespace();
     // Get the first part as the command itself
-    let command = parts.next().expect("No command specified");
-    // Collect the rest as arguments
-    let arguments: Vec<&str> = parts.collect();
-    let args_strings = arguments
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<String>>();
+    // let command = parts.next().expect("No command specified");
+    // // Collect the rest as arguments
+    // let arguments: Vec<&str> = parts.collect();
+    // let args_strings = command
+    //     .iter()
+    //     .map(|s| s.to_string())
+    //     .collect::<Vec<String>>();
 
     let env_vars = secrets;
 
     let mut mutex = SUBPROCESS_RUNNING.lock().unwrap();
     *mutex = true;
 
+    let cmd = command.get(0).unwrap().to_string();
+
+    let args = command
+        .into_iter()
+        .skip(1)
+        .map(|s| s)
+        .collect::<Vec<String>>();
+
     // TODO: errors: no such file or directory
-    subprocess::run_command(command, args_strings, env_vars)
+    subprocess::run_command(&cmd, args, env_vars)
         .await
-        .expect("failed to run command");
+        .unwrap_or_else(|e| {
+            eprintln!("{}: {}", "Failed to run command".red(), e);
+        });
 
     Ok(())
 }
