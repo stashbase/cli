@@ -160,6 +160,8 @@ pub enum EnvironmentError {
     EnvironmentAlreadyUnlocked,
     CurrentEnvironmentType,
     EnvironmentLocked,
+    #[serde(rename = "environment_limit_reached")]
+    LimitReached,
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,6 +171,8 @@ pub enum ProjectError {
     ProjectAlreadyExists,
     ProjectNotFound,
     MissingPermission,
+    #[serde(rename = "project_limit_reached")]
+    LimitReached,
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,6 +210,13 @@ impl From<ApiError> for CustomError {
                     message: format!("project not found"),
                     hint: None,
                 },
+
+                ProjectError::LimitReached => CustomError {
+                    message: format!("project limit reached"),
+                    hint: Some(format!(
+                        "workspace reached the maximum number of projects allowed"
+                    )),
+                },
                 ProjectError::ProjectAlreadyExists => CustomError {
                     message: format!("project already exists"),
                     hint: Some(format!("use a different name")),
@@ -216,6 +227,12 @@ impl From<ApiError> for CustomError {
                 },
             },
             ApiErrorEntity::Environment(e) => match e {
+                EnvironmentError::LimitReached => CustomError {
+                    message: format!("environment limit reached"),
+                    hint: Some(format!(
+                        "project reached the maximum number of environments allowed"
+                    )),
+                },
                 EnvironmentError::ProjectNotFound => CustomError {
                     message: format!("project not found"),
                     hint: None,
