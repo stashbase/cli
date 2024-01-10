@@ -52,6 +52,43 @@ pub async fn list(
     client::get_request(args).await
 }
 
+pub async fn pull(
+    token: String,
+    project: String,
+    environment: String,
+    only: Vec<String>,
+    exclude: Vec<String>,
+) -> Result<GetRequestApiResponse> {
+    let query = match !only.is_empty() || !exclude.is_empty() {
+        true => {
+            let mut query = vec![];
+
+            if !only.is_empty() {
+                query.push(("only".to_string(), only.join(",")));
+            }
+
+            if !exclude.is_empty() {
+                query.push(("exclude".to_string(), exclude.join(",")));
+            }
+
+            Some(query)
+        }
+        false => None,
+    };
+
+    let args = RequestArgs {
+        path: ApiPath::Secrets {
+            project,
+            environment,
+            path: None,
+        },
+        query,
+        token,
+    };
+
+    client::get_request(args).await
+}
+
 // post with keys in body?
 pub async fn get_selected(
     token: String,
