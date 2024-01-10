@@ -9,6 +9,7 @@ use crate::{
             projects::handle_project_commands, secrets::handle_secrets_commands,
         },
         open::handle_open_dashboard,
+        pull::entry::{handle_pull, HandlePullArgs},
         run::entry::{handle_load_env_run, HandleRunArgs},
     },
 };
@@ -53,6 +54,22 @@ pub async fn handle_cli(args: Cli) {
                 };
 
                 handle_load_env_run(args).await.unwrap_or_else(|err| {
+                    eprintln!("{:?}", err);
+                });
+            }
+            EntityType::Pull(args) => {
+                let args = HandlePullArgs {
+                    token,
+                    file: args.config_file,
+                    set: args.set,
+                    output_file: args.output_file,
+                    format: args.format,
+                    only: args.only,
+                    exclude: args.exclude,
+                    print_secrets: args.print_secrets,
+                };
+
+                handle_pull(args).await.unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
             }
