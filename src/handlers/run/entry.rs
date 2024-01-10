@@ -447,7 +447,7 @@ async fn handle_run(
     Ok(())
 }
 
-fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
+pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
     // Load from file
     let file_path = match &relative_path {
         Some(relative_path) => {
@@ -524,7 +524,7 @@ fn print_table(secrets: &Vec<SecretWithoutDescription>) {
     println!("{}\n", table);
 }
 
-fn get_set_key_value_pairs(values: Vec<String>) -> Result<Vec<(String, String)>> {
+pub fn get_set_key_value_pairs(values: Vec<String>) -> Result<Vec<(String, String)>> {
     let key_value_pairs_res = separator::key_value(values);
 
     match key_value_pairs_res {
