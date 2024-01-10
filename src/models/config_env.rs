@@ -3,6 +3,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::cmd::pull::PullFormat;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvConfigItem {
     pub project: String,
@@ -10,6 +12,14 @@ pub struct EnvConfigItem {
     pub description: Option<String>,
 
     pub secrets: Option<EnvConfigItemSecrets>,
+    pub pull: Option<PullEnvConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullEnvConfig {
+    #[serde(rename = "output")]
+    pub file: String,
+    pub format: Option<PullFormat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
