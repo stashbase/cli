@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 use super::{
     configs::ConfigCommands, environments::EnvironmentCommands, projects::ProjectCommands,
-    run::RunCommand, secrets::SecretArgs,
+    pull::PullCommand, run::RunCommand, secrets::SecretArgs,
 };
 
 #[derive(Debug, Parser)]
@@ -45,6 +45,9 @@ pub struct Cli {
 pub enum EntityType {
     /// Load environment and run command
     Run(RunCommand),
+
+    /// Pull environments to local files
+    Pull(PullCommand),
 
     #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
     /// Manage projects
