@@ -3,24 +3,25 @@ use std::{
     env,
     fs::{self, File},
     io::Write,
-    ptr::write_bytes,
 };
 
 use anyhow::{bail, Context, Result};
 use log::debug;
 use owo_colors::OwoColorize;
-use serde::{Deserialize, Serialize};
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
-    api::{environments, secrets},
+    api::secrets,
     cmd::{pull::PullFormat, secrets::SecretsFromat},
-    handlers::run::entry::{get_set_key_value_pairs, load_from_file},
+    handlers::run::entry::get_set_key_value_pairs,
     models::{
         api_client::GetRequestApiResponse,
-        config_env::{EnvConfigItem, EnvConfigItemSecrets},
+        config_env::EnvConfigItem,
         secrets::Secret,
-        validation::{InputValidationError, LoadEnvironmentInputValidationError},
+        validation::{
+            InputValidationError, LoadEnvironmentInputValidationError,
+            PullEnvironmentInputValidationError,
+        },
     },
     utils::{
         interaction::{self, select},
@@ -210,9 +211,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         Color::Cyan,
         Streams::Stderr,
     );
-
-    // TODO: get with descriptions
-    // list secrets, not load
 
     let res = secrets::pull(token, project.clone(), environment.clone(), only, exclude).await;
 
@@ -447,5 +445,67 @@ fn write_file(file_path: &str, file_string: String) -> Result<()> {
     match file.write_all(file_string.as_bytes()) {
         Ok(_) => Ok(()),
         Err(e) => bail!(e),
+    }
+}
+
+pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
+    // Load from file
+    let file_path = match &relative_path {
+        Some(relative_path) => {
+            let mut path = std::env::current_dir()?;
+            path.push(relative_path);
+            path
+        }
+        None => env::current_dir()?.join("env-ease.yaml"),
+    };
+    let file_exists = file_path.exists();
+
+    if !file_exists {
+        let err = InputValidationError::PullEnvironment(
+            PullEnvironmentInputValidationError::NoConfigFile {
+                custom_path: if relative_path.is_some() { true } else { false },
+            },
+        );
+
+        bail!(err);
+    } else {
+        let file_content = std::fs::read_to_string(file_path)?;
+        let deserialized_config = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content)
+            .context(format!("{}", "Failed to read env config file".red()))?;
+
+        debug!("deserialized_config: {:?}", deserialized_config);
+
+        let len = deserialized_config.len();
+
+        if len == 0 {
+            let err = InputValidationError::PullEnvironment(
+                PullEnvironmentInputValidationError::NoConfigFileEntries,
+            );
+
+            bail!(err);
+        } else {
+            if len == 1 {
+                let item = deserialized_config[0].clone();
+                return Ok(Some(item));
+            } else {
+                let items = deserialized_config
+                    .iter()
+                    .map(|item| item.to_string())
+                    .collect();
+                // select project
+                let selection = select("Select environment config", items);
+
+                debug!("selection: {:?}", selection);
+
+                if let Some(selection) = selection {
+                    let item = deserialized_config[selection].clone();
+                    debug!("item: {:?}", item);
+
+                    return Ok(Some(item));
+                } else {
+                    return Ok(None);
+                }
+            }
+        }
     }
 }
