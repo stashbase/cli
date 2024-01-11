@@ -8,6 +8,7 @@ pub enum InputValidationError {
     Environments(EnvironmentsInputValidationError),
     EnvChangelog(EnvChangelogInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
+    PullEnvironment(PullEnvironmentInputValidationError),
 }
 
 #[derive(Debug)]
@@ -70,6 +71,13 @@ pub enum LoadEnvironmentInputValidationError {
     ExcludeKeyFormat,
     SetKeyValueSeparator,
     SetKeyValueFormat,
+}
+
+#[derive(Debug)]
+pub enum PullEnvironmentInputValidationError {
+    NoConfigFile { custom_path: bool },
+    NoConfigFileEntries,
+    // other errors same as from LoadEnvironment
 }
 
 impl fmt::Display for ProjectInputValidationError {
@@ -333,6 +341,41 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
     }
 }
 
+impl fmt::Display for PullEnvironmentInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
+        match self {
+            PullEnvironmentInputValidationError::NoConfigFile { custom_path } => {
+                match custom_path {
+                    true => {
+                        msg = "no config file found";
+                        hint = Some("make sure the file exists");
+                    }
+                    false => {
+                        msg = "no 'env-ease.yaml' config file found";
+                        hint = Some("ceate the file or provide file path with '-c' flag");
+                    }
+                };
+            }
+            PullEnvironmentInputValidationError::NoConfigFileEntries => {
+                msg = "no entries found in 'env-ease.yaml'";
+                hint = Some("add entries to the file or use '-p' and '-e' flags");
+            }
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
@@ -342,6 +385,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Environments(inner) => write!(f, "{}", inner),
             InputValidationError::EnvChangelog(inner) => write!(f, "{}", inner),
             InputValidationError::LoadEnvironment(inner) => write!(f, "{}", inner),
+            InputValidationError::PullEnvironment(inner) => write!(f, "{}", inner),
         }
     }
 }
