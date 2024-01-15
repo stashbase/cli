@@ -11,6 +11,7 @@ use crate::{
         environments::{
             create::{handle_create_environment, HandleCreateEnvironmentArgs},
             delete::handle_delete_environment,
+            duplicate::handle_duplicate_environment,
             get::handle_get_environment,
             list::{handle_list_environments, HandleListEnvironmentsArgs},
             open::handle_open_environment,
@@ -126,6 +127,13 @@ pub async fn handle_environment_commands(
         .unwrap_or_else(|err| {
             eprintln!("{:?}", err);
         }),
+        EnvironmentSubcommand::Duplicate(args) => {
+            handle_duplicate_environment(token, cmd.project, args.name, args.new_name)
+                .await
+                .unwrap_or_else(|err| {
+                    eprintln!("{:?}", err);
+                })
+        }
         EnvironmentSubcommand::Changelog(changelog_args) => match changelog_args.subcommand {
             EnvChangelogSubcommand::List(args) => {
                 let args = HandleEnvChangelogListArgs {
