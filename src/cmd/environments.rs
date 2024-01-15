@@ -58,6 +58,10 @@ pub enum EnvironmentSubcommand {
     #[clap(alias = "u")]
     Update(UpdateEnvironment),
 
+    /// Update environment
+    #[clap(alias = "d")]
+    Duplicate(DuplicateEnvironment),
+
     /// Lock project
     Lock(GetEnvironment),
 
@@ -170,6 +174,14 @@ pub struct UpdateEnvironment {
     /// Environment description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct DuplicateEnvironment {
+    /// Environment name
+    pub name: String,
+    /// New name
+    pub new_name: String,
 }
 
 #[derive(Debug, Args)]

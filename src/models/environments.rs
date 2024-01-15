@@ -202,6 +202,11 @@ pub struct UpdateEnvironmentPayload {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DuplicateEnvironmentPayload {
+    pub name: String,
+}
+
 // load
 #[derive(Debug, Serialize)]
 pub struct LoadEnvironmentPayload {
