@@ -9,8 +9,8 @@ use crate::{
             RequestArgs,
         },
         environments::{
-            CreatEnvironmentPayload, LoadEnvironmentPayload, UpdateEnvironmentPayload,
-            UpdateEnvironmentTypePayload,
+            CreatEnvironmentPayload, DuplicateEnvironmentPayload, LoadEnvironmentPayload,
+            UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
         },
     },
 };
@@ -189,6 +189,26 @@ pub async fn update(
     };
 
     client::patch_request(args, Some(data)).await
+}
+
+pub async fn duplicate(
+    token: String,
+    project: String,
+    environment: String,
+    data: &DuplicateEnvironmentPayload,
+) -> Result<PostPatchRequestApiResponse> {
+    let path = format!("{}/duplicate", environment);
+
+    let args = RequestArgs {
+        path: ApiPath::Environments {
+            project,
+            path: Some(path),
+        },
+        query: None,
+        token,
+    };
+
+    client::post_request(args, Some(data)).await
 }
 
 pub async fn update_type(
