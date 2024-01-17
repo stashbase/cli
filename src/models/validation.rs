@@ -360,7 +360,7 @@ impl fmt::Display for PullEnvironmentInputValidationError {
                 };
             }
             PullEnvironmentInputValidationError::NoConfigFileEntries => {
-                msg = "no entries found in 'env-ease.yaml'";
+                msg = "no entries found in 'onestash.yaml'";
                 hint = Some("add entries to the file or use '-p' and '-e' flags");
             }
         }
