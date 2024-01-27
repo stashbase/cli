@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub struct HandleGetSecretsArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub keys: Vec<String>,
@@ -26,7 +26,7 @@ pub struct HandleGetSecretsArgs {
 
 pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     let HandleGetSecretsArgs {
-        token,
+        api_key,
         project,
         environment,
         keys,
@@ -44,7 +44,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     let payload = GetSelectedSecretsPayload { keys: keys.clone() };
 
     let mut spinner = request_spinner();
-    let res = secrets::get_selected(token, project, environment, &payload).await;
+    let res = secrets::get_selected(api_key, project, environment, &payload).await;
 
     spinner.stop_and_persist("", "");
 

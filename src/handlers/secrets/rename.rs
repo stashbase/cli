@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub struct HandleRenameSecretsArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub secrets: Vec<String>,
@@ -28,7 +28,7 @@ pub struct HandleRenameSecretsArgs {
 // TODO: input error - at least one item
 pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> {
     let HandleRenameSecretsArgs {
-        token,
+        api_key,
         project,
         environment,
         secrets,
@@ -94,7 +94,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
     let mut spinner = request_spinner();
 
-    let res = secrets::rename_secrets(token, project, environment, &payload).await;
+    let res = secrets::rename_secrets(api_key, project, environment, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

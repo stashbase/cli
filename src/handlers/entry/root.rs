@@ -22,27 +22,32 @@ pub async fn handle_cli(args: Cli) {
     debug!("config: {:?}", config);
 
     if let Ok(config) = config {
-        // TODO: check token for api commands
-        let token = config.token.unwrap();
+        if let EntityType::Config(cmd) = args.entity_type {
+            handle_config_commands(cmd).await;
+            return;
+        }
+
+        // TODO: check api_key for api commands
+        let api_key = config.api_key.unwrap();
 
         let raw_output = args.raw;
 
         match args.entity_type {
             EntityType::Project(cmd) => {
-                handle_project_commands(cmd, token, raw_output).await;
+                handle_project_commands(cmd, api_key, raw_output).await;
             }
             EntityType::Environment(cmd) => {
-                handle_environment_commands(cmd, token, raw_output).await;
+                handle_environment_commands(cmd, api_key, raw_output).await;
             }
             EntityType::Config(cmd) => {
                 handle_config_commands(cmd).await;
             }
             EntityType::Secret(cmd) => {
-                handle_secrets_commands(cmd, token, raw_output).await;
+                handle_secrets_commands(cmd, api_key, raw_output).await;
             }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
-                    token,
+                    api_key,
                     project: args.project,
                     environment: args.environment,
                     command: args.command,
@@ -59,7 +64,7 @@ pub async fn handle_cli(args: Cli) {
             }
             EntityType::Pull(args) => {
                 let args = HandlePullArgs {
-                    token,
+                    api_key,
                     file: args.config_file,
                     set: args.set,
                     output_file: args.output_file,
@@ -74,7 +79,7 @@ pub async fn handle_cli(args: Cli) {
                 });
             }
             EntityType::Open => {
-                handle_open_dashboard(token).await.unwrap_or_else(|err| {
+                handle_open_dashboard(api_key).await.unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
             }

@@ -24,13 +24,13 @@ use crate::{
 
 pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
-    token: String,
+    api_key: String,
     raw_output: bool,
 ) {
     match cmd.subcommand {
         EnvironmentSubcommand::List(args) => {
             let args = HandleListEnvironmentsArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 search: args.search,
                 sort: args.sort,
@@ -51,7 +51,7 @@ pub async fn handle_environment_commands(
 
         EnvironmentSubcommand::Get(args) => {
             handle_get_environment(
-                token,
+                api_key,
                 match raw_output {
                     true => EnvironmentFormat::Json,
                     false => args.format.unwrap_or_default(),
@@ -65,7 +65,7 @@ pub async fn handle_environment_commands(
             });
         }
         EnvironmentSubcommand::Open(args) => {
-            handle_open_environment(token, cmd.project, args.name)
+            handle_open_environment(api_key, cmd.project, args.name)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
@@ -74,7 +74,7 @@ pub async fn handle_environment_commands(
 
         EnvironmentSubcommand::Create(args) => {
             let args = HandleCreateEnvironmentArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 name: args.name,
                 description: args.description,
@@ -89,35 +89,35 @@ pub async fn handle_environment_commands(
         }
 
         EnvironmentSubcommand::SetType(args) => {
-            handle_update_env_type(token, cmd.project, args.name, args.env_type)
+            handle_update_env_type(api_key, cmd.project, args.name, args.env_type)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
         }
         EnvironmentSubcommand::Lock(args) => {
-            handle_set_env_lock(token, cmd.project, args.name, true)
+            handle_set_env_lock(api_key, cmd.project, args.name, true)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
         }
         EnvironmentSubcommand::Unlock(args) => {
-            handle_set_env_lock(token, cmd.project, args.name, false)
+            handle_set_env_lock(api_key, cmd.project, args.name, false)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
         }
         EnvironmentSubcommand::Delete(args) => {
-            handle_delete_environment(token, cmd.project, args.name)
+            handle_delete_environment(api_key, cmd.project, args.name)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 })
         }
         EnvironmentSubcommand::Update(args) => handle_update_environment(
-            token,
+            api_key,
             cmd.project,
             args.name,
             args.new_name,
@@ -128,7 +128,7 @@ pub async fn handle_environment_commands(
             eprintln!("{:?}", err);
         }),
         EnvironmentSubcommand::Duplicate(args) => {
-            handle_duplicate_environment(token, cmd.project, args.name, args.new_name)
+            handle_duplicate_environment(api_key, cmd.project, args.name, args.new_name)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
@@ -137,7 +137,7 @@ pub async fn handle_environment_commands(
         EnvironmentSubcommand::Changelog(changelog_args) => match changelog_args.subcommand {
             EnvChangelogSubcommand::List(args) => {
                 let args = HandleEnvChangelogListArgs {
-                    token,
+                    api_key,
                     project: cmd.project,
                     environment: changelog_args.environment,
                     show_values: args.show_values,
@@ -151,7 +151,7 @@ pub async fn handle_environment_commands(
             }
             EnvChangelogSubcommand::Revert(args) => {
                 let args = HandleRevertEnvChangelogChange {
-                    token,
+                    api_key,
                     project: cmd.project,
                     environment: changelog_args.environment,
                     change_id: args.id,
@@ -165,7 +165,7 @@ pub async fn handle_environment_commands(
             }
             EnvChangelogSubcommand::Get(args) => {
                 let args = HandleGetEnvChangelogItemArgs {
-                    token,
+                    api_key,
                     project: cmd.project,
                     environment: changelog_args.environment,
                     change_id: args.id,

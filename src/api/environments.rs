@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub struct ListEnvsRequestArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub search: Option<String>,
     pub types: Vec<EnvironmentType>,
@@ -28,7 +28,7 @@ pub struct ListEnvsRequestArgs {
 
 pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
     let ListEnvsRequestArgs {
-        token,
+        api_key,
         project,
         search,
         types,
@@ -64,7 +64,7 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
     }
 
     let args = RequestArgs {
-        token,
+        api_key,
         query: Some(query),
         path: ApiPath::Environments {
             project,
@@ -76,12 +76,12 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
 }
 
 pub async fn get(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
 ) -> Result<GetRequestApiResponse> {
     let args = RequestArgs {
-        token,
+        api_key,
         query: None,
         path: ApiPath::Environments {
             project,
@@ -93,7 +93,7 @@ pub async fn get(
 }
 
 pub async fn load(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     // data: &Option<LoadEnvironmentPayload>,
@@ -120,7 +120,7 @@ pub async fn load(
     };
 
     let args = RequestArgs {
-        token,
+        api_key,
         query,
         path: ApiPath::Environments {
             project,
@@ -132,7 +132,7 @@ pub async fn load(
 }
 
 pub async fn get_url(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
 ) -> Result<GetRequestApiResponse> {
@@ -144,14 +144,14 @@ pub async fn get_url(
             path: Some(subpath),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::get_request(args).await
 }
 
 pub async fn create(
-    token: String,
+    api_key: String,
     project: String,
     open: bool,
     data: &CreatEnvironmentPayload,
@@ -167,14 +167,14 @@ pub async fn create(
             path: None,
         },
         query,
-        token,
+        api_key,
     };
 
     client::post_request(args, Some(data)).await
 }
 
 pub async fn update(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     data: &UpdateEnvironmentPayload,
@@ -185,14 +185,14 @@ pub async fn update(
             path: Some(environment),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::patch_request(args, Some(data)).await
 }
 
 pub async fn duplicate(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     data: &DuplicateEnvironmentPayload,
@@ -205,14 +205,14 @@ pub async fn duplicate(
             path: Some(path),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::post_request(args, Some(data)).await
 }
 
 pub async fn update_type(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     data: &UpdateEnvironmentTypePayload,
@@ -225,14 +225,14 @@ pub async fn update_type(
             path: Some(subpath),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::patch_request(args, Some(data)).await
 }
 
 pub async fn set_lock(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     locked: bool,
@@ -248,14 +248,14 @@ pub async fn set_lock(
             path: Some(subpath),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::patch_request::<()>(args, None).await
 }
 
 pub async fn delete(
-    token: String,
+    api_key: String,
     project: String,
     name: String,
 ) -> Result<DeleteRequestApiResponse> {
@@ -265,7 +265,7 @@ pub async fn delete(
             path: Some(name),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::delete_request(args).await

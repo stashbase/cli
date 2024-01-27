@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub struct HandleSetSecretsArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub values: Vec<String>,
@@ -23,7 +23,7 @@ pub struct HandleSetSecretsArgs {
 // NOTE: for now must have at least one value -> validate length
 pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let HandleSetSecretsArgs {
-        token,
+        api_key,
         project,
         environment,
         values,
@@ -99,7 +99,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         .collect::<_>();
 
     let mut spinner = request_spinner();
-    let res = secrets::set_sercrets(token, project, environment, &payload).await;
+    let res = secrets::set_sercrets(api_key, project, environment, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

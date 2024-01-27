@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-pub async fn handle_get_project(token: String, format: ProjectsFromat, name: String) -> Result<()> {
+pub async fn handle_get_project(api_key: String, format: ProjectsFromat, name: String) -> Result<()> {
     let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
@@ -26,7 +26,7 @@ pub async fn handle_get_project(token: String, format: ProjectsFromat, name: Str
     }
 
     let mut spinner = request_spinner();
-    let project_res = projects::get_project(token, name).await;
+    let project_res = projects::get_project(api_key, name).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
@@ -88,7 +88,7 @@ pub async fn handle_get_project(token: String, format: ProjectsFromat, name: Str
 
     Ok(())
     //
-    // let project_res = projects::list_projects(token).await;
+    // let project_res = projects::list_projects(api_key).await;
     // spinner.stop_and_persist("", "");
     //
     // if let Err(err) = &project_res {

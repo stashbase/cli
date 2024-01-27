@@ -3,7 +3,7 @@ use anyhow::Result;
 use super::client;
 use crate::models::api_client::{ApiPath, GetRequestApiResponse, RequestArgs};
 
-pub async fn get_url(token: String) -> Result<GetRequestApiResponse> {
+pub async fn get_url(api_key: String) -> Result<GetRequestApiResponse> {
     let subpath = format!("url");
 
     let args = RequestArgs {
@@ -11,7 +11,7 @@ pub async fn get_url(token: String) -> Result<GetRequestApiResponse> {
             path: Some(subpath),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::get_request(args).await

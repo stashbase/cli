@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub token: Option<String>,
+    pub api_key: Option<String>,
 }
 
 impl Config {
     pub fn new() -> Self {
-        Self { token: None }
+        Self { api_key: None }
     }
 }
 
@@ -19,5 +19,5 @@ pub struct ConfigWithPath {
 
 #[derive(Debug)]
 pub struct UpdateConfig {
-    pub token: Option<String>,
+    pub api_key: Option<String>,
 }

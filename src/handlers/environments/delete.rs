@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub async fn handle_delete_environment(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
 ) -> Result<()> {
@@ -32,7 +32,7 @@ pub async fn handle_delete_environment(
     debug!("deleting enironment...:");
 
     let mut spinner = request_spinner();
-    let res = environments::delete(token, project, environment).await;
+    let res = environments::delete(api_key, project, environment).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

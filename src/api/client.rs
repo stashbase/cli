@@ -28,7 +28,7 @@ impl RetryableStrategy for RetryReqPolicy {
     }
 }
 
-pub fn build_client(token: String) -> ClientWithMiddleware {
+pub fn build_client(api_key: String) -> ClientWithMiddleware {
     let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
 
     // Create the actual middleware, with the exponential backoff and custom retry stategy.
@@ -36,7 +36,7 @@ pub fn build_client(token: String) -> ClientWithMiddleware {
         RetryTransientMiddleware::new_with_policy_and_strategy(retry_policy, RetryReqPolicy);
 
     let mut headers = HeaderMap::new();
-    headers.insert("x-cli-token", token.parse().unwrap());
+    headers.insert("x-cli-key", api_key.parse().unwrap());
 
     let builder = ClientBuilder::new(
         reqwest::ClientBuilder::new()
@@ -60,7 +60,7 @@ pub fn build_client(token: String) -> ClientWithMiddleware {
 //     let full_path = format!("{}/{}", base_path, args.path);
 //
 //     let mut headers = HeaderMap::new();
-//     headers.insert("token", args.token.parse().unwrap());
+//     headers.insert("api_key", args.api_key.parse().unwrap());
 //
 //     client
 //         .request(reqwest::Method::GET, full_path)
@@ -72,7 +72,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 
-    let client = build_client(args.token);
+    let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
 
     let res = client
@@ -113,7 +113,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 
-    let client = build_client(args.token);
+    let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
 
     let res = client
@@ -194,7 +194,7 @@ async fn post_or_pach<T: serde::Serialize>(
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
 
-    let client = build_client(args.token);
+    let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
 
     let mut headers = HeaderMap::new();
@@ -279,7 +279,7 @@ async fn post_or_pach<T: serde::Serialize>(
 //     let full_path = format!("{}/{}", base_path, args.path);
 //
 //     let mut headers = HeaderMap::new();
-//     headers.insert("token", args.token.parse().unwrap());
+//     headers.insert("api_key", args.api_key.parse().unwrap());
 //
 //     match data {
 //         Some(data) => {

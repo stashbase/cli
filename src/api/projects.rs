@@ -14,7 +14,7 @@ use crate::{
 use super::client;
 
 pub async fn list_projects(
-    token: String,
+    api_key: String,
     search: Option<String>,
     sort: Sort,
     descending: bool,
@@ -32,66 +32,66 @@ pub async fn list_projects(
     let args = RequestArgs {
         path: ApiPath::Projects(None),
         query: Some(query),
-        token,
+        api_key,
     };
 
     client::get_request(args).await
 }
 
-pub async fn get_project(token: String, name: String) -> Result<GetRequestApiResponse> {
+pub async fn get_project(api_key: String, name: String) -> Result<GetRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
         query: None,
-        token,
+        api_key,
     };
 
     client::get_request(args).await
 }
 
-pub async fn get_project_url(token: String, name: String) -> Result<GetRequestApiResponse> {
+pub async fn get_project_url(api_key: String, name: String) -> Result<GetRequestApiResponse> {
     let subpath = format!("{}/url", name);
 
     let args = RequestArgs {
         path: ApiPath::Projects(Some(subpath)),
         query: None,
-        token,
+        api_key,
     };
 
     client::get_request(args).await
 }
 
 pub async fn create_project(
-    token: String,
+    api_key: String,
     data: &CreateProjectPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(None),
         query: None,
-        token,
+        api_key,
     };
 
     client::post_request(args, Some(data)).await
 }
 
 pub async fn update_project(
-    token: String,
+    api_key: String,
     name: String,
     data: &UpdateProjectPayload,
 ) -> Result<PostPatchRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
         query: None,
-        token,
+        api_key,
     };
 
     client::patch_request(args, Some(data)).await
 }
 
-pub async fn delete_project(token: String, name: String) -> Result<DeleteRequestApiResponse> {
+pub async fn delete_project(api_key: String, name: String) -> Result<DeleteRequestApiResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
         query: None,
-        token,
+        api_key,
     };
 
     client::delete_request(args).await

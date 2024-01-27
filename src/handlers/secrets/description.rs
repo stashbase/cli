@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub struct HandleDescriptionArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub key: String,
@@ -21,7 +21,7 @@ pub struct HandleDescriptionArgs {
 
 pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()> {
     let HandleDescriptionArgs {
-        token,
+        api_key,
         project,
         environment,
         description,
@@ -39,7 +39,7 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
 
     let mut spinner = request_spinner();
 
-    let res = secrets::update_description(token, project, environment, key, &payload).await;
+    let res = secrets::update_description(api_key, project, environment, key, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
