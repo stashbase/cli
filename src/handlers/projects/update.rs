@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub async fn handle_update_project(
-    token: String,
+    api_key: String,
     name: String,
     new_name: Option<String>,
     new_description: Option<String>,
@@ -37,7 +37,7 @@ pub async fn handle_update_project(
     };
 
     let mut spinner = request_spinner();
-    let project_res = projects::update_project(token, name, &data).await;
+    let project_res = projects::update_project(api_key, name, &data).await;
 
     if let Err(err) = project_res {
         // eprintln!();

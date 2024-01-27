@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub struct HandleGetEnvChangelogItemArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub change_id: String,
@@ -21,7 +21,7 @@ pub struct HandleGetEnvChangelogItemArgs {
 
 pub async fn handle_get_changelog_item(args: HandleGetEnvChangelogItemArgs) -> Result<()> {
     let HandleGetEnvChangelogItemArgs {
-        token,
+        api_key,
         project,
         environment,
         change_id,
@@ -46,7 +46,7 @@ pub async fn handle_get_changelog_item(args: HandleGetEnvChangelogItemArgs) -> R
     let mut spinner = request_spinner();
 
     let args = env_changelog::GetArgs {
-        token,
+        api_key,
         project,
         environment,
         change_id,

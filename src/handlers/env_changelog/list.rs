@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub struct HandleEnvChangelogListArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub page: Option<usize>,
@@ -22,7 +22,7 @@ pub struct HandleEnvChangelogListArgs {
 
 pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<()> {
     let HandleEnvChangelogListArgs {
-        token,
+        api_key,
         project,
         environment,
         page,
@@ -56,7 +56,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
     let mut spinner = request_spinner();
 
     let args = env_changelog::ListArgs {
-        token,
+        api_key,
         project,
         environment,
         page,

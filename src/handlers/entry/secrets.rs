@@ -11,11 +11,11 @@ use crate::{
     },
 };
 
-pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output: bool) {
+pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_output: bool) {
     match cmd.subcommand {
         SecretSubcommand::List(args) => {
             let args = HandleListSecretsArgs {
-                token,
+                api_key,
                 only_keys: args.only_keys,
                 project: cmd.project,
                 environment: cmd.environment,
@@ -33,7 +33,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
         }
         SecretSubcommand::Get(args) => {
             let args = HandleGetSecretsArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 environment: cmd.environment,
                 keys: args.keys,
@@ -50,7 +50,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
         }
         SecretSubcommand::Delete(args) => {
             let args = HandleDeleteSecretsArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 environment: cmd.environment,
                 keys: args.keys,
@@ -63,7 +63,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
         }
         SecretSubcommand::Set(args) => {
             let args = HandleSetSecretsArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 environment: cmd.environment,
                 values: args.secrets,
@@ -76,7 +76,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
         }
         SecretSubcommand::Description(args) => {
             let args = HandleDescriptionArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 environment: cmd.environment,
                 description: args.description,
@@ -89,7 +89,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
         }
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 environment: cmd.environment,
                 file_path: args.file_path,
@@ -101,7 +101,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, token: String, raw_output:
         }
         SecretSubcommand::Rename(args) => {
             let args = HandleRenameSecretsArgs {
-                token,
+                api_key,
                 project: cmd.project,
                 environment: cmd.environment,
                 secrets: args.secrets,

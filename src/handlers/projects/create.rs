@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub async fn handle_create_project(
-    token: String,
+    api_key: String,
     name: String,
     description: Option<String>,
 ) -> Result<()> {
@@ -24,7 +24,7 @@ pub async fn handle_create_project(
 
     let mut spinner = request_spinner();
 
-    let project_res = projects::create_project(token, &data).await;
+    let project_res = projects::create_project(api_key, &data).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");

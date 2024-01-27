@@ -13,7 +13,7 @@ use crate::models::{
 };
 
 pub async fn list(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     search: Option<String>,
@@ -46,14 +46,14 @@ pub async fn list(
             path: None,
         },
         query,
-        token,
+        api_key,
     };
 
     client::get_request(args).await
 }
 
 pub async fn pull(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     only: Vec<String>,
@@ -83,7 +83,7 @@ pub async fn pull(
             path: None,
         },
         query,
-        token,
+        api_key,
     };
 
     client::get_request(args).await
@@ -91,7 +91,7 @@ pub async fn pull(
 
 // post with keys in body?
 pub async fn get_selected(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     data: &GetSelectedSecretsPayload,
@@ -103,14 +103,14 @@ pub async fn get_selected(
             path: Some(String::from("selected")),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::post_request(args, Some(data)).await
 }
 
 pub async fn update_description(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     key: String,
@@ -123,14 +123,14 @@ pub async fn update_description(
             path: Some(key),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::patch_request(args, Some(data)).await
 }
 
 pub async fn delete(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     data: &DeleteSecretsPayload,
@@ -142,14 +142,14 @@ pub async fn delete(
             path: Some(String::from("delete")),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::post_request(args, Some(data)).await
 }
 
 pub async fn delete_all(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
 ) -> Result<DeleteRequestApiResponse> {
@@ -160,14 +160,14 @@ pub async fn delete_all(
             path: None,
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::delete_request(args).await
 }
 
 pub async fn set_sercrets(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     data: &Vec<Secret>,
@@ -179,14 +179,14 @@ pub async fn set_sercrets(
             path: None,
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::post_request(args, Some(data)).await
 }
 
 pub async fn rename_secrets(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     data: &RenameSecretsPayload,
@@ -198,7 +198,7 @@ pub async fn rename_secrets(
             path: None,
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::patch_request(args, Some(data)).await

@@ -17,7 +17,7 @@ use crate::{
 };
 
 pub struct HandleListEnvironmentsArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub search: Option<String>,
     pub sort: Option<EnvSort>,
@@ -30,7 +30,7 @@ pub struct HandleListEnvironmentsArgs {
 
 pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Result<()> {
     let HandleListEnvironmentsArgs {
-        token,
+        api_key,
         project,
         search,
         sort,
@@ -63,7 +63,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let mut spinner = request_spinner();
 
     let args = ListEnvsRequestArgs {
-        token,
+        api_key,
         project,
         types,
         locked,

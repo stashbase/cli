@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub async fn handle_update_environment(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     new_name: Option<String>,
@@ -44,7 +44,7 @@ pub async fn handle_update_environment(
     };
 
     let mut spinner = request_spinner();
-    let project_res = environments::update(token, project, environment, &data).await;
+    let project_res = environments::update(api_key, project, environment, &data).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");

@@ -32,7 +32,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct HandlePullArgs {
-    pub token: String,
+    pub api_key: String,
 
     pub only: Vec<String>,
     pub exclude: Vec<String>,
@@ -45,7 +45,7 @@ pub struct HandlePullArgs {
 
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let HandlePullArgs {
-        token,
+        api_key,
         file,
         set,
         mut output_file,
@@ -212,7 +212,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         Streams::Stderr,
     );
 
-    let res = secrets::pull(token, project.clone(), environment.clone(), only, exclude).await;
+    let res = secrets::pull(api_key, project.clone(), environment.clone(), only, exclude).await;
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);

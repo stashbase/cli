@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub struct HandleUploadSecretsArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub file_path: String,
@@ -22,7 +22,7 @@ pub struct HandleUploadSecretsArgs {
 
 pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> {
     let HandleUploadSecretsArgs {
-        token,
+        api_key,
         project,
         environment,
         file_path,
@@ -50,7 +50,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     match secrets_res {
         Ok(secrets) => {
             let mut spinner = request_spinner();
-            let res = secrets::set_sercrets(token, project, environment, &secrets).await;
+            let res = secrets::set_sercrets(api_key, project, environment, &secrets).await;
             debug!("{:#?}", res);
 
             if let Err(err) = res {

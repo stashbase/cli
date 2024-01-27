@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub struct HandleDeleteSecretsArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub keys: Vec<String>,
@@ -26,7 +26,7 @@ pub struct HandleDeleteSecretsArgs {
 // ✓
 pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> {
     let HandleDeleteSecretsArgs {
-        token,
+        api_key,
         project,
         environment,
         delete_all,
@@ -67,7 +67,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
 
     match delete_all {
         true => {
-            let res = secrets::delete_all(token, project, environment).await;
+            let res = secrets::delete_all(api_key, project, environment).await;
 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");
@@ -109,7 +109,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         false => {
             let payload = DeleteSecretsPayload { keys: keys.clone() };
 
-            let res = secrets::delete(token, project, environment, &payload).await;
+            let res = secrets::delete(api_key, project, environment, &payload).await;
 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");

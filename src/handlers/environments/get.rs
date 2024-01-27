@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub async fn handle_get_environment(
-    token: String,
+    api_key: String,
     format: EnvironmentFormat,
     project: String,
     environment: String,
@@ -28,7 +28,7 @@ pub async fn handle_get_environment(
     debug!("getting env...");
 
     let mut spinner = request_spinner();
-    let res = environments::get(token, project, environment).await;
+    let res = environments::get(api_key, project, environment).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

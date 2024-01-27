@@ -14,7 +14,7 @@ pub struct GetEnvUrlResponse {
 }
 
 pub async fn handle_open_environment(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
 ) -> Result<()> {
@@ -27,7 +27,7 @@ pub async fn handle_open_environment(
     // OK
     // send request
     let mut spinner = request_spinner();
-    let project_res = environments::get_url(token, project, environment).await;
+    let project_res = environments::get_url(api_key, project, environment).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");

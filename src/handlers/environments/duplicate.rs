@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub async fn handle_duplicate_environment(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     new_name: String,
@@ -43,7 +43,7 @@ pub async fn handle_duplicate_environment(
     let data = DuplicateEnvironmentPayload { name: new_name };
 
     let mut spinner = request_spinner();
-    let project_res = environments::duplicate(token, project, environment, &data).await;
+    let project_res = environments::duplicate(api_key, project, environment, &data).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
