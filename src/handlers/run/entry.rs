@@ -25,7 +25,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct HandleRunArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: Option<String>,
     pub environment: Option<String>,
     pub command: Vec<String>,
@@ -38,7 +38,7 @@ pub struct HandleRunArgs {
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     let HandleRunArgs {
-        token,
+        api_key,
         command,
         file,
         set,
@@ -262,7 +262,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     //     }
     // };
 
-    let res = environments::load(token, project, environment, only, exclude).await;
+    let res = environments::load(api_key, project, environment, only, exclude).await;
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);

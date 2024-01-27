@@ -59,10 +59,10 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
     let config_path = get_config_path()?;
     let mut config = get_config()?;
 
-    let UpdateConfig { token } = args;
+    let UpdateConfig { api_key: api_key } = args;
 
-    if let Some(new_token) = token {
-        config.token = Some(new_token);
+    if let Some(new_api_key) = api_key {
+        config.api_key = Some(new_api_key);
     }
 
     let config_string = toml::to_string(&config)?;

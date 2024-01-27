@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub async fn handle_set_env_lock(
-    token: String,
+    api_key: String,
     project: String,
     environment: String,
     lock: bool,
@@ -23,7 +23,7 @@ pub async fn handle_set_env_lock(
     debug!("updating lock status...:");
     let mut spinner = request_spinner();
 
-    let res = environments::set_lock(token, project, environment, lock).await;
+    let res = environments::set_lock(api_key, project, environment, lock).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

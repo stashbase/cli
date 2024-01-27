@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub struct HandleListProjectsArgs {
-    pub token: String,
+    pub api_key: String,
     pub search: Option<String>,
     pub sort: Option<Sort>,
     pub descending: bool,
@@ -25,7 +25,7 @@ pub struct HandleListProjectsArgs {
 
 pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     let HandleListProjectsArgs {
-        token,
+        api_key,
         search,
         sort,
         descending,
@@ -45,7 +45,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
 
     let mut spinner = request_spinner();
     let project_res =
-        projects::list_projects(token, search, sort.unwrap_or(Sort::Created), descending).await;
+        projects::list_projects(api_key, search, sort.unwrap_or(Sort::Created), descending).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
@@ -101,7 +101,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
 
     Ok(())
     //
-    // let project_res = projects::list_projects(token).await;
+    // let project_res = projects::list_projects(api_key).await;
     // spinner.stop_and_persist("", "");
     //
     // if let Err(err) = &project_res {

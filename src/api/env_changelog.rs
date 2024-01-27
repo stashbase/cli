@@ -7,7 +7,7 @@ use crate::models::api_client::{
 use super::client;
 
 pub struct ListArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub page: Option<usize>,
@@ -18,7 +18,7 @@ pub struct ListArgs {
 
 pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse> {
     let ListArgs {
-        token,
+        api_key,
         project,
         environment,
         show_values,
@@ -46,14 +46,14 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse> {
             path: None,
         },
         query: Some(query),
-        token,
+        api_key,
     };
 
     client::get_request(args).await
 }
 
 pub struct GetArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub change_id: String,
@@ -61,7 +61,7 @@ pub struct GetArgs {
 
 pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
     let GetArgs {
-        token,
+        api_key,
         project,
         environment,
         change_id,
@@ -74,14 +74,14 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
             path: Some(change_id),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::get_request(args).await
 }
 
 pub struct RevertArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub change_id: String,
@@ -89,7 +89,7 @@ pub struct RevertArgs {
 
 pub async fn revert(args: RevertArgs) -> Result<PostPatchRequestApiResponse> {
     let RevertArgs {
-        token,
+        api_key,
         project,
         environment,
         change_id,
@@ -104,7 +104,7 @@ pub async fn revert(args: RevertArgs) -> Result<PostPatchRequestApiResponse> {
             path: Some(path),
         },
         query: None,
-        token,
+        api_key,
     };
 
     client::post_request::<()>(args, None).await

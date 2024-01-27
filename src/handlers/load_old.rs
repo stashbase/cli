@@ -40,7 +40,7 @@
 //     Ok(())
 // }
 // // pub async fn handle_load_environment(
-//     token: String,
+//     api_key: String,
 //     project: String,
 //     environment: String,
 // ) -> Result<()> {
@@ -270,7 +270,7 @@
 //
 //     //
 //
-//     let res = secrets::list(token, project, environment, None, false).await;
+//     let res = secrets::list(api_key, project, environment, None, false).await;
 //
 //     if let Err(err) = res {
 //         debug!("Error: {:#?}", &err);

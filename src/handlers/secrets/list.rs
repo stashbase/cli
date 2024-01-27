@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub struct HandleListSecretsArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub search: Option<String>,
@@ -23,7 +23,7 @@ pub struct HandleListSecretsArgs {
 
 pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     let HandleListSecretsArgs {
-        token,
+        api_key,
         project,
         environment: enironment,
         search,
@@ -48,7 +48,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     debug!("listing secrets...:");
 
     let mut spinner = request_spinner();
-    let res = secrets::list(token, project, enironment, search, only_keys).await;
+    let res = secrets::list(api_key, project, enironment, search, only_keys).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");

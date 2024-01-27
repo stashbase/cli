@@ -20,7 +20,7 @@ use crate::{
 };
 
 pub struct HandleCreateEnvironmentArgs {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub name: String,
     pub env_type: EnvironmentType,
@@ -31,7 +31,7 @@ pub struct HandleCreateEnvironmentArgs {
 
 pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Result<()> {
     let HandleCreateEnvironmentArgs {
-        token,
+        api_key,
         project,
         name,
         env_type,
@@ -84,7 +84,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
     let mut spinner = request_spinner();
 
-    let project_res = environments::create(token, project, open, &data).await;
+    let project_res = environments::create(api_key, project, open, &data).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");

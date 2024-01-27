@@ -8,7 +8,7 @@ use crate::{
     utils::{interaction, spinner::request_spinner, validation::validate_project_name},
 };
 
-pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
+pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> {
     let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
@@ -27,7 +27,7 @@ pub async fn handle_delete_project(token: String, name: String) -> Result<()> {
     debug!("deleting project...:");
 
     let mut spinner = request_spinner();
-    let project_res = projects::delete_project(token, name).await;
+    let project_res = projects::delete_project(api_key, name).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");

@@ -22,11 +22,11 @@ pub struct SetConfig {
 #[derive(Debug, Subcommand)]
 pub enum SetConfigSubcommand {
     #[clap(alias = "t")]
-    /// Set token
-    Token(SetToken),
+    /// Set api_key
+    ApiKey(SetApiKey),
 }
 
 #[derive(Debug, Args)]
-pub struct SetToken {
+pub struct SetApiKey {
     pub value: String,
 }

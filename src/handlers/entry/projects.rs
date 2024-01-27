@@ -10,11 +10,11 @@ use crate::{
     },
 };
 
-pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_output: bool) {
+pub async fn handle_project_commands(cmd: ProjectCommands, api_key: String, raw_output: bool) {
     match cmd.subcommand {
         ProjectSubcommand::List(args) => {
             let args = HandleListProjectsArgs {
-                token,
+                api_key,
                 search: args.search,
                 sort: args.sort,
                 descending: args.descending,
@@ -31,7 +31,7 @@ pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_ou
 
         ProjectSubcommand::Get(args) => {
             handle_get_project(
-                token,
+                api_key,
                 match raw_output {
                     true => ProjectsFromat::Json,
                     false => args.format.unwrap_or_default(),
@@ -45,7 +45,7 @@ pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_ou
         }
 
         ProjectSubcommand::Create(args) => {
-            handle_create_project(token, args.name, args.description)
+            handle_create_project(api_key, args.name, args.description)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
@@ -53,14 +53,14 @@ pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_ou
         }
 
         ProjectSubcommand::Delete(args) => {
-            handle_delete_project(token, args.name)
+            handle_delete_project(api_key, args.name)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 });
         }
         ProjectSubcommand::Open(args) => {
-            handle_open_project(token, args.name)
+            handle_open_project(api_key, args.name)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
@@ -68,7 +68,7 @@ pub async fn handle_project_commands(cmd: ProjectCommands, token: String, raw_ou
         }
 
         ProjectSubcommand::Update(args) => {
-            handle_update_project(token, args.name, args.new_name, args.description)
+            handle_update_project(api_key, args.name, args.new_name, args.description)
                 .await
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);

@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 #[derive(Debug)]
 pub struct RequestArgs {
-    pub token: String,
+    pub api_key: String,
     pub path: ApiPath,
     pub query: Option<Vec<(String, String)>>,
 }

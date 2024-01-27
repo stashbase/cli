@@ -11,10 +11,10 @@ struct OpeDashboardResponse {
     url: String,
 }
 
-pub async fn handle_open_dashboard(token: String) -> Result<()> {
+pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
     let mut spinner = request_spinner();
 
-    let response = workspace::get_url(token).await;
+    let response = workspace::get_url(api_key).await;
 
     if let Err(err) = response {
         spinner.stop_and_persist("", "");

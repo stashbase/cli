@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub struct HandleRevertEnvChangelogChange {
-    pub token: String,
+    pub api_key: String,
     pub project: String,
     pub environment: String,
     pub change_id: String,
@@ -21,7 +21,7 @@ pub struct HandleRevertEnvChangelogChange {
 
 pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange) -> Result<()> {
     let HandleRevertEnvChangelogChange {
-        token,
+        api_key,
         project,
         environment,
         change_id,
@@ -52,7 +52,7 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
     let mut spinner = request_spinner();
 
     let args = env_changelog::RevertArgs {
-        token,
+        api_key,
         project,
         environment,
         change_id,
