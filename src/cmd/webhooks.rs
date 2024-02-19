@@ -28,6 +28,11 @@ pub enum WebhookSubcommand {
     /// Create new webhook
     Create(CreateWebhook),
 
+    /// Update webhook
+    #[clap(aliases = &["u", "upd"])]
+    Update(UpdateWebhook),
+
+    #[clap(aliases = &["d", "del"])]
     Delete(DeleteWebhook),
 }
 
@@ -53,6 +58,20 @@ pub struct CreateWebhook {
     pub url: String,
 
     /// Description
+    #[arg(value_enum, short = 'd', long = "description")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct UpdateWebhook {
+    /// Id of webhook
+    pub webhook_id: String,
+
+    /// Webhook URL
+    #[arg(value_enum, short = 'u', long = "url")]
+    pub url: Option<String>,
+
+    /// Webhook description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
 }
