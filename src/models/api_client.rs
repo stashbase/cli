@@ -220,7 +220,9 @@ pub enum EnvChangelogError {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WebhookError {}
+pub enum WebhookError {
+    WebhookNotFound,
+}
 
 #[derive(Debug)]
 pub struct CustomError {
@@ -327,7 +329,12 @@ impl From<ApiError> for CustomError {
                     hint: Some(format!("environment with the name already exists")),
                 },
             },
-            ApiErrorEntity::Webhook(_) => todo!(),
+            ApiErrorEntity::Webhook(e) => match e {
+                WebhookError::WebhookNotFound => CustomError {
+                    message: format!("webhook not found"),
+                    hint: None,
+                },
+            },
         }
     }
 }
