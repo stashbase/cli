@@ -456,7 +456,7 @@ pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigI
             path.push(relative_path);
             path
         }
-        None => env::current_dir()?.join("env-ease.yaml"),
+        None => env::current_dir()?.join("stashbase.yaml"),
     };
     let file_exists = file_path.exists();
 
