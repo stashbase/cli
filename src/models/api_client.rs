@@ -24,6 +24,12 @@ pub enum ApiPath {
         environment: String,
         path: Option<String>,
     },
+
+    Webhooks {
+        project: String,
+        environment: String,
+        path: Option<String>,
+    },
     Secrets {
         project: String,
         environment: String,
@@ -87,6 +93,26 @@ impl fmt::Display for ApiPath {
                 }
                 None => write!(f, "workspace"),
             },
+            ApiPath::Webhooks {
+                project,
+                environment,
+                path,
+            } => match path {
+                Some(p) => {
+                    write!(
+                        f,
+                        "projects/{}/environments/{}/webhooks/{}",
+                        project, environment, p
+                    )
+                }
+                None => {
+                    write!(
+                        f,
+                        "projects/{}/environments/{}/webhooks",
+                        project, environment
+                    )
+                }
+            },
         }
     }
 }
@@ -147,6 +173,7 @@ pub enum ApiErrorEntity {
     Environment(EnvironmentError),
     Secret(SecretsError),
     EnvChangelog(EnvChangelogError),
+    Webhook(WebhookError),
 }
 
 // TODO: env errors
@@ -190,6 +217,10 @@ pub enum EnvChangelogError {
     ChangeNotFound,
     RenameEnvironmentAlreadyExists,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebhookError {}
 
 #[derive(Debug)]
 pub struct CustomError {
@@ -296,6 +327,7 @@ impl From<ApiError> for CustomError {
                     hint: Some(format!("environment with the name already exists")),
                 },
             },
+            ApiErrorEntity::Webhook(_) => todo!(),
         }
     }
 }

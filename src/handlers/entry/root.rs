@@ -7,6 +7,7 @@ use crate::{
         entry::{
             config::handle_config_commands, environments::handle_environment_commands,
             projects::handle_project_commands, secrets::handle_secrets_commands,
+            webhooks::handle_webhook_commands,
         },
         open::handle_open_dashboard,
         pull::entry::{handle_pull, HandlePullArgs},
@@ -45,6 +46,11 @@ pub async fn handle_cli(args: Cli) {
             EntityType::Secret(cmd) => {
                 handle_secrets_commands(cmd, api_key, raw_output).await;
             }
+
+            EntityType::Webhooks(cmd) => {
+                handle_webhook_commands(cmd, api_key, raw_output).await;
+            }
+
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
                     api_key,
