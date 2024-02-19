@@ -354,7 +354,7 @@ impl fmt::Display for PullEnvironmentInputValidationError {
                         hint = Some("make sure the file exists");
                     }
                     false => {
-                        msg = "no 'env-ease.yaml' config file found";
+                        msg = "no 'stashbase.yaml' config file found";
                         hint = Some("ceate the file or provide file path with '-c' flag");
                     }
                 };
