@@ -9,6 +9,7 @@ pub enum InputValidationError {
     EnvChangelog(EnvChangelogInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PullEnvironment(PullEnvironmentInputValidationError),
+    Webhook(WebhookInputValidationError),
 }
 
 #[derive(Debug)]
@@ -24,6 +25,12 @@ pub enum ProjectInputValidationError {
     NewNameFormat,
     NewNameTooShort,
     SameNewName,
+}
+
+#[derive(Debug)]
+pub enum WebhookInputValidationError {
+    // update
+    NoUpdateFlags,
 }
 
 // TODO: key length (min = 2 ???)
@@ -376,6 +383,29 @@ impl fmt::Display for PullEnvironmentInputValidationError {
     }
 }
 
+impl fmt::Display for WebhookInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
+        match self {
+            WebhookInputValidationError::NoUpdateFlags => {
+                msg = "no update flag specified";
+                hint = Some("use one of: -u (--url), -d (--description)");
+            }
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
@@ -386,6 +416,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::EnvChangelog(inner) => write!(f, "{}", inner),
             InputValidationError::LoadEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::PullEnvironment(inner) => write!(f, "{}", inner),
+            InputValidationError::Webhook(inner) => write!(f, "{}", inner),
         }
     }
 }
