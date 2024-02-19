@@ -25,6 +25,9 @@ pub enum WebhookSubcommand {
     /// Get single webhook
     Get(GetWebhook),
 
+    /// Create new webhook
+    Create(CreateWebhook),
+
     Delete(DeleteWebhook),
 }
 
@@ -42,6 +45,16 @@ pub struct ListWebhooks {
 pub struct GetWebhook {
     /// Id of webhook
     pub webhook_id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct CreateWebhook {
+    /// URL endpoint
+    pub url: String,
+
+    /// Description
+    #[arg(value_enum, short = 'd', long = "description")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Args)]
