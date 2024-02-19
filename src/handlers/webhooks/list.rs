@@ -62,29 +62,36 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
             let webhooks = serde_json::from_str::<Vec<ListWebhook>>(&data.text);
 
             match webhooks {
-                Ok(webhooks) => match format {
-                    EnvironmentFormat::List => {
-                        for (i, p) in webhooks.iter().enumerate() {
-                            if i == webhooks.len() - 1 {
-                                print!("{}", p);
-                            } else {
-                                println!("{}", p);
+                Ok(webhooks) => {
+                    if webhooks.is_empty() {
+                        spinner.stop_with_message("No webhooks found");
+                    } else {
+                        spinner.stop_and_persist("", "");
+
+                        match format {
+                            EnvironmentFormat::List => {
+                                for (i, p) in webhooks.iter().enumerate() {
+                                    if i == webhooks.len() - 1 {
+                                        print!("{}", p);
+                                    } else {
+                                        println!("{}", p);
+                                    }
+                                }
+                            }
+                            EnvironmentFormat::Json => {
+                                let value = serde_json::to_value(&webhooks).unwrap();
+                                let pretty = to_colored_json_auto(&value).unwrap();
+
+                                println!("{}", pretty);
+                            }
+                            EnvironmentFormat::Table => {
+                                let reversed = webhooks.into_iter().rev().collect();
+                                let table = tables::build::build_table(&reversed);
+                                println!("{}", table);
                             }
                         }
                     }
-                    EnvironmentFormat::Json => {
-                        spinner.stop_and_persist("", "");
-                        let value = serde_json::to_value(&webhooks).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-
-                        println!("{}", pretty);
-                    }
-                    EnvironmentFormat::Table => {
-                        let reversed = webhooks.into_iter().rev().collect();
-                        let table = tables::build::build_table(&reversed);
-                        println!("{}", table);
-                    }
-                },
+                }
                 Err(e) => {
                     spinner.stop_and_persist("", "");
                     debug!("Err: {}", e);
