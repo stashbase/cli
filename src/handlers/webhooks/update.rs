@@ -51,7 +51,11 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
         project,
         environment,
         webhook_id,
-        data: UpdateWebhookPayload { url, description },
+        data: UpdateWebhookPayload {
+            url,
+            description,
+            enabled: None,
+        },
     };
 
     let mut spinner = request_spinner();
