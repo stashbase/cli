@@ -1,8 +1,11 @@
 use anyhow::Result;
 
-use crate::models::api_client::{
-    ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
-    RequestArgs,
+use crate::models::{
+    api_client::{
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+        RequestArgs,
+    },
+    webhooks::CreateWebhookPayload,
 };
 
 use super::client;
@@ -59,6 +62,28 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
     };
 
     client::get_request(args).await
+}
+
+// create
+pub struct CreateArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub data: CreateWebhookPayload,
+}
+
+pub async fn create(args: CreateArgs) -> Result<PostPatchRequestApiResponse> {
+    let req_args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project: args.project,
+            environment: args.environment,
+            path: None,
+        },
+        query: None,
+        api_key: args.api_key,
+    };
+
+    client::post_request(req_args, Some(&args.data)).await
 }
 
 // delete
