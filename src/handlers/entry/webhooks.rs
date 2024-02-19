@@ -3,7 +3,10 @@ use crate::{
         environments::EnvironmentFormat,
         webhooks::{WebhookCommand, WebhookSubcommand},
     },
-    handlers::webhooks::list::{handle_list_webhooks, ListWebhooksArgs},
+    handlers::webhooks::{
+        get::{handle_get_webhook, GetWebhookArgs},
+        list::{handle_list_webhooks, ListWebhooksArgs},
+    },
 };
 
 pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_output: bool) {
@@ -23,6 +26,18 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 eprintln!("{:?}", err);
             });
         }
-        WebhookSubcommand::Get(_) => todo!(),
+        WebhookSubcommand::Get(args) => {
+            let args = GetWebhookArgs {
+                api_key,
+                project: cmd.project,
+                environment: cmd.environment,
+                webhook_id: args.webhook_id,
+                format_json: raw_output,
+            };
+
+            handle_get_webhook(args).await.unwrap_or_else(|err| {
+                eprintln!("{:?}", err);
+            })
+        }
     }
 }

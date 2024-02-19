@@ -36,7 +36,7 @@ pub struct GetArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
-    pub change_id: String,
+    pub webhook_id: String,
 }
 
 pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
@@ -44,48 +44,18 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
         api_key,
         project,
         environment,
-        change_id,
+        webhook_id,
     } = args;
 
     let args = RequestArgs {
-        path: ApiPath::EnvChangelog {
+        path: ApiPath::Webhooks {
             project,
             environment,
-            path: Some(change_id),
+            path: Some(webhook_id),
         },
         query: None,
         api_key,
     };
 
     client::get_request(args).await
-}
-
-pub struct RevertArgs {
-    pub api_key: String,
-    pub project: String,
-    pub environment: String,
-    pub change_id: String,
-}
-
-pub async fn revert(args: RevertArgs) -> Result<PostPatchRequestApiResponse> {
-    let RevertArgs {
-        api_key,
-        project,
-        environment,
-        change_id,
-    } = args;
-
-    let path = format!("{}/revert", change_id);
-
-    let args = RequestArgs {
-        path: ApiPath::EnvChangelog {
-            project,
-            environment,
-            path: Some(path),
-        },
-        query: None,
-        api_key,
-    };
-
-    client::post_request::<()>(args, None).await
 }

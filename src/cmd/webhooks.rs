@@ -37,4 +37,7 @@ pub struct ListWebhooks {
 }
 
 #[derive(Debug, Args)]
-pub struct GetWebhook {}
+pub struct GetWebhook {
+    /// Id of webhook
+    pub webhook_id: String,
+}
