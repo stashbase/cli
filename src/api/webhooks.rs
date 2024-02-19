@@ -108,6 +108,7 @@ pub async fn update(args: UpdateArgs) -> Result<PostPatchRequestApiResponse> {
 
     client::patch_request(req_args, Some(&args.data)).await
 }
+
 // delete
 pub struct DeleteArgs {
     pub api_key: String,

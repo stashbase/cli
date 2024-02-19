@@ -9,6 +9,7 @@ use crate::{
         get::{handle_get_webhook, GetWebhookArgs},
         list::{handle_list_webhooks, ListWebhooksArgs},
         update::{handle_update_webhook, UpdateWebhookArgs},
+        update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
 };
 
@@ -80,6 +81,37 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
             handle_update_webhook(fn_args).await.unwrap_or_else(|err| {
                 eprintln!("{}", err);
             })
+        }
+        // update status
+        WebhookSubcommand::Disable(cmd_args) => {
+            let fn_args = UpdateWebhookStatusArgs {
+                api_key,
+                project: cmd.project,
+                environment: cmd.environment,
+                webhook_id: cmd_args.webhook_id,
+                enabled: false,
+            };
+
+            handle_update_webhook_status(fn_args)
+                .await
+                .unwrap_or_else(|err| {
+                    eprintln!("{}", err);
+                })
+        }
+        WebhookSubcommand::Enable(cmd_args) => {
+            let fn_args = UpdateWebhookStatusArgs {
+                api_key,
+                project: cmd.project,
+                environment: cmd.environment,
+                webhook_id: cmd_args.webhook_id,
+                enabled: true,
+            };
+
+            handle_update_webhook_status(fn_args)
+                .await
+                .unwrap_or_else(|err| {
+                    eprintln!("{}", err);
+                })
         }
     }
 }
