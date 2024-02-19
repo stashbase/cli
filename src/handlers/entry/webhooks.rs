@@ -4,6 +4,7 @@ use crate::{
         webhooks::{WebhookCommand, WebhookSubcommand},
     },
     handlers::webhooks::{
+        delete::{handle_delete_webhook, DeleteWebhookArgs},
         get::{handle_get_webhook, GetWebhookArgs},
         list::{handle_list_webhooks, ListWebhooksArgs},
     },
@@ -23,7 +24,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
             };
 
             handle_list_webhooks(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
+                eprintln!("{}", err);
             });
         }
         WebhookSubcommand::Get(args) => {
@@ -36,7 +37,19 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
             };
 
             handle_get_webhook(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
+                eprintln!("{}", err);
+            })
+        }
+        WebhookSubcommand::Delete(cmd_args) => {
+            let fn_args = DeleteWebhookArgs {
+                api_key,
+                project: cmd.project,
+                environment: cmd.environment,
+                webhook_id: cmd_args.webhook_id,
+            };
+
+            handle_delete_webhook(fn_args).await.unwrap_or_else(|err| {
+                eprintln!("{}", err);
             })
         }
     }

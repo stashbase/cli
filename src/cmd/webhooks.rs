@@ -24,6 +24,8 @@ pub enum WebhookSubcommand {
 
     /// Get single webhook
     Get(GetWebhook),
+
+    Delete(DeleteWebhook),
 }
 
 // TODO: sort
@@ -38,6 +40,12 @@ pub struct ListWebhooks {
 
 #[derive(Debug, Args)]
 pub struct GetWebhook {
+    /// Id of webhook
+    pub webhook_id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct DeleteWebhook {
     /// Id of webhook
     pub webhook_id: String,
 }
