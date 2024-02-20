@@ -43,6 +43,8 @@ pub enum WebhookSubcommand {
 
     #[clap(aliases = &["d", "del"])]
     Delete(DeleteWebhook),
+
+    Logs(WebhookLogs),
 }
 
 // TODO: sort
@@ -101,4 +103,22 @@ pub struct UpdateWebhookStatus {
 pub struct TestWebhook {
     /// Id of webhook
     pub webhook_id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct WebhookLogs {
+    /// Id of webhook
+    pub webhook_id: String,
+
+    /// Format output
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<EnvironmentFormat>,
+
+    // TODO: describe
+    #[arg(value_enum, short = 'p', long = "page")]
+    pub page: Option<usize>,
+
+    // TODO: describe
+    #[arg(value_enum, long = "per-page")]
+    pub per_page: Option<u8>,
 }

@@ -8,6 +8,7 @@ use crate::{
         delete::{handle_delete_webhook, DeleteWebhookArgs},
         get::{handle_get_webhook, GetWebhookArgs},
         list::{handle_list_webhooks, ListWebhooksArgs},
+        logs::{handle_list_webhook_logs, ListWebhookLogsArgs},
         test::{handle_test_webhook, TestWebhookArgs},
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
@@ -125,6 +126,27 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
             handle_test_webhook(fn_args).await.unwrap_or_else(|err| {
                 eprintln!("{}", err);
             })
+        }
+
+        WebhookSubcommand::Logs(cmd_args) => {
+            let fn_args = ListWebhookLogsArgs {
+                api_key,
+                project: cmd.project,
+                environment: cmd.environment,
+                webhook_id: cmd_args.webhook_id,
+                page: cmd_args.page,
+                per_page: cmd_args.per_page,
+                format: match raw_output {
+                    true => EnvironmentFormat::Json,
+                    false => cmd_args.format.unwrap_or_default(),
+                },
+            };
+
+            handle_list_webhook_logs(fn_args)
+                .await
+                .unwrap_or_else(|err| {
+                    eprintln!("{}", err);
+                })
         }
     }
 }
