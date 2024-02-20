@@ -41,7 +41,7 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
     let msg = "Test webhook event will be sent the webhook URL";
     eprintln!("{}", msg.yellow());
 
-    eprintln!();
+    // eprintln!();
     let i = interaction::confirm_opt("Are you sure?");
 
     if i.is_none() || (i.unwrap() == false) {
