@@ -123,7 +123,7 @@ pub struct TestWebhookError {
     pub error_code: Option<TestWebhookErrorCode>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum TestWebhookErrorCode {
     ECONNABORTED,
     ENOTFOUND,
@@ -149,7 +149,7 @@ impl Display for TestWebhookResponse {
 impl TestWebhookErrorCode {
     pub fn get_message(&self) -> String {
         match self {
-            TestWebhookErrorCode::ECONNABORTED => "Requer timed out".to_string(),
+            TestWebhookErrorCode::ECONNABORTED => "Request timed out".to_string(),
             TestWebhookErrorCode::ENOTFOUND => "Unable to resolve server's DNS".to_string(),
             TestWebhookErrorCode::ECONNREFUSED => "Unable to connect to the server".to_string(),
             TestWebhookErrorCode::ETIMEDOUT => "Request timed out".to_string(),
@@ -202,5 +202,179 @@ impl Display for TestWebhookError {
         }
 
         Ok(())
+    }
+}
+
+// logs
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookLogList {
+    // pub has_more: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<usize>,
+    pub pages: usize,
+
+    pub data: Vec<WebhookLog>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookLog {
+    pub processed_at: String,
+    pub attempt: u8,
+
+    // http status code
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<TestWebhookErrorCode>,
+}
+
+#[derive(Debug, Tabled)]
+pub struct TableWebhookLog {
+    #[tabled(order = 0)]
+    pub status: Status,
+
+    #[tabled(order = 1, rename = "message")]
+    pub response_message: String,
+
+    #[tabled(order = 2, rename = "HTTP status")]
+    pub http_status_code: String,
+
+    #[tabled(order = 3)]
+    pub attempt: u8,
+
+    #[tabled(order = 4, rename = "processed")]
+    pub processed_at: String,
+}
+
+#[derive(Debug, Tabled)]
+pub enum Status {
+    Success,
+    Failure,
+}
+
+impl Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Status::Success => write!(f, "{}", "success"),
+            Status::Failure => write!(f, "{}", "failure"),
+        }
+    }
+}
+
+impl Display for WebhookLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(status) = self.status {
+            if status == 200 || status == 204 {
+                writeln!(f, "Status: {}", "success".green())?;
+                // writeln!(f, "Response message: Wehbook event delivered")?;
+            } else {
+                writeln!(f, "Status: {}", "failure".red())?;
+                // writeln!(f, "Response message: Failed with status code")?;
+            }
+        } else {
+            writeln!(f, "Status: {}", "failure".red())?;
+            // if let Some(error_code) = &self.error {
+            //     writeln!(f, "Response message: {}", error_code.get_message())?;
+            // } else {
+            //     writeln!(f, "Response message: Unknown error")?;
+            // }
+        }
+
+        writeln!(f, "Attempt number: {}", self.attempt)?;
+
+        if let Some(status) = &self.status {
+            writeln!(f, "{} {}", "HTTP status code:", status)?;
+        } else {
+            writeln!(f, "{} {}", "HTTP status code:", "N/A")?;
+        }
+
+        if let Some(status) = self.status {
+            if status == 200 || status == 204 {
+                writeln!(f, "Response message: Wehbook event delivered")?;
+            } else {
+                writeln!(f, "Response message: Failed with status code")?;
+            }
+        } else {
+            if let Some(error_code) = &self.error {
+                writeln!(f, "Response message: {}", error_code.get_message())?;
+            } else {
+                writeln!(f, "Response message: Unknown error")?;
+            }
+        }
+
+        // writeln!(f, "Attempt number: {}", self.attempt)?;
+        let (formatted, relative) = get_human_datetime(&self.processed_at);
+        writeln!(f, "{} {} ({})", "Processed at:", formatted, relative)?;
+
+        Ok(())
+    }
+}
+
+impl Display for WebhookLogList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let list_string = self
+            .data
+            .iter()
+            // reverse
+            .rev()
+            .map(|item| format!("{}", item))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        writeln!(f, "{}", list_string)?;
+
+        let page = self.page.unwrap_or(1);
+
+        if self.pages == 0 {
+            writeln!(f, "No changes")?;
+        } else {
+            writeln!(f, "{} {}/{}", "Pages:", page, self.pages)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl From<WebhookLog> for TableWebhookLog {
+    fn from(log: WebhookLog) -> Self {
+        // Success/Failure, not http status
+        let status = match log.status {
+            Some(status) => match status {
+                200 | 204 => Status::Success,
+                _ => Status::Failure,
+            },
+            None => Status::Failure,
+        };
+
+        let http_status_code = match log.status {
+            Some(status) => status.to_string(),
+            None => "N/A".to_string(),
+        };
+
+        let response_message = if let Some(status) = log.status {
+            if status == 200 || status == 204 {
+                "Wehbook event delivered".to_string()
+            } else {
+                "Failed with status code".to_string()
+            }
+        } else {
+            if let Some(error_code) = &log.error {
+                error_code.get_message()
+            } else {
+                "Unknown error".to_string()
+            }
+        };
+
+        Self {
+            processed_at: log.processed_at,
+            status,
+            attempt: log.attempt,
+            response_message,
+            http_status_code,
+        }
     }
 }

@@ -154,3 +154,49 @@ pub async fn delete(args: DeleteArgs) -> Result<DeleteRequestApiResponse> {
 
     client::delete_request(req_args).await
 }
+
+// Logs
+pub struct ListLogsArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub webhook_id: String,
+    pub page: Option<usize>,
+    // per page
+    pub per_page: Option<u8>,
+}
+
+pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
+    let ListLogsArgs {
+        api_key,
+        project,
+        environment,
+        webhook_id,
+        page,
+        per_page,
+    } = args;
+
+    let path = format!("{}/logs", webhook_id);
+
+    let mut query = vec![];
+
+    if let Some(page) = page {
+        query.push(("page".to_string(), page.to_string()));
+    }
+
+    if let Some(per_page) = per_page {
+        query.push(("per-page".to_string(), per_page.to_string()));
+    }
+
+    let args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project,
+            environment,
+            path: Some(path),
+        },
+        query: if query.is_empty() { None } else { Some(query) },
+        api_key,
+    };
+
+    client::get_request(args).await
+}

@@ -31,6 +31,7 @@ pub enum ProjectInputValidationError {
 pub enum WebhookInputValidationError {
     // update
     NoUpdateFlags,
+    InvalidPerPage,
 }
 
 // TODO: key length (min = 2 ???)
@@ -392,6 +393,10 @@ impl fmt::Display for WebhookInputValidationError {
             WebhookInputValidationError::NoUpdateFlags => {
                 msg = "no update flag specified";
                 hint = Some("use one of: -u (--url), -d (--description)");
+            }
+            WebhookInputValidationError::InvalidPerPage => {
+                msg = "invalid '--per-page' option value";
+                hint = Some("value can be 5, 10, 15 or 20");
             }
         }
 
