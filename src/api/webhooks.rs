@@ -87,6 +87,30 @@ pub async fn create(args: CreateArgs) -> Result<PostPatchRequestApiResponse> {
 }
 
 // update
+pub struct TestArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub webhook_id: String,
+}
+
+pub async fn test(args: TestArgs) -> Result<PostPatchRequestApiResponse> {
+    let path = format!("{}/test", args.webhook_id);
+
+    let req_args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project: args.project,
+            environment: args.environment,
+            path: Some(path),
+        },
+        query: None,
+        api_key: args.api_key,
+    };
+
+    client::post_request::<()>(req_args, None).await
+}
+
+// update
 pub struct UpdateArgs {
     pub api_key: String,
     pub project: String,

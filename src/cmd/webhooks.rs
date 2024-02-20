@@ -38,6 +38,9 @@ pub enum WebhookSubcommand {
     /// Disable webhook
     Disable(UpdateWebhookStatus),
 
+    /// Send test event
+    Test(TestWebhook),
+
     #[clap(aliases = &["d", "del"])]
     Delete(DeleteWebhook),
 }
@@ -90,6 +93,12 @@ pub struct DeleteWebhook {
 
 #[derive(Debug, Args)]
 pub struct UpdateWebhookStatus {
+    /// Id of webhook
+    pub webhook_id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct TestWebhook {
     /// Id of webhook
     pub webhook_id: String,
 }
