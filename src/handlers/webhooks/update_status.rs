@@ -4,7 +4,10 @@ use anyhow::{bail, Result};
 
 use crate::{
     api::webhooks,
-    models::{api_client::PostPatchRequestApiResponse, webhooks::UpdateWebhookPayload},
+    models::{
+        api_client::PostPatchRequestApiResponse,
+        webhooks::{TestWebhookResponse, UpdateWebhookPayload},
+    },
     utils::{interaction, spinner::request_spinner, validation::validate_project_environment},
 };
 
@@ -67,6 +70,15 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     match res {
         PostPatchRequestApiResponse::Ok(res_data) => {
             if let Some(res_text) = res_data.text {
+                let test_response = serde_json::from_str::<TestWebhookResponse>(&res_text);
+
+                match test_response {
+                    Ok(test_res) => match test_res {
+                        TestWebhookResponse::Err(_) => todo!(),
+                        TestWebhookResponse::Ok(_) => {}
+                    },
+                    Err(_) => todo!(),
+                }
             } else {
                 let msg = match enabled {
                     true => "✅ Webhook has been enabled!",
