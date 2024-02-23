@@ -13,7 +13,7 @@ use crate::{
     utils::{
         spinner::request_spinner,
         tables::{self, build::build_table},
-        validation::validate_project_environment,
+        validation::{validate_project_environment, validate_webhook_id},
     },
 };
 
@@ -43,6 +43,12 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
     if let Err(err) = input_valid {
         bail!(err);
+    }
+
+    let webhook_id_valdation = validate_webhook_id(&webhook_id);
+
+    if let Err(e) = webhook_id_valdation {
+        bail!(e)
     }
 
     if let Some(per_page) = per_page {

@@ -8,7 +8,10 @@ use crate::{
         validation::{InputValidationError, WebhookInputValidationError},
         webhooks::UpdateWebhookPayload,
     },
-    utils::{spinner::request_spinner, validation::validate_project_environment},
+    utils::{
+        spinner::request_spinner,
+        validation::{validate_project_environment, validate_webhook_id},
+    },
 };
 
 #[derive(Debug)]
@@ -44,6 +47,12 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
 
     if let Err(e) = validation_res {
         bail!("{}", e);
+    }
+
+    let webhook_id_valdation = validate_webhook_id(&webhook_id);
+
+    if let Err(e) = webhook_id_valdation {
+        bail!(e)
     }
 
     let args = webhooks::UpdateArgs {

@@ -1,16 +1,14 @@
 use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
 use log::debug;
-use short_uuid::ShortUuid;
 
 use crate::{
     api::webhooks,
-    models::{
-        api_client::GetRequestApiResponse,
-        validation::{InputValidationError, WebhookInputValidationError},
-        webhooks::Webhook,
+    models::{api_client::GetRequestApiResponse, webhooks::Webhook},
+    utils::{
+        spinner::request_spinner,
+        validation::{validate_project_environment, validate_webhook_id},
     },
-    utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
 #[derive(Debug)]
@@ -41,12 +39,10 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
 
     debug!("listing env webhooks...");
 
-    let parsed = ShortUuid::parse_str(&webhook_id);
+    let webhook_id_valdation = validate_webhook_id(&webhook_id);
 
-    if let Err(_) = parsed {
-        let input_err = WebhookInputValidationError::InvalidId;
-
-        bail!(InputValidationError::Webhook(input_err));
+    if let Err(e) = webhook_id_valdation {
+        bail!(e)
     }
 
     let args = webhooks::GetArgs {
