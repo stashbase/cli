@@ -1,9 +1,10 @@
 use anyhow::{bail, Result};
 use regex::Regex;
+use short_uuid::ShortUuid;
 
 use crate::models::validation::{
     EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
-    ProjectInputValidationError, SecretsInputValidationError,
+    ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
 };
 
 pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
@@ -199,6 +200,25 @@ pub fn validate_env_changelog_id(value: &str) -> Result<()> {
         if !regex.is_match(value) {
             InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidIdFormat);
         }
+    }
+
+    Ok(())
+}
+
+pub fn validate_webhook_id(value: &str) -> Result<()> {
+    let prefix = "we_";
+
+    if (value.starts_with(prefix)) == false {
+        let input_err = WebhookInputValidationError::InvalidId;
+        bail!(InputValidationError::Webhook(input_err));
+    }
+
+    let parsed = ShortUuid::parse_str(&value.strip_prefix("we_").unwrap());
+
+    if let Err(_) = parsed {
+        let input_err = WebhookInputValidationError::InvalidId;
+
+        bail!(InputValidationError::Webhook(input_err));
     }
 
     Ok(())
