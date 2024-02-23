@@ -32,6 +32,8 @@ pub enum WebhookInputValidationError {
     // update
     NoUpdateFlags,
     InvalidPerPage,
+
+    InvalidId,
 }
 
 // TODO: key length (min = 2 ???)
@@ -397,6 +399,10 @@ impl fmt::Display for WebhookInputValidationError {
             WebhookInputValidationError::InvalidPerPage => {
                 msg = "invalid '--per-page' option value";
                 hint = Some("value can be 5, 10, 15 or 20");
+            }
+            WebhookInputValidationError::InvalidId => {
+                msg = "invalid webhook id value";
+                hint = None;
             }
         }
 
