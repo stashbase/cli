@@ -410,7 +410,7 @@ impl fmt::Display for WebhookInputValidationError {
             writeln!(f, "{}", format!("- message: {}", msg),)?;
             write!(f, "{}", format!("- hint: {}", hint),)?;
         } else {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- message: {}", msg),)?;
         }
 
         Ok(())
