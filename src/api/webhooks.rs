@@ -76,17 +76,23 @@ pub struct CreateArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
+    pub return_secret: bool,
     pub data: CreateWebhookPayload,
 }
 
 pub async fn create(args: CreateArgs) -> Result<PostPatchRequestApiResponse> {
+    let query = match args.return_secret {
+        true => Some(vec![("return-secret".to_string(), "true".to_string())]),
+        false => None,
+    };
+
     let req_args = RequestArgs {
         path: ApiPath::Webhooks {
             project: args.project,
             environment: args.environment,
             path: None,
         },
-        query: None,
+        query,
         api_key: args.api_key,
     };
 
