@@ -41,6 +41,7 @@ pub struct GetArgs {
     pub project: String,
     pub environment: String,
     pub webhook_id: String,
+    pub with_secret: bool,
 }
 
 pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
@@ -49,7 +50,13 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
         project,
         environment,
         webhook_id,
+        with_secret,
     } = args;
+
+    let query = match with_secret {
+        true => Some(vec![("with-secret".to_string(), "true".to_string())]),
+        false => None,
+    };
 
     let args = RequestArgs {
         path: ApiPath::Webhooks {
@@ -57,7 +64,7 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
             environment,
             path: Some(webhook_id),
         },
-        query: None,
+        query,
         api_key,
     };
 
