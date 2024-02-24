@@ -1,15 +1,11 @@
 use anyhow::{bail, Result};
-use log::{debug, error};
+use log::debug;
 use owo_colors::OwoColorize;
 
 use crate::{
     api::webhooks,
     models::{api_client::PostPatchRequestApiResponse, webhooks::TestWebhookResponse},
-    utils::{
-        interaction,
-        spinner::request_spinner,
-        validation::{validate_project_environment, validate_webhook_id},
-    },
+    utils::{interaction, spinner::request_spinner},
 };
 
 #[derive(Debug)]
@@ -29,24 +25,6 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
         environment,
         webhook_id,
     } = args;
-
-    let input_valid = validate_project_environment(&project, &environment, true);
-
-    if let Err(err) = input_valid {
-        bail!(err);
-    }
-
-    let input_valid = validate_project_environment(&project, &environment, true);
-
-    if let Err(e) = input_valid {
-        bail!("{}", e);
-    }
-
-    let webhook_id_valdation = validate_webhook_id(&webhook_id);
-
-    if let Err(e) = webhook_id_valdation {
-        bail!(e)
-    }
 
     let msg = "Test webhook event will be sent the webhook URL";
     eprintln!("{}", msg.yellow());

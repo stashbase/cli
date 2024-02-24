@@ -5,10 +5,7 @@ use log::debug;
 use crate::{
     api::webhooks,
     models::{api_client::GetRequestApiResponse, webhooks::Webhook},
-    utils::{
-        spinner::request_spinner,
-        validation::{validate_project_environment, validate_webhook_id},
-    },
+    utils::spinner::request_spinner,
 };
 
 #[derive(Debug)]
@@ -31,19 +28,7 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
         format_json,
     } = args;
 
-    let input_valid = validate_project_environment(&project, &environment, true);
-
-    if let Err(err) = input_valid {
-        bail!(err);
-    }
-
     debug!("listing env webhooks...");
-
-    let webhook_id_valdation = validate_webhook_id(&webhook_id);
-
-    if let Err(e) = webhook_id_valdation {
-        bail!(e)
-    }
 
     let args = webhooks::GetArgs {
         api_key,
