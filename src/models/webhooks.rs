@@ -41,10 +41,13 @@ pub struct Webhook {
     url: String,
     enabled: bool,
 
+    created_at: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<String>,
 
-    created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    signing_secret: Option<String>,
     // created_by: string
 }
 
@@ -58,6 +61,11 @@ impl Display for Webhook {
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
         writeln!(f, "{} {} ({})", "Created at:", formatted, relative)?;
+
+        // optional secret
+        if let Some(signing_secret) = &self.signing_secret {
+            writeln!(f, "{} {}", "Signing secret:", signing_secret)?;
+        }
 
         writeln!(f, "{} {}", "URL:", self.url)?;
 
@@ -163,7 +171,7 @@ impl TestWebhookErrorCode {
 
 impl Display for TestWebhookOk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Webhook URL: {}", self.url)?;
+        // writeln!(f, "Webhook URL: {}", self.url)?;
 
         if self.status == 200 || self.status == 204 {
             writeln!(f, "Status: {}", "success".green())?;
@@ -179,13 +187,15 @@ impl Display for TestWebhookOk {
             writeln!(f, "Response message: Failed with status code")?;
         }
 
+        writeln!(f, "Webhook URL: {}", self.url)?;
+
         Ok(())
     }
 }
 
 impl Display for TestWebhookError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Webhook URL: {}", self.url)?;
+        // writeln!(f, "Webhook URL: {}", self.url)?;
         writeln!(f, "Status: {}", "failure".red())?;
 
         if let Some(status) = &self.status {
@@ -200,6 +210,8 @@ impl Display for TestWebhookError {
                 writeln!(f, "Response message: Unknown error")?;
             }
         }
+
+        writeln!(f, "Webhook URL: {}", self.url)?;
 
         Ok(())
     }
