@@ -67,6 +67,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 project: cmd.project,
                 environment: cmd.environment,
                 webhook_id: args.webhook_id,
+                with_secret: args.with_secret,
                 format_json: raw_output,
             };
 

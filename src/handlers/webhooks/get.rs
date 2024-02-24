@@ -14,28 +14,28 @@ pub struct GetWebhookArgs {
     pub project: String,
     pub environment: String,
     pub webhook_id: String,
+    pub with_secret: bool,
     pub format_json: bool,
+}
+
+impl From<GetWebhookArgs> for webhooks::GetArgs {
+    fn from(args: GetWebhookArgs) -> webhooks::GetArgs {
+        webhooks::GetArgs {
+            api_key: args.api_key,
+            project: args.project,
+            environment: args.environment,
+            webhook_id: args.webhook_id,
+            with_secret: args.with_secret,
+        }
+    }
 }
 
 pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
     debug!("{:#?}", &args);
-
-    let GetWebhookArgs {
-        api_key,
-        project,
-        environment,
-        webhook_id,
-        format_json,
-    } = args;
-
     debug!("listing env webhooks...");
 
-    let args = webhooks::GetArgs {
-        api_key,
-        project,
-        environment,
-        webhook_id,
-    };
+    let format_json = args.format_json;
+    let args: webhooks::GetArgs = args.into();
 
     let mut spinner = request_spinner();
 
@@ -61,7 +61,6 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                     spinner.stop_and_persist("", "");
 
                     if format_json == true {
-                        spinner.stop_and_persist("", "");
                         let value = serde_json::to_value(&webhook).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
 
