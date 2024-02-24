@@ -207,3 +207,24 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
 
     client::get_request(args).await
 }
+
+pub async fn get_dashboard_url(
+    api_key: String,
+    project: String,
+    environment: String,
+    webhook_id: &str,
+) -> Result<GetRequestApiResponse> {
+    let subpath = format!("{}/dashboard-url", webhook_id);
+
+    let args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project,
+            environment,
+            path: Some(subpath),
+        },
+        query: None,
+        api_key,
+    };
+
+    client::get_request(args).await
+}
