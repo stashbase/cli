@@ -7,13 +7,14 @@ use crate::{
         api_client::PostPatchRequestApiResponse,
         webhooks::{CreateWebhookPayload, CreateWebhookResponse},
     },
-    utils::{spinner::request_spinner, validation::validate_project_environment},
+    utils::spinner::request_spinner,
 };
 
 pub struct CreateWebhookArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
+    pub return_secret: bool,
     // payload
     pub url: String,
     pub description: Option<String>,
@@ -26,12 +27,14 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
         environment,
         url,
         description,
+        return_secret,
     } = args;
 
     let args = webhooks::CreateArgs {
         api_key,
         project,
         environment,
+        return_secret,
         data: CreateWebhookPayload { url, description },
     };
 
@@ -58,7 +61,11 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                     match webhook {
                         Ok(webhook) => {
                             spinner.stop_with_message("🔥 Webhook created and enabled!");
-                            println!("{} {}", "Id:", webhook.id);
+                            println!("\n{} {}", "Id:", webhook.id);
+
+                            if let Some(signing_secret) = webhook.signing_secret {
+                                println!("{} {}", "Signing secret:", signing_secret);
+                            }
                         }
                         Err(e) => {
                             spinner.stop_and_persist("", "");

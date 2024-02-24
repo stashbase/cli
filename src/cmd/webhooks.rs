@@ -96,6 +96,10 @@ pub struct CreateWebhook {
     /// Description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
+
+    /// Return signing secret
+    #[arg(value_enum, long = "return-secret")]
+    pub return_secret: bool,
 }
 
 #[derive(Debug, Args)]

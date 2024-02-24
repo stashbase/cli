@@ -86,8 +86,12 @@ pub struct CreateWebhookPayload {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateWebhookResponse {
     pub id: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signing_secret: Option<String>,
 }
 
 // update
