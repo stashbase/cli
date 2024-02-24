@@ -33,16 +33,19 @@ pub enum WebhookSubcommand {
     Update(UpdateWebhook),
 
     /// Enable webhook
-    Enable(UpdateWebhookStatus),
+    Enable(SingleWebhook),
 
     /// Disable webhook
-    Disable(UpdateWebhookStatus),
+    Disable(SingleWebhook),
 
     /// Send test event
-    Test(TestWebhook),
+    Test(SingleWebhook),
+
+    /// Rotate signing secret
+    RotateSecret(SingleWebhook),
 
     #[clap(aliases = &["d", "del"])]
-    Delete(DeleteWebhook),
+    Delete(SingleWebhook),
 
     Logs(WebhookLogs),
 
@@ -125,24 +128,6 @@ pub struct UpdateWebhook {
 }
 
 #[derive(Debug, Args)]
-pub struct DeleteWebhook {
-    /// Id of webhook
-    pub webhook_id: String,
-}
-
-#[derive(Debug, Args)]
-pub struct UpdateWebhookStatus {
-    /// Id of webhook
-    pub webhook_id: String,
-}
-
-#[derive(Debug, Args)]
-pub struct TestWebhook {
-    /// Id of webhook
-    pub webhook_id: String,
-}
-
-#[derive(Debug, Args)]
 pub struct WebhookLogs {
     /// Id of webhook
     pub webhook_id: String,
@@ -164,4 +149,10 @@ pub struct WebhookLogs {
 pub struct OpenWebhooks {
     /// Id of webhook
     pub webhook_id: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct SingleWebhook {
+    /// Id of webhook
+    pub webhook_id: String,
 }

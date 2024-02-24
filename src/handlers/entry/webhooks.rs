@@ -12,6 +12,7 @@ use crate::{
         list::{handle_list_webhooks, ListWebhooksArgs},
         logs::{handle_list_webhook_logs, ListWebhookLogsArgs},
         open::handle_open_environment_webhook,
+        rotate_secret::{handle_rotate_webhook_secret, RotateWebhookSecretArgs},
         test::{handle_test_webhook, TestWebhookArgs},
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
@@ -198,6 +199,20 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
             .unwrap_or_else(|err| {
                 eprintln!("{}", err);
             });
+        }
+        WebhookSubcommand::RotateSecret(cmd_args) => {
+            let fn_args = RotateWebhookSecretArgs {
+                api_key,
+                project: cmd.project,
+                environment: cmd.environment,
+                webhook_id: cmd_args.webhook_id,
+            };
+
+            handle_rotate_webhook_secret(fn_args)
+                .await
+                .unwrap_or_else(|err| {
+                    eprintln!("{}", err);
+                })
         }
     }
 }

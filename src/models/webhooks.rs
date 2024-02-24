@@ -94,6 +94,12 @@ pub struct CreateWebhookResponse {
     pub signing_secret: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotateWebhookSecretResponse {
+    pub signing_secret: String,
+}
+
 // update
 #[derive(Debug, Serialize)]
 pub struct UpdateWebhookPayload {
