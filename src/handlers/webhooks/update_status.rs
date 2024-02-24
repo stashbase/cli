@@ -33,7 +33,6 @@ impl From<UpdateWebhookStatusArgs> for webhooks::UpdateStatusArgs {
     }
 }
 
-// TODO: return already enabled/disabled
 pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Result<()> {
     let i = interaction::confirm_opt("Are you sure?");
 
@@ -57,29 +56,16 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     // safe
     let res = res.unwrap();
 
-    // TODO: return already enabled/disabled
     match res {
-        PostPatchRequestApiResponse::Ok(res_data) => {
-            if let Some(res_text) = res_data.text {
-                let test_response = serde_json::from_str::<TestWebhookResponse>(&res_text);
+        PostPatchRequestApiResponse::Ok(_) => {
+            let msg = match enabled {
+                true => "✅ Webhook has been enabled!",
+                // false => "❌ Webhook has been disabled!",
+                false => "✅ Webhook has been disabled!",
+            };
 
-                match test_response {
-                    Ok(test_res) => match test_res {
-                        TestWebhookResponse::Err(_) => todo!(),
-                        TestWebhookResponse::Ok(_) => {}
-                    },
-                    Err(_) => todo!(),
-                }
-            } else {
-                let msg = match enabled {
-                    true => "✅ Webhook has been enabled!",
-                    // false => "❌ Webhook has been disabled!",
-                    false => "✅ Webhook has been disabled!",
-                };
-
-                // println!("Project has been deleted");
-                spinner.stop_with_message(msg);
-            }
+            // println!("Project has been deleted");
+            spinner.stop_with_message(msg);
         }
         PostPatchRequestApiResponse::Err(e) => {
             // eprintln!("{}", e);
