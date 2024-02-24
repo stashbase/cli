@@ -6,7 +6,7 @@ use crate::{
     api::webhooks,
     cmd::environments::EnvironmentFormat,
     models::{api_client::GetRequestApiResponse, webhooks::ListWebhook},
-    utils::{spinner::request_spinner, tables, validation::validate_project_environment},
+    utils::{spinner::request_spinner, tables},
 };
 
 #[derive(Debug)]
@@ -27,12 +27,6 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
         environment,
         format,
     } = args;
-
-    let input_valid = validate_project_environment(&project, &environment, true);
-
-    if let Err(err) = input_valid {
-        bail!(err);
-    }
 
     debug!("listing env webhooks...");
 

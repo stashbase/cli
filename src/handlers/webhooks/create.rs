@@ -28,12 +28,6 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
         description,
     } = args;
 
-    let input_valid = validate_project_environment(&project, &environment, true);
-
-    if let Err(err) = input_valid {
-        bail!(err);
-    }
-
     let args = webhooks::CreateArgs {
         api_key,
         project,

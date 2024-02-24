@@ -8,11 +8,7 @@ use crate::{
         api_client::PostPatchRequestApiResponse,
         webhooks::{TestWebhookResponse, UpdateWebhookPayload},
     },
-    utils::{
-        interaction,
-        spinner::request_spinner,
-        validation::{validate_project_environment, validate_webhook_id},
-    },
+    utils::{interaction, spinner::request_spinner},
 };
 
 pub struct UpdateWebhookStatusArgs {
@@ -32,18 +28,6 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
         webhook_id,
         enabled,
     } = args;
-
-    let projec_env_valid = validate_project_environment(&project, &environment, true);
-
-    if let Err(e) = projec_env_valid {
-        bail!("{}", e);
-    }
-
-    let webhook_id_valdation = validate_webhook_id(&webhook_id);
-
-    if let Err(e) = webhook_id_valdation {
-        bail!(e)
-    }
 
     let i = interaction::confirm_opt("Are you sure?");
 

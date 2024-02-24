@@ -8,12 +8,11 @@ use crate::{
     models::{
         api_client::GetRequestApiResponse,
         validation::{InputValidationError, WebhookInputValidationError},
-        webhooks::{TableWebhookLog, WebhookLog, WebhookLogList},
+        webhooks::{TableWebhookLog, WebhookLogList},
     },
     utils::{
         spinner::request_spinner,
-        tables::{self, build::build_table},
-        validation::{validate_project_environment, validate_webhook_id},
+        tables::{self},
     },
 };
 
@@ -38,18 +37,6 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
         format,
         per_page,
     } = args;
-
-    let input_valid = validate_project_environment(&project, &environment, true);
-
-    if let Err(err) = input_valid {
-        bail!(err);
-    }
-
-    let webhook_id_valdation = validate_webhook_id(&webhook_id);
-
-    if let Err(e) = webhook_id_valdation {
-        bail!(e)
-    }
 
     if let Some(per_page) = per_page {
         let is_valid = per_page == 5 || per_page == 10 || per_page == 15 || per_page == 20;
