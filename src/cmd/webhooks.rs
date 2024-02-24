@@ -75,6 +75,10 @@ pub struct ListWebhooks {
 pub struct GetWebhook {
     /// Id of webhook
     pub webhook_id: String,
+
+    /// With signing secret
+    #[arg(value_enum, long = "secret")]
+    pub with_secret: bool,
 }
 
 #[derive(Debug, Args)]
