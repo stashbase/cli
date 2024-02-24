@@ -223,3 +223,14 @@ pub fn validate_webhook_id(value: &str) -> Result<()> {
 
     Ok(())
 }
+
+pub fn validate_webhook_url(url: &str) -> Result<()> {
+    let https_url_regex = Regex::new(r"^(https://[-\w]+(\.\w[-\w]*)+)([/?].*)?$").unwrap();
+
+    if !https_url_regex.is_match(url) {
+        let input_err = WebhookInputValidationError::InvalidUrl;
+        bail!(InputValidationError::Webhook(input_err));
+    }
+
+    Ok(())
+}

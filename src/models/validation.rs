@@ -33,6 +33,7 @@ pub enum WebhookInputValidationError {
     NoUpdateFlags,
     InvalidPerPage,
 
+    InvalidUrl,
     InvalidId,
 }
 
@@ -403,6 +404,10 @@ impl fmt::Display for WebhookInputValidationError {
             WebhookInputValidationError::InvalidId => {
                 msg = "invalid webhook id value";
                 hint = None;
+            }
+            WebhookInputValidationError::InvalidUrl => {
+                msg = "invalid webhook url";
+                hint = Some("must be valid url using https protocol");
             }
         }
 
