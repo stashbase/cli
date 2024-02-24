@@ -66,6 +66,14 @@ impl WebhookSubcommand {
             _ => None,
         }
     }
+
+    pub fn get_webhook_url(&self) -> Option<&str> {
+        match self {
+            WebhookSubcommand::Create(cmd) => Some(&cmd.url),
+            WebhookSubcommand::Update(cmd) => cmd.url.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 // TODO: sort

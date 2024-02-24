@@ -16,7 +16,7 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
-    utils::validation::{validate_project_environment, validate_webhook_id},
+    utils::validation::{validate_project_environment, validate_webhook_id, validate_webhook_url},
 };
 
 fn validate_input(cmd: &WebhookCommand) -> anyhow::Result<()> {
@@ -31,6 +31,13 @@ fn validate_input(cmd: &WebhookCommand) -> anyhow::Result<()> {
     if let Some(ref webhook_id) = cmd.subcommand.get_webhook_id() {
         let valid_webhook_id = validate_webhook_id(webhook_id);
         if let Err(err) = valid_webhook_id {
+            bail!(err);
+        }
+    }
+
+    if let Some(ref webhook_id) = cmd.subcommand.get_webhook_url() {
+        let valid_webhook_url = validate_webhook_url(webhook_id);
+        if let Err(err) = valid_webhook_url {
             bail!(err);
         }
     }
