@@ -222,6 +222,8 @@ pub enum EnvChangelogError {
 #[serde(rename_all = "snake_case")]
 pub enum WebhookError {
     WebhookNotFound,
+    WebhookAlreadyEnabled,
+    WebhookAlreadyDisabled,
 }
 
 #[derive(Debug)]
@@ -332,6 +334,14 @@ impl From<ApiError> for CustomError {
             ApiErrorEntity::Webhook(e) => match e {
                 WebhookError::WebhookNotFound => CustomError {
                     message: format!("webhook not found"),
+                    hint: None,
+                },
+                WebhookError::WebhookAlreadyEnabled => CustomError {
+                    message: format!("webhook already enabled"),
+                    hint: None,
+                },
+                WebhookError::WebhookAlreadyDisabled => CustomError {
+                    message: format!("webhook already disabled"),
                     hint: None,
                 },
             },
