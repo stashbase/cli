@@ -47,6 +47,20 @@ pub enum WebhookSubcommand {
     Logs(WebhookLogs),
 }
 
+impl WebhookSubcommand {
+    pub fn get_webhook_id(&self) -> Option<&str> {
+        match self {
+            WebhookSubcommand::Get(cmd) => Some(&cmd.webhook_id),
+            WebhookSubcommand::Delete(cmd) => Some(&cmd.webhook_id),
+            WebhookSubcommand::Logs(cmd) => Some(&cmd.webhook_id),
+            WebhookSubcommand::Test(cmd) => Some(&cmd.webhook_id),
+            WebhookSubcommand::Update(cmd) => Some(&cmd.webhook_id),
+            WebhookSubcommand::Enable(cmd) => Some(&cmd.webhook_id),
+            _ => None,
+        }
+    }
+}
+
 // TODO: sort
 #[derive(Debug, Args)]
 pub struct ListWebhooks {
