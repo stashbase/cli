@@ -34,7 +34,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
         description,
     } = args;
 
-    let validation_res = validate_input(&"", &url, &description);
+    let validation_res = validate_input(&url, &description);
 
     if let Err(e) = validation_res {
         bail!("{}", e);
@@ -75,11 +75,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_input(
-    name: &str,
-    new_name: &Option<String>,
-    new_description: &Option<String>,
-) -> Result<()> {
+pub fn validate_input(new_name: &Option<String>, new_description: &Option<String>) -> Result<()> {
     if new_name.is_none() && new_description.is_none() {
         let err = InputValidationError::Webhook(WebhookInputValidationError::NoUpdateFlags);
         bail!(err)
