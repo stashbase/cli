@@ -170,6 +170,30 @@ pub async fn update_status(args: UpdateStatusArgs) -> Result<PostPatchRequestApi
     client::patch_request(req_args, Some(&args.data)).await
 }
 
+// update
+pub struct RotateArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub webhook_id: String,
+}
+
+pub async fn rotate_secret(args: RotateArgs) -> Result<PostPatchRequestApiResponse> {
+    let path = format!("{}/secret", args.webhook_id);
+
+    let req_args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project: args.project,
+            environment: args.environment,
+            path: Some(path),
+        },
+        query: None,
+        api_key: args.api_key,
+    };
+
+    client::post_request::<()>(req_args, None).await
+}
+
 // delete
 pub struct DeleteArgs {
     pub api_key: String,
