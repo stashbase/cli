@@ -1,3 +1,5 @@
+use anyhow::bail;
+
 use crate::{
     cmd::{
         environments::EnvironmentFormat,
@@ -13,9 +15,36 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
+    utils::validation::{validate_project_environment, validate_webhook_id},
 };
 
+fn validate_input(cmd: &WebhookCommand) -> anyhow::Result<()> {
+    // validate project and environment
+    let input_valid = validate_project_environment(&cmd.project, &cmd.environment, true);
+
+    if let Err(err) = input_valid {
+        bail!(err);
+    }
+
+    // validate webhook id
+    if let Some(ref webhook_id) = cmd.subcommand.get_webhook_id() {
+        let valid_webhook_id = validate_webhook_id(webhook_id);
+        if let Err(err) = valid_webhook_id {
+            bail!(err);
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_output: bool) {
+    let input_valid = validate_input(&cmd);
+
+    if let Err(err) = input_valid {
+        eprintln!("{}", err);
+        return;
+    }
+
     match cmd.subcommand {
         WebhookSubcommand::List(args) => {
             let args = ListWebhooksArgs {
