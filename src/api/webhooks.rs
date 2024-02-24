@@ -5,7 +5,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
         RequestArgs,
     },
-    webhooks::{CreateWebhookPayload, UpdateWebhookPayload},
+    webhooks::{CreateWebhookPayload, UpdateWebhookPayload, UpdateWebhookStatusPayload},
 };
 
 use super::client;
@@ -132,6 +132,30 @@ pub async fn update(args: UpdateArgs) -> Result<PostPatchRequestApiResponse> {
             project: args.project,
             environment: args.environment,
             path: Some(args.webhook_id),
+        },
+        query: None,
+        api_key: args.api_key,
+    };
+
+    client::patch_request(req_args, Some(&args.data)).await
+}
+
+pub struct UpdateStatusArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub webhook_id: String,
+    pub data: UpdateWebhookStatusPayload,
+}
+
+pub async fn update_status(args: UpdateStatusArgs) -> Result<PostPatchRequestApiResponse> {
+    let path = format!("{}/status", args.webhook_id);
+
+    let req_args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project: args.project,
+            environment: args.environment,
+            path: Some(path),
         },
         query: None,
         api_key: args.api_key,
