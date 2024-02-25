@@ -234,3 +234,12 @@ pub fn validate_webhook_url(url: &str) -> Result<()> {
 
     Ok(())
 }
+
+pub fn validate_webhook_description(description: &str) -> Result<()> {
+    if description.len() > 200 {
+        let input_err = WebhookInputValidationError::DescriptionTooLong;
+        bail!(InputValidationError::Webhook(input_err));
+    }
+
+    Ok(())
+}

@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
@@ -17,10 +17,13 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
-    utils::validation::{validate_project_environment, validate_webhook_id, validate_webhook_url},
+    utils::validation::{
+        validate_project_environment, validate_webhook_description, validate_webhook_id,
+        validate_webhook_url,
+    },
 };
 
-fn validate_input(cmd: &WebhookCommand) -> anyhow::Result<()> {
+fn validate_input(cmd: &WebhookCommand) -> Result<()> {
     // validate project and environment
     let input_valid = validate_project_environment(&cmd.project, &cmd.environment, true);
 
@@ -39,6 +42,14 @@ fn validate_input(cmd: &WebhookCommand) -> anyhow::Result<()> {
     if let Some(ref webhook_id) = cmd.subcommand.get_webhook_url() {
         let valid_webhook_url = validate_webhook_url(webhook_id);
         if let Err(err) = valid_webhook_url {
+            bail!(err);
+        }
+    }
+
+    if let Some(ref description) = cmd.subcommand.get_description() {
+        let valid_description = validate_webhook_description(description);
+
+        if let Err(err) = valid_description {
             bail!(err);
         }
     }
