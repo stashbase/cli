@@ -32,9 +32,9 @@ pub enum WebhookInputValidationError {
     // update
     NoUpdateFlags,
     InvalidPerPage,
-
-    InvalidUrl,
     InvalidId,
+    InvalidUrl,
+    DescriptionTooLong,
 }
 
 // TODO: key length (min = 2 ???)
@@ -408,6 +408,10 @@ impl fmt::Display for WebhookInputValidationError {
             WebhookInputValidationError::InvalidUrl => {
                 msg = "invalid webhook url";
                 hint = Some("must be valid url using https protocol");
+            }
+            WebhookInputValidationError::DescriptionTooLong => {
+                msg = "description is too long";
+                hint = Some("maximum is 200 characters");
             }
         }
 

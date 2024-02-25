@@ -77,6 +77,14 @@ impl WebhookSubcommand {
             _ => None,
         }
     }
+
+    pub fn get_description(&self) -> Option<&str> {
+        match self {
+            WebhookSubcommand::Create(cmd) => cmd.description.as_deref(),
+            WebhookSubcommand::Update(cmd) => cmd.description.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 // TODO: sort
