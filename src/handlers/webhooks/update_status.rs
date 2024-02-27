@@ -4,10 +4,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     api::webhooks,
-    models::{
-        api_client::{ApiError, CustomError, PostPatchRequestApiResponse},
-        webhooks::{TestWebhookResponse, UpdateWebhookStatusPayload},
-    },
+    models::{api_client::PostPatchRequestApiResponse, webhooks::UpdateWebhookStatusPayload},
     utils::{interaction, spinner::request_spinner},
 };
 
