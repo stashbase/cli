@@ -115,6 +115,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 url: cmd_args.url,
                 description: cmd_args.description,
                 return_secret: cmd_args.return_secret,
+                enable: cmd_args.enable,
             };
 
             handle_create_webhook(fn_args).await.unwrap_or_else(|err| {
