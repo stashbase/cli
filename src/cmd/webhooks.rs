@@ -44,9 +44,11 @@ pub enum WebhookSubcommand {
     /// Rotate signing secret
     RotateSecret(SingleWebhook),
 
+    /// Delete webhook
     #[clap(aliases = &["d", "del"])]
     Delete(SingleWebhook),
 
+    /// List webhook logs
     Logs(WebhookLogs),
 
     /// Open environment webhook in browser
