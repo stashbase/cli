@@ -103,8 +103,6 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
                         println!("{} {}/{}", "Pages:", page.unwrap_or(1), webhook_logs.pages);
 
-                        // TODO: pages
-                        //
                     }
                 },
                 Err(e) => {
