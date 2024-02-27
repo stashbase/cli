@@ -15,6 +15,7 @@ pub struct CreateWebhookArgs {
     pub project: String,
     pub environment: String,
     pub return_secret: bool,
+    pub enable: bool,
     // payload
     pub url: String,
     pub description: Option<String>,
@@ -28,6 +29,7 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
         url,
         description,
         return_secret,
+        enable,
     } = args;
 
     let args = webhooks::CreateArgs {
@@ -35,7 +37,11 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
         project,
         environment,
         return_secret,
-        data: CreateWebhookPayload { url, description },
+        data: CreateWebhookPayload {
+            url,
+            description,
+            enabled: enable,
+        },
     };
 
     let mut spinner = request_spinner();
@@ -60,7 +66,12 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
 
                     match webhook {
                         Ok(webhook) => {
-                            spinner.stop_with_message("🔥 Webhook created and enabled!");
+                            let msg = match enable {
+                                true => "🔥 Webhook created and enabled!",
+                                false => "🔥 Webhook created!",
+                            };
+
+                            spinner.stop_with_message(msg);
                             println!("\n{} {}", "Id:", webhook.id);
 
                             if let Some(signing_secret) = webhook.signing_secret {

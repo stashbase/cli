@@ -83,6 +83,9 @@ pub struct CreateWebhookPayload {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    // whether or not webhook should be enabled
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
