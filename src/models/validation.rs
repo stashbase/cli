@@ -66,8 +66,9 @@ pub enum EnvironmentsInputValidationError {
 
 #[derive(Debug)]
 pub enum EnvChangelogInputValidationError {
-    InvalidIdFormat,
-    InvalidIdLength,
+    // InvalidIdFormat,
+    // InvalidIdLength,
+    InvalidId,
 }
 
 #[derive(Debug)]
@@ -262,13 +263,17 @@ impl fmt::Display for EnvChangelogInputValidationError {
         let hint: Option<&str>;
 
         match self {
-            EnvChangelogInputValidationError::InvalidIdFormat => {
-                msg = "invalid id";
+            //     EnvChangelogInputValidationError::InvalidIdFormat => {
+            //         msg = "invalid id";
+            //         hint = Some("is must be alphanumeric");
+            //     }
+            //     EnvChangelogInputValidationError::InvalidIdLength => {
+            //         msg = "invalid id";
+            //         hint = Some("id must be 22 characters long");
+            //     }
+            EnvChangelogInputValidationError::InvalidId => {
+                msg = "invalid changelog id";
                 hint = Some("is must be alphanumeric");
-            }
-            EnvChangelogInputValidationError::InvalidIdLength => {
-                msg = "invalid id";
-                hint = Some("id must be 22 characters long");
             }
         }
 
