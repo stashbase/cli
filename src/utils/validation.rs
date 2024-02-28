@@ -189,18 +189,32 @@ pub fn validate_secret_search(value: &str) -> Result<()> {
 }
 
 pub fn validate_env_changelog_id(value: &str) -> Result<()> {
-    let regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+    let prefix = "ch_";
 
-    if value.len() != 22 {
-        let err =
-            InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidIdLength);
-
-        bail!(err)
-    } else {
-        if !regex.is_match(value) {
-            InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidIdFormat);
-        }
+    if (value.starts_with(prefix)) == false {
+        let input_err = EnvChangelogInputValidationError::InvalidId;
+        bail!(InputValidationError::EnvChangelog(input_err));
     }
+
+    let parsed = ShortUuid::parse_str(&value.strip_prefix(prefix).unwrap());
+
+    if let Err(_) = parsed {
+        let input_err = EnvChangelogInputValidationError::InvalidId;
+        bail!(InputValidationError::EnvChangelog(input_err));
+    }
+
+    // let regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+    //
+    // if value.len() != 22 {
+    //     let err =
+    //         InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidIdLength);
+    //
+    //     bail!(err)
+    // } else {
+    //     if !regex.is_match(value) {
+    //         InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidIdFormat);
+    //     }
+    // }
 
     Ok(())
 }
@@ -213,7 +227,7 @@ pub fn validate_webhook_id(value: &str) -> Result<()> {
         bail!(InputValidationError::Webhook(input_err));
     }
 
-    let parsed = ShortUuid::parse_str(&value.strip_prefix("we_").unwrap());
+    let parsed = ShortUuid::parse_str(&value.strip_prefix(prefix).unwrap());
 
     if let Err(_) = parsed {
         let input_err = WebhookInputValidationError::InvalidId;
