@@ -58,9 +58,11 @@ pub enum EnvironmentSubcommand {
     #[clap(alias = "u")]
     Update(UpdateEnvironment),
 
-    /// Update environment
-    #[clap(alias = "d")]
+    /// Duplicate environment
+    // #[clap(alias = "d")]
     Duplicate(DuplicateEnvironment),
+
+    Compare(CompareEnvironment),
 
     /// Lock project
     Lock(GetEnvironment),
@@ -182,6 +184,19 @@ pub struct DuplicateEnvironment {
     pub name: String,
     /// New name
     pub new_name: String,
+}
+
+#[derive(Debug, Args)]
+pub struct CompareEnvironment {
+    /// Environment name
+    pub name_1: String,
+
+    /// Environment name to compare with
+    pub name_2: String,
+
+    /// Return only keys without values
+    #[arg(value_enum, long = "only-keys")]
+    pub only_keys: bool,
 }
 
 #[derive(Debug, Args)]
