@@ -222,3 +222,50 @@ impl LoadEnvironmentPayload {
         Self { only, exclude }
     }
 }
+
+// NOTE: compare
+#[derive(Debug, Serialize)]
+pub struct CompareEnvironmentsPayload {
+    pub name: String,
+}
+
+pub type CompareEnvironmentsResponse = Vec<CompareEnvironmentsItem>;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CompareEnvironmentsItem {
+    pub key: String,
+    //
+    pub values: Vec<Option<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct CompareEnvironmentsTableItem {
+    #[tabled(rename = "Secret key", order = 0)]
+    pub key: String,
+
+    #[tabled(order = 1)]
+    pub value_1: String,
+
+    #[tabled(order = 2)]
+    pub value_2: String,
+}
+
+impl From<CompareEnvironmentsItem> for CompareEnvironmentsTableItem {
+    fn from(item: CompareEnvironmentsItem) -> Self {
+        Self {
+            key: item.key,
+            value_1: item
+                .values
+                .get(0)
+                .cloned()
+                .unwrap()
+                .unwrap_or_else(|| "".to_string()),
+            value_2: item
+                .values
+                .get(1)
+                .cloned()
+                .unwrap()
+                .unwrap_or_else(|| "".to_string()),
+        }
+    }
+}

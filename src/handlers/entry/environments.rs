@@ -9,6 +9,7 @@ use crate::{
             revert::{handle_revert_changelog_change, HandleRevertEnvChangelogChange},
         },
         environments::{
+            compare::{handle_compare_environments, HandleCompareEnvironmentsArgs},
             create::{handle_create_environment, HandleCreateEnvironmentArgs},
             delete::handle_delete_environment,
             duplicate::handle_duplicate_environment,
@@ -133,6 +134,23 @@ pub async fn handle_environment_commands(
                 .unwrap_or_else(|err| {
                     eprintln!("{:?}", err);
                 })
+        }
+
+        EnvironmentSubcommand::Compare(args) => {
+            let handler_args = HandleCompareEnvironmentsArgs {
+                api_key,
+                project: cmd.project,
+                environment_1: args.name_1,
+                environment_2: args.name_2,
+                only_keys: args.only_keys,
+                json_format: raw_output,
+            };
+
+            handle_compare_environments(handler_args)
+                .await
+                .unwrap_or_else(|err| {
+                    eprintln!("{:?}", err);
+                });
         }
         EnvironmentSubcommand::Changelog(changelog_args) => match changelog_args.subcommand {
             EnvChangelogSubcommand::List(args) => {
