@@ -182,6 +182,7 @@ pub enum ApiErrorEntity {
 pub enum EnvironmentError {
     ProjectNotFound,
     EnvironmentNotFound,
+    CompareToEnvironmentNotFound,
     EnvironmentAlreadyExists,
     EnvironmentAlreadyLocked,
     EnvironmentAlreadyUnlocked,
@@ -274,6 +275,11 @@ impl From<ApiError> for CustomError {
                 },
                 EnvironmentError::EnvironmentNotFound => CustomError {
                     message: format!("environment not found"),
+                    hint: None,
+                },
+
+                EnvironmentError::CompareToEnvironmentNotFound => CustomError {
+                    message: format!("environment not found (second environment)"),
                     hint: None,
                 },
                 EnvironmentError::EnvironmentAlreadyExists => CustomError {
