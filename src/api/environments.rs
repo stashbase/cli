@@ -9,8 +9,8 @@ use crate::{
             RequestArgs,
         },
         environments::{
-            CreatEnvironmentPayload, DuplicateEnvironmentPayload, LoadEnvironmentPayload,
-            UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
+            CompareEnvironmentsPayload, CreatEnvironmentPayload, DuplicateEnvironmentPayload,
+            LoadEnvironmentPayload, UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
         },
     },
 };
@@ -269,4 +269,42 @@ pub async fn delete(
     };
 
     client::delete_request(args).await
+}
+
+pub struct CompareEnvironmentsRequestArgs<'a> {
+    pub api_key: String,
+    pub project: String,
+    pub environment_1: &'a str,
+    pub environment_2: &'a str,
+    pub only_keys: &'a bool,
+}
+
+pub async fn compare<'a>(
+    args: CompareEnvironmentsRequestArgs<'a>,
+) -> Result<GetRequestApiResponse> {
+    let CompareEnvironmentsRequestArgs {
+        api_key,
+        project,
+        environment_1,
+        environment_2,
+        only_keys,
+    } = args;
+
+    let path = format!("{}/compare/{}", environment_1, environment_2);
+
+    let query = match only_keys {
+        true => Some(vec![(format!("only_keys"), format!("true"))]),
+        false => None,
+    };
+
+    let args = RequestArgs {
+        api_key,
+        query,
+        path: ApiPath::Environments {
+            project,
+            path: Some(path),
+        },
+    };
+
+    client::get_request(args).await
 }
