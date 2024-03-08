@@ -29,7 +29,10 @@ pub async fn handle_cli(args: Cli) {
         }
 
         // TODO: check api_key for api commands
-        let api_key = config.api_key.unwrap();
+        let api_key = match args.api_key {
+            Some(api_key) => api_key,
+            None => config.api_key.unwrap(),
+        };
 
         let raw_output = args.raw;
 
