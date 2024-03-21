@@ -100,6 +100,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                     } else {
                         if envs.is_empty() {
                             spinner.stop_with_message("No environments found");
+                            return Ok(());
                         } else {
                             spinner.stop_and_persist("", "");
                         }
