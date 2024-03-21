@@ -212,11 +212,11 @@ impl fmt::Display for EnvironmentsInputValidationError {
                 if *is_root {
                     msg = "argument name is invalid";
                     hint = Some(
-                        "name can contain only alphanumeric characters, hyphens or underscores",
+                        "name can contain only alphanumeric characters, underscores or hyphen separator (no spaces)",
                     );
                 } else {
                     msg = "argument environment is invalid";
-                    hint = Some("environment name can contain only alphanumeric characters, hyphens or underscores");
+                    hint = Some("environment name can contain only alphanumeric characters, underscores or hyphen separator");
                 }
             }
             EnvironmentsInputValidationError::SameNewName => {
@@ -229,7 +229,7 @@ impl fmt::Display for EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::NewNameFormat => {
                 msg = "new name option value is invalid";
-                hint = Some("name can contain only alphanumeric characters, hyphens or underscores (no spaces)");
+                hint = Some("name can contain only alphanumeric characters, underscores or hyphen separator (no spaces)");
             }
             EnvironmentsInputValidationError::NewNameTooShort => {
                 msg = "name option value is too short";
@@ -242,7 +242,7 @@ impl fmt::Display for EnvironmentsInputValidationError {
             EnvironmentsInputValidationError::SearchFormat => {
                 msg = "argument search is invalid";
                 hint =
-                    Some("search can contain only alphanumeric characters, hyphens or underscores");
+                    Some("search can contain only alphanumeric characters, underscores or hyphen separator");
             }
         }
 
