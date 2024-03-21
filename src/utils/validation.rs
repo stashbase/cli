@@ -7,6 +7,10 @@ use crate::models::validation::{
     ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
 };
 
+fn count_dashes(s: &str) -> usize {
+    s.chars().filter(|&c| c == '-').count()
+}
+
 pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
     if value.len() < 2 {
         let err = if is_new_name {
@@ -83,7 +87,7 @@ pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()>
 }
 
 pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
-    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
 
     if value.len() < 2 {
         let err = if is_new_name == false {
@@ -96,7 +100,11 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
 
         bail!(err)
     } else {
-        if !regex.is_match(value) {
+        let dash_count = count_dashes(value);
+        let is_firt_dash = value.chars().nth(0) == Some('-');
+        let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
+
+        if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
             let err = if is_new_name == false {
                 InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat {
                     is_root,
@@ -135,7 +143,7 @@ pub fn validate_project_environment(
 
 //
 pub fn validate_env_search(value: &str) -> Result<()> {
-    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
+    let regex = Regex::new(r"^[a-zA-Z0-9-]+(?:/[a-zA-Z0-9-]+)?/?$").unwrap();
 
     if value.len() < 2 {
         let err =
