@@ -7,7 +7,7 @@ use crate::models::validation::{
     ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
 };
 
-fn count_dashes(s: &str) -> usize {
+pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
 }
 
@@ -143,7 +143,7 @@ pub fn validate_project_environment(
 
 //
 pub fn validate_env_search(value: &str) -> Result<()> {
-    let regex = Regex::new(r"^[a-zA-Z0-9-]+(?:/[a-zA-Z0-9-]+)?/?$").unwrap();
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
 
     if value.len() < 2 {
         let err =
@@ -151,7 +151,10 @@ pub fn validate_env_search(value: &str) -> Result<()> {
 
         bail!(err)
     } else {
-        if !regex.is_match(value) {
+        let dash_count = count_dashes(value);
+        let is_firt_dash = value.chars().nth(0) == Some('-');
+
+        if !regex.is_match(value) || dash_count > 1 || is_firt_dash {
             let err =
                 InputValidationError::Environments(EnvironmentsInputValidationError::SearchFormat);
 
