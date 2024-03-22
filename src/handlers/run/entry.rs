@@ -23,6 +23,8 @@ use crate::{
     SUBPROCESS_RUNNING,
 };
 
+use super::format::format_env_variable_value;
+
 #[derive(Debug)]
 pub struct HandleRunArgs {
     pub api_key: String,
@@ -327,6 +329,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                             }
                         }
 
+                        // format secret values (remove quotes if needed)
+                        for (_, value) in secrets.iter_mut() {
+                            *value = format_env_variable_value(value.to_string());
+                        }
+
                         handle_run(&mut None, command, print_secrets, secrets, is_from_file)
                             .await?;
                     } else {
@@ -337,6 +344,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                         for (key, value) in setted_secrets {
                             secrets.insert(key, value);
                         }
+                    }
+
+                    // format secret values (remove quotes)
+                    for (_, value) in secrets.iter_mut() {
+                        *value = format_env_variable_value(value.to_string());
                     }
 
                     handle_run(
