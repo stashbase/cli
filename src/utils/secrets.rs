@@ -45,11 +45,17 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
                     let is_last = i == secrets.len() - 1;
 
                     if let Some(descr) = &s.description {
+                        let mut str_line = format!("# {}\n{}={}", descr, s.key, s.value);
+
                         if is_last == false {
-                            return format!("\n# {}\n{}={}\n", descr, s.key, s.value);
-                        } else {
-                            return format!("\n# {}\n{}={}", descr, s.key, s.value);
+                            str_line = format!("{}\n", str_line);
                         }
+
+                        if i != 0 {
+                            str_line = format!("\n{}", str_line);
+                        }
+
+                        return str_line;
                     } else {
                         let prev_has_description = match i == 0 {
                             true => false,
@@ -62,17 +68,17 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
                             }
                         };
 
-                        let mut str_value = format!("{}={}", s.key, s.value);
+                        let mut str_line = format!("{}={}", s.key, s.value);
 
                         if prev_has_description {
-                            str_value = format!("\n{}", str_value);
+                            str_line = format!("\n{}", str_line);
                         }
 
                         if is_last == false {
-                            str_value = format!("{}\n", str_value);
+                            str_line = format!("{}\n", str_line);
                         }
 
-                        return str_value;
+                        return str_line;
                     }
                 })
                 .collect::<_>();
