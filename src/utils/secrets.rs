@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use log::debug;
+use regex::Regex;
 use std::{fs, path::Path};
 
 use colored_json::to_colored_json_auto;
@@ -160,6 +161,7 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
     }
 
     let mut secrets: Vec<Secret> = Vec::new();
+    let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
 
     // TODO: format
     for (index, item) in splitted.iter().enumerate() {
@@ -176,6 +178,9 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
                 Some((key, value)) => {
                     debug!("{}", key);
                     debug!("{}", value);
+
+                    let uppercase_key = key.to_uppercase();
+                    let formatted_key = regex.replace_all(&uppercase_key, "_").to_string();
 
                     let description = match index == 0 {
                         true => None,
@@ -196,7 +201,7 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
 
                     let secret = Secret {
                         description,
-                        key: format!("{}", key),
+                        key: format!("{}", formatted_key),
                         value: format!("{}", value),
                     };
 
