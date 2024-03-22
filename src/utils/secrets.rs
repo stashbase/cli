@@ -162,7 +162,7 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
     let mut secrets: Vec<Secret> = Vec::new();
 
     // TODO: format
-    for item in splitted {
+    for (index, item) in splitted.iter().enumerate() {
         let trimmed = item.trim();
 
         debug!("{}", trimmed);
@@ -171,15 +171,31 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
         let is_empty = trimmed.len() == 0;
         let is_comment = trimmed.starts_with("#");
 
-        // TODO: accepts comments
         if !is_empty && !is_comment {
             match item.split_once("=") {
                 Some((key, value)) => {
                     debug!("{}", key);
                     debug!("{}", value);
 
+                    let description = match index == 0 {
+                        true => None,
+                        false => {
+                            let prev_line = splitted.get(index - 1);
+                            match prev_line {
+                                Some(prev_line) => match prev_line.trim().starts_with("#") {
+                                    true => {
+                                        let d = prev_line.replace("#", "").trim().to_owned();
+                                        Some(d)
+                                    }
+                                    false => None,
+                                },
+                                None => None,
+                            }
+                        }
+                    };
+
                     let secret = Secret {
-                        description: None,
+                        description,
                         key: format!("{}", key),
                         value: format!("{}", value),
                     };
@@ -187,7 +203,7 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
                     secrets.push(secret);
                 }
                 None => {
-                    // TODO: accept key with empty value
+                    // TODO: accept key with empty value or error
                     panic!();
                 }
             }
