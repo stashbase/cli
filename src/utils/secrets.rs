@@ -42,18 +42,37 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
                 .iter()
                 .enumerate()
                 .map(|(i, s)| {
+                    let is_last = i == secrets.len() - 1;
+
                     if let Some(descr) = &s.description {
-                        if i != secrets.len() - 1 {
-                            return format!("# {}\n{}={}\n", descr, s.key, s.value);
+                        if is_last == false {
+                            return format!("\n# {}\n{}={}\n", descr, s.key, s.value);
                         } else {
-                            return format!("# {}\n{}={}", descr, s.key, s.value);
+                            return format!("\n# {}\n{}={}", descr, s.key, s.value);
                         }
                     } else {
-                        if i != secrets.len() - 1 {
-                            return format!("{}={}\n", s.key, s.value);
-                        } else {
-                            return format!("{}={}", s.key, s.value);
+                        let prev_has_description = match i == 0 {
+                            true => false,
+                            false => {
+                                let prev_line = secrets.get(i - 1);
+                                match prev_line {
+                                    Some(prev_line) => prev_line.description.is_some(),
+                                    None => false,
+                                }
+                            }
+                        };
+
+                        let mut str_value = format!("{}={}", s.key, s.value);
+
+                        if prev_has_description {
+                            str_value = format!("\n{}", str_value);
                         }
+
+                        if is_last == false {
+                            str_value = format!("{}\n", str_value);
+                        }
+
+                        return str_value;
                     }
                 })
                 .collect::<_>();
