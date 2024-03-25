@@ -188,7 +188,6 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
     let mut secrets: Vec<Secret> = Vec::new();
     let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
 
-    // TODO: format
     for (index, item) in splitted.iter().enumerate() {
         let trimmed = item.trim();
 
@@ -214,6 +213,7 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
                             match prev_line {
                                 Some(prev_line) => match prev_line.trim().starts_with("#") {
                                     true => {
+                                        // replace all
                                         let d = prev_line.replace("#", "").trim().to_owned();
                                         Some(d)
                                     }
