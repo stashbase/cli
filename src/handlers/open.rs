@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
-struct OpeDashboardResponse {
+struct OpenDashboardResponse {
     url: String,
 }
 
@@ -26,7 +26,7 @@ pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
 
     match project_res {
         GetRequestApiResponse::Ok(data) => {
-            let data = serde_json::from_str::<OpeDashboardResponse>(&data.text);
+            let data = serde_json::from_str::<OpenDashboardResponse>(&data.text);
 
             match data {
                 Ok(data) => {
