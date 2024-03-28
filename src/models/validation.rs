@@ -40,6 +40,7 @@ pub enum WebhookInputValidationError {
 // TODO: key length (min = 2 ???)
 #[derive(Debug)]
 pub enum SecretsInputValidationError {
+    NoKeys,
     KeyFormat { multiple: bool },
 
     SearchTooShort,
@@ -179,6 +180,10 @@ impl fmt::Display for SecretsInputValidationError {
             SecretsInputValidationError::SearchTooShort => {
                 msg = "argument search is too short";
                 hint = Some("minimum is 2 characters");
+            }
+            SecretsInputValidationError::NoKeys => {
+                msg = "no secrets keys specified";
+                hint = Some("separate secrets to return with spaces");
             }
         }
 

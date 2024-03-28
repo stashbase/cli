@@ -8,6 +8,7 @@ use crate::{
     models::{
         api_client::PostPatchRequestApiResponse,
         secrets::{GetSelectedSecretsPayload, Secret},
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
         secrets::format_secrets,
@@ -122,6 +123,11 @@ fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Resul
     let env_validation_res = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_validation_res {
+        bail!(err);
+    }
+
+    if keys.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NoKeys);
         bail!(err);
     }
 
