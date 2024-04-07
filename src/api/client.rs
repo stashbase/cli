@@ -1,8 +1,8 @@
-use std::{env, process};
+use std::env;
 
 use anyhow::{bail, Context, Result};
 use log::debug;
-use reqwest::{header::HeaderMap, Client, Method};
+use reqwest::{header::HeaderMap, Method};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{
     default_on_request_failure, policies::ExponentialBackoff, RetryTransientMiddleware, Retryable,
@@ -96,6 +96,10 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
     } else {
         if status == 401 {
             bail!("Unauthorized")
+        } else if status == 429 {
+            // bail!("Too many requests");
+            let error = rate_limit_error();
+            Ok(GetRequestApiResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
                 .json()
@@ -156,6 +160,9 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
             bail!("Unauthorized")
         } else if status == 404 {
             bail!("Something went wrong")
+        } else if status == 429 {
+            let error = rate_limit_error();
+            Ok(DeleteRequestApiResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
                 .json()
@@ -255,6 +262,9 @@ async fn post_or_pach<T: serde::Serialize>(
     } else {
         if status == 401 {
             bail!("Unauthorized")
+        } else if status == 429 {
+            let error = rate_limit_error();
+            Ok(PostPatchRequestApiResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
                 .json()
@@ -265,6 +275,13 @@ async fn post_or_pach<T: serde::Serialize>(
             let custom_error: CustomError = error_response.error.into();
             Ok(PostPatchRequestApiResponse::Err(custom_error))
         }
+    }
+}
+
+fn rate_limit_error() -> CustomError {
+    CustomError {
+        message: "Too many requests".to_string(),
+        hint: Some(format!("Try again later")),
     }
 }
 
