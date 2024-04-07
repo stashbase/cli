@@ -233,6 +233,29 @@ pub struct CustomError {
     pub hint: Option<String>,
 }
 
+impl CustomError {
+    pub fn rate_limit_reached() -> CustomError {
+        Self {
+            message: "Too many requests".to_string(),
+            hint: Some("Try again later".to_string()),
+        }
+    }
+
+    pub fn unauthorized() -> CustomError {
+        Self {
+            message: "User unauthorized".to_string(),
+            hint: Some("Check your API key".to_string()),
+        }
+    }
+
+    pub fn unknown() -> CustomError {
+        Self {
+            message: "Unknown error".to_string(),
+            hint: Some("Try again later".to_string()),
+        }
+    }
+}
+
 impl From<ApiError> for CustomError {
     fn from(api_error: ApiError) -> Self {
         match api_error.code {
