@@ -95,12 +95,14 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
         Ok(response)
     } else {
         if status == 401 {
-            bail!("Unauthorized")
+            let error = CustomError::unauthorized();
+            Ok(GetRequestApiResponse::Err(error))
         } else if status == 429 {
-            // bail!("Too many requests");
-            let error = rate_limit_error();
+            let error = CustomError::rate_limit_reached();
             Ok(GetRequestApiResponse::Err(error))
         } else {
+            // TODO: return unknown error
+            // this is for debugging
             let error_response: ApiErrorResponse = res
                 .json()
                 .await
@@ -157,11 +159,13 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
         }
     } else {
         if status == 401 {
-            bail!("Unauthorized")
+            let error = CustomError::unauthorized();
+            Ok(DeleteRequestApiResponse::Err(error))
         } else if status == 404 {
-            bail!("Something went wrong")
+            let error = CustomError::unknown();
+            Ok(DeleteRequestApiResponse::Err(error))
         } else if status == 429 {
-            let error = rate_limit_error();
+            let error = CustomError::rate_limit_reached();
             Ok(DeleteRequestApiResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
@@ -261,9 +265,10 @@ async fn post_or_pach<T: serde::Serialize>(
         }
     } else {
         if status == 401 {
-            bail!("Unauthorized")
+            let error = CustomError::unauthorized();
+            Ok(PostPatchRequestApiResponse::Err(error))
         } else if status == 429 {
-            let error = rate_limit_error();
+            let error = CustomError::rate_limit_reached();
             Ok(PostPatchRequestApiResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
@@ -275,13 +280,6 @@ async fn post_or_pach<T: serde::Serialize>(
             let custom_error: CustomError = error_response.error.into();
             Ok(PostPatchRequestApiResponse::Err(custom_error))
         }
-    }
-}
-
-fn rate_limit_error() -> CustomError {
-    CustomError {
-        message: "Too many requests".to_string(),
-        hint: Some(format!("Try again later")),
     }
 }
 
