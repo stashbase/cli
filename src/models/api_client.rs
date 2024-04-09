@@ -1,7 +1,7 @@
 use core::fmt;
 
 use owo_colors::OwoColorize;
-use reqwest::StatusCode;
+use reqwest::{header::HeaderValue, StatusCode};
 use serde::Deserialize;
 
 #[derive(Debug)]
@@ -234,10 +234,24 @@ pub struct CustomError {
 }
 
 impl CustomError {
-    pub fn rate_limit_reached() -> CustomError {
-        Self {
-            message: "Too many requests".to_string(),
-            hint: Some("Try again later".to_string()),
+    pub fn rate_limit_reached(reset_header: Option<&HeaderValue>) -> CustomError {
+        match reset_header {
+            Some(header) => {
+                let seconds = header.to_str().unwrap_or("0").parse::<u64>().unwrap_or(0);
+                let minutes = (seconds as f64 / 60.0).ceil() as u32;
+
+                Self {
+                    message: "Too many requests".to_string(),
+                    hint: match minutes == 1 {
+                        false => Some(format!("Try again in {} minutes", minutes)),
+                        true => Some(format!("Try again in {} minute", minutes)),
+                    },
+                }
+            }
+            None => Self {
+                message: "Too many requests".to_string(),
+                hint: Some("Try again later".to_string()),
+            },
         }
     }
 

@@ -98,7 +98,9 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
             let error = CustomError::unauthorized();
             Ok(GetRequestApiResponse::Err(error))
         } else if status == 429 {
-            let error = CustomError::rate_limit_reached();
+            let reset_header = res.headers().get("x-ratelimit-reset");
+
+            let error = CustomError::rate_limit_reached(reset_header);
             Ok(GetRequestApiResponse::Err(error))
         } else {
             // TODO: return unknown error
@@ -165,7 +167,9 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
             let error = CustomError::unknown();
             Ok(DeleteRequestApiResponse::Err(error))
         } else if status == 429 {
-            let error = CustomError::rate_limit_reached();
+            let reset_header = res.headers().get("x-ratelimit-reset");
+
+            let error = CustomError::rate_limit_reached(reset_header);
             Ok(DeleteRequestApiResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
@@ -268,7 +272,9 @@ async fn post_or_pach<T: serde::Serialize>(
             let error = CustomError::unauthorized();
             Ok(PostPatchRequestApiResponse::Err(error))
         } else if status == 429 {
-            let error = CustomError::rate_limit_reached();
+            let reset_header = res.headers().get("x-ratelimit-reset");
+
+            let error = CustomError::rate_limit_reached(reset_header);
             Ok(PostPatchRequestApiResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
