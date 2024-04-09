@@ -70,7 +70,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 
 pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
     let base_path =
-        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
+        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000/v1/cli"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
@@ -117,7 +117,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
 
 pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse> {
     let base_path =
-        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
+        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000/v1/cli"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
@@ -203,7 +203,7 @@ async fn post_or_pach<T: serde::Serialize>(
     method: Method,
 ) -> Result<PostPatchRequestApiResponse> {
     let base_path =
-        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
+        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000/v1/cli"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
