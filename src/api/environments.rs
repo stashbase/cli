@@ -9,8 +9,8 @@ use crate::{
             RequestArgs,
         },
         environments::{
-            CompareEnvironmentsPayload, CreatEnvironmentPayload, DuplicateEnvironmentPayload,
-            LoadEnvironmentPayload, UpdateEnvironmentPayload, UpdateEnvironmentTypePayload,
+            CreatEnvironmentPayload, DuplicateEnvironmentPayload, UpdateEnvironmentPayload,
+            UpdateEnvironmentTypePayload,
         },
     },
 };
