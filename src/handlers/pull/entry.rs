@@ -282,10 +282,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             let output_path = output_file.clone().unwrap();
 
                             if fs::metadata(&output_path).is_ok() {
-                                spinner.stop_with_message(&format!(
-                                    "File '{}' already exists",
-                                    output_path
-                                ));
+                                eprintln!("{}", &format!("File '{}' already exists", output_path));
 
                                 let confirmation =
                                     interaction::confirm_opt("Do you want to overwrite the file?");
