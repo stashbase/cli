@@ -299,7 +299,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     PullFormat::Dotenv => {
                                         let str = format_secrets(secrets, &SecretsFromat::Dotenv);
                                         let prefix = format!(
-                                        "## ------\n## Project:{}\n## Environment: {}\n## ------\n\n",
+                                        "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
                                         project, environment,
                                     );
 
