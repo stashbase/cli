@@ -12,9 +12,14 @@ use crate::{
 };
 
 pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_output: bool) {
-    let (project, environment) = cmd.try_get_project_environment().unwrap_or_else(|err| {
-        panic!("{:?}", err);
-    });
+    let project_environment_result = cmd.try_get_project_environment();
+
+    if let Err(err) = project_environment_result {
+        eprintln!("{:?}", err);
+        return;
+    }
+
+    let (project, environment) = project_environment_result.unwrap();
 
     match cmd.subcommand {
         SecretSubcommand::List(args) => {
