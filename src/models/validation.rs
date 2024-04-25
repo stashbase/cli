@@ -40,6 +40,13 @@ pub enum WebhookInputValidationError {
 // TODO: key length (min = 2 ???)
 #[derive(Debug)]
 pub enum SecretsInputValidationError {
+    MissingProjectFlag,
+    DuplicateProjectFlag,
+    MissingEnvironmentFlag,
+    DuplicateEnvironmentFlag,
+    MissingProjectEnvironmentFlags,
+
+    //
     NoKeys,
     KeyFormat { multiple: bool },
 
@@ -184,6 +191,26 @@ impl fmt::Display for SecretsInputValidationError {
             SecretsInputValidationError::NoKeys => {
                 msg = "no secrets keys specified";
                 hint = Some("separate secrets to return with spaces");
+            }
+            SecretsInputValidationError::MissingProjectFlag => {
+                msg = "missing project argument";
+                hint = Some("use '-p/--project' flag to specify the project");
+            }
+            SecretsInputValidationError::DuplicateProjectFlag => {
+                msg = "duplicate project argument";
+                hint = Some("use '-p/--project' flag only once");
+            }
+            SecretsInputValidationError::MissingEnvironmentFlag => {
+                msg = "missing environment argument";
+                hint = Some("use '-e/--environment' flag to specify the environment");
+            }
+            SecretsInputValidationError::DuplicateEnvironmentFlag => {
+                msg = "duplicate environment argument";
+                hint = Some("use '-e/--environment' flag only once");
+            }
+            SecretsInputValidationError::MissingProjectEnvironmentFlags => {
+                msg = "missing project and environment flags";
+                hint = Some("use '-p/--project' and '-e/--environment' flags");
             }
         }
 
