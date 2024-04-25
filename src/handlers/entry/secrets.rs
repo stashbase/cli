@@ -12,13 +12,17 @@ use crate::{
 };
 
 pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_output: bool) {
+    let (project, environment) = cmd.try_get_project_environment().unwrap_or_else(|err| {
+        panic!("{:?}", err);
+    });
+
     match cmd.subcommand {
         SecretSubcommand::List(args) => {
             let args = HandleListSecretsArgs {
                 api_key,
+                project,
+                environment,
                 only_keys: args.only_keys,
-                project: cmd.project,
-                environment: cmd.environment,
                 search: args.search,
                 format: args.format.unwrap_or(if raw_output {
                     SecretsFromat::Json
@@ -34,8 +38,8 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
         SecretSubcommand::Get(args) => {
             let args = HandleGetSecretsArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 keys: args.keys,
                 format: args.format.unwrap_or(if raw_output {
                     SecretsFromat::Json
@@ -51,8 +55,8 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
         SecretSubcommand::Delete(args) => {
             let args = HandleDeleteSecretsArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 keys: args.keys,
                 delete_all: args.delete_all,
             };
@@ -64,8 +68,8 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
         SecretSubcommand::Set(args) => {
             let args = HandleSetSecretsArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 values: args.secrets,
                 description: args.descriptions,
             };
@@ -77,8 +81,8 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
         SecretSubcommand::Description(args) => {
             let args = HandleDescriptionArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 description: args.description,
                 key: args.key,
             };
@@ -90,8 +94,8 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 file_path: args.file_path,
             };
 
@@ -102,8 +106,8 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
         SecretSubcommand::Rename(args) => {
             let args = HandleRenameSecretsArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 secrets: args.secrets,
             };
 
