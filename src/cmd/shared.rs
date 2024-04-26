@@ -6,11 +6,23 @@ use crate::models::validation::{CmdArgInputValidationError, InputValidationError
 #[derive(Debug, Args)]
 pub struct SharedProjectEnvArgs {
     /// Project name
-    #[arg(short = 'p', long = "project", required = false, hide = true)]
+    #[arg(
+        short = 'p',
+        long = "project",
+        required = false,
+        hide = true,
+        hide_long_help = true
+    )]
     pub project: Option<String>,
 
     /// Environment name
-    #[arg(short = 'e', long = "environment", required = false, hide = true)]
+    #[arg(
+        short = 'e',
+        long = "environment",
+        required = false,
+        hide = true,
+        hide_long_help = true
+    )]
     pub environment: Option<String>,
 }
 
