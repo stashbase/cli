@@ -57,24 +57,16 @@ fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcomma
     Ok(())
 }
 
-pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_output: bool) {
+pub async fn handle_webhook_commands(
+    cmd: WebhookCommand,
+    api_key: String,
+    raw_output: bool,
+) -> Result<()> {
     // required options
-    let (project, environment) = match cmd.try_get_project_environment() {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("{}", e);
-            return;
-        }
-    };
+    let (project, environment) = cmd.try_get_project_environment()?;
 
     // other input
-
-    let input_valid = validate_input(&project, &environment, &cmd.subcommand);
-
-    if let Err(err) = input_valid {
-        eprintln!("{}", err);
-        return;
-    }
+    validate_input(&project, &environment, &cmd.subcommand)?;
 
     match cmd.subcommand {
         WebhookSubcommand::List(args) => {
@@ -88,9 +80,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 },
             };
 
-            handle_list_webhooks(args).await.unwrap_or_else(|err| {
-                eprintln!("{}", err);
-            });
+            handle_list_webhooks(args).await?;
         }
         WebhookSubcommand::Get(args) => {
             let args = GetWebhookArgs {
@@ -102,9 +92,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 format_json: raw_output,
             };
 
-            handle_get_webhook(args).await.unwrap_or_else(|err| {
-                eprintln!("{}", err);
-            })
+            handle_get_webhook(args).await?;
         }
         WebhookSubcommand::Delete(cmd_args) => {
             let fn_args = DeleteWebhookArgs {
@@ -114,9 +102,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 webhook_id: cmd_args.webhook_id,
             };
 
-            handle_delete_webhook(fn_args).await.unwrap_or_else(|err| {
-                eprintln!("{}", err);
-            })
+            handle_delete_webhook(fn_args).await?;
         }
         WebhookSubcommand::Create(cmd_args) => {
             let fn_args = CreateWebhookArgs {
@@ -129,9 +115,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 enable: cmd_args.enable,
             };
 
-            handle_create_webhook(fn_args).await.unwrap_or_else(|err| {
-                eprintln!("{}", err);
-            })
+            handle_create_webhook(fn_args).await?;
         }
         WebhookSubcommand::Update(cmd_args) => {
             let fn_args = UpdateWebhookArgs {
@@ -143,9 +127,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 webhook_id: cmd_args.webhook_id,
             };
 
-            handle_update_webhook(fn_args).await.unwrap_or_else(|err| {
-                eprintln!("{}", err);
-            })
+            handle_update_webhook(fn_args).await?;
         }
         // update status
         WebhookSubcommand::Disable(cmd_args) => {
@@ -157,11 +139,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 enabled: false,
             };
 
-            handle_update_webhook_status(fn_args)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{}", err);
-                })
+            handle_update_webhook_status(fn_args).await?;
         }
         WebhookSubcommand::Enable(cmd_args) => {
             let fn_args = UpdateWebhookStatusArgs {
@@ -172,11 +150,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 enabled: true,
             };
 
-            handle_update_webhook_status(fn_args)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{}", err);
-                })
+            handle_update_webhook_status(fn_args).await?;
         }
         WebhookSubcommand::Test(cmd_args) => {
             let fn_args = TestWebhookArgs {
@@ -186,9 +160,7 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 webhook_id: cmd_args.webhook_id,
             };
 
-            handle_test_webhook(fn_args).await.unwrap_or_else(|err| {
-                eprintln!("{}", err);
-            })
+            handle_test_webhook(fn_args).await?;
         }
 
         WebhookSubcommand::Logs(cmd_args) => {
@@ -205,18 +177,11 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 },
             };
 
-            handle_list_webhook_logs(fn_args)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{}", err);
-                })
+            handle_list_webhook_logs(fn_args).await?;
         }
         WebhookSubcommand::Open(cmd_args) => {
             handle_open_environment_webhook(api_key, project, environment, cmd_args.webhook_id)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{}", err);
-                });
+                .await?;
         }
         WebhookSubcommand::RotateSecret(cmd_args) => {
             let fn_args = RotateWebhookSecretArgs {
@@ -226,11 +191,9 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 webhook_id: cmd_args.webhook_id,
             };
 
-            handle_rotate_webhook_secret(fn_args)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{}", err);
-                })
+            handle_rotate_webhook_secret(fn_args).await?;
         }
     }
+
+    Ok(())
 }
