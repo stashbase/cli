@@ -110,25 +110,25 @@ impl fmt::Display for CmdArgInputValidationError {
 
         match self {
             CmdArgInputValidationError::MissingProject => {
-                msg = "missing project";
+                msg = "project not specified";
                 hint = "use '-p/--project' argument to specify the project";
             }
             CmdArgInputValidationError::DuplicateProject => {
-                msg = "duplicate project";
+                msg = "project specified multiple times";
                 hint = "use '-p/--project' argument only once";
             }
             CmdArgInputValidationError::MissingEnvironment => {
-                msg = "missing environment";
+                msg = "environment not specified";
                 hint = "use '-e/--environment' argument to specify the environment";
             }
             CmdArgInputValidationError::DuplicateEnvironment => {
-                msg = "duplicate environment";
+                msg = "environment specified multiple times";
                 hint = "use '-e/--environment' argument only once";
             }
             CmdArgInputValidationError::MissingProjectEnvironment => {
-                msg = "missing project and environment";
-                hint = "use '-p/--project' and '-e/--environment arguments";
-            }
+                msg = "project and environment not specified";
+                hint = "use '-p/--project' and '-e/--environment' arguments";
+            } 
         }
 
         writeln!(f, "{}", format!("- message: {}", msg))?;
