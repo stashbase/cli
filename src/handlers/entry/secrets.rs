@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use crate::{
     cmd::secrets::{SecretArgs, SecretSubcommand, SecretsFromat},
     handlers::secrets::{
@@ -11,15 +13,12 @@ use crate::{
     },
 };
 
-pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_output: bool) {
-    let project_environment_result = cmd.try_get_project_environment();
-
-    if let Err(err) = project_environment_result {
-        eprintln!("{:?}", err);
-        return;
-    }
-
-    let (project, environment) = project_environment_result.unwrap();
+pub async fn handle_secrets_commands(
+    cmd: SecretArgs,
+    api_key: String,
+    raw_output: bool,
+) -> Result<()> {
+    let (project, environment) = cmd.try_get_project_environment()?;
 
     match cmd.subcommand {
         SecretSubcommand::List(args) => {
@@ -36,9 +35,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
                 }),
             };
 
-            handle_list_secrets(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            handle_list_secrets(args).await?;
         }
         SecretSubcommand::Get(args) => {
             let args = HandleGetSecretsArgs {
@@ -53,9 +50,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
                 }),
             };
 
-            handle_get_secrets(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            handle_get_secrets(args).await?;
         }
         SecretSubcommand::Delete(args) => {
             let args = HandleDeleteSecretsArgs {
@@ -66,9 +61,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
                 delete_all: args.delete_all,
             };
 
-            handle_delete_secrets(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            handle_delete_secrets(args).await?;
         }
         SecretSubcommand::Set(args) => {
             let args = HandleSetSecretsArgs {
@@ -79,9 +72,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
                 description: args.descriptions,
             };
 
-            handle_set_secrets(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            handle_set_secrets(args).await?;
         }
         SecretSubcommand::Description(args) => {
             let args = HandleDescriptionArgs {
@@ -92,9 +83,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
                 key: args.key,
             };
 
-            handle_update_description(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            handle_update_description(args).await?;
         }
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
@@ -104,9 +93,7 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
                 file_path: args.file_path,
             };
 
-            handle_upload_secrets(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            handle_upload_secrets(args).await?;
         }
         SecretSubcommand::Rename(args) => {
             let args = HandleRenameSecretsArgs {
@@ -116,9 +103,9 @@ pub async fn handle_secrets_commands(cmd: SecretArgs, api_key: String, raw_outpu
                 secrets: args.secrets,
             };
 
-            handle_rename_secrets(args).await.unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            handle_rename_secrets(args).await?;
         }
     }
+
+    Ok(())
 }

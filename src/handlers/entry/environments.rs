@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use crate::{
     cmd::environments::{
         EnvChangelogSubcommand, EnvironmentCommands, EnvironmentFormat, EnvironmentSubcommand,
@@ -27,15 +29,9 @@ pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
     api_key: String,
     raw_output: bool,
-) {
+) -> Result<()> {
     if let EnvironmentSubcommand::Changelog(c) = &cmd.subcommand {
-        let (project, environment) = match cmd.try_get_project_environment() {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("{}", e);
-                return;
-            }
-        };
+        let (project, environment) = cmd.try_get_project_environment()?;
 
         match &c.subcommand {
             EnvChangelogSubcommand::List(args) => {
@@ -48,9 +44,7 @@ pub async fn handle_environment_commands(
                     raw: raw_output,
                 };
 
-                handle_list_changelog(args).await.unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+                handle_list_changelog(args).await?;
             }
             EnvChangelogSubcommand::Revert(args) => {
                 let args = HandleRevertEnvChangelogChange {
@@ -60,11 +54,7 @@ pub async fn handle_environment_commands(
                     change_id: args.id.to_owned(),
                 };
 
-                handle_revert_changelog_change(args)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    });
+                handle_revert_changelog_change(args).await?;
             }
             EnvChangelogSubcommand::Get(args) => {
                 let args = HandleGetEnvChangelogItemArgs {
@@ -75,19 +65,13 @@ pub async fn handle_environment_commands(
                     change_id: args.id.to_owned(),
                 };
 
-                handle_get_changelog_item(args).await.unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+                handle_get_changelog_item(args).await?;
             }
         }
+
+        Ok(())
     } else {
-        let project = match cmd.try_get_project() {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("{}", e);
-                return;
-            }
-        };
+        let project = cmd.try_get_project()?;
 
         match cmd.subcommand {
             EnvironmentSubcommand::List(args) => {
@@ -106,9 +90,7 @@ pub async fn handle_environment_commands(
                     },
                 };
 
-                handle_list_environments(args).await.unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+                handle_list_environments(args).await?;
             }
 
             EnvironmentSubcommand::Get(args) => {
@@ -121,19 +103,11 @@ pub async fn handle_environment_commands(
                     project,
                     args.name,
                 )
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+                .await?;
             }
             EnvironmentSubcommand::Open(args) => {
-                handle_open_environment(api_key, project, args.name)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    });
+                handle_open_environment(api_key, project, args.name).await?;
             }
-
             EnvironmentSubcommand::Create(args) => {
                 let args = HandleCreateEnvironmentArgs {
                     api_key,
@@ -145,56 +119,33 @@ pub async fn handle_environment_commands(
                     file_path: args.file_path,
                 };
 
-                handle_create_environment(args).await.unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+                handle_create_environment(args).await?;
             }
 
             EnvironmentSubcommand::SetType(args) => {
-                handle_update_env_type(api_key, project, args.name, args.env_type)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    });
+                handle_update_env_type(api_key, project, args.name, args.env_type).await?;
             }
             EnvironmentSubcommand::Lock(args) => {
-                handle_set_env_lock(api_key, project, args.name, true)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    });
+                handle_set_env_lock(api_key, project, args.name, true).await?;
             }
             EnvironmentSubcommand::Unlock(args) => {
-                handle_set_env_lock(api_key, project, args.name, false)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    });
+                handle_set_env_lock(api_key, project, args.name, false).await?;
             }
             EnvironmentSubcommand::Delete(args) => {
-                handle_delete_environment(api_key, project, args.name)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    })
+                handle_delete_environment(api_key, project, args.name).await?;
             }
-            EnvironmentSubcommand::Update(args) => handle_update_environment(
-                api_key,
-                project,
-                args.name,
-                args.new_name,
-                args.description,
-            )
-            .await
-            .unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            }),
+            EnvironmentSubcommand::Update(args) => {
+                handle_update_environment(
+                    api_key,
+                    project,
+                    args.name,
+                    args.new_name,
+                    args.description,
+                )
+                .await?
+            }
             EnvironmentSubcommand::Duplicate(args) => {
-                handle_duplicate_environment(api_key, project, args.name, args.new_name)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    })
+                handle_duplicate_environment(api_key, project, args.name, args.new_name).await?;
             }
 
             EnvironmentSubcommand::Compare(args) => {
@@ -207,15 +158,13 @@ pub async fn handle_environment_commands(
                     json_format: raw_output,
                 };
 
-                handle_compare_environments(handler_args)
-                    .await
-                    .unwrap_or_else(|err| {
-                        eprintln!("{:?}", err);
-                    });
+                handle_compare_environments(handler_args).await?;
             }
             EnvironmentSubcommand::Changelog(_) => {
                 unreachable!()
             }
         }
+
+        Ok(())
     }
 }
