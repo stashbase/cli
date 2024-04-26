@@ -3,7 +3,7 @@ use owo_colors::OwoColorize;
 
 #[derive(Debug)]
 pub enum InputValidationError {
-    CmdOptions(CmdOptionInputValidationError),
+    CmdArgs(CmdArgInputValidationError),
     Projects(ProjectInputValidationError),
     Secrets(SecretsInputValidationError),
     Environments(EnvironmentsInputValidationError),
@@ -14,7 +14,7 @@ pub enum InputValidationError {
 }
 
 #[derive(Debug)]
-pub enum CmdOptionInputValidationError {
+pub enum CmdArgInputValidationError {
     MissingProject,
     DuplicateProject,
     MissingEnvironment,
@@ -103,31 +103,31 @@ pub enum PullEnvironmentInputValidationError {
     // other errors same as from LoadEnvironment
 }
 
-impl fmt::Display for CmdOptionInputValidationError {
+impl fmt::Display for CmdArgInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg: &str;
         let hint: &str;
 
         match self {
-            CmdOptionInputValidationError::MissingProject => {
-                msg = "missing project option";
-                hint = "use '-p/--project' to specify the project";
+            CmdArgInputValidationError::MissingProject => {
+                msg = "missing project";
+                hint = "use '-p/--project' argument to specify the project";
             }
-            CmdOptionInputValidationError::DuplicateProject => {
-                msg = "duplicate project option";
-                hint = "use '-p/--project' only once";
+            CmdArgInputValidationError::DuplicateProject => {
+                msg = "duplicate project";
+                hint = "use '-p/--project' argument only once";
             }
-            CmdOptionInputValidationError::MissingEnvironment => {
-                msg = "missing environment option";
-                hint = "use '-e/--environment' to specify the environment";
+            CmdArgInputValidationError::MissingEnvironment => {
+                msg = "missing environment";
+                hint = "use '-e/--environment' argument to specify the environment";
             }
-            CmdOptionInputValidationError::DuplicateEnvironment => {
-                msg = "duplicate environment option";
-                hint = "use '-e/--environment' only once";
+            CmdArgInputValidationError::DuplicateEnvironment => {
+                msg = "duplicate environment";
+                hint = "use '-e/--environment' argument only once";
             }
-            CmdOptionInputValidationError::MissingProjectEnvironment => {
-                msg = "missing project and environment options";
-                hint = "use '-p/--project', '-e/--environment";
+            CmdArgInputValidationError::MissingProjectEnvironment => {
+                msg = "missing project and environment";
+                hint = "use '-p/--project' and '-e/--environment arguments";
             }
         }
 
@@ -492,7 +492,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::LoadEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::PullEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),
-            InputValidationError::CmdOptions(inner) => write!(f, "{}", inner),
+            InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
         }
     }
 }
