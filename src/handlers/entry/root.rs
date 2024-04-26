@@ -36,23 +36,18 @@ pub async fn handle_cli(args: Cli) {
 
         let raw_output = args.raw;
 
-        match args.entity_type {
-            EntityType::Project(cmd) => {
-                handle_project_commands(cmd, api_key, raw_output).await;
-            }
+        let result = match args.entity_type {
+            EntityType::Project(cmd) => handle_project_commands(cmd, api_key, raw_output).await,
             EntityType::Environment(cmd) => {
-                handle_environment_commands(cmd, api_key, raw_output).await;
+                handle_environment_commands(cmd, api_key, raw_output).await
             }
             EntityType::Config(cmd) => {
                 handle_config_commands(cmd).await;
+                Ok(())
             }
-            EntityType::Secret(cmd) => {
-                handle_secrets_commands(cmd, api_key, raw_output).await;
-            }
+            EntityType::Secret(cmd) => handle_secrets_commands(cmd, api_key, raw_output).await,
 
-            EntityType::Webhooks(cmd) => {
-                handle_webhook_commands(cmd, api_key, raw_output).await;
-            }
+            EntityType::Webhooks(cmd) => handle_webhook_commands(cmd, api_key, raw_output).await,
 
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
@@ -67,9 +62,7 @@ pub async fn handle_cli(args: Cli) {
                     file: args.file,
                 };
 
-                handle_load_env_run(args).await.unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+                handle_load_env_run(args).await
             }
             EntityType::Pull(args) => {
                 let args = HandlePullArgs {
@@ -83,15 +76,13 @@ pub async fn handle_cli(args: Cli) {
                     print_secrets: args.print_secrets,
                 };
 
-                handle_pull(args).await.unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+                handle_pull(args).await
             }
-            EntityType::Open => {
-                handle_open_dashboard(api_key).await.unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
-            }
+            EntityType::Open => handle_open_dashboard(api_key).await,
+        };
+
+        if let Err(err) = result {
+            eprintln!("{:?}", err);
         }
     } else {
         let err = config.unwrap_err();
