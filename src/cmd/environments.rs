@@ -1,6 +1,6 @@
 use core::fmt;
 
-use anyhow::bail;
+use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
 use super::shared::SharedProjectEnvArgs;
@@ -37,7 +37,14 @@ impl fmt::Display for EnvironmentType {
 #[derive(Debug, Args)]
 pub struct EnvironmentCommands {
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    #[arg(
+        value_enum,
+        short = 'p',
+        long = "project",
+        hide = false,
+        required = false,
+        hide_long_help = true
+    )]
     pub project: Option<String>,
 
     #[clap(subcommand)]
@@ -59,7 +66,7 @@ pub struct SharedProjectArgs {
 
 // impl RequiredProjectArg for EnvironmentCommands {
 impl EnvironmentCommands {
-    pub fn try_get_project(&self) -> anyhow::Result<String> {
+    pub fn try_get_project(&self) -> Result<String> {
         let root_project: Option<_> = self.project.as_deref();
         let project = self.subcommand.get_project();
 
@@ -76,27 +83,110 @@ impl EnvironmentCommands {
         }
 
         match project {
-            Some(p) => Ok(p),
+            Some(p) => Ok(p.to_string()),
             None => Ok(root_project.unwrap().to_string()),
+        }
+    }
+
+    // for changelog
+    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
+        if let EnvironmentSubcommand::Changelog(c) = &self.subcommand {
+            let root_project = self.project.as_deref();
+            let subcommand_project = self.subcommand.get_project();
+
+            let nested_subcommand_project = match &c.subcommand {
+                EnvChangelogSubcommand::List(l) => l.shared_args.project.as_deref(),
+                EnvChangelogSubcommand::Get(g) => g.shared_args.project.as_deref(),
+                EnvChangelogSubcommand::Revert(r) => r.shared_args.project.as_deref(),
+            };
+
+            let mut project_arg_count = 0;
+
+            if root_project.is_some() {
+                project_arg_count += 1
+            }
+
+            if subcommand_project.is_some() {
+                project_arg_count += 1
+            }
+            if nested_subcommand_project.is_some() {
+                project_arg_count += 1
+            }
+
+            // environment
+            let subcommand_environment = c.shared_args.environment.as_deref();
+            let nested_subcommand_environment = match &c.subcommand {
+                EnvChangelogSubcommand::List(l) => l.shared_args.environment.as_deref(),
+                EnvChangelogSubcommand::Get(g) => g.shared_args.environment.as_deref(),
+                EnvChangelogSubcommand::Revert(r) => r.shared_args.environment.as_deref(),
+            };
+
+            // checks
+            if project_arg_count > 1 {
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::DuplicateProject
+                ))
+            }
+
+            if subcommand_environment.is_some() && nested_subcommand_environment.is_some() {
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::DuplicateEnvironment
+                ))
+            }
+
+            if project_arg_count == 0 {
+                if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
+                    bail!(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::MissingProjectEnvironment
+                    ))
+                }
+
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::MissingProject
+                ))
+            }
+
+            if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::MissingEnvironment
+                ))
+            }
+
+            let project = match nested_subcommand_project {
+                Some(p) => p.to_string(),
+                None => match subcommand_project {
+                    Some(p) => p.to_string(),
+                    None => root_project.unwrap().to_string(),
+                },
+            };
+
+            let environment = match nested_subcommand_environment {
+                Some(e) => e.to_string(),
+                None => subcommand_environment.unwrap().to_string(),
+            };
+
+            return Ok((project, environment));
+        } else {
+            bail!("Changelog subcommand is only supported for changelog command")
         }
     }
 }
 
 impl EnvironmentSubcommand {
-    fn get_project(&self) -> Option<String> {
+    fn get_project(&self) -> Option<&String> {
         match self {
-            EnvironmentSubcommand::List(l) => l.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Get(g) => g.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Create(c) => c.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Update(u) => u.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Duplicate(d) => d.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Compare(c) => c.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Lock(l) => l.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Unlock(u) => u.shared_args.project.to_owned(),
-            EnvironmentSubcommand::SetType(s) => s.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Delete(d) => d.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Changelog(c) => c.shared_args.project.to_owned(),
-            EnvironmentSubcommand::Open(o) => o.shared_args.project.to_owned(),
+            EnvironmentSubcommand::List(l) => l.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Get(g) => g.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Create(c) => c.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Update(u) => u.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Duplicate(d) => d.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Compare(c) => c.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Lock(l) => l.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Unlock(u) => u.shared_args.project.as_ref(),
+            EnvironmentSubcommand::SetType(s) => s.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Delete(d) => d.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Changelog(c) => c.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Open(o) => o.shared_args.project.as_ref(),
         }
     }
 }
@@ -316,11 +406,7 @@ pub struct SetType {
 #[derive(Debug, Args)]
 pub struct EnvChangelog {
     #[clap(flatten)]
-    pub shared_args: SharedProjectArgs,
-
-    /// Environment name
-    #[arg(value_enum, short = 'e', long = "environment", required = false)]
-    pub environment: String,
+    pub shared_args: SharedProjectEnvArgs,
 
     #[clap(subcommand)]
     pub subcommand: EnvChangelogSubcommand,
@@ -349,7 +435,7 @@ pub struct ListChangelog {
     // /// Environment name
     // pub name: String,
     /// Show secret values
-    #[arg(value_enum, short = 'p', long = "page")]
+    #[arg(value_enum, long = "page")]
     pub page: Option<usize>,
 
     /// Show secret values
