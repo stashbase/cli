@@ -23,30 +23,30 @@ use crate::{
     },
 };
 
-fn validate_input(cmd: &WebhookCommand) -> Result<()> {
+fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcommand) -> Result<()> {
     // validate project and environment
-    let input_valid = validate_project_environment(&cmd.project, &cmd.environment, true);
+    let input_valid = validate_project_environment(project, environment, true);
 
     if let Err(err) = input_valid {
         bail!(err);
     }
 
     // validate webhook id
-    if let Some(ref webhook_id) = cmd.subcommand.get_webhook_id() {
+    if let Some(webhook_id) = subcommand.get_webhook_id() {
         let valid_webhook_id = validate_webhook_id(webhook_id);
         if let Err(err) = valid_webhook_id {
             bail!(err);
         }
     }
 
-    if let Some(ref webhook_id) = cmd.subcommand.get_webhook_url() {
+    if let Some(webhook_id) = subcommand.get_webhook_url() {
         let valid_webhook_url = validate_webhook_url(webhook_id);
         if let Err(err) = valid_webhook_url {
             bail!(err);
         }
     }
 
-    if let Some(ref description) = cmd.subcommand.get_description() {
+    if let Some(description) = subcommand.get_description() {
         let valid_description = validate_webhook_description(description);
 
         if let Err(err) = valid_description {
@@ -58,7 +58,18 @@ fn validate_input(cmd: &WebhookCommand) -> Result<()> {
 }
 
 pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_output: bool) {
-    let input_valid = validate_input(&cmd);
+    // required options
+    let (project, environment) = match cmd.try_get_project_environment() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("{}", e);
+            return;
+        }
+    };
+
+    // other input
+
+    let input_valid = validate_input(&project, &environment, &cmd.subcommand);
 
     if let Err(err) = input_valid {
         eprintln!("{}", err);
@@ -69,8 +80,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::List(args) => {
             let args = ListWebhooksArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 format: match raw_output {
                     true => EnvironmentFormat::Json,
                     false => args.format.unwrap_or_default(),
@@ -84,8 +95,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Get(args) => {
             let args = GetWebhookArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 webhook_id: args.webhook_id,
                 with_secret: args.with_secret,
                 format_json: raw_output,
@@ -98,8 +109,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Delete(cmd_args) => {
             let fn_args = DeleteWebhookArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 webhook_id: cmd_args.webhook_id,
             };
 
@@ -110,8 +121,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Create(cmd_args) => {
             let fn_args = CreateWebhookArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 url: cmd_args.url,
                 description: cmd_args.description,
                 return_secret: cmd_args.return_secret,
@@ -125,8 +136,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Update(cmd_args) => {
             let fn_args = UpdateWebhookArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 url: cmd_args.url,
                 description: cmd_args.description,
                 webhook_id: cmd_args.webhook_id,
@@ -140,8 +151,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Disable(cmd_args) => {
             let fn_args = UpdateWebhookStatusArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 webhook_id: cmd_args.webhook_id,
                 enabled: false,
             };
@@ -155,8 +166,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Enable(cmd_args) => {
             let fn_args = UpdateWebhookStatusArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 webhook_id: cmd_args.webhook_id,
                 enabled: true,
             };
@@ -170,8 +181,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Test(cmd_args) => {
             let fn_args = TestWebhookArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 webhook_id: cmd_args.webhook_id,
             };
 
@@ -183,8 +194,8 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
         WebhookSubcommand::Logs(cmd_args) => {
             let fn_args = ListWebhookLogsArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 webhook_id: cmd_args.webhook_id,
                 page: cmd_args.page,
                 per_page: cmd_args.per_page,
@@ -201,22 +212,17 @@ pub async fn handle_webhook_commands(cmd: WebhookCommand, api_key: String, raw_o
                 })
         }
         WebhookSubcommand::Open(cmd_args) => {
-            handle_open_environment_webhook(
-                api_key,
-                cmd.project,
-                cmd.environment,
-                cmd_args.webhook_id,
-            )
-            .await
-            .unwrap_or_else(|err| {
-                eprintln!("{}", err);
-            });
+            handle_open_environment_webhook(api_key, project, environment, cmd_args.webhook_id)
+                .await
+                .unwrap_or_else(|err| {
+                    eprintln!("{}", err);
+                });
         }
         WebhookSubcommand::RotateSecret(cmd_args) => {
             let fn_args = RotateWebhookSecretArgs {
                 api_key,
-                project: cmd.project,
-                environment: cmd.environment,
+                project,
+                environment,
                 webhook_id: cmd_args.webhook_id,
             };
 
