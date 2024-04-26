@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::models::validation::{InputValidationError, SecretsInputValidationError};
+use crate::models::validation::{CmdOptionInputValidationError, InputValidationError};
 
 #[derive(Debug, Args)]
 pub struct SecretArgs {
@@ -26,14 +26,14 @@ impl SecretArgs {
         let (project, environment) = self.subcommand.get_project_environment();
 
         if root_project.is_some() && project.is_some() {
-            bail!(InputValidationError::Secrets(
-                SecretsInputValidationError::DuplicateProjectFlag
+            bail!(InputValidationError::CmdOptions(
+                CmdOptionInputValidationError::DuplicateProject
             ))
         }
 
         if root_environment.is_some() && environment.is_some() {
-            bail!(InputValidationError::Secrets(
-                SecretsInputValidationError::DuplicateEnvironmentFlag
+            bail!(InputValidationError::CmdOptions(
+                CmdOptionInputValidationError::DuplicateEnvironment
             ))
         }
 
@@ -42,20 +42,20 @@ impl SecretArgs {
             && environment.is_none()
             && root_environment.is_none()
         {
-            bail!(InputValidationError::Secrets(
-                SecretsInputValidationError::MissingProjectEnvironmentFlags
+            bail!(InputValidationError::CmdOptions(
+                CmdOptionInputValidationError::MissingProjectEnvironment
             ))
         }
 
         if project.is_none() && root_project.is_none() {
-            bail!(InputValidationError::Secrets(
-                SecretsInputValidationError::MissingProjectFlag
+            bail!(InputValidationError::CmdOptions(
+                CmdOptionInputValidationError::MissingProject
             ))
         }
 
         if environment.is_none() && root_environment.is_none() {
-            bail!(InputValidationError::Secrets(
-                SecretsInputValidationError::MissingEnvironmentFlag
+            bail!(InputValidationError::CmdOptions(
+                CmdOptionInputValidationError::MissingEnvironment
             ))
         }
 
