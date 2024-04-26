@@ -1,7 +1,7 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
+use super::shared;
 
 #[derive(Debug, Args)]
 pub struct SecretArgs {
@@ -17,7 +17,6 @@ pub struct SecretArgs {
     pub subcommand: SecretSubcommand,
 }
 
-// TODO: error
 impl SecretArgs {
     pub fn try_get_project_environment(&self) -> Result<(String, String)> {
         let root_project: Option<_> = self.project.as_deref();
@@ -25,51 +24,7 @@ impl SecretArgs {
 
         let (project, environment) = self.subcommand.get_project_environment();
 
-        if root_project.is_some() && project.is_some() {
-            bail!(InputValidationError::CmdArgs(
-                CmdArgInputValidationError::DuplicateProject
-            ))
-        }
-
-        if root_environment.is_some() && environment.is_some() {
-            bail!(InputValidationError::CmdArgs(
-                CmdArgInputValidationError::DuplicateEnvironment
-            ))
-        }
-
-        if project.is_none()
-            && root_project.is_none()
-            && environment.is_none()
-            && root_environment.is_none()
-        {
-            bail!(InputValidationError::CmdArgs(
-                CmdArgInputValidationError::MissingProjectEnvironment
-            ))
-        }
-
-        if project.is_none() && root_project.is_none() {
-            bail!(InputValidationError::CmdArgs(
-                CmdArgInputValidationError::MissingProject
-            ))
-        }
-
-        if environment.is_none() && root_environment.is_none() {
-            bail!(InputValidationError::CmdArgs(
-                CmdArgInputValidationError::MissingEnvironment
-            ))
-        }
-
-        let project = match root_project {
-            Some(p) => p.to_string(),
-            None => project.unwrap(),
-        };
-
-        let environment = match root_environment {
-            Some(e) => e.to_string(),
-            None => environment.unwrap(),
-        };
-
-        return Ok((project, environment));
+        shared::try_get_project_environment(root_project, root_environment, project, environment)
     }
 }
 
