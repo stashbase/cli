@@ -127,7 +127,7 @@ impl fmt::Display for CmdOptionInputValidationError {
             }
             CmdOptionInputValidationError::MissingProjectEnvironment => {
                 msg = "missing project and environment options";
-                hint = "use '-p/--project' and '-e/--environment";
+                hint = "use '-p/--project', '-e/--environment";
             }
         }
 
