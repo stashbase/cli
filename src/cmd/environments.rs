@@ -1,6 +1,10 @@
 use core::fmt;
 
+use anyhow::bail;
 use clap::{Args, Subcommand, ValueEnum};
+
+use super::shared::SharedProjectEnvArgs;
+use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
 #[derive(Debug, ValueEnum, Clone)]
 pub enum EnvironmentType {
@@ -33,11 +37,68 @@ impl fmt::Display for EnvironmentType {
 #[derive(Debug, Args)]
 pub struct EnvironmentCommands {
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = true)]
-    pub project: String,
+    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    pub project: Option<String>,
 
     #[clap(subcommand)]
     pub subcommand: EnvironmentSubcommand,
+}
+
+#[derive(Debug, Args)]
+pub struct SharedProjectArgs {
+    /// Project name
+    #[arg(
+        short = 'p',
+        long = "project",
+        hide = true,
+        required = false,
+        hide_long_help = true
+    )]
+    pub project: Option<String>,
+}
+
+// impl RequiredProjectArg for EnvironmentCommands {
+impl EnvironmentCommands {
+    pub fn try_get_project(&self) -> anyhow::Result<String> {
+        let root_project: Option<_> = self.project.as_deref();
+        let project = self.subcommand.get_project();
+
+        if root_project.is_some() && project.is_some() {
+            bail!(InputValidationError::CmdArgs(
+                CmdArgInputValidationError::DuplicateProject
+            ))
+        }
+
+        if project.is_none() && root_project.is_none() {
+            bail!(InputValidationError::CmdArgs(
+                CmdArgInputValidationError::MissingProject
+            ))
+        }
+
+        match project {
+            Some(p) => Ok(p),
+            None => Ok(root_project.unwrap().to_string()),
+        }
+    }
+}
+
+impl EnvironmentSubcommand {
+    fn get_project(&self) -> Option<String> {
+        match self {
+            EnvironmentSubcommand::List(l) => l.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Get(g) => g.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Create(c) => c.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Update(u) => u.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Duplicate(d) => d.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Compare(c) => c.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Lock(l) => l.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Unlock(u) => u.shared_args.project.to_owned(),
+            EnvironmentSubcommand::SetType(s) => s.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Delete(d) => d.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Changelog(c) => c.shared_args.project.to_owned(),
+            EnvironmentSubcommand::Open(o) => o.shared_args.project.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -89,6 +150,9 @@ pub enum EnvironmentSubcommand {
 #[derive(Debug, Args)]
 // TODO: order/group by type + locked ???
 pub struct ListEnvironments {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Search name
     #[arg(value_enum, long = "search")]
     pub search: Option<String>,
@@ -156,6 +220,9 @@ impl fmt::Display for EnvSort {
 
 #[derive(Debug, Args)]
 pub struct GetEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
 
@@ -166,6 +233,9 @@ pub struct GetEnvironment {
 
 #[derive(Debug, Args)]
 pub struct UpdateEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
 
@@ -180,6 +250,9 @@ pub struct UpdateEnvironment {
 
 #[derive(Debug, Args)]
 pub struct DuplicateEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
     /// New name
@@ -188,6 +261,9 @@ pub struct DuplicateEnvironment {
 
 #[derive(Debug, Args)]
 pub struct CompareEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name_1: String,
 
@@ -201,6 +277,9 @@ pub struct CompareEnvironment {
 
 #[derive(Debug, Args)]
 pub struct CreateEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
 
@@ -224,6 +303,9 @@ pub struct CreateEnvironment {
 
 #[derive(Debug, Args)]
 pub struct SetType {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     pub name: String,
 
     // #[arg(name = "type")]
@@ -233,8 +315,11 @@ pub struct SetType {
 
 #[derive(Debug, Args)]
 pub struct EnvChangelog {
-    /// Environmentname
-    #[arg(value_enum, short = 'e', long = "environment", required = true)]
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
+    /// Environment name
+    #[arg(value_enum, short = 'e', long = "environment", required = false)]
     pub environment: String,
 
     #[clap(subcommand)]
@@ -258,6 +343,9 @@ pub enum EnvChangelogSubcommand {
 
 #[derive(Debug, Args)]
 pub struct ListChangelog {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // /// Environment name
     // pub name: String,
     /// Show secret values
@@ -275,6 +363,9 @@ pub struct ListChangelog {
 
 #[derive(Debug, Args)]
 pub struct GetChangelogItem {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // /// Environment name
     // pub name: String,
 
@@ -285,6 +376,9 @@ pub struct GetChangelogItem {
 
 #[derive(Debug, Args)]
 pub struct RevertChangelog {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // /// Environment name
     // pub name: String,
 
