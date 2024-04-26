@@ -19,6 +19,10 @@ pub trait RequiredArgs {
     fn try_get_project_environment(&self) -> anyhow::Result<(String, String)>;
 }
 
+pub trait RequiredProjectArg {
+    fn try_get_project(&self) -> anyhow::Result<String>;
+}
+
 pub fn try_get_project_environment(
     root_project: Option<&str>,
     root_environment: Option<&str>,
