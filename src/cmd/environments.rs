@@ -37,14 +37,7 @@ impl fmt::Display for EnvironmentType {
 #[derive(Debug, Args)]
 pub struct EnvironmentCommands {
     /// Project name
-    #[arg(
-        value_enum,
-        short = 'p',
-        long = "project",
-        hide = false,
-        required = false,
-        hide_long_help = true
-    )]
+    #[arg(value_enum, short = 'p', long = "project", required = false)]
     pub project: Option<String>,
 
     #[clap(subcommand)]
