@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::shared;
+use super::shared::{try_get_project_environment, SharedProjectEnvArgs};
 
 #[derive(Debug, Args)]
 pub struct SecretArgs {
@@ -24,7 +24,7 @@ impl SecretArgs {
 
         let (project, environment) = self.subcommand.get_project_environment();
 
-        shared::try_get_project_environment(root_project, root_environment, project, environment)
+        try_get_project_environment(root_project, root_environment, project, environment)
     }
 }
 
@@ -63,18 +63,6 @@ impl SecretSubcommand {
     }
 }
 
-/// Common options for listing secrets
-#[derive(Debug, Args)]
-pub struct SharedArgs {
-    /// Project name
-    #[arg(short = 'p', long = "project", required = false, hide = true)]
-    pub project: Option<String>,
-
-    /// Environment name
-    #[arg(short = 'e', long = "environment", required = false, hide = true)]
-    pub environment: Option<String>,
-}
-
 #[derive(Debug, Subcommand)]
 pub enum SecretSubcommand {
     /// List secrets
@@ -109,7 +97,7 @@ pub enum SecretSubcommand {
 #[derive(Debug, Args)]
 pub struct ListSecrets {
     #[clap(flatten)]
-    pub shared_args: SharedArgs,
+    pub shared_args: SharedProjectEnvArgs,
 
     /// Search key
     #[arg(value_enum, long = "search")]
@@ -127,7 +115,7 @@ pub struct ListSecrets {
 #[derive(Debug, Args)]
 pub struct GetSecrets {
     #[clap(flatten)]
-    pub shared_args: SharedArgs,
+    pub shared_args: SharedProjectEnvArgs,
 
     // #[clap(short='v', long="k", value_parser, num_args = 1.., value_delimiter = ' ')]
     pub keys: Vec<String>,
@@ -140,7 +128,7 @@ pub struct GetSecrets {
 #[derive(Debug, Args)]
 pub struct DeleteSecrets {
     #[clap(flatten)]
-    pub shared_args: SharedArgs,
+    pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets (keys) to delete
     #[clap(value_parser, num_args = 1.., value_delimiter = ' ')]
@@ -154,7 +142,7 @@ pub struct DeleteSecrets {
 #[derive(Debug, Args)]
 pub struct SetSecrets {
     #[clap(flatten)]
-    pub shared_args: SharedArgs,
+    pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets to set: KEY_1=VAL_1 KEY_2=VAL_2
     #[clap(value_parser, num_args = 1..)]
@@ -169,7 +157,7 @@ pub struct SetSecrets {
 #[derive(Debug, Args)]
 pub struct UploadSecrets {
     #[clap(flatten)]
-    pub shared_args: SharedArgs,
+    pub shared_args: SharedProjectEnvArgs,
 
     // NOTE: for now only accepts .env
     /// Path to file (dotenv format)
@@ -179,7 +167,7 @@ pub struct UploadSecrets {
 #[derive(Debug, Args)]
 pub struct SetDescription {
     #[clap(flatten)]
-    pub shared_args: SharedArgs,
+    pub shared_args: SharedProjectEnvArgs,
 
     /// Secret key
     pub key: String,
@@ -191,7 +179,7 @@ pub struct SetDescription {
 #[derive(Debug, Args)]
 pub struct RenameSecrets {
     #[clap(flatten)]
-    pub shared_args: SharedArgs,
+    pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets to rename: KEY_1=NEW_KEY_1 KEY_2=NEW_KEY_2
     #[clap(value_parser, num_args = 1..)]
