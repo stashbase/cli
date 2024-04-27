@@ -285,7 +285,7 @@ pub struct SetEnableStatus {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhook rotate-secret <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT>")]
+#[command(override_usage = "webhooks rotate-secret <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT>")]
 pub struct RoateteWebhookSecret {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
