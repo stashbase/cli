@@ -1,6 +1,7 @@
 use clap::Args;
 
 #[derive(Debug, Args)]
+#[command(override_usage = "run [OPTIONS] [COMMAND]...")]
 pub struct RunCommand {
     /// Command to run
     #[clap(value_parser, num_args = 1..)]

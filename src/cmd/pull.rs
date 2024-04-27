@@ -10,6 +10,7 @@ pub enum PullFormat {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "pull [OPTIONS]")]
 pub struct PullCommand {
     /// Relative path to a config file (default: env-ease.yaml)
     #[arg(value_enum, short = 'c', long = "config")]
