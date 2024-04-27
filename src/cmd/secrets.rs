@@ -29,35 +29,35 @@ impl SecretArgs {
 }
 
 impl SecretSubcommand {
-    pub fn get_project_environment(&self) -> (Option<String>, Option<String>) {
+    pub fn get_project_environment(&self) -> (Option<&str>, Option<&str>) {
         match &self {
             SecretSubcommand::List(l) => (
-                l.shared_args.project.to_owned(),
-                l.shared_args.environment.to_owned(),
+                l.shared_args.project.as_deref(),
+                l.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Get(g) => (
-                g.shared_args.project.to_owned(),
-                g.shared_args.environment.to_owned(),
+                g.shared_args.project.as_deref(),
+                g.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Set(s) => (
-                s.shared_args.project.to_owned(),
-                s.shared_args.environment.to_owned(),
+                s.shared_args.project.as_deref(),
+                s.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Upload(u) => (
-                u.shared_args.project.to_owned(),
-                u.shared_args.environment.to_owned(),
+                u.shared_args.project.as_deref(),
+                u.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Rename(r) => (
-                r.shared_args.project.to_owned(),
-                r.shared_args.environment.to_owned(),
+                r.shared_args.project.as_deref(),
+                r.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Description(d) => (
-                d.shared_args.project.to_owned(),
-                d.shared_args.environment.to_owned(),
+                d.shared_args.project.as_deref(),
+                d.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Delete(d) => (
-                d.shared_args.project.to_owned(),
-                d.shared_args.environment.to_owned(),
+                d.shared_args.project.as_deref(),
+                d.shared_args.environment.as_deref(),
             ),
         }
     }
