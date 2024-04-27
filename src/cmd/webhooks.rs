@@ -255,11 +255,11 @@ pub struct WebhookLogs {
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<EnvironmentFormat>,
 
-    // TODO: describe
-    #[arg(value_enum, short = 'p', long = "page")]
+    /// Page number
+    #[arg(value_enum, long = "page")]
     pub page: Option<usize>,
 
-    // TODO: describe
+    /// Items per page
     #[arg(value_enum, long = "per-page")]
     pub per_page: Option<u8>,
 }
