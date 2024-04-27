@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 
 use super::{
     environments::EnvironmentFormat,
-    shared::{self, SharedProjectEnvArgs},
+    shared::{try_get_project_environment, SharedProjectEnvArgs},
 };
 
 #[derive(Debug, Args)]
@@ -27,7 +27,7 @@ impl WebhookCommand {
 
         let (project, environment) = self.subcommand.get_project_environment();
 
-        shared::try_get_project_environment(root_project, root_environment, project, environment)
+        try_get_project_environment(root_project, root_environment, project, environment)
     }
 }
 
@@ -103,51 +103,51 @@ impl WebhookSubcommand {
         }
     }
 
-    fn get_project_environment(&self) -> (Option<String>, Option<String>) {
+    fn get_project_environment(&self) -> (Option<&str>, Option<&str>) {
         match self {
             WebhookSubcommand::List(l) => (
-                l.shared_args.project.to_owned(),
-                l.shared_args.environment.to_owned(),
+                l.shared_args.project.as_deref(),
+                l.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Get(g) => (
-                g.shared_args.project.to_owned(),
-                g.shared_args.environment.to_owned(),
+                g.shared_args.project.as_deref(),
+                g.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Create(c) => (
-                c.shared_args.project.to_owned(),
-                c.shared_args.environment.to_owned(),
+                c.shared_args.project.as_deref(),
+                c.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Update(u) => (
-                u.shared_args.project.to_owned(),
-                u.shared_args.environment.to_owned(),
+                u.shared_args.project.as_deref(),
+                u.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Enable(e) => (
-                e.shared_args.project.to_owned(),
-                e.shared_args.environment.to_owned(),
+                e.shared_args.project.as_deref(),
+                e.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Disable(d) => (
-                d.shared_args.project.to_owned(),
-                d.shared_args.environment.to_owned(),
+                d.shared_args.project.as_deref(),
+                d.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Test(t) => (
-                t.shared_args.project.to_owned(),
-                t.shared_args.environment.to_owned(),
+                t.shared_args.project.as_deref(),
+                t.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::RotateSecret(r) => (
-                r.shared_args.project.to_owned(),
-                r.shared_args.environment.to_owned(),
+                r.shared_args.project.as_deref(),
+                r.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Delete(d) => (
-                d.shared_args.project.to_owned(),
-                d.shared_args.environment.to_owned(),
+                d.shared_args.project.as_deref(),
+                d.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Logs(l) => (
-                l.shared_args.project.to_owned(),
-                l.shared_args.environment.to_owned(),
+                l.shared_args.project.as_deref(),
+                l.shared_args.environment.as_deref(),
             ),
             WebhookSubcommand::Open(o) => (
-                o.shared_args.project.to_owned(),
-                o.shared_args.environment.to_owned(),
+                o.shared_args.project.as_deref(),
+                o.shared_args.environment.as_deref(),
             ),
         }
     }
