@@ -128,7 +128,7 @@ impl fmt::Display for CmdArgInputValidationError {
             CmdArgInputValidationError::MissingProjectEnvironment => {
                 msg = "project and environment not specified";
                 hint = "use '-p/--project' and '-e/--environment' arguments";
-            } 
+            }
         }
 
         writeln!(f, "{}", format!("- message: {}", msg))?;
@@ -163,7 +163,7 @@ impl fmt::Display for ProjectInputValidationError {
                 }
             }
             ProjectInputValidationError::NoUpdateFlags => {
-                msg = "no update flag specified";
+                msg = "no update option specified";
                 hint = Some("use one of: -n (--name), -d (--description)");
             }
             ProjectInputValidationError::NewNameFormat => {
