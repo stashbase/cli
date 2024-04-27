@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{bail, Result};
 use clap::Args;
 
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
@@ -30,9 +30,9 @@ pub fn try_get_project_environment(
     root_project: Option<&str>,
     root_environment: Option<&str>,
     // from subcommand
-    project: Option<String>,
-    environment: Option<String>,
-) -> anyhow::Result<(String, String)> {
+    project: Option<&str>,
+    environment: Option<&str>,
+) -> Result<(String, String)> {
     if root_project.is_some() && project.is_some() {
         bail!(InputValidationError::CmdArgs(
             CmdArgInputValidationError::DuplicateProject
@@ -69,12 +69,12 @@ pub fn try_get_project_environment(
 
     let project = match root_project {
         Some(p) => p.to_string(),
-        None => project.unwrap(),
+        None => project.unwrap().to_string(),
     };
 
     let environment = match root_environment {
         Some(e) => e.to_string(),
-        None => environment.unwrap(),
+        None => environment.unwrap().to_string(),
     };
 
     Ok((project, environment))
