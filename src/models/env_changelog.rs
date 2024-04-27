@@ -368,7 +368,7 @@ impl Display for EnvChangelogListItem {
                 if let Some(deleted) = &data.deleted {
                     if !deleted.is_empty() {
                         // writeln!(f, "\n{}", "New".green())?;
-                        // writeln!(f)?;
+                        writeln!(f)?;
 
                         let new_string = deleted
                             .into_iter()
