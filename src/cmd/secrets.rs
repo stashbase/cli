@@ -4,6 +4,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use super::shared::{try_get_project_environment, SharedProjectEnvArgs};
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct SecretArgs {
     /// Project name
     #[arg(value_enum, short = 'p', long = "project", required = false)]
@@ -95,6 +96,7 @@ pub enum SecretSubcommand {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct ListSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -113,6 +115,7 @@ pub struct ListSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets get [KEYS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct GetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -126,6 +129,7 @@ pub struct GetSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets DELETE [KEYS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct DeleteSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -140,6 +144,7 @@ pub struct DeleteSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets SET [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct SetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -155,6 +160,7 @@ pub struct SetSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets upload <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct UploadSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -165,6 +171,9 @@ pub struct UploadSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    override_usage = "secrets description <KEY> <DESCRIPTION> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub struct SetDescription {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -177,6 +186,7 @@ pub struct SetDescription {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets rename [SECETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct RenameSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
