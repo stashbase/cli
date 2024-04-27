@@ -35,6 +35,7 @@ impl fmt::Display for EnvironmentType {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments <COMMAND> -p <PROJECT> [OPTIONS]")]
 pub struct EnvironmentCommands {
     /// Project name
     #[arg(value_enum, short = 'p', long = "project", required = false)]
@@ -206,13 +207,14 @@ pub enum EnvironmentSubcommand {
     // #[clap(alias = "d")]
     Duplicate(DuplicateEnvironment),
 
+    /// Compare secrets of two environments
     Compare(CompareEnvironment),
 
     /// Lock project
-    Lock(GetEnvironment),
+    Lock(SetEnvironmentLock),
 
     /// Unlock project
-    Unlock(GetEnvironment),
+    Unlock(SetEnvironmentLock),
 
     /// Update environment type
     #[clap(aliases = &["s"])]
@@ -220,17 +222,18 @@ pub enum EnvironmentSubcommand {
 
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
-    Delete(GetEnvironment),
+    Delete(DeleteEnvironment),
 
     /// Environment changelog
     Changelog(EnvChangelog),
 
     /// Open environment in browser
     #[clap(alias = "o")]
-    Open(GetEnvironment),
+    Open(OpenEnvironment),
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments list -p <PROJECT> [OPTIONS]")]
 // TODO: order/group by type + locked ???
 pub struct ListEnvironments {
     #[clap(flatten)]
@@ -302,6 +305,7 @@ impl fmt::Display for EnvSort {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments get <NAME> -p <PROJECT> [OPTIONS]")]
 pub struct GetEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
@@ -315,6 +319,37 @@ pub struct GetEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments lock/unlock <NAME> -p <PROJECT> [OPTIONS]")]
+pub struct SetEnvironmentLock {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
+    /// Environment name
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "environments delete <NAME> -p <PROJECT> [OPTIONS]")]
+pub struct DeleteEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
+    /// Environment name
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "environments open <NAME> -p <PROJECT> [OPTIONS]")]
+pub struct OpenEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
+    /// Environment name
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "environments update <NAME> -p <PROJECT> [OPTIONS]")]
 pub struct UpdateEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
@@ -332,6 +367,7 @@ pub struct UpdateEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments duplicate <NAME> <NEW_NAME> -p <PROJECT> [OPTIONS]")]
 pub struct DuplicateEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
@@ -343,6 +379,7 @@ pub struct DuplicateEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments compare <NAME_1> <NAME_2> -p <PROJECT> [OPTIONS]")]
 pub struct CompareEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
@@ -359,6 +396,7 @@ pub struct CompareEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments create <NAME> --type <TYPE> -p <PROJECT> [OPTIONS]")]
 pub struct CreateEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
@@ -385,6 +423,7 @@ pub struct CreateEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments set-type <NAME> --type <TYPE> -p <PROJECT> [OPTIONS]")]
 pub struct SetType {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
@@ -406,6 +445,9 @@ pub struct EnvChangelog {
 }
 
 #[derive(Debug, Subcommand)]
+#[command(
+    override_usage = "environments changelog <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub enum EnvChangelogSubcommand {
     /// List changelog records
     #[clap(alias = "l")]
@@ -421,6 +463,7 @@ pub enum EnvChangelogSubcommand {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments changelog list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct ListChangelog {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -441,27 +484,33 @@ pub struct ListChangelog {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    override_usage = "environments changelog get <CHANGE_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub struct GetChangelogItem {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
     // /// Environment name
     // pub name: String,
-
-    // #[arg(value_enum, short = 'i', long = "id")]
-    /// Item id
+    //
+    /// Change id
+    #[arg(name = "change_id")]
     pub id: String,
 }
 
 #[derive(Debug, Args)]
+#[command(
+    override_usage = "environments changelog revert <CHANGE_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub struct RevertChangelog {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
     // /// Environment name
     // pub name: String,
-
-    // #[arg(value_enum, short = 'i', long = "id")]
-    /// Item id
+    //
+    /// Change id
+    #[arg(name = "change_id")]
     pub id: String,
 }
