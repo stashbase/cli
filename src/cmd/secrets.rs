@@ -1,17 +1,67 @@
+use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 
+use super::shared::{try_get_project_environment, SharedProjectEnvArgs};
+
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct SecretArgs {
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = true)]
-    pub project: String,
+    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    pub project: Option<String>,
 
     /// Environment name
-    #[arg(value_enum, short = 'e', long = "environment", required = true)]
-    pub environment: String,
+    #[arg(value_enum, short = 'e', long = "environment", required = false)]
+    pub environment: Option<String>,
 
     #[clap(subcommand)]
     pub subcommand: SecretSubcommand,
+}
+
+impl SecretArgs {
+    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
+        let root_project: Option<_> = self.project.as_deref();
+        let root_environment: Option<_> = self.environment.as_deref();
+
+        let (project, environment) = self.subcommand.get_project_environment();
+
+        try_get_project_environment(root_project, root_environment, project, environment)
+    }
+}
+
+impl SecretSubcommand {
+    pub fn get_project_environment(&self) -> (Option<&str>, Option<&str>) {
+        match &self {
+            SecretSubcommand::List(l) => (
+                l.shared_args.project.as_deref(),
+                l.shared_args.environment.as_deref(),
+            ),
+            SecretSubcommand::Get(g) => (
+                g.shared_args.project.as_deref(),
+                g.shared_args.environment.as_deref(),
+            ),
+            SecretSubcommand::Set(s) => (
+                s.shared_args.project.as_deref(),
+                s.shared_args.environment.as_deref(),
+            ),
+            SecretSubcommand::Upload(u) => (
+                u.shared_args.project.as_deref(),
+                u.shared_args.environment.as_deref(),
+            ),
+            SecretSubcommand::Rename(r) => (
+                r.shared_args.project.as_deref(),
+                r.shared_args.environment.as_deref(),
+            ),
+            SecretSubcommand::Description(d) => (
+                d.shared_args.project.as_deref(),
+                d.shared_args.environment.as_deref(),
+            ),
+            SecretSubcommand::Delete(d) => (
+                d.shared_args.project.as_deref(),
+                d.shared_args.environment.as_deref(),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -46,7 +96,11 @@ pub enum SecretSubcommand {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct ListSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     /// Search key
     #[arg(value_enum, long = "search")]
     pub search: Option<String>,
@@ -61,7 +115,11 @@ pub struct ListSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets get [KEYS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct GetSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // #[clap(short='v', long="k", value_parser, num_args = 1.., value_delimiter = ' ')]
     pub keys: Vec<String>,
 
@@ -71,7 +129,11 @@ pub struct GetSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets DELETE [KEYS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct DeleteSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     /// Secrets (keys) to delete
     #[clap(value_parser, num_args = 1.., value_delimiter = ' ')]
     pub keys: Vec<String>,
@@ -82,7 +144,11 @@ pub struct DeleteSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets SET [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct SetSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     /// Secrets to set: KEY_1=VAL_1 KEY_2=VAL_2
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
@@ -94,14 +160,24 @@ pub struct SetSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets upload <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct UploadSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // NOTE: for now only accepts .env
     /// Path to file (dotenv format)
     pub file_path: String,
 }
 
 #[derive(Debug, Args)]
+#[command(
+    override_usage = "secrets description <KEY> <DESCRIPTION> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub struct SetDescription {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     /// Secret key
     pub key: String,
 
@@ -110,7 +186,11 @@ pub struct SetDescription {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets rename [SECETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct RenameSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     /// Secrets to rename: KEY_1=NEW_KEY_1 KEY_2=NEW_KEY_2
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
