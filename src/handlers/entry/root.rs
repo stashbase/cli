@@ -46,9 +46,7 @@ pub async fn handle_cli(args: Cli) {
                 Ok(())
             }
             EntityType::Secret(cmd) => handle_secrets_commands(cmd, api_key, raw_output).await,
-
             EntityType::Webhooks(cmd) => handle_webhook_commands(cmd, api_key, raw_output).await,
-
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
                     api_key,
