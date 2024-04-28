@@ -1,6 +1,10 @@
 use core::fmt;
 
+use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
+
+use super::shared::SharedProjectEnvArgs;
+use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
 #[derive(Debug, ValueEnum, Clone)]
 pub enum EnvironmentType {
@@ -31,13 +35,154 @@ impl fmt::Display for EnvironmentType {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments <COMMAND> -p <PROJECT> [OPTIONS]")]
 pub struct EnvironmentCommands {
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = true)]
-    pub project: String,
+    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    pub project: Option<String>,
 
     #[clap(subcommand)]
     pub subcommand: EnvironmentSubcommand,
+}
+
+#[derive(Debug, Args)]
+pub struct SharedProjectArgs {
+    /// Project name
+    #[arg(
+        short = 'p',
+        long = "project",
+        hide = true,
+        required = false,
+        hide_long_help = true
+    )]
+    pub project: Option<String>,
+}
+
+// impl RequiredProjectArg for EnvironmentCommands {
+impl EnvironmentCommands {
+    pub fn try_get_project(&self) -> Result<String> {
+        let root_project: Option<_> = self.project.as_deref();
+        let project = self.subcommand.get_project();
+
+        if root_project.is_some() && project.is_some() {
+            bail!(InputValidationError::CmdArgs(
+                CmdArgInputValidationError::DuplicateProject
+            ))
+        }
+
+        if project.is_none() && root_project.is_none() {
+            bail!(InputValidationError::CmdArgs(
+                CmdArgInputValidationError::MissingProject
+            ))
+        }
+
+        match project {
+            Some(p) => Ok(p.to_string()),
+            None => Ok(root_project.unwrap().to_string()),
+        }
+    }
+
+    // for changelog
+    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
+        if let EnvironmentSubcommand::Changelog(c) = &self.subcommand {
+            let root_project = self.project.as_deref();
+            let subcommand_project = self.subcommand.get_project();
+
+            let nested_subcommand_project = match &c.subcommand {
+                EnvChangelogSubcommand::List(l) => l.shared_args.project.as_deref(),
+                EnvChangelogSubcommand::Get(g) => g.shared_args.project.as_deref(),
+                EnvChangelogSubcommand::Revert(r) => r.shared_args.project.as_deref(),
+            };
+
+            let mut project_arg_count = 0;
+
+            if root_project.is_some() {
+                project_arg_count += 1
+            }
+
+            if subcommand_project.is_some() {
+                project_arg_count += 1
+            }
+            if nested_subcommand_project.is_some() {
+                project_arg_count += 1
+            }
+
+            // environment
+            let subcommand_environment = c.shared_args.environment.as_deref();
+            let nested_subcommand_environment = match &c.subcommand {
+                EnvChangelogSubcommand::List(l) => l.shared_args.environment.as_deref(),
+                EnvChangelogSubcommand::Get(g) => g.shared_args.environment.as_deref(),
+                EnvChangelogSubcommand::Revert(r) => r.shared_args.environment.as_deref(),
+            };
+
+            // checks
+            if project_arg_count > 1 {
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::DuplicateProject
+                ))
+            }
+
+            if subcommand_environment.is_some() && nested_subcommand_environment.is_some() {
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::DuplicateEnvironment
+                ))
+            }
+
+            if project_arg_count == 0 {
+                if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
+                    bail!(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::MissingProjectEnvironment
+                    ))
+                }
+
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::MissingProject
+                ))
+            }
+
+            if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
+                bail!(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::MissingEnvironment
+                ))
+            }
+
+            let project = match nested_subcommand_project {
+                Some(p) => p.to_string(),
+                None => match subcommand_project {
+                    Some(p) => p.to_string(),
+                    None => root_project.unwrap().to_string(),
+                },
+            };
+
+            let environment = match nested_subcommand_environment {
+                Some(e) => e.to_string(),
+                None => subcommand_environment.unwrap().to_string(),
+            };
+
+            return Ok((project, environment));
+        } else {
+            bail!("Changelog subcommand is only supported for changelog command")
+        }
+    }
+}
+
+impl EnvironmentSubcommand {
+    fn get_project(&self) -> Option<&String> {
+        match self {
+            EnvironmentSubcommand::List(l) => l.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Get(g) => g.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Create(c) => c.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Update(u) => u.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Duplicate(d) => d.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Compare(c) => c.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Lock(l) => l.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Unlock(u) => u.shared_args.project.as_ref(),
+            EnvironmentSubcommand::SetType(s) => s.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Delete(d) => d.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Changelog(c) => c.shared_args.project.as_ref(),
+            EnvironmentSubcommand::Open(o) => o.shared_args.project.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -62,13 +207,14 @@ pub enum EnvironmentSubcommand {
     // #[clap(alias = "d")]
     Duplicate(DuplicateEnvironment),
 
+    /// Compare secrets of two environments
     Compare(CompareEnvironment),
 
     /// Lock project
-    Lock(GetEnvironment),
+    Lock(SetEnvironmentLock),
 
     /// Unlock project
-    Unlock(GetEnvironment),
+    Unlock(SetEnvironmentLock),
 
     /// Update environment type
     #[clap(aliases = &["s"])]
@@ -76,19 +222,23 @@ pub enum EnvironmentSubcommand {
 
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
-    Delete(GetEnvironment),
+    Delete(DeleteEnvironment),
 
     /// Environment changelog
     Changelog(EnvChangelog),
 
     /// Open environment in browser
     #[clap(alias = "o")]
-    Open(GetEnvironment),
+    Open(OpenEnvironment),
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments list -p <PROJECT> [OPTIONS]")]
 // TODO: order/group by type + locked ???
 pub struct ListEnvironments {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Search name
     #[arg(value_enum, long = "search")]
     pub search: Option<String>,
@@ -155,7 +305,11 @@ impl fmt::Display for EnvSort {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments get <NAME> -p <PROJECT> [OPTIONS]")]
 pub struct GetEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
 
@@ -165,7 +319,41 @@ pub struct GetEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments lock/unlock <NAME> -p <PROJECT> [OPTIONS]")]
+pub struct SetEnvironmentLock {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
+    /// Environment name
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "environments delete <NAME> -p <PROJECT> [OPTIONS]")]
+pub struct DeleteEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
+    /// Environment name
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "environments open <NAME> -p <PROJECT> [OPTIONS]")]
+pub struct OpenEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
+    /// Environment name
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "environments update <NAME> -p <PROJECT> [OPTIONS]")]
 pub struct UpdateEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
 
@@ -179,7 +367,11 @@ pub struct UpdateEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments duplicate <NAME> <NEW_NAME> -p <PROJECT> [OPTIONS]")]
 pub struct DuplicateEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
     /// New name
@@ -187,7 +379,11 @@ pub struct DuplicateEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments compare <NAME_1> <NAME_2> -p <PROJECT> [OPTIONS]")]
 pub struct CompareEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name_1: String,
 
@@ -200,7 +396,11 @@ pub struct CompareEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments create <NAME> --type <TYPE> -p <PROJECT> [OPTIONS]")]
 pub struct CreateEnvironment {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     /// Environment name
     pub name: String,
 
@@ -223,7 +423,11 @@ pub struct CreateEnvironment {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments set-type <NAME> --type <TYPE> -p <PROJECT> [OPTIONS]")]
 pub struct SetType {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectArgs,
+
     pub name: String,
 
     // #[arg(name = "type")]
@@ -233,15 +437,17 @@ pub struct SetType {
 
 #[derive(Debug, Args)]
 pub struct EnvChangelog {
-    /// Environmentname
-    #[arg(value_enum, short = 'e', long = "environment", required = true)]
-    pub environment: String,
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
 
     #[clap(subcommand)]
     pub subcommand: EnvChangelogSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
+#[command(
+    override_usage = "environments changelog <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub enum EnvChangelogSubcommand {
     /// List changelog records
     #[clap(alias = "l")]
@@ -257,11 +463,15 @@ pub enum EnvChangelogSubcommand {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "environments changelog list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct ListChangelog {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // /// Environment name
     // pub name: String,
     /// Show secret values
-    #[arg(value_enum, short = 'p', long = "page")]
+    #[arg(value_enum, long = "page")]
     pub page: Option<usize>,
 
     /// Show secret values
@@ -274,21 +484,33 @@ pub struct ListChangelog {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    override_usage = "environments changelog get <CHANGE_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub struct GetChangelogItem {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // /// Environment name
     // pub name: String,
-
-    // #[arg(value_enum, short = 'i', long = "id")]
-    /// Item id
+    //
+    /// Change id
+    #[arg(name = "change_id")]
     pub id: String,
 }
 
 #[derive(Debug, Args)]
+#[command(
+    override_usage = "environments changelog revert <CHANGE_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub struct RevertChangelog {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
     // /// Environment name
     // pub name: String,
-
-    // #[arg(value_enum, short = 'i', long = "id")]
-    /// Item id
+    //
+    /// Change id
+    #[arg(name = "change_id")]
     pub id: String,
 }

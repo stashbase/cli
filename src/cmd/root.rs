@@ -7,7 +7,8 @@ use super::{
 
 #[derive(Debug, Parser)]
 #[command(author, version)]
-#[command(about = "Env ease CLI")]
+#[command(about = "Stashbase CLI")]
+#[command(override_usage = "stashbase <COMMAND> [OPTIONS]")]
 
 pub struct Cli {
     /// Output data as pretty json
