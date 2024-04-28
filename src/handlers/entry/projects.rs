@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use crate::{
     cmd::projects::{ProjectCommands, ProjectSubcommand, ProjectsFromat},
     handlers::projects::{
@@ -10,7 +12,11 @@ use crate::{
     },
 };
 
-pub async fn handle_project_commands(cmd: ProjectCommands, api_key: String, raw_output: bool) {
+pub async fn handle_project_commands(
+    cmd: ProjectCommands,
+    api_key: String,
+    raw_output: bool,
+) -> Result<()> {
     match cmd.subcommand {
         ProjectSubcommand::List(args) => {
             let args = HandleListProjectsArgs {
@@ -24,9 +30,7 @@ pub async fn handle_project_commands(cmd: ProjectCommands, api_key: String, raw_
                 },
             };
 
-            handle_list_projects(args).await.unwrap_or_else(|err| {
-                println!("{:?}", err);
-            });
+            handle_list_projects(args).await?;
         }
 
         ProjectSubcommand::Get(args) => {
@@ -38,41 +42,22 @@ pub async fn handle_project_commands(cmd: ProjectCommands, api_key: String, raw_
                 },
                 args.name,
             )
-            .await
-            .unwrap_or_else(|err| {
-                eprintln!("{:?}", err);
-            });
+            .await?;
         }
 
         ProjectSubcommand::Create(args) => {
-            handle_create_project(api_key, args.name, args.description)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+            handle_create_project(api_key, args.name, args.description).await?;
         }
-
         ProjectSubcommand::Delete(args) => {
-            handle_delete_project(api_key, args.name)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+            handle_delete_project(api_key, args.name).await?;
         }
         ProjectSubcommand::Open(args) => {
-            handle_open_project(api_key, args.name)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+            handle_open_project(api_key, args.name).await?;
         }
-
         ProjectSubcommand::Update(args) => {
-            handle_update_project(api_key, args.name, args.new_name, args.description)
-                .await
-                .unwrap_or_else(|err| {
-                    eprintln!("{:?}", err);
-                });
+            handle_update_project(api_key, args.name, args.new_name, args.description).await?;
         }
     }
+
+    Ok(())
 }

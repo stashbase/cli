@@ -3,6 +3,7 @@ use core::fmt;
 use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
+#[command(override_usage = "projects <COMMAND> [OPTIONS]")]
 pub struct ProjectCommands {
     #[clap(subcommand)]
     pub subcommand: ProjectSubcommand,
@@ -36,6 +37,7 @@ pub enum ProjectSubcommand {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "projects list [OPTIONS]")]
 // TODO: perPage, pages + other args
 pub struct ListProjects {
     /// Search name
@@ -85,6 +87,7 @@ impl fmt::Display for Sort {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "projects create <NAME> [OPTIONS]")]
 pub struct CreateProject {
     /// Project name
     pub name: String,
@@ -95,6 +98,7 @@ pub struct CreateProject {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "projects update <NAME> [OPTIONS]")]
 pub struct UpdateProject {
     /// Project name
     pub name: String,
@@ -109,6 +113,7 @@ pub struct UpdateProject {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "projects get <NAME> [OPTIONS]")]
 pub struct GetProject {
     /// Project name
     pub name: String,
@@ -119,12 +124,14 @@ pub struct GetProject {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "projects delete <NAME> [OPTIONS]")]
 pub struct DeleteProject {
     /// Project name
     pub name: String,
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "projects open <NAME> [OPTIONS]")]
 pub struct OpenProject {
     /// Project name
     pub name: String,

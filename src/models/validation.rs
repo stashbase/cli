@@ -3,6 +3,7 @@ use owo_colors::OwoColorize;
 
 #[derive(Debug)]
 pub enum InputValidationError {
+    CmdArgs(CmdArgInputValidationError),
     Projects(ProjectInputValidationError),
     Secrets(SecretsInputValidationError),
     Environments(EnvironmentsInputValidationError),
@@ -10,6 +11,15 @@ pub enum InputValidationError {
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PullEnvironment(PullEnvironmentInputValidationError),
     Webhook(WebhookInputValidationError),
+}
+
+#[derive(Debug)]
+pub enum CmdArgInputValidationError {
+    MissingProject,
+    DuplicateProject,
+    MissingEnvironment,
+    DuplicateEnvironment,
+    MissingProjectEnvironment,
 }
 
 #[derive(Debug)]
@@ -93,6 +103,41 @@ pub enum PullEnvironmentInputValidationError {
     // other errors same as from LoadEnvironment
 }
 
+impl fmt::Display for CmdArgInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: &str;
+
+        match self {
+            CmdArgInputValidationError::MissingProject => {
+                msg = "project not specified";
+                hint = "use '-p/--project' argument to specify the project";
+            }
+            CmdArgInputValidationError::DuplicateProject => {
+                msg = "project specified multiple times";
+                hint = "use '-p/--project' argument only once";
+            }
+            CmdArgInputValidationError::MissingEnvironment => {
+                msg = "environment not specified";
+                hint = "use '-e/--environment' argument to specify the environment";
+            }
+            CmdArgInputValidationError::DuplicateEnvironment => {
+                msg = "environment specified multiple times";
+                hint = "use '-e/--environment' argument only once";
+            }
+            CmdArgInputValidationError::MissingProjectEnvironment => {
+                msg = "project and environment not specified";
+                hint = "use '-p/--project' and '-e/--environment' arguments";
+            }
+        }
+
+        writeln!(f, "{}", format!("- message: {}", msg))?;
+        write!(f, "{}", format!("- hint: {}", hint))?;
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for ProjectInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg: &str;
@@ -118,7 +163,7 @@ impl fmt::Display for ProjectInputValidationError {
                 }
             }
             ProjectInputValidationError::NoUpdateFlags => {
-                msg = "no update flag specified";
+                msg = "no update option specified";
                 hint = Some("use one of: -n (--name), -d (--description)");
             }
             ProjectInputValidationError::NewNameFormat => {
@@ -447,6 +492,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::LoadEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::PullEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),
+            InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
         }
     }
 }
