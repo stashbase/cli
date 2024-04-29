@@ -279,7 +279,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         GetRequestApiResponse::Ok(data) => {
             // handle_ok_response(&mut spinner, command, only_len, print_secrets, data).await?;
 
-            let secrets = serde_json::from_str::<HashMap<String, String>>(&data.text);
+            let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
 
             if let Ok(mut secrets) = secrets {
                 if secrets.is_empty() && setted_secrets.is_empty() {
@@ -325,13 +325,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                         if !setted_secrets.is_empty() {
                             for (key, value) in setted_secrets {
                                 // secrets.push(SecretWithoutDescription { key, value })
-                                secrets.insert(key, value);
+                                secrets.push(SecretWithoutDescription { key, value });
                             }
                         }
 
                         // format secret values (remove quotes if needed)
-                        for (_, value) in secrets.iter_mut() {
-                            *value = format_env_variable_value(value.to_string());
+                        for s in secrets.iter_mut() {
+                            s.value = format_env_variable_value(s.value.to_string());
                         }
 
                         handle_run(&mut None, command, print_secrets, secrets, is_from_file)
@@ -342,13 +342,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 } else {
                     if !setted_secrets.is_empty() {
                         for (key, value) in setted_secrets {
-                            secrets.insert(key, value);
+                            secrets.push(SecretWithoutDescription { key, value });
                         }
                     }
 
                     // format secret values (remove quotes)
-                    for (_, value) in secrets.iter_mut() {
-                        *value = format_env_variable_value(value.to_string());
+                    for s in secrets.iter_mut() {
+                        s.value = format_env_variable_value(s.value.to_string());
                     }
 
                     handle_run(
@@ -377,7 +377,7 @@ async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
     print_secrets: bool,
-    secrets: HashMap<String, String>,
+    secrets: Vec<SecretWithoutDescription>,
     is_from_file: bool,
 ) -> Result<()> {
     let mut success_msg = format!(
@@ -411,18 +411,7 @@ async fn handle_run(
     debug!("{:#?}", &secrets);
 
     if print_secrets {
-        // Sort the secrets
-        let mut sorted_secrets: Vec<_> = secrets
-            .iter()
-            .map(|s| SecretWithoutDescription {
-                key: s.0.to_string(),
-                value: s.1.to_string(),
-            })
-            .collect();
-
-        sorted_secrets.sort_by(|a, b| a.key.cmp(&b.key));
-
-        print_table(&sorted_secrets);
+        print_table(&secrets);
     }
 
     debug!("{:#?}", command);
@@ -449,8 +438,13 @@ async fn handle_run(
         .map(|s| s)
         .collect::<Vec<String>>();
 
+    let secrets_hash_map = env_vars
+        .into_iter()
+        .map(|s| (s.key, s.value))
+        .collect::<HashMap<String, String>>();
+
     // TODO: errors: no such file or directory
-    subprocess::run_command(&cmd, args, env_vars)
+    subprocess::run_command(&cmd, args, secrets_hash_map)
         .await
         .unwrap_or_else(|e| {
             eprintln!("{}: {}", "Failed to run command".red(), e);
