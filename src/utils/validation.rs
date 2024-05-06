@@ -231,7 +231,7 @@ pub fn validate_env_changelog_id(value: &str) -> Result<()> {
 }
 
 pub fn validate_webhook_id(value: &str) -> Result<()> {
-    let prefix = "we_";
+    let prefix = "wh_";
 
     if (value.starts_with(prefix)) == false {
         let input_err = WebhookInputValidationError::InvalidId;
