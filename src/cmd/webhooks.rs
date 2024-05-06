@@ -80,6 +80,7 @@ impl WebhookSubcommand {
             WebhookSubcommand::Test(cmd) => Some(&cmd.webhook_id),
             WebhookSubcommand::Update(cmd) => Some(&cmd.webhook_id),
             WebhookSubcommand::Enable(cmd) => Some(&cmd.webhook_id),
+            WebhookSubcommand::Disable(cmd) => Some(&cmd.webhook_id),
             WebhookSubcommand::Open(cmd) => match &cmd.webhook_id {
                 Some(webhook_id) => Some(webhook_id),
                 None => None,
