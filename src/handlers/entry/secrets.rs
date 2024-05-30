@@ -27,7 +27,6 @@ pub async fn handle_secrets_commands(
                 project,
                 environment,
                 only_keys: args.only_keys,
-                search: args.search,
                 format: args.format.unwrap_or(if raw_output {
                     SecretsFromat::Json
                 } else {

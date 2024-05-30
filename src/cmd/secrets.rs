@@ -101,10 +101,6 @@ pub struct ListSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    /// Search key
-    #[arg(value_enum, long = "search")]
-    pub search: Option<String>,
-
     /// Project description
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsFromat>,
