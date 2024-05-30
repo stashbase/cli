@@ -16,27 +16,11 @@ pub async fn list(
     api_key: String,
     project: String,
     environment: String,
-    search: Option<String>,
     only_keys: bool,
 ) -> Result<GetRequestApiResponse> {
     let query = match only_keys {
-        true => {
-            if let Some(search) = search {
-                Some(vec![
-                    (format!("only-keys"), format!("true")),
-                    (format!("search"), search.to_string()),
-                ])
-            } else {
-                Some(vec![(format!("only-keys"), format!("true"))])
-            }
-        }
-        false => {
-            if let Some(search) = search {
-                Some(vec![(format!("search"), search.to_string())])
-            } else {
-                None
-            }
-        }
+        true => Some(vec![(format!("only-keys"), format!("true"))]),
+        false => None,
     };
 
     let args = RequestArgs {
