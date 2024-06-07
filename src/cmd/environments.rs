@@ -3,7 +3,7 @@ use core::fmt;
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::shared::SharedProjectEnvArgs;
+use super::{configs::OutputFormat, shared::SharedProjectEnvArgs};
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -265,15 +265,7 @@ pub struct ListEnvironments {
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<EnvironmentFormat>,
-}
-
-#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
-pub enum EnvironmentFormat {
-    #[default]
-    List,
-    Json,
-    Table,
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -315,7 +307,7 @@ pub struct GetEnvironment {
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<EnvironmentFormat>,
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]
