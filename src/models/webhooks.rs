@@ -51,6 +51,44 @@ pub struct Webhook {
     // created_by: string
 }
 
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct TableWebhook {
+    #[tabled(order = 3)]
+    url: String,
+
+    #[tabled(order = 0)]
+    enabled: bool,
+
+    #[tabled(order = 1)]
+    created_at: String,
+
+    #[tabled(order = 4)]
+    description: String,
+
+    #[tabled(order = 2)]
+    signing_secret: String,
+    // created_by: string
+}
+
+impl From<Webhook> for TableWebhook {
+    fn from(webhook: Webhook) -> Self {
+        Self {
+            url: webhook.url,
+            enabled: webhook.enabled,
+            created_at: webhook.created_at,
+            description: webhook
+                .description
+                .unwrap_or_else(|| "".to_string())
+                .to_string(),
+            signing_secret: webhook
+                .signing_secret
+                .unwrap_or_else(|| "••••••••".to_string())
+                .to_string(),
+        }
+    }
+}
+
 impl Display for Webhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.enabled == true {
