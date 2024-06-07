@@ -7,15 +7,15 @@ use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
 
 use crate::{
-    cmd::secrets::SecretsFromat,
+    cmd::configs::SecretsOutputFormat,
     models::secrets::{Secret, SecretOnlyKey, SecretWithDescription, SecretWithoutDescription},
 };
 
 use super::tables::build::build_table;
 
-pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
+pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> String {
     match format {
-        SecretsFromat::List => {
+        SecretsOutputFormat::List => {
             let mut text_to_print = String::new();
 
             for (i, p) in secrets.iter().enumerate() {
@@ -37,7 +37,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
 
             text_to_print
         }
-        SecretsFromat::Dotenv => {
+        SecretsOutputFormat::Dotenv => {
             let dotenv_string: String = secrets
                 .iter()
                 .enumerate()
@@ -85,13 +85,13 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
 
             dotenv_string
         }
-        SecretsFromat::Json => {
+        SecretsOutputFormat::Json => {
             let value = serde_json::to_value(&secrets).unwrap();
             let pretty = to_colored_json_auto(&value).unwrap();
 
             pretty
         }
-        SecretsFromat::Table => {
+        SecretsOutputFormat::Table => {
             // TODO: cehck no have description -> dont show descr col
             let has_some_description = secrets.iter().any(|s| s.has_description());
 
@@ -120,9 +120,9 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsFromat) -> String {
     }
 }
 
-pub fn format_secret_keys(keys: Vec<String>, format: &SecretsFromat) -> String {
+pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> String {
     match format {
-        SecretsFromat::List => {
+        SecretsOutputFormat::List => {
             let mut text_to_print = String::new();
 
             for (i, p) in keys.iter().enumerate() {
@@ -136,7 +136,7 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsFromat) -> String {
 
             text_to_print
         }
-        SecretsFromat::Dotenv => {
+        SecretsOutputFormat::Dotenv => {
             let mut text_to_print = String::new();
 
             for (i, p) in keys.iter().enumerate() {
@@ -150,13 +150,13 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsFromat) -> String {
 
             text_to_print
         }
-        SecretsFromat::Json => {
+        SecretsOutputFormat::Json => {
             let value = serde_json::to_value(&keys).unwrap();
             let pretty = to_colored_json_auto(&value).unwrap();
 
             pretty
         }
-        SecretsFromat::Table => {
+        SecretsOutputFormat::Table => {
             let table_secrets = keys
                 .into_iter()
                 .map(|s| {
