@@ -1,6 +1,8 @@
 use crate::{
     cmd::configs::{ConfigCommands, ConfigSubcommand, SetConfigSubcommand},
-    handlers::config::set::{set_api_key, set_default_output_format},
+    handlers::config::set::{
+        set_api_key, set_default_output_format, set_default_output_format_secrets,
+    },
 };
 
 pub async fn handle_config_commands(cmd: ConfigCommands) {
@@ -11,6 +13,9 @@ pub async fn handle_config_commands(cmd: ConfigCommands) {
             }
             SetConfigSubcommand::Output(d) => {
                 set_default_output_format(d.format);
+            }
+            SetConfigSubcommand::OutputSecrets(args) => {
+                set_default_output_format_secrets(args.format);
             }
         },
     }
