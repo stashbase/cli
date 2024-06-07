@@ -37,13 +37,21 @@ pub async fn handle_environment_commands(
 
         match &c.subcommand {
             EnvChangelogSubcommand::List(args) => {
+                let raw_json_output = match raw_output {
+                    true => false,
+                    false => match default_output_format == Some(OutputFormat::Json) {
+                        true => true,
+                        false => false,
+                    },
+                };
+
                 let args = HandleEnvChangelogListArgs {
                     api_key,
                     project,
                     environment,
                     show_values: args.show_values,
                     page: args.page,
-                    raw: raw_output,
+                    raw: raw_json_output,
                 };
 
                 handle_list_changelog(args).await?;
@@ -59,11 +67,19 @@ pub async fn handle_environment_commands(
                 handle_revert_changelog_change(args).await?;
             }
             EnvChangelogSubcommand::Get(args) => {
+                let raw_json_output = match raw_output {
+                    true => false,
+                    false => match default_output_format == Some(OutputFormat::Json) {
+                        true => true,
+                        false => false,
+                    },
+                };
+
                 let args = HandleGetEnvChangelogItemArgs {
                     api_key,
                     project,
                     environment,
-                    raw: raw_output,
+                    raw: raw_json_output,
                     change_id: args.id.to_owned(),
                 };
 
