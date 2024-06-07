@@ -4,7 +4,7 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    cmd::projects::{ProjectsFromat, Sort},
+    cmd::{configs::OutputFormat, projects::Sort},
     models::{
         api_client::GetRequestApiResponse,
         projects::{ProjectWithCount, ProjectWithCountNoDescriptionTable},
@@ -20,7 +20,7 @@ pub struct HandleListProjectsArgs {
     pub search: Option<String>,
     pub sort: Option<Sort>,
     pub descending: bool,
-    pub format: ProjectsFromat,
+    pub format: OutputFormat,
 }
 
 pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
@@ -70,13 +70,13 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                         spinner.stop_and_persist("", "");
 
                         match format {
-                            ProjectsFromat::List => {
+                            OutputFormat::List => {
                                 output_list(projects);
                             }
-                            ProjectsFromat::Json => {
+                            OutputFormat::Json => {
                                 output_json(projects);
                             }
-                            ProjectsFromat::Table => {
+                            OutputFormat::Table => {
                                 // reverse because returned fro list -> last is first (for
                                 // lists)
                                 projects.reverse();

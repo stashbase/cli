@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
-        environments::EnvironmentFormat,
+        configs::OutputFormat,
         webhooks::{WebhookCommand, WebhookSubcommand},
     },
     handlers::webhooks::{
@@ -17,9 +17,12 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
-    utils::validation::{
-        validate_project_environment, validate_webhook_description, validate_webhook_id,
-        validate_webhook_url,
+    utils::{
+        output::get_output_format,
+        validation::{
+            validate_project_environment, validate_webhook_description, validate_webhook_id,
+            validate_webhook_url,
+        },
     },
 };
 
@@ -61,6 +64,7 @@ pub async fn handle_webhook_commands(
     cmd: WebhookCommand,
     api_key: String,
     raw_output: bool,
+    default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     // required options
     let (project, environment) = cmd.try_get_project_environment()?;
@@ -70,26 +74,27 @@ pub async fn handle_webhook_commands(
 
     match cmd.subcommand {
         WebhookSubcommand::List(args) => {
+            let format = get_output_format(raw_output, default_output_format, args.format);
+
             let args = ListWebhooksArgs {
                 api_key,
                 project,
                 environment,
-                format: match raw_output {
-                    true => EnvironmentFormat::Json,
-                    false => args.format.unwrap_or_default(),
-                },
+                format,
             };
 
             handle_list_webhooks(args).await?;
         }
         WebhookSubcommand::Get(args) => {
+            let format = get_output_format(raw_output, default_output_format, args.format);
+
             let args = GetWebhookArgs {
                 api_key,
                 project,
                 environment,
                 webhook_id: args.webhook_id,
                 with_secret: args.with_secret,
-                format_json: raw_output,
+                format,
             };
 
             handle_get_webhook(args).await?;
@@ -164,6 +169,8 @@ pub async fn handle_webhook_commands(
         }
 
         WebhookSubcommand::Logs(cmd_args) => {
+            let format = get_output_format(raw_output, default_output_format, cmd_args.format);
+
             let fn_args = ListWebhookLogsArgs {
                 api_key,
                 project,
@@ -171,10 +178,7 @@ pub async fn handle_webhook_commands(
                 webhook_id: cmd_args.webhook_id,
                 page: cmd_args.page,
                 per_page: cmd_args.per_page,
-                format: match raw_output {
-                    true => EnvironmentFormat::Json,
-                    false => cmd_args.format.unwrap_or_default(),
-                },
+                format,
             };
 
             handle_list_webhook_logs(fn_args).await?;

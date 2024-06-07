@@ -1,7 +1,10 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::projects::{ProjectCommands, ProjectSubcommand, ProjectsFromat},
+    cmd::{
+        configs::OutputFormat,
+        projects::{ProjectCommands, ProjectSubcommand},
+    },
     handlers::projects::{
         create::handle_create_project,
         delete::handle_delete_project,
@@ -10,39 +13,33 @@ use crate::{
         open::handle_open_project,
         update::handle_update_project,
     },
+    utils::output::get_output_format,
 };
 
 pub async fn handle_project_commands(
     cmd: ProjectCommands,
     api_key: String,
     raw_output: bool,
+    default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     match cmd.subcommand {
         ProjectSubcommand::List(args) => {
+            let format = get_output_format(raw_output, default_output_format, args.format);
+
             let args = HandleListProjectsArgs {
                 api_key,
                 search: args.search,
                 sort: args.sort,
                 descending: args.descending,
-                format: match raw_output {
-                    true => ProjectsFromat::Json,
-                    false => args.format.unwrap_or_default(),
-                },
+                format,
             };
 
             handle_list_projects(args).await?;
         }
 
         ProjectSubcommand::Get(args) => {
-            handle_get_project(
-                api_key,
-                match raw_output {
-                    true => ProjectsFromat::Json,
-                    false => args.format.unwrap_or_default(),
-                },
-                args.name,
-            )
-            .await?;
+            let format = get_output_format(raw_output, default_output_format, args.format);
+            handle_get_project(api_key, format, args.name).await?;
         }
 
         ProjectSubcommand::Create(args) => {

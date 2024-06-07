@@ -1,8 +1,9 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::environments::{
-        EnvChangelogSubcommand, EnvironmentCommands, EnvironmentFormat, EnvironmentSubcommand,
+    cmd::{
+        configs::OutputFormat,
+        environments::{EnvChangelogSubcommand, EnvironmentCommands, EnvironmentSubcommand},
     },
     handlers::{
         env_changelog::{
@@ -23,25 +24,39 @@ use crate::{
             update_type::handle_update_env_type,
         },
     },
+    utils::output::get_output_format,
 };
+
+pub fn is_json_output(raw_output: bool, default_output_format: Option<OutputFormat>) -> bool {
+    match raw_output {
+        true => true,
+        false => match default_output_format == Some(OutputFormat::Json) {
+            true => true,
+            false => false,
+        },
+    }
+}
 
 pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
     api_key: String,
     raw_output: bool,
+    default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     if let EnvironmentSubcommand::Changelog(c) = &cmd.subcommand {
         let (project, environment) = cmd.try_get_project_environment()?;
 
         match &c.subcommand {
             EnvChangelogSubcommand::List(args) => {
+                let json_output = is_json_output(raw_output, default_output_format);
+
                 let args = HandleEnvChangelogListArgs {
                     api_key,
                     project,
                     environment,
                     show_values: args.show_values,
                     page: args.page,
-                    raw: raw_output,
+                    raw: json_output,
                 };
 
                 handle_list_changelog(args).await?;
@@ -57,11 +72,13 @@ pub async fn handle_environment_commands(
                 handle_revert_changelog_change(args).await?;
             }
             EnvChangelogSubcommand::Get(args) => {
+                let json_output = is_json_output(raw_output, default_output_format);
+
                 let args = HandleGetEnvChangelogItemArgs {
                     api_key,
                     project,
                     environment,
-                    raw: raw_output,
+                    raw: json_output,
                     change_id: args.id.to_owned(),
                 };
 
@@ -75,6 +92,8 @@ pub async fn handle_environment_commands(
 
         match cmd.subcommand {
             EnvironmentSubcommand::List(args) => {
+                let format = get_output_format(raw_output, default_output_format, args.format);
+
                 let args = HandleListEnvironmentsArgs {
                     api_key,
                     project,
@@ -84,26 +103,15 @@ pub async fn handle_environment_commands(
                     types: args.types,
                     locked: args.locked,
                     unlocked: args.unlocked,
-                    format: match raw_output {
-                        true => EnvironmentFormat::Json,
-                        false => args.format.unwrap_or_default(),
-                    },
+                    format,
                 };
 
                 handle_list_environments(args).await?;
             }
 
             EnvironmentSubcommand::Get(args) => {
-                handle_get_environment(
-                    api_key,
-                    match raw_output {
-                        true => EnvironmentFormat::Json,
-                        false => args.format.unwrap_or_default(),
-                    },
-                    project,
-                    args.name,
-                )
-                .await?;
+                let format = get_output_format(raw_output, default_output_format, args.format);
+                handle_get_environment(api_key, format, project, args.name).await?;
             }
             EnvironmentSubcommand::Open(args) => {
                 handle_open_environment(api_key, project, args.name).await?;
@@ -149,13 +157,15 @@ pub async fn handle_environment_commands(
             }
 
             EnvironmentSubcommand::Compare(args) => {
+                let json_format = is_json_output(raw_output, default_output_format);
+
                 let handler_args = HandleCompareEnvironmentsArgs {
                     api_key,
                     project,
                     environment_1: args.name_1,
                     environment_2: args.name_2,
                     only_keys: args.only_keys,
-                    json_format: raw_output,
+                    json_format,
                 };
 
                 handle_compare_environments(handler_args).await?;
