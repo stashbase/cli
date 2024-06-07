@@ -1,7 +1,10 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::projects::{ProjectCommands, ProjectSubcommand, ProjectsFromat},
+    cmd::{
+        configs::OutputFormat,
+        projects::{ProjectCommands, ProjectSubcommand},
+    },
     handlers::projects::{
         create::handle_create_project,
         delete::handle_delete_project,
@@ -16,6 +19,7 @@ pub async fn handle_project_commands(
     cmd: ProjectCommands,
     api_key: String,
     raw_output: bool,
+    default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     match cmd.subcommand {
         ProjectSubcommand::List(args) => {
@@ -25,8 +29,10 @@ pub async fn handle_project_commands(
                 sort: args.sort,
                 descending: args.descending,
                 format: match raw_output {
-                    true => ProjectsFromat::Json,
-                    false => args.format.unwrap_or_default(),
+                    true => OutputFormat::Json,
+                    false => args
+                        .format
+                        .unwrap_or(default_output_format.unwrap_or_default()),
                 },
             };
 
@@ -37,8 +43,10 @@ pub async fn handle_project_commands(
             handle_get_project(
                 api_key,
                 match raw_output {
-                    true => ProjectsFromat::Json,
-                    false => args.format.unwrap_or_default(),
+                    true => OutputFormat::Json,
+                    false => args
+                        .format
+                        .unwrap_or(default_output_format.unwrap_or_default()),
                 },
                 args.name,
             )
