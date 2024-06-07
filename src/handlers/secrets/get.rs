@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
-    cmd::secrets::SecretsFromat,
+    cmd::configs::SecretsOutputFormat,
     models::{
         api_client::PostPatchRequestApiResponse,
         secrets::{GetSelectedSecretsPayload, Secret},
@@ -22,7 +22,7 @@ pub struct HandleGetSecretsArgs {
     pub project: String,
     pub environment: String,
     pub keys: Vec<String>,
-    pub format: SecretsFromat,
+    pub format: SecretsOutputFormat,
 }
 
 pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {

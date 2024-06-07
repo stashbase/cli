@@ -12,7 +12,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
     api::secrets,
-    cmd::{pull::PullFormat, secrets::SecretsFromat},
+    cmd::{configs::SecretsOutputFormat, pull::PullFormat},
     handlers::run::entry::get_set_key_value_pairs,
     models::{
         api_client::GetRequestApiResponse,
@@ -297,7 +297,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             let file_string = match format {
                                 Some(f) => match f {
                                     PullFormat::Dotenv => {
-                                        let str = format_secrets(secrets, &SecretsFromat::Dotenv);
+                                        let str =
+                                            format_secrets(secrets, &SecretsOutputFormat::Dotenv);
                                         let prefix = format!(
                                         "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
                                         project, environment,
@@ -310,7 +311,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     }
                                 },
                                 None => {
-                                    let str = format_secrets(secrets, &SecretsFromat::Dotenv);
+                                    let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
                                     let prefix = format!(
                                         "## ------\n## Project:{}\n## Environment: {}\n## ------\n\n",
                                         project, environment,
@@ -368,7 +369,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         let file_string = match format {
                             Some(f) => match f {
                                 PullFormat::Dotenv => {
-                                    let str = format_secrets(secrets, &SecretsFromat::Dotenv);
+                                    let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
                                     let prefix = format!(
                                         "## ------\n## Project:{}\n## Environment: {}\n## ------\n\n",
                                         project, environment,
@@ -379,7 +380,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                 PullFormat::Json => serde_json::to_string_pretty(&secrets).unwrap(),
                             },
                             None => {
-                                let str = format_secrets(secrets, &SecretsFromat::Dotenv);
+                                let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
                                 let prefix = format!(
                                     "## ------\n## Project:{}\n## Environment: {}\n## ------\n\n",
                                     project, environment,
