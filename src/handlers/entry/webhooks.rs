@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
-        environments::EnvironmentFormat,
+        configs::OutputFormat,
         webhooks::{WebhookCommand, WebhookSubcommand},
     },
     handlers::webhooks::{
@@ -60,6 +60,7 @@ fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcomma
 pub async fn handle_webhook_commands(
     cmd: WebhookCommand,
     api_key: String,
+    default_output_format: Option<OutputFormat>,
     raw_output: bool,
 ) -> Result<()> {
     // required options
@@ -75,8 +76,10 @@ pub async fn handle_webhook_commands(
                 project,
                 environment,
                 format: match raw_output {
-                    true => EnvironmentFormat::Json,
-                    false => args.format.unwrap_or_default(),
+                    true => OutputFormat::Json,
+                    false => args
+                        .format
+                        .unwrap_or(default_output_format.unwrap_or_default()),
                 },
             };
 
@@ -172,8 +175,10 @@ pub async fn handle_webhook_commands(
                 page: cmd_args.page,
                 per_page: cmd_args.per_page,
                 format: match raw_output {
-                    true => EnvironmentFormat::Json,
-                    false => cmd_args.format.unwrap_or_default(),
+                    true => OutputFormat::Json,
+                    false => cmd_args
+                        .format
+                        .unwrap_or(default_output_format.unwrap_or_default()),
                 },
             };
 
