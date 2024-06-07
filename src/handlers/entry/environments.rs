@@ -1,8 +1,9 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::environments::{
-        EnvChangelogSubcommand, EnvironmentCommands, EnvironmentFormat, EnvironmentSubcommand,
+    cmd::{
+        configs::OutputFormat,
+        environments::{EnvChangelogSubcommand, EnvironmentCommands, EnvironmentSubcommand},
     },
     handlers::{
         env_changelog::{
@@ -28,6 +29,7 @@ use crate::{
 pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
     api_key: String,
+    default_output_format: Option<OutputFormat>,
     raw_output: bool,
 ) -> Result<()> {
     if let EnvironmentSubcommand::Changelog(c) = &cmd.subcommand {
@@ -85,8 +87,10 @@ pub async fn handle_environment_commands(
                     locked: args.locked,
                     unlocked: args.unlocked,
                     format: match raw_output {
-                        true => EnvironmentFormat::Json,
-                        false => args.format.unwrap_or_default(),
+                        true => OutputFormat::Json,
+                        false => args
+                            .format
+                            .unwrap_or(default_output_format.unwrap_or_default()),
                     },
                 };
 
@@ -97,8 +101,10 @@ pub async fn handle_environment_commands(
                 handle_get_environment(
                     api_key,
                     match raw_output {
-                        true => EnvironmentFormat::Json,
-                        false => args.format.unwrap_or_default(),
+                        true => OutputFormat::Json,
+                        false => args
+                            .format
+                            .unwrap_or(default_output_format.unwrap_or_default()),
                     },
                     project,
                     args.name,
