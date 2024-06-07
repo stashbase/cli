@@ -29,6 +29,7 @@ pub enum SetConfigSubcommand {
     ApiKey(SetApiKey),
     /// Set default output format
     Output(SetOutput),
+    /// Set default output format for secrets
     OutputSecrets(SetOutputSecrets),
 }
 
