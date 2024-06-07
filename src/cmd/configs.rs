@@ -29,6 +29,7 @@ pub enum SetConfigSubcommand {
     ApiKey(SetApiKey),
     /// Set default output format
     Output(SetOutput),
+    OutputSecrets(SetOutputSecrets),
 }
 
 #[derive(Debug, Args)]
@@ -45,8 +46,23 @@ pub enum OutputFormat {
     Table,
 }
 
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SecretsOutputFormat {
+    #[default]
+    List,
+    Dotenv,
+    Table,
+    Json,
+}
+
 #[derive(Debug, Args)]
 #[command(override_usage = "config set output <FORMAT> [OPTIONS]")]
 pub struct SetOutput {
     pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config set output-secrets <FORMAT> [OPTIONS]")]
+pub struct SetOutputSecrets {
+    pub format: SecretsOutputFormat,
 }
