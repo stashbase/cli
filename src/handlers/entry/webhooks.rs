@@ -92,7 +92,12 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: args.webhook_id,
                 with_secret: args.with_secret,
-                format_json: raw_output,
+                format: match raw_output {
+                    true => OutputFormat::Json,
+                    false => args
+                        .format
+                        .unwrap_or(default_output_format.unwrap_or_default()),
+                },
             };
 
             handle_get_webhook(args).await?;

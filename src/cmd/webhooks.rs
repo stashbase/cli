@@ -181,6 +181,10 @@ pub struct GetWebhook {
     /// With signing secret
     #[arg(value_enum, long = "secret")]
     pub with_secret: bool,
+
+    /// Format output
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]
