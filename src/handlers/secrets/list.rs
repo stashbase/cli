@@ -3,7 +3,7 @@ use log::debug;
 
 use crate::{
     api::secrets,
-    cmd::secrets::SecretsFromat,
+    cmd::configs::SecretsOutputFormat,
     models::{api_client::GetRequestApiResponse, secrets::Secret},
     utils::{
         secrets::{format_secret_keys, format_secrets},
@@ -17,7 +17,7 @@ pub struct HandleListSecretsArgs {
     pub project: String,
     pub environment: String,
     // pub search: Option<String>,
-    pub format: SecretsFromat,
+    pub format: SecretsOutputFormat,
     pub only_keys: bool,
 }
 

@@ -1,7 +1,10 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::secrets::{SecretArgs, SecretSubcommand, SecretsFromat},
+    cmd::{
+        configs::SecretsOutputFormat,
+        secrets::{SecretArgs, SecretSubcommand},
+    },
     handlers::secrets::{
         delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
         description::{handle_update_description, HandleDescriptionArgs},
@@ -17,36 +20,43 @@ pub async fn handle_secrets_commands(
     cmd: SecretArgs,
     api_key: String,
     raw_output: bool,
+    default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
     let (project, environment) = cmd.try_get_project_environment()?;
 
     match cmd.subcommand {
         SecretSubcommand::List(args) => {
+            let format = match raw_output {
+                true => SecretsOutputFormat::Json,
+                false => args
+                    .format
+                    .unwrap_or(default_output_format.unwrap_or_default()),
+            };
+
             let args = HandleListSecretsArgs {
                 api_key,
                 project,
                 environment,
                 only_keys: args.only_keys,
-                format: args.format.unwrap_or(if raw_output {
-                    SecretsFromat::Json
-                } else {
-                    SecretsFromat::List
-                }),
+                format,
             };
 
             handle_list_secrets(args).await?;
         }
         SecretSubcommand::Get(args) => {
+            let format = match raw_output {
+                true => SecretsOutputFormat::Json,
+                false => args
+                    .format
+                    .unwrap_or(default_output_format.unwrap_or_default()),
+            };
+
             let args = HandleGetSecretsArgs {
                 api_key,
                 project,
                 environment,
                 keys: args.keys,
-                format: args.format.unwrap_or(if raw_output {
-                    SecretsFromat::Json
-                } else {
-                    SecretsFromat::List
-                }),
+                format,
             };
 
             handle_get_secrets(args).await?;
