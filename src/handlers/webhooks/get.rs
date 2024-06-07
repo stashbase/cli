@@ -4,8 +4,12 @@ use log::debug;
 
 use crate::{
     api::webhooks,
-    models::{api_client::GetRequestApiResponse, webhooks::Webhook},
-    utils::spinner::request_spinner,
+    cmd::configs::OutputFormat,
+    models::{
+        api_client::GetRequestApiResponse,
+        webhooks::{TableWebhook, Webhook},
+    },
+    utils::{spinner::request_spinner, tables},
 };
 
 #[derive(Debug)]
@@ -15,7 +19,7 @@ pub struct GetWebhookArgs {
     pub environment: String,
     pub webhook_id: String,
     pub with_secret: bool,
-    pub format_json: bool,
+    pub format: OutputFormat,
 }
 
 impl From<GetWebhookArgs> for webhooks::GetArgs {
@@ -34,7 +38,7 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
     debug!("{:#?}", &args);
     debug!("listing env webhooks...");
 
-    let format_json = args.format_json;
+    let format = args.format.clone();
     let args: webhooks::GetArgs = args.into();
 
     let mut spinner = request_spinner();
@@ -60,13 +64,22 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                 Ok(webhook) => {
                     spinner.stop_and_persist("", "");
 
-                    if format_json == true {
-                        let value = serde_json::to_value(&webhook).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
+                    match format {
+                        OutputFormat::List => {
+                            print!("{}", webhook);
+                        }
+                        OutputFormat::Json => {
+                            let value = serde_json::to_value(&webhook).unwrap();
+                            let pretty = to_colored_json_auto(&value).unwrap();
 
-                        println!("{}", pretty);
-                    } else {
-                        print!("{}", webhook);
+                            println!("{}", pretty);
+                        }
+                        OutputFormat::Table => {
+                            let table_webhook: TableWebhook = webhook.into();
+
+                            let table = tables::build::build_table(&Vec::from([table_webhook]));
+                            println!("{}", table);
+                        }
                     }
                 }
                 Err(e) => {

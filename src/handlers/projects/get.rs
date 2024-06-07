@@ -4,7 +4,7 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    cmd::projects::ProjectsFromat,
+    cmd::configs::OutputFormat,
     models::{
         api_client::GetRequestApiResponse,
         projects::{
@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-pub async fn handle_get_project(api_key: String, format: ProjectsFromat, name: String) -> Result<()> {
+pub async fn handle_get_project(api_key: String, format: OutputFormat, name: String) -> Result<()> {
     let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
@@ -48,15 +48,15 @@ pub async fn handle_get_project(api_key: String, format: ProjectsFromat, name: S
                     debug!("{:#?}", &project);
 
                     match format {
-                        ProjectsFromat::List => {
+                        OutputFormat::List => {
                             print!("{}", project);
                         }
-                        ProjectsFromat::Json => {
+                        OutputFormat::Json => {
                             let value = serde_json::to_value(&project).unwrap();
                             let pretty = to_colored_json_auto(&value).unwrap();
                             println!("{}", pretty);
                         }
-                        ProjectsFromat::Table => match &project.description {
+                        OutputFormat::Table => match &project.description {
                             Some(_) => {
                                 let project_item: SingleProjectTable = project.into();
 

@@ -4,7 +4,7 @@ use log::debug;
 
 use crate::{
     api::webhooks,
-    cmd::environments::EnvironmentFormat,
+    cmd::configs::OutputFormat,
     models::{api_client::GetRequestApiResponse, webhooks::ListWebhook},
     utils::{spinner::request_spinner, tables},
 };
@@ -15,7 +15,7 @@ pub struct ListWebhooksArgs {
     pub project: String,
     pub environment: String,
     // TODO: rename type
-    pub format: EnvironmentFormat,
+    pub format: OutputFormat,
 }
 
 pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
@@ -63,7 +63,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                         spinner.stop_and_persist("", "");
 
                         match format {
-                            EnvironmentFormat::List => {
+                            OutputFormat::List => {
                                 for (i, p) in webhooks.iter().enumerate() {
                                     if i == webhooks.len() - 1 {
                                         print!("{}", p);
@@ -72,13 +72,13 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                                     }
                                 }
                             }
-                            EnvironmentFormat::Json => {
+                            OutputFormat::Json => {
                                 let value = serde_json::to_value(&webhooks).unwrap();
                                 let pretty = to_colored_json_auto(&value).unwrap();
 
                                 println!("{}", pretty);
                             }
-                            EnvironmentFormat::Table => {
+                            OutputFormat::Table => {
                                 let reversed = webhooks.into_iter().rev().collect();
                                 let table = tables::build::build_table(&reversed);
                                 println!("{}", table);
