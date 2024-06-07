@@ -16,6 +16,17 @@ use crate::{
     },
 };
 
+fn get_output_format(
+    raw_output: bool,
+    default_output_format: Option<SecretsOutputFormat>,
+    cmd_format: Option<SecretsOutputFormat>,
+) -> SecretsOutputFormat {
+    match raw_output {
+        true => SecretsOutputFormat::Json,
+        false => cmd_format.unwrap_or(default_output_format.unwrap_or_default()),
+    }
+}
+
 pub async fn handle_secrets_commands(
     cmd: SecretArgs,
     api_key: String,
@@ -26,12 +37,7 @@ pub async fn handle_secrets_commands(
 
     match cmd.subcommand {
         SecretSubcommand::List(args) => {
-            let format = match raw_output {
-                true => SecretsOutputFormat::Json,
-                false => args
-                    .format
-                    .unwrap_or(default_output_format.unwrap_or_default()),
-            };
+            let format = get_output_format(raw_output, default_output_format, args.format);
 
             let args = HandleListSecretsArgs {
                 api_key,
@@ -44,12 +50,7 @@ pub async fn handle_secrets_commands(
             handle_list_secrets(args).await?;
         }
         SecretSubcommand::Get(args) => {
-            let format = match raw_output {
-                true => SecretsOutputFormat::Json,
-                false => args
-                    .format
-                    .unwrap_or(default_output_format.unwrap_or_default()),
-            };
+            let format = get_output_format(raw_output, default_output_format, args.format);
 
             let args = HandleGetSecretsArgs {
                 api_key,
