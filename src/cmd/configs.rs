@@ -42,8 +42,8 @@ pub struct SetApiKey {
 pub enum OutputFormat {
     #[default]
     List,
-    Json,
     Table,
+    Json,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
