@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::configs::{OutputFormat, OutputFormatSecrets};
+use crate::cmd::configs::{OutputFormat, SecretsOutputFormat};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -11,7 +11,7 @@ pub struct Config {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OutputFormatConfig {
     pub general: Option<OutputFormat>,
-    pub secrets: Option<OutputFormatSecrets>,
+    pub secrets: Option<SecretsOutputFormat>,
 }
 
 impl OutputFormatConfig {
