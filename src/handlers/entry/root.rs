@@ -38,37 +38,37 @@ pub async fn handle_cli(args: Cli) {
 
         let result = match args.entity_type {
             EntityType::Project(cmd) => {
-                let output_format = match config.ouput_format {
+                let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_project_commands(cmd, api_key, raw_output, output_format).await
+                handle_project_commands(cmd, api_key, raw_output, default_output_format).await
             }
             EntityType::Environment(cmd) => {
-                let output_format = match config.ouput_format {
+                let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_environment_commands(cmd, api_key, output_format, raw_output).await
+                handle_environment_commands(cmd, api_key, raw_output, default_output_format).await
             }
             EntityType::Config(cmd) => {
                 handle_config_commands(cmd).await;
                 Ok(())
             }
             EntityType::Secret(cmd) => {
-                let output_format = match config.ouput_format {
+                let default_output_format = match config.ouput_format {
                     Some(o) => o.secrets,
                     None => None,
                 };
 
-                handle_secrets_commands(cmd, api_key, raw_output, output_format).await
+                handle_secrets_commands(cmd, api_key, raw_output, default_output_format).await
             }
             EntityType::Webhooks(cmd) => {
-                let output_format = match config.ouput_format {
+                let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_webhook_commands(cmd, api_key, output_format, raw_output).await
+                handle_webhook_commands(cmd, api_key, raw_output, default_output_format).await
             }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
