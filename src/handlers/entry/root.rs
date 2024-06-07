@@ -1,7 +1,10 @@
 use log::debug;
 
 use crate::{
-    cmd::root::{Cli, EntityType},
+    cmd::{
+        configs::{OutputFormat, SecretsOutputFormat},
+        root::{Cli, EntityType},
+    },
     config::config,
     handlers::{
         entry::{
@@ -56,12 +59,25 @@ pub async fn handle_cli(args: Cli) {
                 Ok(())
             }
             EntityType::Secret(cmd) => {
-                let default_output_format = match config.ouput_format {
-                    Some(o) => o.secrets,
+                // if no secrets output format is set use the general output format
+                let default_secrets_output_format = match config.ouput_format {
+                    Some(o) => match o.secrets {
+                        Some(s) => Some(s),
+                        None => match o.general {
+                            Some(g) => match g {
+                                OutputFormat::List => Some(SecretsOutputFormat::List),
+                                OutputFormat::Table => Some(SecretsOutputFormat::Table),
+                                OutputFormat::Json => Some(SecretsOutputFormat::Json),
+                            },
+                            None => None,
+                        },
+                    },
                     None => None,
                 };
+                //
 
-                handle_secrets_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_secrets_commands(cmd, api_key, raw_output, default_secrets_output_format)
+                    .await
             }
             EntityType::Webhooks(cmd) => {
                 let default_output_format = match config.ouput_format {
