@@ -34,19 +34,26 @@ pub async fn handle_cli(args: Cli) {
             None => config.api_key.unwrap(),
         };
 
+        let output_format = match config.ouput_format {
+            Some(o) => o.general,
+            None => None,
+        };
+
         let raw_output = args.raw;
 
         let result = match args.entity_type {
             EntityType::Project(cmd) => handle_project_commands(cmd, api_key, raw_output).await,
             EntityType::Environment(cmd) => {
-                handle_environment_commands(cmd, api_key, raw_output).await
+                handle_environment_commands(cmd, api_key, output_format, raw_output).await
             }
             EntityType::Config(cmd) => {
                 handle_config_commands(cmd).await;
                 Ok(())
             }
             EntityType::Secret(cmd) => handle_secrets_commands(cmd, api_key, raw_output).await,
-            EntityType::Webhooks(cmd) => handle_webhook_commands(cmd, api_key, raw_output).await,
+            EntityType::Webhooks(cmd) => {
+                handle_webhook_commands(cmd, api_key, output_format, raw_output).await
+            }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
                     api_key,
