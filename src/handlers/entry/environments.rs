@@ -29,8 +29,8 @@ use crate::{
 pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
     api_key: String,
-    default_output_format: Option<OutputFormat>,
     raw_output: bool,
+    default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     if let EnvironmentSubcommand::Changelog(c) = &cmd.subcommand {
         let (project, environment) = cmd.try_get_project_environment()?;

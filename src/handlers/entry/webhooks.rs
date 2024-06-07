@@ -60,8 +60,8 @@ fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcomma
 pub async fn handle_webhook_commands(
     cmd: WebhookCommand,
     api_key: String,
-    default_output_format: Option<OutputFormat>,
     raw_output: bool,
+    default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     // required options
     let (project, environment) = cmd.try_get_project_environment()?;
