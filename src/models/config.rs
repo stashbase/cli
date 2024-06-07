@@ -1,13 +1,19 @@
 use serde::{Deserialize, Serialize};
 
+use crate::cmd::configs::OutputFormat;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub api_key: Option<String>,
+    pub ouput_format: Option<OutputFormat>,
 }
 
 impl Config {
     pub fn new() -> Self {
-        Self { api_key: None }
+        Self {
+            api_key: None,
+            ouput_format: None,
+        }
     }
 }
 
@@ -20,4 +26,5 @@ pub struct ConfigWithPath {
 #[derive(Debug)]
 pub struct UpdateConfig {
     pub api_key: Option<String>,
+    pub output_format: Option<OutputFormat>,
 }
