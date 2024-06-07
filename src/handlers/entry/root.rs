@@ -1,7 +1,10 @@
 use log::debug;
 
 use crate::{
-    cmd::root::{Cli, EntityType},
+    cmd::{
+        configs::{OutputFormat, SecretsOutputFormat},
+        root::{Cli, EntityType},
+    },
     config::config,
     handlers::{
         entry::{
@@ -37,16 +40,52 @@ pub async fn handle_cli(args: Cli) {
         let raw_output = args.raw;
 
         let result = match args.entity_type {
-            EntityType::Project(cmd) => handle_project_commands(cmd, api_key, raw_output).await,
+            EntityType::Project(cmd) => {
+                let default_output_format = match config.ouput_format {
+                    Some(o) => o.general,
+                    None => None,
+                };
+                handle_project_commands(cmd, api_key, raw_output, default_output_format).await
+            }
             EntityType::Environment(cmd) => {
-                handle_environment_commands(cmd, api_key, raw_output).await
+                let default_output_format = match config.ouput_format {
+                    Some(o) => o.general,
+                    None => None,
+                };
+                handle_environment_commands(cmd, api_key, raw_output, default_output_format).await
             }
             EntityType::Config(cmd) => {
                 handle_config_commands(cmd).await;
                 Ok(())
             }
-            EntityType::Secret(cmd) => handle_secrets_commands(cmd, api_key, raw_output).await,
-            EntityType::Webhooks(cmd) => handle_webhook_commands(cmd, api_key, raw_output).await,
+            EntityType::Secret(cmd) => {
+                // if no secrets output format is set use the general output format
+                let default_secrets_output_format = match config.ouput_format {
+                    Some(o) => match o.secrets {
+                        Some(s) => Some(s),
+                        None => match o.general {
+                            Some(g) => match g {
+                                OutputFormat::List => Some(SecretsOutputFormat::List),
+                                OutputFormat::Table => Some(SecretsOutputFormat::Table),
+                                OutputFormat::Json => Some(SecretsOutputFormat::Json),
+                            },
+                            None => None,
+                        },
+                    },
+                    None => None,
+                };
+                //
+
+                handle_secrets_commands(cmd, api_key, raw_output, default_secrets_output_format)
+                    .await
+            }
+            EntityType::Webhooks(cmd) => {
+                let default_output_format = match config.ouput_format {
+                    Some(o) => o.general,
+                    None => None,
+                };
+                handle_webhook_commands(cmd, api_key, raw_output, default_output_format).await
+            }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
                     api_key,

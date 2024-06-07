@@ -2,6 +2,8 @@ use core::fmt;
 
 use clap::{Args, Subcommand, ValueEnum};
 
+use super::configs::OutputFormat;
+
 #[derive(Debug, Args)]
 #[command(override_usage = "projects <COMMAND> [OPTIONS]")]
 pub struct ProjectCommands {
@@ -54,15 +56,7 @@ pub struct ListProjects {
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<ProjectsFromat>,
-}
-
-#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
-pub enum ProjectsFromat {
-    #[default]
-    List,
-    Json,
-    Table,
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -120,7 +114,7 @@ pub struct GetProject {
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<ProjectsFromat>,
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]

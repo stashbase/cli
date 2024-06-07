@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
 use log::debug;
 
-use crate::models::config::{Config, UpdateConfig};
+use crate::models::config::{Config, OutputFormatConfig, UpdateConfig};
 
 fn create_config(path: &Path) -> Result<String> {
     let new_config = Config::new();
@@ -59,10 +59,30 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
     let config_path = get_config_path()?;
     let mut config = get_config()?;
 
-    let UpdateConfig { api_key: api_key } = args;
+    let UpdateConfig {
+        api_key,
+        output_format,
+    } = args;
 
     if let Some(new_api_key) = api_key {
         config.api_key = Some(new_api_key);
+    }
+
+    if let Some(output_format) = output_format {
+        let mut new_format_config = match config.ouput_format {
+            Some(o) => o,
+            None => OutputFormatConfig::new(),
+        };
+
+        if let Some(general_format) = output_format.general {
+            new_format_config.general = Some(general_format);
+        }
+
+        if let Some(secrets_format) = output_format.secrets {
+            new_format_config.secrets = Some(secrets_format);
+        }
+
+        config.ouput_format = Some(new_format_config);
     }
 
     let config_string = toml::to_string(&config)?;

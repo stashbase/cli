@@ -1,4 +1,5 @@
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "config <COMMAND> [OPTIONS]")]
@@ -26,10 +27,42 @@ pub enum SetConfigSubcommand {
     #[clap(alias = "t")]
     /// Set api_key
     ApiKey(SetApiKey),
+    /// Set default output format
+    Output(SetOutput),
+    OutputSecrets(SetOutputSecrets),
 }
 
 #[derive(Debug, Args)]
 #[command(override_usage = "config set api-key <VALUE> [OPTIONS]")]
 pub struct SetApiKey {
     pub value: String,
+}
+
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum OutputFormat {
+    #[default]
+    List,
+    Table,
+    Json,
+}
+
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum SecretsOutputFormat {
+    #[default]
+    List,
+    Dotenv,
+    Table,
+    Json,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config set output <FORMAT> [OPTIONS]")]
+pub struct SetOutput {
+    pub format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config set output-secrets <FORMAT> [OPTIONS]")]
+pub struct SetOutputSecrets {
+    pub format: SecretsOutputFormat,
 }

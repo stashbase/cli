@@ -4,16 +4,13 @@ use log::debug;
 
 use crate::{
     api::webhooks,
-    cmd::environments::EnvironmentFormat,
+    cmd::configs::OutputFormat,
     models::{
         api_client::GetRequestApiResponse,
         validation::{InputValidationError, WebhookInputValidationError},
         webhooks::{TableWebhookLog, WebhookLogList},
     },
-    utils::{
-        spinner::request_spinner,
-        tables::{self},
-    },
+    utils::{spinner::request_spinner, tables},
 };
 
 #[derive(Debug)]
@@ -23,7 +20,7 @@ pub struct ListWebhookLogsArgs {
     pub environment: String,
     pub webhook_id: String,
     pub page: Option<usize>,
-    pub format: EnvironmentFormat,
+    pub format: OutputFormat,
     pub per_page: Option<u8>,
 }
 
@@ -80,15 +77,15 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
             match data {
                 Ok(webhook_logs) => match format {
-                    EnvironmentFormat::List => {
+                    OutputFormat::List => {
                         print!("{}", webhook_logs);
                     }
-                    EnvironmentFormat::Json => {
+                    OutputFormat::Json => {
                         let value = serde_json::to_value(&webhook_logs).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
                         println!("{}", pretty);
                     }
-                    EnvironmentFormat::Table => {
+                    OutputFormat::Table => {
                         let table_logs = webhook_logs
                             .data
                             .into_iter()
@@ -102,7 +99,6 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                         println!("{}", table);
 
                         println!("{} {}/{}", "Pages:", page.unwrap_or(1), webhook_logs.pages);
-
                     }
                 },
                 Err(e) => {

@@ -4,7 +4,7 @@ use log::debug;
 
 use crate::{
     api::environments,
-    cmd::environments::EnvironmentFormat,
+    cmd::configs::OutputFormat,
     models::{
         api_client::GetRequestApiResponse,
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
@@ -14,7 +14,7 @@ use crate::{
 
 pub async fn handle_get_environment(
     api_key: String,
-    format: EnvironmentFormat,
+    format: OutputFormat,
     project: String,
     environment: String,
 ) -> Result<()> {
@@ -50,15 +50,15 @@ pub async fn handle_get_environment(
                     debug!("{:#?}", &env);
 
                     match format {
-                        EnvironmentFormat::Json => {
+                        OutputFormat::Json => {
                             let value = serde_json::to_value(&env).unwrap();
                             let pretty = to_colored_json_auto(&value).unwrap();
                             println!("{}", pretty);
                         }
-                        EnvironmentFormat::List => {
+                        OutputFormat::List => {
                             print!("{}", env);
                         }
-                        EnvironmentFormat::Table => match env.description {
+                        OutputFormat::Table => match env.description {
                             Some(_) => {
                                 let table_env: TableEnvironment = env.into();
 
