@@ -4,7 +4,10 @@ use log::debug;
 
 use crate::{
     api::environments::{self, ListEnvsRequestArgs},
-    cmd::environments::{EnvSort, EnvironmentFormat, EnvironmentType},
+    cmd::{
+        configs::OutputFormat,
+        environments::{EnvSort, EnvironmentType},
+    },
     models::{
         api_client::GetRequestApiResponse,
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
@@ -25,7 +28,7 @@ pub struct HandleListEnvironmentsArgs {
     pub types: Vec<EnvironmentType>,
     pub locked: bool,
     pub unlocked: bool,
-    pub format: EnvironmentFormat,
+    pub format: OutputFormat,
 }
 
 pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Result<()> {
@@ -91,7 +94,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                 Ok(envs) => {
                     debug!("{:#?}", &envs);
 
-                    if let EnvironmentFormat::Json = format {
+                    if let OutputFormat::Json = format {
                         spinner.stop_and_persist("", "");
                         let value = serde_json::to_value(&envs).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
@@ -106,7 +109,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                         }
 
                         match format {
-                            EnvironmentFormat::List => {
+                            OutputFormat::List => {
                                 for (i, p) in envs.iter().enumerate() {
                                     if i == envs.len() - 1 {
                                         print!("{}", p);
@@ -115,7 +118,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                                     }
                                 }
                             }
-                            EnvironmentFormat::Table => {
+                            OutputFormat::Table => {
                                 let has_description = envs.iter().any(|e| e.description.is_some());
 
                                 if has_description {
