@@ -1,7 +1,10 @@
 use anyhow::Result;
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
 
-use super::shared::{try_get_project_environment, SharedProjectEnvArgs};
+use super::{
+    configs::SecretsOutputFormat,
+    shared::{try_get_project_environment, SharedProjectEnvArgs},
+};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
@@ -103,7 +106,7 @@ pub struct ListSecrets {
 
     /// Project description
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<SecretsFromat>,
+    pub format: Option<SecretsOutputFormat>,
 
     /// Print only keys
     #[arg(value_enum, long = "only-keys")]
@@ -121,7 +124,7 @@ pub struct GetSecrets {
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<SecretsFromat>,
+    pub format: Option<SecretsOutputFormat>,
 }
 
 #[derive(Debug, Args)]
@@ -190,12 +193,4 @@ pub struct RenameSecrets {
     /// Secrets to rename: KEY_1=NEW_KEY_1 KEY_2=NEW_KEY_2
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
-}
-
-#[derive(Debug, ValueEnum, Clone, PartialEq, Eq)]
-pub enum SecretsFromat {
-    List,
-    Dotenv,
-    Table,
-    Json,
 }
