@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use super::{
-    environments::EnvironmentFormat,
+    configs::OutputFormat,
     shared::{try_get_project_environment, SharedProjectEnvArgs},
 };
 
@@ -166,7 +166,7 @@ pub struct ListWebhooks {
     // pub page: Option<usize>,
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<EnvironmentFormat>,
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]
@@ -254,7 +254,7 @@ pub struct WebhookLogs {
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
-    pub format: Option<EnvironmentFormat>,
+    pub format: Option<OutputFormat>,
 
     /// Page number
     #[arg(value_enum, long = "page")]
