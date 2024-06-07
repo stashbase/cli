@@ -42,7 +42,9 @@ pub async fn handle_cli(args: Cli) {
         let raw_output = args.raw;
 
         let result = match args.entity_type {
-            EntityType::Project(cmd) => handle_project_commands(cmd, api_key, raw_output).await,
+            EntityType::Project(cmd) => {
+                handle_project_commands(cmd, api_key, raw_output, output_format).await
+            }
             EntityType::Environment(cmd) => {
                 handle_environment_commands(cmd, api_key, output_format, raw_output).await
             }
