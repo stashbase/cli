@@ -126,7 +126,7 @@ pub struct SecretsOutputCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum SecretsOutputSubcommand {
-    /// Set api_key
+    /// Set api key
     Set(SetSecretsOutput),
 
     /// Print current default output format
