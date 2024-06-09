@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use clap::{Args, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +11,16 @@ pub enum OutputFormat {
     Json,
 }
 
+impl Display for OutputFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::List => write!(f, "list"),
+            Self::Table => write!(f, "table"),
+            Self::Json => write!(f, "json"),
+        }
+    }
+}
+
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum SecretsOutputFormat {
     #[default]
@@ -16,6 +28,17 @@ pub enum SecretsOutputFormat {
     Dotenv,
     Table,
     Json,
+}
+
+impl Display for SecretsOutputFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::List => write!(f, "list"),
+            Self::Dotenv => write!(f, "dotenv"),
+            Self::Table => write!(f, "table"),
+            Self::Json => write!(f, "json"),
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -78,6 +101,9 @@ pub enum OutputSubcommand {
     /// Set api_key
     #[clap(alias = "t")]
     Set(SetOutput),
+
+    /// Print current default output format
+    Print,
 }
 
 #[derive(Debug, Args)]
