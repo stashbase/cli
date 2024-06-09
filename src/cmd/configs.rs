@@ -125,6 +125,9 @@ pub enum SecretsOutputSubcommand {
     /// Set api_key
     #[clap(alias = "t")]
     Set(SetSecretsOutput),
+
+    /// Print current default output format
+    Print,
 }
 
 #[derive(Debug, Args)]
