@@ -60,6 +60,8 @@ pub enum ConfigSubcommand {
     OutputSecrets(SecretsOutputCommand),
     /// Print current config
     Print,
+    /// Reset config file
+    Reset,
 }
 
 #[derive(Debug, Args)]
