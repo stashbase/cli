@@ -28,7 +28,10 @@ pub async fn handle_cli(args: Cli) {
 
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            handle_config_commands(cmd, &config);
+            if let Err(err) = handle_config_commands(cmd, &config) {
+                eprintln!("{:?}", err);
+            }
+
             return;
         }
 
@@ -124,10 +127,8 @@ pub async fn handle_cli(args: Cli) {
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset = cmd.subcommand {
-                let res = handle_config_commands(cmd, &Config::new());
-
-                if let Err(err) = res {
-                    eprintln!("{:?}", err);
+                if let Err(e) = handle_config_commands(cmd, &Config::new()) {
+                    eprintln!("{:?}", e);
                 }
 
                 return;
