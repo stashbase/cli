@@ -2,7 +2,7 @@ use log::debug;
 
 use crate::{
     cmd::{
-        configs::{ConfigCommand, ConfigSubcommand, OutputFormat, SecretsOutputFormat},
+        configs::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType},
     },
     config::config,
