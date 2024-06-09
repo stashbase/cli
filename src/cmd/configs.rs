@@ -45,7 +45,7 @@ impl Display for SecretsOutputFormat {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "config <COMMAND> [OPTIONS]")]
-pub struct ConfigCommands {
+pub struct ConfigCommand {
     #[clap(subcommand)]
     pub subcommand: ConfigSubcommand,
 }
