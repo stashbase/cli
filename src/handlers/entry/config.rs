@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::configs::{
+    cmd::config::{
         ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand,
         SecretsOutputSubcommand,
     },

@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
-        configs::OutputFormat,
+        config::OutputFormat,
         webhooks::{WebhookCommand, WebhookSubcommand},
     },
     handlers::webhooks::{

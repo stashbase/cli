@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::configs::{OutputFormat, SecretsOutputFormat};
+use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {

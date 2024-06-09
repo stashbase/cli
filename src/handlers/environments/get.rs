@@ -4,7 +4,7 @@ use log::debug;
 
 use crate::{
     api::environments,
-    cmd::configs::OutputFormat,
+    cmd::config::OutputFormat,
     models::{
         api_client::GetRequestApiResponse,
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},

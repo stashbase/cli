@@ -4,7 +4,7 @@ use log::debug;
 
 use crate::{
     api::webhooks,
-    cmd::configs::OutputFormat,
+    cmd::config::OutputFormat,
     models::{
         api_client::GetRequestApiResponse,
         validation::{InputValidationError, WebhookInputValidationError},

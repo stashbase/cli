@@ -12,7 +12,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
     api::secrets,
-    cmd::{configs::SecretsOutputFormat, pull::PullFormat},
+    cmd::{config::SecretsOutputFormat, pull::PullFormat},
     handlers::run::entry::get_set_key_value_pairs,
     models::{
         api_client::GetRequestApiResponse,

@@ -1,4 +1,4 @@
-use crate::cmd::configs::OutputFormat;
+use crate::cmd::config::OutputFormat;
 
 pub fn get_output_format(
     raw_output: bool,

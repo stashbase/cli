@@ -3,7 +3,7 @@ use log::debug;
 
 use crate::{
     api::secrets,
-    cmd::configs::SecretsOutputFormat,
+    cmd::config::SecretsOutputFormat,
     models::{api_client::GetRequestApiResponse, secrets::Secret},
     utils::{
         secrets::{format_secret_keys, format_secrets},

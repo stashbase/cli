@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{
     cmd::{
-        configs::SecretsOutputFormat,
+        config::SecretsOutputFormat,
         secrets::{SecretArgs, SecretSubcommand},
     },
     handlers::secrets::{
