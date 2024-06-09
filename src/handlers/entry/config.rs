@@ -6,7 +6,7 @@ use crate::{
     handlers::config::{
         api_key,
         output::{print_default_output_format, set_default_output_format},
-        output_secrets::set_default_output_format_secrets,
+        output_secrets::{print_default_secrets_output_format, set_default_output_format_secrets},
     },
     models::config::Config,
 };
@@ -47,8 +47,8 @@ pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
             }
             SecretsOutputSubcommand::Print => {
                 if let Some(config) = &config.ouput_format {
-                    if let Some(format) = &config.general {
-                        print_default_output_format(format);
+                    if let Some(format) = &config.secrets {
+                        print_default_secrets_output_format(format);
                     } else {
                         print_output_format_not_set()
                     }
