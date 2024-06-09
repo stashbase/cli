@@ -1,5 +1,8 @@
 use crate::{
-    cmd::configs::{ConfigCommands, ConfigSubcommand, SetConfigSubcommand},
+    cmd::configs::{
+        ApiKeySubcommand, ConfigCommands, ConfigSubcommand, OutputSubcommand,
+        SecretsOutputSubcommand,
+    },
     handlers::config::set::{
         set_api_key, set_default_output_format, set_default_output_format_secrets,
     },
@@ -7,16 +10,36 @@ use crate::{
 
 pub async fn handle_config_commands(cmd: ConfigCommands) {
     match cmd.subcommand {
-        ConfigSubcommand::Set(args) => match args.subcommand {
-            SetConfigSubcommand::ApiKey(t) => {
-                set_api_key(t.value);
+        ConfigSubcommand::ApiKey(k) => match k.subcommand {
+            ApiKeySubcommand::Set(s) => {
+                set_api_key(s.value);
             }
-            SetConfigSubcommand::Output(d) => {
-                set_default_output_format(d.format);
+        },
+        ConfigSubcommand::Output(o) => match o.subcommand {
+            OutputSubcommand::Set(s) => {
+                set_default_output_format(s.format);
             }
-            SetConfigSubcommand::OutputSecrets(args) => {
-                set_default_output_format_secrets(args.format);
+        },
+        ConfigSubcommand::OutputSecrets(s) => match s.subcommand {
+            SecretsOutputSubcommand::Set(s) => {
+                set_default_output_format_secrets(s.format);
             }
         },
     }
 }
+// }
+// pub async fn handle_config_commands(cmd: ConfigCommands) {
+//     match cmd.subcommand {
+//         ConfigSubcommand::Set(args) => match args.subcommand {
+//             SetConfigSubcommand::ApiKey(t) => {
+//                 set_api_key(t.value);
+//             }
+//             SetConfigSubcommand::Output(d) => {
+//                 set_default_output_format(d.format);
+//             }
+//             SetConfigSubcommand::OutputSecrets(args) => {
+//                 set_default_output_format_secrets(args.format);
+//             }
+//         },
+//     }
+// }
