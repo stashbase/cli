@@ -26,3 +26,7 @@ pub fn set_default_output_format_secrets(output_format: SecretsOutputFormat) {
         eprintln!("{}", msg);
     }
 }
+
+pub fn print_default_secrets_output_format(output_format: &SecretsOutputFormat) {
+    println!("Default output format (secrets): {}", output_format);
+}
