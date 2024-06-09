@@ -5,7 +5,8 @@ use crate::{
     },
     handlers::config::{
         api_key,
-        set::{set_default_output_format, set_default_output_format_secrets},
+        ouptut::{print_default_output_format, set_default_output_format},
+        set::set_default_output_format_secrets,
     },
     models::config::Config,
 };
@@ -23,6 +24,17 @@ pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
         ConfigSubcommand::Output(o) => match o.subcommand {
             OutputSubcommand::Set(s) => {
                 set_default_output_format(s.format);
+            }
+            OutputSubcommand::Print => {
+                if let Some(config) = &config.ouput_format {
+                    if let Some(format) = &config.general {
+                        print_default_output_format(format);
+                    } else {
+                        eprintln!("{}", "Default output format is not set");
+                    }
+                } else {
+                    eprintln!("{}", "Default output format is not set");
+                }
             }
         },
         ConfigSubcommand::OutputSecrets(s) => match s.subcommand {
