@@ -3,16 +3,21 @@ use crate::{
         ApiKeySubcommand, ConfigCommands, ConfigSubcommand, OutputSubcommand,
         SecretsOutputSubcommand,
     },
-    handlers::config::set::{
-        set_api_key, set_default_output_format, set_default_output_format_secrets,
+    handlers::config::{
+        api_key,
+        set::{set_default_output_format, set_default_output_format_secrets},
     },
+    models::config::Config,
 };
 
-pub async fn handle_config_commands(cmd: ConfigCommands) {
+pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
     match cmd.subcommand {
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
-                set_api_key(s.value);
+                api_key::set_api_key(s.value);
+            }
+            ApiKeySubcommand::Print(p) => {
+                api_key::print_api_key(&config.api_key, p.full);
             }
         },
         ConfigSubcommand::Output(o) => match o.subcommand {
