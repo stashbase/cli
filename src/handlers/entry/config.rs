@@ -6,10 +6,14 @@ use crate::{
     handlers::config::{
         api_key,
         ouptut::{print_default_output_format, set_default_output_format},
-        set::set_default_output_format_secrets,
+        output_secrets::set_default_output_format_secrets,
     },
     models::config::Config,
 };
+
+fn print_output_format_not_set() {
+    eprintln!("{}", "Default output format is not set");
+}
 
 pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
     match cmd.subcommand {
@@ -30,16 +34,27 @@ pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
                     if let Some(format) = &config.general {
                         print_default_output_format(format);
                     } else {
-                        eprintln!("{}", "Default output format is not set");
+                        print_output_format_not_set()
                     }
                 } else {
-                    eprintln!("{}", "Default output format is not set");
+                    print_output_format_not_set()
                 }
             }
         },
         ConfigSubcommand::OutputSecrets(s) => match s.subcommand {
             SecretsOutputSubcommand::Set(s) => {
                 set_default_output_format_secrets(s.format);
+            }
+            SecretsOutputSubcommand::Print => {
+                if let Some(config) = &config.ouput_format {
+                    if let Some(format) = &config.general {
+                        print_default_output_format(format);
+                    } else {
+                        print_output_format_not_set()
+                    }
+                } else {
+                    print_output_format_not_set()
+                }
             }
         },
     }
