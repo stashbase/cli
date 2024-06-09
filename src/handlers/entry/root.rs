@@ -27,7 +27,7 @@ pub async fn handle_cli(args: Cli) {
 
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            handle_config_commands(cmd).await;
+            handle_config_commands(cmd, &config);
             return;
         }
 
@@ -54,9 +54,8 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_environment_commands(cmd, api_key, raw_output, default_output_format).await
             }
-            EntityType::Config(cmd) => {
-                handle_config_commands(cmd).await;
-                Ok(())
+            EntityType::Config(_) => {
+                unreachable!()
             }
             EntityType::Secret(cmd) => {
                 // if no secrets output format is set use the general output format
