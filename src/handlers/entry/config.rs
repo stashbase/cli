@@ -5,7 +5,7 @@ use crate::{
     },
     handlers::config::{
         api_key,
-        ouptut::{print_default_output_format, set_default_output_format},
+        output::{print_default_output_format, set_default_output_format},
         output_secrets::set_default_output_format_secrets,
     },
     models::config::Config,
