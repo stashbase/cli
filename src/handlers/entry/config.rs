@@ -69,7 +69,7 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 match toml_string {
                     Ok(s) => {
                         eprintln!();
-                        println!("{}", s);
+                        print!("{}", s);
                     }
                     Err(e) => {
                         return Err(e.into());
