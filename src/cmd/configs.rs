@@ -73,7 +73,6 @@ pub struct ApiKeyCommand {
 #[derive(Debug, Subcommand)]
 pub enum ApiKeySubcommand {
     /// Set api key
-    #[clap(alias = "t")]
     Set(SetApiKey),
 
     /// Print api key
@@ -105,7 +104,6 @@ pub struct OutputCommand {
 #[derive(Debug, Subcommand)]
 pub enum OutputSubcommand {
     /// Set api_key
-    #[clap(alias = "t")]
     Set(SetOutput),
 
     /// Print current default output format
@@ -129,7 +127,6 @@ pub struct SecretsOutputCommand {
 #[derive(Debug, Subcommand)]
 pub enum SecretsOutputSubcommand {
     /// Set api_key
-    #[clap(alias = "t")]
     Set(SetSecretsOutput),
 
     /// Print current default output format
