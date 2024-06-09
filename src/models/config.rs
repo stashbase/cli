@@ -30,6 +30,19 @@ impl Config {
             ouput_format: None,
         }
     }
+    pub fn is_empty(&self) -> bool {
+        if let Some(output_format) = &self.ouput_format {
+            self.api_key.is_none() && output_format.is_empty()
+        } else {
+            self.api_key.is_none() && self.ouput_format.is_none()
+        }
+    }
+}
+
+impl OutputFormatConfig {
+    pub fn is_empty(&self) -> bool {
+        self.general.is_none() && self.secrets.is_none()
+    }
 }
 
 #[derive(Debug)]
