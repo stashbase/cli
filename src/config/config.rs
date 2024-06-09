@@ -9,7 +9,7 @@ use log::debug;
 
 use crate::models::config::{Config, OutputFormatConfig, UpdateConfig};
 
-fn create_config(path: &Path) -> Result<String> {
+pub fn create_config(path: &Path) -> Result<String> {
     let new_config = Config::new();
 
     let toml_string = toml::to_string(&new_config)
