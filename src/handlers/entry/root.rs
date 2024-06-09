@@ -130,7 +130,7 @@ pub async fn handle_cli(args: Cli) {
                     eprintln!("{:?}", err);
                 }
 
-                return ();
+                return;
             }
         }
 
