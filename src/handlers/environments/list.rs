@@ -5,7 +5,7 @@ use log::debug;
 use crate::{
     api::environments::{self, ListEnvsRequestArgs},
     cmd::{
-        configs::OutputFormat,
+        config::OutputFormat,
         environments::{EnvSort, EnvironmentType},
     },
     models::{

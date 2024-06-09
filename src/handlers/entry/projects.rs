@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{
     cmd::{
-        configs::OutputFormat,
+        config::OutputFormat,
         projects::{ProjectCommands, ProjectSubcommand},
     },
     handlers::projects::{

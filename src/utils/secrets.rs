@@ -7,7 +7,7 @@ use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
 
 use crate::{
-    cmd::configs::SecretsOutputFormat,
+    cmd::config::SecretsOutputFormat,
     models::secrets::{Secret, SecretOnlyKey, SecretWithDescription, SecretWithoutDescription},
 };
 

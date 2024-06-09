@@ -4,7 +4,7 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    cmd::{configs::OutputFormat, projects::Sort},
+    cmd::{config::OutputFormat, projects::Sort},
     models::{
         api_client::GetRequestApiResponse,
         projects::{ProjectWithCount, ProjectWithCountNoDescriptionTable},

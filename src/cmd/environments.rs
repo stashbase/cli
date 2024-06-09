@@ -3,7 +3,7 @@ use core::fmt;
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{configs::OutputFormat, shared::SharedProjectEnvArgs};
+use super::{config::OutputFormat, shared::SharedProjectEnvArgs};
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
 #[derive(Debug, ValueEnum, Clone)]

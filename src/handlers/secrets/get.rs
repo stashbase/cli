@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
-    cmd::configs::SecretsOutputFormat,
+    cmd::config::SecretsOutputFormat,
     models::{
         api_client::PostPatchRequestApiResponse,
         secrets::{GetSelectedSecretsPayload, Secret},

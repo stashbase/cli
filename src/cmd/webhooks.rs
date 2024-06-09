@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use super::{
-    configs::OutputFormat,
+    config::OutputFormat,
     shared::{try_get_project_environment, SharedProjectEnvArgs},
 };
 

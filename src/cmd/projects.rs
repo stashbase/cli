@@ -2,7 +2,7 @@ use core::fmt;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::configs::OutputFormat;
+use super::config::OutputFormat;
 
 #[derive(Debug, Args)]
 #[command(override_usage = "projects <COMMAND> [OPTIONS]")]
