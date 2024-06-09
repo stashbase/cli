@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{
     cmd::configs::{
-        ApiKeySubcommand, ConfigCommands, ConfigSubcommand, OutputSubcommand,
+        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand,
         SecretsOutputSubcommand,
     },
     handlers::config::{
@@ -18,7 +18,7 @@ fn print_output_format_not_set() {
     eprintln!("{}", "Default output format is not set");
 }
 
-pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) -> Result<()> {
+pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()> {
     match cmd.subcommand {
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
