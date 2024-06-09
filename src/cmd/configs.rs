@@ -43,15 +43,26 @@ pub struct ApiKeyCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ApiKeySubcommand {
-    /// Set api_key
+    /// Set api key
     #[clap(alias = "t")]
     Set(SetApiKey),
+
+    /// Print api key
+    Print(PrintApiKey),
 }
 
 #[derive(Debug, Args)]
 #[command(override_usage = "config set api-key <VALUE> [OPTIONS]")]
 pub struct SetApiKey {
     pub value: String,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config api-key print [OPTIONS]")]
+pub struct PrintApiKey {
+    /// Print full api key token
+    #[arg(value_enum, long = "full")]
+    pub full: bool,
 }
 
 //
