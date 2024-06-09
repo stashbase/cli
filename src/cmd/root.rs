@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use super::{
-    configs::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
+    config::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
     pull::PullCommand, run::RunCommand, secrets::SecretArgs, webhooks::WebhookCommand,
 };
 

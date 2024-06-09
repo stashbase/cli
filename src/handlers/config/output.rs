@@ -2,7 +2,7 @@
 use owo_colors::OwoColorize;
 
 use crate::{
-    cmd::configs::OutputFormat,
+    cmd::config::OutputFormat,
     config::config,
     models::config::{OutputFormatConfig, UpdateConfig},
 };

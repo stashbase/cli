@@ -1,7 +1,7 @@
 use owo_colors::OwoColorize;
 
 use crate::{
-    cmd::configs::SecretsOutputFormat,
+    cmd::config::SecretsOutputFormat,
     config::config,
     models::config::{OutputFormatConfig, UpdateConfig},
 };
