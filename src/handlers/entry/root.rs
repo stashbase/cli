@@ -2,7 +2,7 @@ use log::debug;
 
 use crate::{
     cmd::{
-        configs::{OutputFormat, SecretsOutputFormat},
+        configs::{ConfigCommand, ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType},
     },
     config::config,
@@ -16,6 +16,7 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         run::entry::{handle_load_env_run, HandleRunArgs},
     },
+    models::config::Config,
 };
 
 #[tokio::main()]
@@ -121,6 +122,18 @@ pub async fn handle_cli(args: Cli) {
             eprintln!("{:?}", err);
         }
     } else {
+        if let EntityType::Config(cmd) = args.entity_type {
+            if let ConfigSubcommand::Reset = cmd.subcommand {
+                let res = handle_config_commands(cmd, &Config::new());
+
+                if let Err(err) = res {
+                    eprintln!("{:?}", err);
+                }
+
+                return ();
+            }
+        }
+
         let err = config.unwrap_err();
         eprintln!("{:?}", err);
     }
