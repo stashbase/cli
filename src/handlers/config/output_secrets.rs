@@ -6,7 +6,7 @@ use crate::{
     models::config::{OutputFormatConfig, UpdateConfig},
 };
 
-pub fn set_default_output_format_secrets(output_format: SecretsOutputFormat) {
+pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
     let res = config::update_config(UpdateConfig {
         api_key: None,
         output_format: Some(OutputFormatConfig {
