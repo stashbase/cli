@@ -57,6 +57,17 @@ pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
                 }
             }
         },
+        ConfigSubcommand::Print => {
+            let toml_string = toml::to_string(&config);
+
+            match toml_string {
+                Ok(s) => {
+                    eprintln!();
+                    println!("{}", s);
+                }
+                Err(err) => eprintln!("{:?}", err),
+            }
+        }
     }
 }
 // }

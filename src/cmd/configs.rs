@@ -56,6 +56,8 @@ pub enum ConfigSubcommand {
     Output(OutputCommand),
     /// Default output for secrets
     OutputSecrets(SecretsOutputCommand),
+    /// Print current config
+    Print,
 }
 
 #[derive(Debug, Args)]
