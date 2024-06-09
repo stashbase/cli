@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 use crate::{
     cmd::configs::{
         ApiKeySubcommand, ConfigCommands, ConfigSubcommand, OutputSubcommand,
@@ -7,6 +9,7 @@ use crate::{
         api_key,
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
+        reset::reset_config,
     },
     models::config::Config,
 };
@@ -15,7 +18,7 @@ fn print_output_format_not_set() {
     eprintln!("{}", "Default output format is not set");
 }
 
-pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
+pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) -> Result<()> {
     match cmd.subcommand {
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
@@ -65,10 +68,19 @@ pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) {
                     eprintln!();
                     println!("{}", s);
                 }
-                Err(err) => eprintln!("{:?}", err),
+                Err(e) => {
+                    return Err(e.into());
+                }
             }
         }
+        ConfigSubcommand::Reset => {
+            if let Err(e) = reset_config() {
+                return Err(e);
+            };
+        }
     }
+
+    Ok(())
 }
 // }
 // pub async fn handle_config_commands(cmd: ConfigCommands) {
