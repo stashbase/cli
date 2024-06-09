@@ -29,8 +29,9 @@ pub struct ConfigCommands {
 pub enum ConfigSubcommand {
     /// Api key config
     ApiKey(ApiKeyCommand),
-
+    /// Default output (general)
     Output(OutputCommand),
+    /// Default output for secrets
     OutputSecrets(SecretsOutputCommand),
 }
 
