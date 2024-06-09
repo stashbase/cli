@@ -2,7 +2,7 @@ use log::debug;
 
 use crate::{
     cmd::{
-        configs::{OutputFormat, SecretsOutputFormat},
+        configs::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType},
     },
     config::config,
@@ -16,6 +16,7 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         run::entry::{handle_load_env_run, HandleRunArgs},
     },
+    models::config::Config,
 };
 
 #[tokio::main()]
@@ -27,7 +28,10 @@ pub async fn handle_cli(args: Cli) {
 
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            handle_config_commands(cmd).await;
+            if let Err(err) = handle_config_commands(cmd, &config) {
+                eprintln!("{:?}", err);
+            }
+
             return;
         }
 
@@ -54,9 +58,8 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_environment_commands(cmd, api_key, raw_output, default_output_format).await
             }
-            EntityType::Config(cmd) => {
-                handle_config_commands(cmd).await;
-                Ok(())
+            EntityType::Config(_) => {
+                unreachable!()
             }
             EntityType::Secret(cmd) => {
                 // if no secrets output format is set use the general output format
@@ -122,6 +125,16 @@ pub async fn handle_cli(args: Cli) {
             eprintln!("{:?}", err);
         }
     } else {
+        if let EntityType::Config(cmd) = args.entity_type {
+            if let ConfigSubcommand::Reset = cmd.subcommand {
+                if let Err(e) = handle_config_commands(cmd, &Config::new()) {
+                    eprintln!("{:?}", e);
+                }
+
+                return;
+            }
+        }
+
         let err = config.unwrap_err();
         eprintln!("{:?}", err);
     }
