@@ -86,19 +86,3 @@ pub fn handle_config_commands(cmd: ConfigCommands, config: &Config) -> Result<()
 
     Ok(())
 }
-// }
-// pub async fn handle_config_commands(cmd: ConfigCommands) {
-//     match cmd.subcommand {
-//         ConfigSubcommand::Set(args) => match args.subcommand {
-//             SetConfigSubcommand::ApiKey(t) => {
-//                 set_api_key(t.value);
-//             }
-//             SetConfigSubcommand::Output(d) => {
-//                 set_default_output_format(d.format);
-//             }
-//             SetConfigSubcommand::OutputSecrets(args) => {
-//                 set_default_output_format_secrets(args.format);
-//             }
-//         },
-//     }
-// }
