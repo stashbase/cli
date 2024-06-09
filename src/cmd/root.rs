@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 
 use super::{
-    configs::ConfigCommands, environments::EnvironmentCommands, projects::ProjectCommands,
+    configs::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
     pull::PullCommand, run::RunCommand, secrets::SecretArgs, webhooks::WebhookCommand,
 };
 
@@ -72,7 +72,7 @@ pub enum EntityType {
 
     /// Your CLI configuration
     #[clap(aliases = &["c", "conf"])]
-    Config(ConfigCommands),
+    Config(ConfigCommand),
 
     Open,
 }
