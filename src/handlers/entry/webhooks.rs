@@ -70,7 +70,7 @@ pub async fn handle_webhook_commands(
 ) -> Result<()> {
     let (state_project, state_env) = match state {
         Some(s) => {
-            eprintln!("{}", s);
+            eprint!("{}", s);
             (&s.project, &s.environment)
         }
         None => (&None, &None),

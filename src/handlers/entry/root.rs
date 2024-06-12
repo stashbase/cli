@@ -154,6 +154,10 @@ pub async fn handle_cli(args: Cli) {
         };
 
         if let Err(err) = result {
+            if let Some(_) = config.state {
+                eprintln!();
+            }
+
             eprintln!("{:?}", err);
         }
     } else {
