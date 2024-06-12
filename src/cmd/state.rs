@@ -12,6 +12,8 @@ pub enum StateSubcommand {
     /// Set cli state
     Set(SetState),
 
+    Unset(UnsetState),
+
     /// Print cli state
     Print,
 }
@@ -24,4 +26,14 @@ pub struct SetState {
     /// Environment name
     #[arg(value_enum, short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct UnsetState {
+    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    pub project: bool,
+
+    /// Environment name
+    #[arg(value_enum, short = 'e', long = "environment", required = false)]
+    pub environment: bool,
 }
