@@ -48,7 +48,7 @@ pub async fn handle_environment_commands(
     if let EnvironmentSubcommand::Changelog(c) = &cmd.subcommand {
         let (state_project, state_env) = match state {
             Some(s) => {
-                eprintln!("{}", s);
+                eprint!("{}", s);
                 (&s.project, &s.environment)
             }
             None => (&None, &None),
