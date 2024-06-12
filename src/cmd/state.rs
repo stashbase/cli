@@ -12,6 +12,7 @@ pub enum StateSubcommand {
     /// Set cli state
     Set(SetState),
 
+    /// Unset cli state
     Unset(UnsetState),
 
     /// Print cli state
