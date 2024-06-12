@@ -32,20 +32,13 @@ pub fn handle_state_commands(cmd: StateCommand, config: &mut Config) -> Result<(
         }
         StateSubcommand::Print => {
             if let Some(state) = &config.state {
-                let project = &state.project;
-                let environment = &state.environment;
-
-                if project.is_none() && environment.is_none() {
-                    eprintln!("{}", "No state set");
+                if state.is_empty() {
+                    eprintln!("No state set");
                 } else {
-                    if let Some(project) = project {
-                        println!("Project: {}", *project);
-                    }
-
-                    if let Some(environment) = environment {
-                        println!("Environment: {}", *environment);
-                    }
+                    print!("{state}")
                 }
+            } else {
+                eprintln!("No state set");
             }
         }
         StateSubcommand::Unset(cmd) => {
