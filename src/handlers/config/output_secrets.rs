@@ -8,6 +8,7 @@ use crate::{
 
 pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
     let res = config::update_config(UpdateConfig {
+        state: None,
         api_key: None,
         output_format: Some(OutputFormatConfig {
             secrets: Some(output_format),

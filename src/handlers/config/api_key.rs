@@ -5,6 +5,7 @@ use crate::{config::config, models::config::UpdateConfig};
 
 pub fn set_api_key(api_key: String) {
     let res = config::update_config(UpdateConfig {
+        state: None,
         api_key: Some(api_key),
         output_format: None,
     });
