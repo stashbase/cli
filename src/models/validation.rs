@@ -20,6 +20,8 @@ pub enum CmdArgInputValidationError {
     MissingEnvironment,
     DuplicateEnvironment,
     MissingProjectEnvironment,
+    // for state
+    MissingProjectOrEnvironment,
 }
 
 #[derive(Debug)]
@@ -127,6 +129,11 @@ impl fmt::Display for CmdArgInputValidationError {
             }
             CmdArgInputValidationError::MissingProjectEnvironment => {
                 msg = "project and environment not specified";
+                hint = "use '-p/--project' and '-e/--environment' arguments";
+            }
+
+            CmdArgInputValidationError::MissingProjectOrEnvironment => {
+                msg = "project or environment not specified";
                 hint = "use '-p/--project' and '-e/--environment' arguments";
             }
         }
