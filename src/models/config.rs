@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
@@ -57,6 +59,32 @@ impl State {
 
     pub fn is_empty(&self) -> bool {
         self.project.is_none() && self.environment.is_none()
+    }
+}
+
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.project.is_none() && self.environment.is_none() {
+            writeln!(f, "{}", "No state set")?;
+        } else {
+            let mut text = "".to_string();
+
+            if let Some(project) = &self.project {
+                text.push_str(format!("Project: {}", project).as_str());
+            }
+
+            if let Some(environment) = &self.environment {
+                if text != "" {
+                    text.push_str(format!("; environment: {}", environment).as_str());
+                } else {
+                    text.push_str(format!("Environment: {}", environment).as_str());
+                }
+            }
+
+            writeln!(f, "{}", text)?;
+        }
+
+        Ok(())
     }
 }
 
