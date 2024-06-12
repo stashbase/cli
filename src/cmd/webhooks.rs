@@ -24,7 +24,6 @@ pub struct WebhookCommand {
 impl WebhookCommand {
     pub fn try_get_project_environment(
         &self,
-
         state_project: &Option<String>,
         state_environment: &Option<String>,
     ) -> Result<(String, String)> {
