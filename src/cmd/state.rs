@@ -20,6 +20,7 @@ pub enum StateSubcommand {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "state set [OPTIONS]")]
 pub struct SetState {
     #[arg(value_enum, short = 'p', long = "project", required = false)]
     pub project: Option<String>,
@@ -30,6 +31,7 @@ pub struct SetState {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "state unset [OPTIONS]")]
 pub struct UnsetState {
     #[arg(value_enum, short = 'p', long = "project", required = false)]
     pub project: bool,
