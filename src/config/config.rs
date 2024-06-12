@@ -108,3 +108,21 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
 
     Ok(())
 }
+
+pub fn update_config_state(config: &mut Config, new_state: Option<State>) -> Result<()> {
+    let config_path = get_config_path()?;
+
+    match new_state {
+        Some(s) => {
+            config.state = Some(s);
+        }
+        None => {
+            config.state = None;
+        }
+    }
+
+    let config_string = toml::to_string(&config)?;
+    fs::write(config_path, config_string)?;
+
+    Ok(())
+}
