@@ -22,13 +22,24 @@ pub struct SecretArgs {
 }
 
 impl SecretArgs {
-    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
+    pub fn try_get_project_environment(
+        &self,
+        state_project: &Option<String>,
+        state_environment: &Option<String>,
+    ) -> Result<(String, String)> {
         let root_project: Option<_> = self.project.as_deref();
         let root_environment: Option<_> = self.environment.as_deref();
 
         let (project, environment) = self.subcommand.get_project_environment();
 
-        try_get_project_environment(root_project, root_environment, project, environment)
+        try_get_project_environment(
+            root_project,
+            root_environment,
+            project,
+            environment,
+            state_project,
+            state_environment,
+        )
     }
 }
 

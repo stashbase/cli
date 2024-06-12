@@ -32,6 +32,9 @@ pub fn try_get_project_environment(
     // from subcommand
     project: Option<&str>,
     environment: Option<&str>,
+
+    state_project: &Option<String>,
+    state_environment: &Option<String>,
 ) -> Result<(String, String)> {
     if root_project.is_some() && project.is_some() {
         bail!(InputValidationError::CmdArgs(
@@ -50,31 +53,51 @@ pub fn try_get_project_environment(
         && environment.is_none()
         && root_environment.is_none()
     {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::MissingProjectEnvironment
-        ))
+        if state_project.is_none() && state_environment.is_none() {
+            bail!(InputValidationError::CmdArgs(
+                CmdArgInputValidationError::MissingProjectEnvironment
+            ))
+        }
     }
 
     if project.is_none() && root_project.is_none() {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::MissingProject
-        ))
+        if state_project.is_none() {
+            bail!(InputValidationError::CmdArgs(
+                CmdArgInputValidationError::MissingProject
+            ))
+        }
     }
 
     if environment.is_none() && root_environment.is_none() {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::MissingEnvironment
-        ))
+        if state_environment.is_none() {
+            bail!(InputValidationError::CmdArgs(
+                CmdArgInputValidationError::MissingEnvironment
+            ))
+        }
     }
 
     let project = match root_project {
         Some(p) => p.to_string(),
-        None => project.unwrap().to_string(),
+        // None => project.unwrap().to_string(),
+        None => match project {
+            Some(p) => p.to_string(),
+            None => match state_project {
+                Some(p) => p.to_string(),
+                None => project.unwrap().to_string(),
+            },
+        },
     };
 
     let environment = match root_environment {
         Some(e) => e.to_string(),
-        None => environment.unwrap().to_string(),
+        // None => environment.unwrap().to_string(),
+        None => match environment {
+            Some(e) => e.to_string(),
+            None => match state_environment {
+                Some(e) => e.to_string(),
+                None => environment.unwrap().to_string(),
+            },
+        },
     };
 
     Ok((project, environment))
