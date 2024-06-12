@@ -64,7 +64,14 @@ pub async fn handle_cli(args: Cli) {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_environment_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_environment_commands(
+                    cmd,
+                    api_key,
+                    raw_output,
+                    default_output_format,
+                    &config.state,
+                )
+                .await
             }
             EntityType::Config(_) => {
                 unreachable!()
@@ -88,15 +95,28 @@ pub async fn handle_cli(args: Cli) {
                 };
                 //
 
-                handle_secrets_commands(cmd, api_key, raw_output, default_secrets_output_format)
-                    .await
+                handle_secrets_commands(
+                    cmd,
+                    api_key,
+                    raw_output,
+                    default_secrets_output_format,
+                    &config.state,
+                )
+                .await
             }
             EntityType::Webhooks(cmd) => {
                 let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_webhook_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_webhook_commands(
+                    cmd,
+                    api_key,
+                    raw_output,
+                    default_output_format,
+                    &config.state,
+                )
+                .await
             }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
