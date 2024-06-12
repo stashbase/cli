@@ -6,12 +6,19 @@ use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
 pub struct Config {
     pub api_key: Option<String>,
     pub ouput_format: Option<OutputFormatConfig>,
+    pub state: Option<State>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OutputFormatConfig {
     pub general: Option<OutputFormat>,
     pub secrets: Option<SecretsOutputFormat>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct State {
+    pub project: Option<String>,
+    pub environment: Option<String>,
 }
 
 impl OutputFormatConfig {
@@ -28,6 +35,7 @@ impl Config {
         Self {
             api_key: None,
             ouput_format: None,
+            state: None,
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -36,6 +44,19 @@ impl Config {
         } else {
             self.api_key.is_none() && self.ouput_format.is_none()
         }
+    }
+}
+
+impl State {
+    pub fn new() -> Self {
+        Self {
+            project: None,
+            environment: None,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.project.is_none() && self.environment.is_none()
     }
 }
 
@@ -55,4 +76,5 @@ pub struct ConfigWithPath {
 pub struct UpdateConfig {
     pub api_key: Option<String>,
     pub output_format: Option<OutputFormatConfig>,
+    pub state: Option<State>,
 }
