@@ -26,7 +26,7 @@ pub async fn handle_cli(args: Cli) {
     let config = config::get_config();
     debug!("config: {:?}", config);
 
-    if let Ok(config) = config {
+    if let Ok(mut config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
             if let Err(err) = handle_config_commands(cmd, &config) {
                 eprintln!("{:?}", err);
@@ -36,7 +36,7 @@ pub async fn handle_cli(args: Cli) {
         }
 
         if let EntityType::State(cmd) = args.entity_type {
-            if let Err(err) = handle_state_commands(cmd, &config) {
+            if let Err(err) = handle_state_commands(cmd, &mut config) {
                 eprintln!("{:?}", err);
             }
 
