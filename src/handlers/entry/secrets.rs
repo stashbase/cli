@@ -14,6 +14,7 @@ use crate::{
         set::{handle_set_secrets, HandleSetSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
+    models::config::State,
 };
 
 fn get_output_format(
@@ -32,8 +33,17 @@ pub async fn handle_secrets_commands(
     api_key: String,
     raw_output: bool,
     default_output_format: Option<SecretsOutputFormat>,
+    state: &Option<State>,
 ) -> Result<()> {
-    let (project, environment) = cmd.try_get_project_environment()?;
+    let (state_project, state_env) = match state {
+        Some(s) => {
+            eprintln!("{}", s);
+            (&s.project, &s.environment)
+        }
+        None => (&None, &None),
+    };
+
+    let (project, environment) = cmd.try_get_project_environment(state_project, state_env)?;
 
     match cmd.subcommand {
         SecretSubcommand::List(args) => {

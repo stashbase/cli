@@ -24,6 +24,7 @@ use crate::{
             update_type::handle_update_env_type,
         },
     },
+    models::config::State,
     utils::output::get_output_format,
 };
 
@@ -42,9 +43,18 @@ pub async fn handle_environment_commands(
     api_key: String,
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
+    state: &Option<State>,
 ) -> Result<()> {
     if let EnvironmentSubcommand::Changelog(c) = &cmd.subcommand {
-        let (project, environment) = cmd.try_get_project_environment()?;
+        let (state_project, state_env) = match state {
+            Some(s) => {
+                eprintln!("{}", s);
+                (&s.project, &s.environment)
+            }
+            None => (&None, &None),
+        };
+
+        let (project, environment) = cmd.try_get_project_environment(state_project, state_env)?;
 
         match &c.subcommand {
             EnvChangelogSubcommand::List(args) => {
@@ -88,7 +98,14 @@ pub async fn handle_environment_commands(
 
         Ok(())
     } else {
-        let project = cmd.try_get_project()?;
+        let state_project = match state {
+            Some(s) => {
+                eprintln!("{}", s);
+                &s.project
+            }
+            None => &None,
+        };
+        let project = cmd.try_get_project(state_project)?;
 
         match cmd.subcommand {
             EnvironmentSubcommand::List(args) => {

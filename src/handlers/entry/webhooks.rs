@@ -17,6 +17,7 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
+    models::config::State,
     utils::{
         output::get_output_format,
         validation::{
@@ -65,9 +66,18 @@ pub async fn handle_webhook_commands(
     api_key: String,
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
+    state: &Option<State>,
 ) -> Result<()> {
+    let (state_project, state_env) = match state {
+        Some(s) => {
+            eprintln!("{}", s);
+            (&s.project, &s.environment)
+        }
+        None => (&None, &None),
+    };
+
     // required options
-    let (project, environment) = cmd.try_get_project_environment()?;
+    let (project, environment) = cmd.try_get_project_environment(state_project, state_env)?;
 
     // other input
     validate_input(&project, &environment, &cmd.subcommand)?;
