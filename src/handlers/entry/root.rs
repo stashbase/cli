@@ -10,7 +10,7 @@ use crate::{
         entry::{
             config::handle_config_commands, environments::handle_environment_commands,
             projects::handle_project_commands, secrets::handle_secrets_commands,
-            webhooks::handle_webhook_commands,
+            state::handle_state_commands, webhooks::handle_webhook_commands,
         },
         open::handle_open_dashboard,
         pull::entry::{handle_pull, HandlePullArgs},
@@ -29,6 +29,14 @@ pub async fn handle_cli(args: Cli) {
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
             if let Err(err) = handle_config_commands(cmd, &config) {
+                eprintln!("{:?}", err);
+            }
+
+            return;
+        }
+
+        if let EntityType::State(cmd) = args.entity_type {
+            if let Err(err) = handle_state_commands(cmd, &config) {
                 eprintln!("{:?}", err);
             }
 
@@ -61,6 +69,7 @@ pub async fn handle_cli(args: Cli) {
             EntityType::Config(_) => {
                 unreachable!()
             }
+
             EntityType::Secret(cmd) => {
                 // if no secrets output format is set use the general output format
                 let default_secrets_output_format = match config.ouput_format {
@@ -117,6 +126,9 @@ pub async fn handle_cli(args: Cli) {
                 };
 
                 handle_pull(args).await
+            }
+            EntityType::State(_) => {
+                unreachable!()
             }
             EntityType::Open => handle_open_dashboard(api_key).await,
         };
