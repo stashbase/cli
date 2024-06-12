@@ -1,5 +1,6 @@
-use std::fmt::Display;
+use std::{error::Error, fmt::Display};
 
+use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
 use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
@@ -64,9 +65,8 @@ impl State {
 
 impl Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.project.is_none() && self.environment.is_none() {
-            writeln!(f, "{}", "No state set")?;
-        } else {
+        if self.project.is_some() && self.environment.is_some() {
+            //
             let mut text = "".to_string();
 
             if let Some(project) = &self.project {
