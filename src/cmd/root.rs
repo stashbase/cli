@@ -2,7 +2,8 @@ use clap::{Parser, Subcommand};
 
 use super::{
     config::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
-    pull::PullCommand, run::RunCommand, secrets::SecretArgs, webhooks::WebhookCommand,
+    pull::PullCommand, run::RunCommand, secrets::SecretArgs, state::StateCommand,
+    webhooks::WebhookCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -69,6 +70,9 @@ pub enum EntityType {
     /// Manage webhooks
     #[clap(name = "webhooks", aliases = &["w", "web"])]
     Webhooks(WebhookCommand),
+
+    /// Your CLI state
+    State(StateCommand),
 
     /// Your CLI configuration
     #[clap(aliases = &["c", "conf"])]
