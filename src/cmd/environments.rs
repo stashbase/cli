@@ -4,7 +4,10 @@ use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
 use super::{config::OutputFormat, shared::SharedProjectEnvArgs};
-use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
+use crate::models::{
+    config::{Config, State},
+    validation::{CmdArgInputValidationError, InputValidationError},
+};
 
 #[derive(Debug, ValueEnum, Clone)]
 pub enum EnvironmentType {
@@ -60,7 +63,7 @@ pub struct SharedProjectArgs {
 
 // impl RequiredProjectArg for EnvironmentCommands {
 impl EnvironmentCommands {
-    pub fn try_get_project(&self) -> Result<String> {
+    pub fn try_get_project(&self, state_project: &Option<String>) -> Result<String> {
         let root_project: Option<_> = self.project.as_deref();
         let project = self.subcommand.get_project();
 
@@ -71,6 +74,10 @@ impl EnvironmentCommands {
         }
 
         if project.is_none() && root_project.is_none() {
+            if let Some(project) = &state_project {
+                return Ok(project.to_string());
+            }
+
             bail!(InputValidationError::CmdArgs(
                 CmdArgInputValidationError::MissingProject
             ))
@@ -78,12 +85,19 @@ impl EnvironmentCommands {
 
         match project {
             Some(p) => Ok(p.to_string()),
-            None => Ok(root_project.unwrap().to_string()),
+            None => match root_project {
+                Some(root_project) => Ok(root_project.to_string()),
+                None => Ok(state_project.to_owned().unwrap()),
+            },
         }
     }
 
     // for changelog
-    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
+    pub fn try_get_project_environment(
+        &self,
+        state_project: &Option<String>,
+        state_env: &Option<String>,
+    ) -> Result<(String, String)> {
         if let EnvironmentSubcommand::Changelog(c) = &self.subcommand {
             let root_project = self.project.as_deref();
             let subcommand_project = self.subcommand.get_project();
@@ -130,33 +144,52 @@ impl EnvironmentCommands {
 
             if project_arg_count == 0 {
                 if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
-                    bail!(InputValidationError::CmdArgs(
-                        CmdArgInputValidationError::MissingProjectEnvironment
-                    ))
+                    if state_project.is_none() && state_env.is_none() {
+                        bail!(InputValidationError::CmdArgs(
+                            CmdArgInputValidationError::MissingProjectEnvironment
+                        ))
+                    }
                 }
 
-                bail!(InputValidationError::CmdArgs(
-                    CmdArgInputValidationError::MissingProject
-                ))
+                if state_project.is_none() {
+                    bail!(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::MissingProject
+                    ))
+                }
             }
 
             if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
-                bail!(InputValidationError::CmdArgs(
-                    CmdArgInputValidationError::MissingEnvironment
-                ))
+                if state_env.is_none() {
+                    bail!(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::MissingEnvironment
+                    ))
+                }
             }
 
             let project = match nested_subcommand_project {
                 Some(p) => p.to_string(),
                 None => match subcommand_project {
                     Some(p) => p.to_string(),
-                    None => root_project.unwrap().to_string(),
+                    None => match root_project {
+                        Some(p) => p.to_string(),
+                        None => match state_project {
+                            Some(p) => p.to_string(),
+                            None => root_project.unwrap().to_string(),
+                        },
+                    },
                 },
             };
 
             let environment = match nested_subcommand_environment {
                 Some(e) => e.to_string(),
-                None => subcommand_environment.unwrap().to_string(),
+                // None => subcommand_environment.unwrap().to_string(),
+                None => match subcommand_environment {
+                    Some(s) => s.to_string(),
+                    None => match state_env {
+                        Some(e) => e.to_string(),
+                        None => subcommand_environment.unwrap().to_string(),
+                    },
+                },
             };
 
             return Ok((project, environment));
