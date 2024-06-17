@@ -213,13 +213,13 @@ impl fmt::Display for SecretsInputValidationError {
                 };
                 msg = message;
                 hint = Some(
-                    "secret key can contain only uppercase alphanumeric characters and underscores",
+                    "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
             }
             SecretsInputValidationError::SearchFormat => {
                 msg = "argument search is invalid";
                 hint = Some(
-                    "secret key can contain only uppercase alphanumeric characters and underscores",
+                    "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
             }
             SecretsInputValidationError::SearchTooShort => {
