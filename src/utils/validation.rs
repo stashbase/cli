@@ -42,8 +42,24 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
     let starts_with_digit = value.chars().nth(0).unwrap().is_ascii_digit();
 
-    if !regex.is_match(value) || starts_with_digit == true {
+    if !regex.is_match(value) || starts_with_digit {
         let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
+            multiple: false,
+        });
+
+        bail!(err)
+    }
+
+    if value.len() < 2 {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyTooShort {
+            multiple: false,
+        });
+
+        bail!(err)
+    }
+
+    if value.len() > 255 {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyTooLong {
             multiple: false,
         });
 
@@ -56,17 +72,54 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
 pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
-    let invalid = values
-        .into_iter()
-        .find(|v| !regex.is_match(*v) || v.chars().nth(0).unwrap().is_ascii_digit());
+    let (invalid_format, too_short, too_long): (Vec<&String>, Vec<&String>, Vec<&String>) =
+        values.into_iter().fold(
+            (Vec::new(), Vec::new(), Vec::new()),
+            |(mut invalid_format, mut too_short, mut too_long), x| {
+                if !regex.is_match(x) || x.chars().nth(0).unwrap().is_ascii_digit() {
+                    invalid_format.push(x);
+                } else if x.len() < 2 {
+                    too_short.push(x);
+                } else if x.len() > 255 {
+                    too_long.push(x);
+                }
+                (invalid_format, too_short, too_long)
+            },
+        );
 
-    if invalid.is_some() {
-        let multiple = values.len() > 1;
+    if invalid_format.is_empty() == false {
+        let multiple = invalid_format.len() > 1;
         let err =
             InputValidationError::Secrets(SecretsInputValidationError::KeyFormat { multiple });
 
         bail!(err)
     }
+
+    if too_short.is_empty() == false {
+        let multiple = too_short.len() > 1;
+        let err =
+            InputValidationError::Secrets(SecretsInputValidationError::KeyTooShort { multiple });
+
+        bail!(err)
+    }
+
+    if too_long.is_empty() == false {
+        let multiple = too_long.len() > 1;
+        let err =
+            InputValidationError::Secrets(SecretsInputValidationError::KeyTooLong { multiple });
+
+        bail!(err)
+    }
+
+    // let invalid = values.into_iter().find(|v| !regex.is_match(*v));
+    //
+    // if invalid.is_some() {
+    //     let multiple = values.len() > 1;
+    //     let err =
+    //         InputValidationError::Secrets(SecretsInputValidationError::KeyFormat { multiple });
+    //
+    //     bail!(err)
+    // }
 
     Ok(())
 }
@@ -74,11 +127,9 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
 pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
-    let invalid = values.into_iter().find(|k| {
-        !regex.is_match(&k.0)
-            || !regex.is_match(&k.1)
-            || k.0.chars().nth(0).unwrap().is_ascii_digit()
-    });
+    let invalid = values
+        .into_iter()
+        .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
 
     if invalid.is_some() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
@@ -273,3 +324,5 @@ pub fn validate_webhook_description(description: &str) -> Result<()> {
 
     Ok(())
 }
+
+

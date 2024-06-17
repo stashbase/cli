@@ -52,6 +52,8 @@ pub enum WebhookInputValidationError {
 pub enum SecretsInputValidationError {
     NoKeys,
     KeyFormat { multiple: bool },
+    KeyTooShort { multiple: bool },
+    KeyTooLong { multiple: bool },
 
     SearchTooShort,
     SearchFormat,
@@ -216,6 +218,24 @@ impl fmt::Display for SecretsInputValidationError {
                     "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
             }
+            SecretsInputValidationError::KeyTooShort { multiple } => {
+                let message = match multiple {
+                    true => "secret keys are too short",
+                    false => "secret key is too short",
+                };
+                msg = message;
+                hint = Some("mimimal length for secret key is 2 characters");
+            }
+
+            SecretsInputValidationError::KeyTooLong { multiple } => {
+                let message = match multiple {
+                    true => "secret keys are too long",
+                    false => "secret key is too long",
+                };
+                msg = message;
+                hint = Some("maximum length for secret key is 255 characters");
+            }
+
             SecretsInputValidationError::SearchFormat => {
                 msg = "argument search is invalid";
                 hint = Some(
