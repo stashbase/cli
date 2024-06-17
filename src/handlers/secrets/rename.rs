@@ -13,7 +13,7 @@ use crate::{
         spinner::request_spinner,
         validation::{
             validate_environment_name, validate_project_environment, validate_project_name,
-            validate_secret_key_new_key,
+            validate_secret_keys,
         },
     },
 };
@@ -207,12 +207,34 @@ fn validate_input(
         bail!(err);
     }
 
-    let keys_valid_res = validate_secret_key_new_key(&key_value_pairs);
+    let old_keys = key_value_pairs
+        .iter()
+        .map(|k| k.0.to_string())
+        .collect::<Vec<_>>();
 
-    if let Err(err) = keys_valid_res {
-        debug!("Error: {:#?}", &err);
+    let valid_old_keys = validate_secret_keys(&old_keys);
+
+    if let Err(err) = valid_old_keys {
         bail!(err);
     }
+
+    let new_keys = key_value_pairs
+        .iter()
+        .map(|k| k.1.to_string())
+        .collect::<Vec<_>>();
+
+    let valid_new_keys = validate_secret_keys(&new_keys);
+
+    if let Err(err) = valid_new_keys {
+        bail!(err);
+    }
+
+    // let keys_valid_res = validate_secret_key_new_key(&key_value_pairs);
+    //
+    // if let Err(err) = keys_valid_res {
+    //     debug!("Error: {:#?}", &err);
+    //     bail!(err);
+    // }
 
     Ok(())
 }
