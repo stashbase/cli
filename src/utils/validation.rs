@@ -72,39 +72,39 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
 pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
-    let (invalid_format, too_short, too_long): (Vec<&String>, Vec<&String>, Vec<&String>) =
+    let (invalid_format_count, too_short_count, too_long_count): (usize, usize, usize) =
         values.into_iter().fold(
-            (Vec::new(), Vec::new(), Vec::new()),
-            |(mut invalid_format, mut too_short, mut too_long), x| {
+            (0, 0, 0),
+            |(mut invalid_format_count, mut too_short_count, mut too_long_count), x| {
                 if !regex.is_match(x) || x.chars().nth(0).unwrap().is_ascii_digit() {
-                    invalid_format.push(x);
+                    invalid_format_count = invalid_format_count + 1;
                 } else if x.len() < 2 {
-                    too_short.push(x);
+                    too_short_count = too_short_count + 1;
                 } else if x.len() > 255 {
-                    too_long.push(x);
+                    too_long_count = too_long_count + 1;
                 }
-                (invalid_format, too_short, too_long)
+                (invalid_format_count, too_short_count, too_long_count)
             },
         );
 
-    if invalid_format.is_empty() == false {
-        let multiple = invalid_format.len() > 1;
+    if invalid_format_count > 0 {
+        let multiple = invalid_format_count > 1;
         let err =
             InputValidationError::Secrets(SecretsInputValidationError::KeyFormat { multiple });
 
         bail!(err)
     }
 
-    if too_short.is_empty() == false {
-        let multiple = too_short.len() > 1;
+    if too_short_count > 0 {
+        let multiple = too_short_count > 1;
         let err =
             InputValidationError::Secrets(SecretsInputValidationError::KeyTooShort { multiple });
 
         bail!(err)
     }
 
-    if too_long.is_empty() == false {
-        let multiple = too_long.len() > 1;
+    if too_long_count > 0 {
+        let multiple = too_long_count > 1;
         let err =
             InputValidationError::Secrets(SecretsInputValidationError::KeyTooLong { multiple });
 
@@ -324,5 +324,3 @@ pub fn validate_webhook_description(description: &str) -> Result<()> {
 
     Ok(())
 }
-
-
