@@ -40,8 +40,9 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
 // name of secret
 pub fn validate_secret_key(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
+    let starts_with_digit = value.chars().nth(0).unwrap().is_ascii_digit();
 
-    if !regex.is_match(value) {
+    if !regex.is_match(value) || starts_with_digit == true {
         let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
             multiple: false,
         });
@@ -55,7 +56,9 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
 pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
-    let invalid = values.into_iter().find(|v| !regex.is_match(*v));
+    let invalid = values
+        .into_iter()
+        .find(|v| !regex.is_match(*v) || v.chars().nth(0).unwrap().is_ascii_digit());
 
     if invalid.is_some() {
         let multiple = values.len() > 1;
@@ -71,9 +74,11 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
 pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
-    let invalid = values
-        .into_iter()
-        .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
+    let invalid = values.into_iter().find(|k| {
+        !regex.is_match(&k.0)
+            || !regex.is_match(&k.1)
+            || k.0.chars().nth(0).unwrap().is_ascii_digit()
+    });
 
     if invalid.is_some() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
