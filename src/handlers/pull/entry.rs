@@ -60,7 +60,12 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let mut setted_secrets = HashMap::<String, String>::new();
 
     // LOAD from file
-    let file_config = load_from_file(file.clone())?;
+    let file_config = load_from_file(
+        file.clone(),
+        LoadYamlConfigFileType::Full {
+            select_msg: String::from("Select environment config"),
+        },
+    )?;
     debug!("file_config: {:?}", file_config);
 
     if let Some(config) = file_config {
@@ -446,7 +451,24 @@ fn write_file(file_path: &str, file_string: String) -> Result<()> {
     }
 }
 
-pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
+pub enum LoadYamlConfigFileType {
+    Full { select_msg: String },
+    SelectState { select_msg: String },
+}
+
+impl LoadYamlConfigFileType {
+    pub fn get_select_msg(&self) -> String {
+        match self {
+            LoadYamlConfigFileType::Full { select_msg } => select_msg.to_string(),
+            LoadYamlConfigFileType::SelectState { select_msg } => select_msg.to_string(),
+        }
+    }
+}
+
+pub fn load_from_file(
+    relative_path: Option<String>,
+    load_type: LoadYamlConfigFileType,
+) -> Result<Option<EnvConfigItem>> {
     // Load from file
     let file_path = match &relative_path {
         Some(relative_path) => {
@@ -488,10 +510,17 @@ pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigI
             } else {
                 let items = deserialized_config
                     .iter()
-                    .map(|item| item.to_string())
+                    .map(|item| match &load_type {
+                        LoadYamlConfigFileType::Full { select_msg: _ } => item.to_string(),
+                        LoadYamlConfigFileType::SelectState { select_msg: _ } => {
+                            item.to_string_project_env()
+                        }
+                    })
                     .collect();
+
                 // select project
-                let selection = select("Select environment config", items);
+                let select_msg = load_type.get_select_msg();
+                let selection = select(&select_msg, items);
 
                 debug!("selection: {:?}", selection);
 
