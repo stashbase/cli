@@ -1,8 +1,10 @@
 use anyhow::{bail, Result};
+use log::debug;
 use owo_colors::OwoColorize;
 
 use crate::{
     cmd::state::{StateCommand, StateSubcommand},
+    handlers::pull::entry::{load_from_file, LoadYamlConfigFileType},
     models::{
         config::{Config, State},
         validation::{CmdArgInputValidationError, InputValidationError},
@@ -60,6 +62,9 @@ pub fn handle_state_commands(cmd: StateCommand, config: &mut Config) -> Result<(
                 eprintln!("{}", "No state to unset");
             }
         }
+        StateSubcommand::Select(cmd) => {
+            handle_select_state(cmd.config_file)?;
+        }
     }
 
     Ok(())
@@ -109,4 +114,24 @@ fn handle_unset_state(
         let msg = format!("{} {}", "✔".green(), "State has been updated");
         eprintln!("{}", msg);
     }
+}
+
+fn handle_select_state(file_path: Option<String>) -> Result<()> {
+    let file_config = load_from_file(
+        file_path.clone(),
+        LoadYamlConfigFileType::SelectState {
+            select_msg: String::from("Select project and environment"),
+        },
+    )?;
+
+    if let Some(file_config) = file_config {
+        debug!("file_config: {:?}", file_config);
+
+        let project = file_config.project;
+        let environment = file_config.environment;
+
+        handle_set_state(Some(project), Some(environment));
+    }
+
+    Ok(())
 }
