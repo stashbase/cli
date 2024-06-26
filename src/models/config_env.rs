@@ -84,3 +84,9 @@ impl fmt::Display for EnvConfigItem {
         Ok(())
     }
 }
+
+impl EnvConfigItem {
+    pub fn to_string_project_env(&self) -> String {
+        format!("{} -> {}", self.project, self.environment)
+    }
+}
