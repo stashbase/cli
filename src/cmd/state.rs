@@ -15,6 +15,9 @@ pub enum StateSubcommand {
     /// Unset cli state
     Unset(UnsetState),
 
+    /// Select state from 'stasthbase.yaml'
+    Select(SelectState),
+
     /// Print cli state
     Print,
 }
@@ -39,4 +42,12 @@ pub struct UnsetState {
     /// Environment name
     #[arg(value_enum, short = 'e', long = "environment", required = false)]
     pub environment: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "state select [OPTIONS]")]
+pub struct SelectState {
+    /// Relative path to a config file (default: stashbase.yaml)
+    #[arg(value_enum, short = 'c', long = "config")]
+    pub config_file: Option<String>,
 }
