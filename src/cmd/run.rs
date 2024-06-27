@@ -7,6 +7,10 @@ pub struct RunCommand {
     #[clap(value_parser, num_args = 1..)]
     pub command: Vec<String>,
 
+    /// Read project, environment from state
+    #[arg(value_enum, long = "from-state")]
+    pub from_state: bool,
+
     /// Relative path to a config file (default: env-ease.yaml)
     #[arg(value_enum, long = "file")]
     pub file: Option<String>,
