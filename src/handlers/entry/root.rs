@@ -128,10 +128,11 @@ pub async fn handle_cli(args: Cli) {
                     only: args.only,
                     set: args.set,
                     print_secrets: args.print_secrets,
+                    from_state: args.from_state,
                     file: args.file,
                 };
 
-                handle_load_env_run(args).await
+                handle_load_env_run(args, &config.state).await
             }
             EntityType::Pull(args) => {
                 let args = HandlePullArgs {
