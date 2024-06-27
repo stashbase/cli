@@ -89,6 +89,8 @@ pub enum LoadEnvironmentInputValidationError {
     NoConfigFile { custom_path: bool },
     NoConfigFileEntries,
     FileArgWithInline,
+    FileArgWithState,
+    NoStateSet,
     MissingProjectArg,
     MissingEnvArg,
     UseOfBothExcludeAndOnly,
@@ -389,6 +391,14 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             }
             LoadEnvironmentInputValidationError::FileArgWithInline => {
                 msg = "cannot use '--file' flag and '-p' or '-e' flag at the same time";
+                hint = None;
+            }
+            LoadEnvironmentInputValidationError::FileArgWithState => {
+                msg = "cannot use '--file' flag and '--from-state' flag at the same time";
+                hint = None;
+            }
+            LoadEnvironmentInputValidationError::NoStateSet => {
+                msg = "no state set, use your 'stashbase.yaml' file or provide '-p' and '-e' flags";
                 hint = None;
             }
             LoadEnvironmentInputValidationError::SetKeyValueSeparator => {
