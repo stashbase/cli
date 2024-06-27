@@ -10,6 +10,7 @@ use crate::{
     handlers::run::subprocess,
     models::{
         api_client::GetRequestApiResponse,
+        config::State,
         config_env::EnvConfigItem,
         secrets::SecretWithoutDescription,
         validation::{InputValidationError, LoadEnvironmentInputValidationError},
@@ -31,6 +32,7 @@ pub struct HandleRunArgs {
     pub project: Option<String>,
     pub environment: Option<String>,
     pub command: Vec<String>,
+    pub from_state: bool,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -38,18 +40,48 @@ pub struct HandleRunArgs {
     pub file: Option<String>,
 }
 
-pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
+pub async fn handle_load_env_run(args: HandleRunArgs, state: &Option<State>) -> Result<()> {
     let HandleRunArgs {
         api_key,
         command,
         file,
         set,
-        mut project,
-        mut environment,
+        from_state,
+        project,
+        environment,
         mut only,
         mut exclude,
         mut print_secrets,
     } = args;
+
+    let mut selected_project: Option<String> = None;
+    let mut selected_environment: Option<String> = None;
+
+    if from_state == true {
+        if file.is_some() {
+            let err = InputValidationError::LoadEnvironment(
+                LoadEnvironmentInputValidationError::FileArgWithState,
+            );
+            bail!(err);
+        }
+
+        if let Some(state) = state {
+            eprint!("{state}");
+
+            if let Some(p) = &state.project {
+                selected_project = Some(p.to_string());
+            }
+
+            if let Some(e) = &state.environment {
+                selected_environment = Some(e.to_string());
+            }
+        } else {
+            let err = InputValidationError::LoadEnvironment(
+                LoadEnvironmentInputValidationError::NoStateSet,
+            );
+            bail!(err);
+        }
+    }
 
     if file.is_some() && (project.is_some() || environment.is_some()) {
         let err = InputValidationError::LoadEnvironment(
@@ -59,19 +91,29 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         bail!(err);
     }
 
+    //
+
+    if let Some(project) = project {
+        selected_project = Some(project);
+    }
+
+    if let Some(environment) = environment {
+        selected_environment = Some(environment);
+    }
+
     let mut is_from_file = true;
 
     let mut setted_secrets = HashMap::<String, String>::new();
 
-    if let (Some(_), Some(_)) = (&project, &environment) {
+    if let (Some(_), Some(_)) = (&selected_project, &selected_environment) {
         is_from_file = false;
-    } else if let Some(_) = project {
+    } else if let Some(_) = selected_project {
         // missing env arg
         let err = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::MissingEnvArg,
         );
         bail!(err);
-    } else if let Some(_) = environment {
+    } else if let Some(_) = selected_environment {
         // missing project error
         let err = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::MissingProjectArg,
@@ -82,8 +124,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         let file_config = load_from_file(file)?;
 
         if let Some(config) = file_config {
-            project = Some(config.project);
-            environment = Some(config.environment);
+            selected_project = Some(config.project);
+            selected_environment = Some(config.environment);
 
             if let Some(secrets) = config.secrets {
                 // print
@@ -131,8 +173,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         }
     }
 
-    let project = project.unwrap();
-    let environment = environment.unwrap();
+    let project = selected_project.unwrap();
+    let environment = selected_environment.unwrap();
 
     let validation_res = validate_project_environment(project.as_ref(), environment.as_ref(), true);
 
