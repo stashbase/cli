@@ -143,10 +143,11 @@ pub async fn handle_cli(args: Cli) {
                     format: args.format,
                     only: args.only,
                     exclude: args.exclude,
+                    from_state: args.from_state,
                     print_secrets: args.print_secrets,
                 };
 
-                handle_pull(args).await
+                handle_pull(args, &config.state).await
             }
             EntityType::State(_) => {
                 unreachable!()
