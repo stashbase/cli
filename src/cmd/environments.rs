@@ -336,7 +336,7 @@ pub struct GetEnvironment {
     pub shared_args: SharedProjectArgs,
 
     /// Environment name
-    pub name: String,
+    pub name: Option<String>,
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
@@ -350,7 +350,7 @@ pub struct SetEnvironmentLock {
     pub shared_args: SharedProjectArgs,
 
     /// Environment name
-    pub name: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -360,7 +360,7 @@ pub struct DeleteEnvironment {
     pub shared_args: SharedProjectArgs,
 
     /// Environment name
-    pub name: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -370,7 +370,7 @@ pub struct OpenEnvironment {
     pub shared_args: SharedProjectArgs,
 
     /// Environment name
-    pub name: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -380,7 +380,7 @@ pub struct UpdateEnvironment {
     pub shared_args: SharedProjectArgs,
 
     /// Environment name
-    pub name: String,
+    pub name: Option<String>,
 
     /// New environment name
     #[arg(value_enum, short = 'n', long = "name")]
@@ -398,7 +398,7 @@ pub struct DuplicateEnvironment {
     pub shared_args: SharedProjectArgs,
 
     /// Environment name
-    pub name: String,
+    pub name: Option<String>,
     /// New name
     pub new_name: String,
 }
@@ -453,7 +453,7 @@ pub struct SetType {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    pub name: String,
+    pub name: Option<String>,
 
     // #[arg(name = "type")]
     #[arg(value_enum, name = "type", short = 't', long = "type")]
