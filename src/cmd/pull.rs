@@ -16,6 +16,10 @@ pub struct PullCommand {
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
+    /// Read project, environment from state
+    #[arg(value_enum, long = "from-state")]
+    pub from_state: bool,
+
     /// Output file path if not specified in the config
     #[arg(value_enum, short = 'o', long = "output")]
     pub output_file: Option<String>,
