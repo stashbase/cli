@@ -27,58 +27,59 @@ pub async fn handle_project_commands(
     default_output_format: Option<OutputFormat>,
     state: &Option<State>,
 ) -> Result<()> {
-    match cmd.subcommand {
-        ProjectSubcommand::List(args) => {
-            let format = get_output_format(raw_output, default_output_format, args.format);
+    if let ProjectSubcommand::List(args) = cmd.subcommand {
+        let format = get_output_format(raw_output, default_output_format, args.format);
 
-            let args = HandleListProjectsArgs {
-                api_key,
-                search: args.search,
-                sort: args.sort,
-                descending: args.descending,
-                format,
-            };
+        let args = HandleListProjectsArgs {
+            api_key,
+            search: args.search,
+            sort: args.sort,
+            descending: args.descending,
+            format,
+        };
 
-            handle_list_projects(args).await?;
-        }
-
-        ProjectSubcommand::Get(args) => {
-            let format = get_output_format(raw_output, default_output_format, args.format);
-            let project = get_project_name(state, args.name)?;
-            handle_get_project(api_key, format, project).await?;
+        handle_list_projects(args).await?;
+    } else if let ProjectSubcommand::Create(args) = cmd.subcommand {
+        handle_create_project(api_key, args.name, args.description).await?;
+    } else {
+        if let Some(s) = state {
+            eprint!("{s}");
         }
 
-        ProjectSubcommand::Create(args) => {
-            handle_create_project(api_key, args.name, args.description).await?;
-        }
-        ProjectSubcommand::Delete(args) => {
-            let project = get_project_name(state, args.name)?;
-            handle_delete_project(api_key, project).await?;
-        }
-        ProjectSubcommand::Open(args) => {
-            let project = get_project_name(state, args.name)?;
-            handle_open_project(api_key, project).await?;
-        }
-        ProjectSubcommand::Update(args) => {
-            let project = get_project_name(state, args.name)?;
-            handle_update_project(api_key, project, args.new_name, args.description).await?;
+        let name_argument = cmd.get_name_argument();
+        let project = get_project_name(state, name_argument)?;
+
+        match cmd.subcommand {
+            ProjectSubcommand::Get(args) => {
+                let format = get_output_format(raw_output, default_output_format, args.format);
+                handle_get_project(api_key, format, project).await?;
+            }
+
+            ProjectSubcommand::Delete(_) => {
+                handle_delete_project(api_key, project).await?;
+            }
+            ProjectSubcommand::Open(_) => {
+                handle_open_project(api_key, project).await?;
+            }
+            ProjectSubcommand::Update(args) => {
+                handle_update_project(api_key, project, args.new_name, args.description).await?;
+            }
+            _ => unreachable!(),
         }
     }
 
     Ok(())
 }
 
-fn get_project_name(state: &Option<State>, arg_name: Option<String>) -> Result<String> {
+fn get_project_name(state: &Option<State>, name_arg: Option<String>) -> Result<String> {
     if let Some(s) = state {
-        eprint!("{s}");
-
         if let Some(project) = &s.project {
-            match arg_name {
+            match name_arg {
                 Some(arg_name) => Ok(arg_name),
                 None => Ok(project.to_string()),
             }
         } else {
-            match arg_name {
+            match name_arg {
                 Some(arg_name) => Ok(arg_name),
                 None => {
                     let err = InputValidationError::Projects(
@@ -89,7 +90,7 @@ fn get_project_name(state: &Option<State>, arg_name: Option<String>) -> Result<S
             }
         }
     } else {
-        match arg_name {
+        match name_arg {
             Some(arg_name) => Ok(arg_name),
             None => {
                 let err =
