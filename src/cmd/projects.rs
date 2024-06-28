@@ -38,6 +38,18 @@ pub enum ProjectSubcommand {
     Open(OpenProject),
 }
 
+impl ProjectCommands {
+    pub fn get_name_argument(&self) -> Option<String> {
+        match &self.subcommand {
+            ProjectSubcommand::Get(g) => g.name.to_owned(),
+            ProjectSubcommand::Open(o) => o.name.to_owned(),
+            ProjectSubcommand::Delete(d) => d.name.to_owned(),
+            ProjectSubcommand::Update(u) => u.name.to_owned(),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Args)]
 #[command(override_usage = "projects list [OPTIONS]")]
 // TODO: perPage, pages + other args
