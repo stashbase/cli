@@ -103,7 +103,12 @@ pub enum LoadEnvironmentInputValidationError {
 #[derive(Debug)]
 pub enum PullEnvironmentInputValidationError {
     NoConfigFile { custom_path: bool },
+    NoOutputFile,
     NoConfigFileEntries,
+    FileArgWithState,
+    NoProjectState,
+    NoEnvState,
+    NoStateSet,
     // other errors same as from LoadEnvironment
 }
 
@@ -445,6 +450,26 @@ impl fmt::Display for PullEnvironmentInputValidationError {
             PullEnvironmentInputValidationError::NoConfigFileEntries => {
                 msg = "no entries found in 'onestash.yaml'";
                 hint = Some("add entries to the file or use '-p' and '-e' flags");
+            }
+            PullEnvironmentInputValidationError::NoOutputFile => {
+                msg = "no output file specified";
+                hint = Some("use '-o' flag to specify the output file");
+            }
+            PullEnvironmentInputValidationError::FileArgWithState => {
+                msg = "cannot use '--config' flag and '--from-state' flag at the same time";
+                hint = None;
+            }
+            PullEnvironmentInputValidationError::NoProjectState => {
+                msg = "no project state set";
+                hint = Some("use yaml file or set project state with 'state' command");
+            }
+            PullEnvironmentInputValidationError::NoEnvState => {
+                msg = "no environment state set";
+                hint = Some("use yaml file or set environment state with 'state' command");
+            }
+            PullEnvironmentInputValidationError::NoStateSet => {
+                msg = "no state set";
+                hint = Some("use yaml file or set state with 'state' command");
             }
         }
 
