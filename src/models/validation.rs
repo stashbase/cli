@@ -28,6 +28,9 @@ pub enum CmdArgInputValidationError {
 pub enum ProjectInputValidationError {
     NameTooShort { is_root: bool },
     NameFormat { is_root: bool },
+    //
+    NameNotProvided,
+    ProjectStateNotSet,
 
     SearchTooShort,
     SearchFormat,
@@ -66,6 +69,9 @@ pub enum SecretsInputValidationError {
 pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
     NameFormat { is_root: bool },
+    //
+    NameNotProvided,
+    EnvironmentStateNotSet,
 
     SearchTooShort,
     SearchFormat,
@@ -201,6 +207,14 @@ impl fmt::Display for ProjectInputValidationError {
                 hint =
                     Some("search can contain only alphanumeric characters, hyphens or underscores");
             }
+            ProjectInputValidationError::NameNotProvided => {
+                msg = "no project name value provided";
+                hint = Some("provide project name argument or set project state");
+            }
+            ProjectInputValidationError::ProjectStateNotSet => {
+                msg = "project state not set";
+                hint = Some("provide project name argument or set project state");
+            }
         }
 
         if let Some(hint) = hint {
@@ -307,6 +321,14 @@ impl fmt::Display for EnvironmentsInputValidationError {
                 msg = "argument search is invalid";
                 hint =
                     Some("search can contain only alphanumeric characters, underscores or hyphen separator");
+            }
+            EnvironmentsInputValidationError::NameNotProvided => {
+                msg = "no environment name value provided";
+                hint = Some("provide environment name argument or set environment state");
+            }
+            EnvironmentsInputValidationError::EnvironmentStateNotSet => {
+                msg = "environment state not set";
+                hint = Some("provide environment name argument or set project state");
             }
         }
 
