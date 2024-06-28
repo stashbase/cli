@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
@@ -13,6 +13,10 @@ use crate::{
         open::handle_open_project,
         update::handle_update_project,
     },
+    models::{
+        config::State,
+        validation::{InputValidationError, ProjectInputValidationError},
+    },
     utils::output::get_output_format,
 };
 
@@ -21,6 +25,7 @@ pub async fn handle_project_commands(
     api_key: String,
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
+    state: &Option<State>,
 ) -> Result<()> {
     match cmd.subcommand {
         ProjectSubcommand::List(args) => {
@@ -39,22 +44,58 @@ pub async fn handle_project_commands(
 
         ProjectSubcommand::Get(args) => {
             let format = get_output_format(raw_output, default_output_format, args.format);
-            handle_get_project(api_key, format, args.name).await?;
+            let project = get_project_name(state, args.name)?;
+            handle_get_project(api_key, format, project).await?;
         }
 
         ProjectSubcommand::Create(args) => {
             handle_create_project(api_key, args.name, args.description).await?;
         }
         ProjectSubcommand::Delete(args) => {
-            handle_delete_project(api_key, args.name).await?;
+            let project = get_project_name(state, args.name)?;
+            handle_delete_project(api_key, project).await?;
         }
         ProjectSubcommand::Open(args) => {
-            handle_open_project(api_key, args.name).await?;
+            let project = get_project_name(state, args.name)?;
+            handle_open_project(api_key, project).await?;
         }
         ProjectSubcommand::Update(args) => {
-            handle_update_project(api_key, args.name, args.new_name, args.description).await?;
+            let project = get_project_name(state, args.name)?;
+            handle_update_project(api_key, project, args.new_name, args.description).await?;
         }
     }
 
     Ok(())
+}
+
+fn get_project_name(state: &Option<State>, arg_name: Option<String>) -> Result<String> {
+    if let Some(s) = state {
+        eprint!("{s}");
+
+        if let Some(project) = &s.project {
+            match arg_name {
+                Some(arg_name) => Ok(arg_name),
+                None => Ok(project.to_string()),
+            }
+        } else {
+            match arg_name {
+                Some(arg_name) => Ok(arg_name),
+                None => {
+                    let err = InputValidationError::Projects(
+                        ProjectInputValidationError::ProjectStateNotSet,
+                    );
+                    bail!(err);
+                }
+            }
+        }
+    } else {
+        match arg_name {
+            Some(arg_name) => Ok(arg_name),
+            None => {
+                let err =
+                    InputValidationError::Projects(ProjectInputValidationError::NameNotProvided);
+                bail!(err);
+            }
+        }
+    }
 }
