@@ -95,7 +95,7 @@ pub struct CreateProject {
 #[command(override_usage = "projects update <NAME> [OPTIONS]")]
 pub struct UpdateProject {
     /// Project name
-    pub name: String,
+    pub name: Option<String>,
 
     /// New name
     #[arg(value_enum, short = 'n', long = "name")]
@@ -110,7 +110,7 @@ pub struct UpdateProject {
 #[command(override_usage = "projects get <NAME> [OPTIONS]")]
 pub struct GetProject {
     /// Project name
-    pub name: String,
+    pub name: Option<String>,
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
@@ -121,12 +121,12 @@ pub struct GetProject {
 #[command(override_usage = "projects delete <NAME> [OPTIONS]")]
 pub struct DeleteProject {
     /// Project name
-    pub name: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Args)]
 #[command(override_usage = "projects open <NAME> [OPTIONS]")]
 pub struct OpenProject {
     /// Project name
-    pub name: String,
+    pub name: Option<String>,
 }
