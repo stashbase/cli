@@ -63,6 +63,20 @@ pub struct SharedProjectArgs {
 
 // impl RequiredProjectArg for EnvironmentCommands {
 impl EnvironmentCommands {
+    pub fn get_name_argument(&self) -> Option<String> {
+        match &self.subcommand {
+            EnvironmentSubcommand::Get(g) => g.name.to_owned(),
+            EnvironmentSubcommand::Update(u) => u.name.to_owned(),
+            EnvironmentSubcommand::Duplicate(d) => d.name.to_owned(),
+            EnvironmentSubcommand::Lock(l) => l.name.to_owned(),
+            EnvironmentSubcommand::Unlock(u) => u.name.to_owned(),
+            EnvironmentSubcommand::SetType(t) => t.name.to_owned(),
+            EnvironmentSubcommand::Delete(d) => d.name.to_owned(),
+            EnvironmentSubcommand::Open(o) => o.name.to_owned(),
+            _ => None,
+        }
+    }
+
     pub fn try_get_project(&self, state_project: &Option<String>) -> Result<String> {
         let root_project: Option<_> = self.project.as_deref();
         let project = self.subcommand.get_project();
