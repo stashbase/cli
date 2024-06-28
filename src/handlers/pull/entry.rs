@@ -16,6 +16,7 @@ use crate::{
     handlers::run::entry::get_set_key_value_pairs,
     models::{
         api_client::GetRequestApiResponse,
+        config::State,
         config_env::EnvConfigItem,
         secrets::Secret,
         validation::{
@@ -39,15 +40,17 @@ pub struct HandlePullArgs {
     pub set: Vec<String>,
     pub print_secrets: bool,
     pub file: Option<String>,
+    pub from_state: bool,
     pub output_file: Option<String>,
     pub format: Option<PullFormat>,
 }
 
-pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
+pub async fn handle_pull(args: HandlePullArgs, state: &Option<State>) -> Result<()> {
     let HandlePullArgs {
         api_key,
         file,
         set,
+        from_state,
         mut output_file,
         mut format,
         mut only,
@@ -55,87 +58,141 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut print_secrets,
     } = args;
 
-    let mut project: Option<String> = None;
-    let mut environment: Option<String> = None;
+    let project: String;
+    let environment: String;
     let mut setted_secrets = HashMap::<String, String>::new();
 
-    // LOAD from file
-    let file_config = load_from_file(
-        file.clone(),
-        LoadYamlConfigFileType::Full {
-            select_msg: String::from("Select environment config"),
-        },
-    )?;
-    debug!("file_config: {:?}", file_config);
+    if from_state == true {
+        if file.is_some() {
+            let err = InputValidationError::PullEnvironment(
+                PullEnvironmentInputValidationError::FileArgWithState,
+            );
+            bail!(err);
+        }
 
-    if let Some(config) = file_config {
-        debug!("config: {:?}", config);
+        if output_file.is_none() {
+            let err = InputValidationError::PullEnvironment(
+                PullEnvironmentInputValidationError::NoOutputFile,
+            );
 
-        project = Some(config.project);
-        environment = Some(config.environment);
+            bail!(err);
+        }
 
-        if let Some(pull_config) = config.pull {
-            // check format
-            if let None = format {
-                format = pull_config.format;
-            }
+        if let Some(state) = state {
+            eprint!("{state}");
 
-            if let None = output_file {
-                output_file = Some(pull_config.file);
+            let state_project = &state.project;
+            let state_environment = &state.environment;
+
+            match (state_project, state_environment) {
+                (None, None) => {
+                    let err = InputValidationError::PullEnvironment(
+                        PullEnvironmentInputValidationError::NoStateSet,
+                    );
+
+                    bail!(err);
+                }
+                (None, Some(_)) => {
+                    let err = InputValidationError::PullEnvironment(
+                        PullEnvironmentInputValidationError::NoProjectState,
+                    );
+
+                    bail!(err);
+                }
+                (Some(_), None) => {
+                    let err = InputValidationError::PullEnvironment(
+                        PullEnvironmentInputValidationError::NoEnvState,
+                    );
+
+                    bail!(err);
+                }
+                (Some(p), Some(s)) => {
+                    project = p.to_string();
+                    environment = s.to_string();
+                }
             }
         } else {
-            if output_file.is_none() {
-                bail!("No pull config for selected environment and no output argument");
-            }
-        }
-
-        if let Some(secrets) = config.secrets {
-            // print
-            if let Some(print_secrets_val) = secrets.print {
-                print_secrets = print_secrets_val;
-            }
-
-            // only
-            if let Some(only_val) = secrets.only {
-                if only_val.is_empty() == false {
-                    for only_secret in only_val {
-                        let already_exists = only.contains(&only_secret);
-
-                        if !already_exists {
-                            only.push(only_secret);
-                        }
-                    }
-                }
-            }
-
-            // exclude
-            if let Some(exclude_val) = secrets.exclude {
-                if exclude_val.is_empty() == false {
-                    for exclude_secret in exclude_val {
-                        let already_exists = exclude.contains(&exclude_secret);
-
-                        if !already_exists {
-                            exclude.push(exclude_secret);
-                        }
-                    }
-                }
-            }
-
-            // manually set
-            if let Some(set_val) = secrets.set {
-                if set_val.is_empty() == false {
-                    setted_secrets = set_val;
-                }
-            }
+            let err = InputValidationError::PullEnvironment(
+                PullEnvironmentInputValidationError::NoEnvState,
+            );
+            bail!(err);
         }
     } else {
-        // eprintln!("\nRun command exited");
-        // eprintln!("Run command exited");
-        return Ok(());
-    }
+        // LOAD from file
+        let file_config = load_from_file(
+            file.clone(),
+            LoadYamlConfigFileType::Full {
+                select_msg: String::from("Select environment config"),
+            },
+        )?;
+        debug!("file_config: {:?}", file_config);
 
-    let project = project.unwrap();
-    let environment = environment.unwrap();
+        if let Some(config) = file_config {
+            debug!("config: {:?}", config);
+
+            project = config.project;
+            environment = config.environment;
+
+            if let Some(pull_config) = config.pull {
+                // check format
+                if let None = format {
+                    format = pull_config.format;
+                }
+
+                if let None = output_file {
+                    output_file = Some(pull_config.file);
+                }
+            } else {
+                if output_file.is_none() {
+                    bail!("No pull config for selected environment and no output argument");
+                }
+            }
+
+            if let Some(secrets) = config.secrets {
+                // print
+                if let Some(print_secrets_val) = secrets.print {
+                    print_secrets = print_secrets_val;
+                }
+
+                // only
+                if let Some(only_val) = secrets.only {
+                    if only_val.is_empty() == false {
+                        for only_secret in only_val {
+                            let already_exists = only.contains(&only_secret);
+
+                            if !already_exists {
+                                only.push(only_secret);
+                            }
+                        }
+                    }
+                }
+
+                // exclude
+                if let Some(exclude_val) = secrets.exclude {
+                    if exclude_val.is_empty() == false {
+                        for exclude_secret in exclude_val {
+                            let already_exists = exclude.contains(&exclude_secret);
+
+                            if !already_exists {
+                                exclude.push(exclude_secret);
+                            }
+                        }
+                    }
+                }
+
+                // manually set
+                if let Some(set_val) = secrets.set {
+                    if set_val.is_empty() == false {
+                        setted_secrets = set_val;
+                    }
+                }
+            }
+        } else {
+            // eprintln!("\nRun command exited");
+            // eprintln!("Run command exited");
+            return Ok(());
+        }
+    }
 
     let validation_res = validate_project_environment(project.as_ref(), environment.as_ref(), true);
 
