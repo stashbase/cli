@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
@@ -24,7 +24,10 @@ use crate::{
             update_type::handle_update_env_type,
         },
     },
-    models::config::State,
+    models::{
+        config::State,
+        validation::{EnvironmentsInputValidationError, InputValidationError},
+    },
     utils::output::get_output_format,
 };
 
@@ -100,7 +103,7 @@ pub async fn handle_environment_commands(
     } else {
         let state_project = match state {
             Some(s) => {
-                eprintln!("{}", s);
+                eprint!("{s}");
                 &s.project
             }
             None => &None,
@@ -128,10 +131,12 @@ pub async fn handle_environment_commands(
 
             EnvironmentSubcommand::Get(args) => {
                 let format = get_output_format(raw_output, default_output_format, args.format);
-                handle_get_environment(api_key, format, project, args.name).await?;
+                let env_name = get_env_name(state, args.name)?;
+                handle_get_environment(api_key, format, project, env_name).await?;
             }
             EnvironmentSubcommand::Open(args) => {
-                handle_open_environment(api_key, project, args.name).await?;
+                let env_name = get_env_name(state, args.name)?;
+                handle_open_environment(api_key, project, env_name).await?;
             }
             EnvironmentSubcommand::Create(args) => {
                 let args = HandleCreateEnvironmentArgs {
@@ -148,29 +153,35 @@ pub async fn handle_environment_commands(
             }
 
             EnvironmentSubcommand::SetType(args) => {
-                handle_update_env_type(api_key, project, args.name, args.env_type).await?;
+                let env_name = get_env_name(state, args.name)?;
+                handle_update_env_type(api_key, project, env_name, args.env_type).await?;
             }
             EnvironmentSubcommand::Lock(args) => {
-                handle_set_env_lock(api_key, project, args.name, true).await?;
+                let env_name = get_env_name(state, args.name)?;
+                handle_set_env_lock(api_key, project, env_name, true).await?;
             }
             EnvironmentSubcommand::Unlock(args) => {
-                handle_set_env_lock(api_key, project, args.name, false).await?;
+                let env_name = get_env_name(state, args.name)?;
+                handle_set_env_lock(api_key, project, env_name, false).await?;
             }
             EnvironmentSubcommand::Delete(args) => {
-                handle_delete_environment(api_key, project, args.name).await?;
+                let env_name = get_env_name(state, args.name)?;
+                handle_delete_environment(api_key, project, env_name).await?;
             }
             EnvironmentSubcommand::Update(args) => {
+                let env_name = get_env_name(state, args.name)?;
                 handle_update_environment(
                     api_key,
                     project,
-                    args.name,
+                    env_name,
                     args.new_name,
                     args.description,
                 )
                 .await?
             }
             EnvironmentSubcommand::Duplicate(args) => {
-                handle_duplicate_environment(api_key, project, args.name, args.new_name).await?;
+                let env_name = get_env_name(state, args.name)?;
+                handle_duplicate_environment(api_key, project, env_name, args.new_name).await?;
             }
 
             EnvironmentSubcommand::Compare(args) => {
@@ -193,5 +204,36 @@ pub async fn handle_environment_commands(
         }
 
         Ok(())
+    }
+}
+
+fn get_env_name(state: &Option<State>, arg_name: Option<String>) -> Result<String> {
+    if let Some(s) = state {
+        if let Some(env) = &s.environment {
+            match arg_name {
+                Some(arg_name) => Ok(arg_name),
+                None => Ok(env.to_string()),
+            }
+        } else {
+            match arg_name {
+                Some(arg_name) => Ok(arg_name),
+                None => {
+                    let err = InputValidationError::Environments(
+                        EnvironmentsInputValidationError::EnvironmentStateNotSet,
+                    );
+                    bail!(err);
+                }
+            }
+        }
+    } else {
+        match arg_name {
+            Some(arg_name) => Ok(arg_name),
+            None => {
+                let err = InputValidationError::Environments(
+                    EnvironmentsInputValidationError::NameNotProvided,
+                );
+                bail!(err);
+            }
+        }
     }
 }
