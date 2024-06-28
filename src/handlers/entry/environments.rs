@@ -110,96 +110,89 @@ pub async fn handle_environment_commands(
         };
         let project = cmd.try_get_project(state_project)?;
 
-        match cmd.subcommand {
-            EnvironmentSubcommand::List(args) => {
-                let format = get_output_format(raw_output, default_output_format, args.format);
+        if let EnvironmentSubcommand::List(args) = &cmd.subcommand {
+            let format =
+                get_output_format(raw_output, default_output_format, args.format.to_owned());
 
-                let args = HandleListEnvironmentsArgs {
-                    api_key,
-                    project,
-                    search: args.search,
-                    sort: args.sort,
-                    descending: args.descending,
-                    types: args.types,
-                    locked: args.locked,
-                    unlocked: args.unlocked,
-                    format,
-                };
+            let args = HandleListEnvironmentsArgs {
+                api_key,
+                project,
+                search: args.search.to_owned(),
+                sort: args.sort.to_owned(),
+                descending: args.descending,
+                types: args.types.to_owned(),
+                locked: args.locked,
+                unlocked: args.unlocked,
+                format,
+            };
 
-                handle_list_environments(args).await?;
-            }
+            handle_list_environments(args).await?;
+        } else if let EnvironmentSubcommand::Compare(args) = &cmd.subcommand {
+            let json_format = is_json_output(raw_output, default_output_format);
 
-            EnvironmentSubcommand::Get(args) => {
-                let format = get_output_format(raw_output, default_output_format, args.format);
-                let env_name = get_env_name(state, args.name)?;
-                handle_get_environment(api_key, format, project, env_name).await?;
-            }
-            EnvironmentSubcommand::Open(args) => {
-                let env_name = get_env_name(state, args.name)?;
-                handle_open_environment(api_key, project, env_name).await?;
-            }
-            EnvironmentSubcommand::Create(args) => {
-                let args = HandleCreateEnvironmentArgs {
-                    api_key,
-                    project,
-                    name: args.name,
-                    description: args.description,
-                    env_type: args.env_type,
-                    open: args.open,
-                    file_path: args.file_path,
-                };
+            let handler_args = HandleCompareEnvironmentsArgs {
+                api_key,
+                project,
+                environment_1: args.name_1.to_owned(),
+                environment_2: args.name_2.to_owned(),
+                only_keys: args.only_keys,
+                json_format,
+            };
 
-                handle_create_environment(args).await?;
-            }
+            handle_compare_environments(handler_args).await?;
+        } else {
+            let name_argument = cmd.get_name_argument();
+            let env_name = get_env_name(state, name_argument)?;
 
-            EnvironmentSubcommand::SetType(args) => {
-                let env_name = get_env_name(state, args.name)?;
-                handle_update_env_type(api_key, project, env_name, args.env_type).await?;
-            }
-            EnvironmentSubcommand::Lock(args) => {
-                let env_name = get_env_name(state, args.name)?;
-                handle_set_env_lock(api_key, project, env_name, true).await?;
-            }
-            EnvironmentSubcommand::Unlock(args) => {
-                let env_name = get_env_name(state, args.name)?;
-                handle_set_env_lock(api_key, project, env_name, false).await?;
-            }
-            EnvironmentSubcommand::Delete(args) => {
-                let env_name = get_env_name(state, args.name)?;
-                handle_delete_environment(api_key, project, env_name).await?;
-            }
-            EnvironmentSubcommand::Update(args) => {
-                let env_name = get_env_name(state, args.name)?;
-                handle_update_environment(
-                    api_key,
-                    project,
-                    env_name,
-                    args.new_name,
-                    args.description,
-                )
-                .await?
-            }
-            EnvironmentSubcommand::Duplicate(args) => {
-                let env_name = get_env_name(state, args.name)?;
-                handle_duplicate_environment(api_key, project, env_name, args.new_name).await?;
-            }
+            match cmd.subcommand {
+                EnvironmentSubcommand::Get(args) => {
+                    let format = get_output_format(raw_output, default_output_format, args.format);
+                    handle_get_environment(api_key, format, project, env_name).await?;
+                }
+                EnvironmentSubcommand::Open(_) => {
+                    handle_open_environment(api_key, project, env_name).await?;
+                }
+                EnvironmentSubcommand::Create(args) => {
+                    let args = HandleCreateEnvironmentArgs {
+                        api_key,
+                        project,
+                        name: args.name,
+                        description: args.description,
+                        env_type: args.env_type,
+                        open: args.open,
+                        file_path: args.file_path,
+                    };
 
-            EnvironmentSubcommand::Compare(args) => {
-                let json_format = is_json_output(raw_output, default_output_format);
+                    handle_create_environment(args).await?;
+                }
 
-                let handler_args = HandleCompareEnvironmentsArgs {
-                    api_key,
-                    project,
-                    environment_1: args.name_1,
-                    environment_2: args.name_2,
-                    only_keys: args.only_keys,
-                    json_format,
-                };
-
-                handle_compare_environments(handler_args).await?;
-            }
-            EnvironmentSubcommand::Changelog(_) => {
-                unreachable!()
+                EnvironmentSubcommand::SetType(args) => {
+                    handle_update_env_type(api_key, project, env_name, args.env_type).await?;
+                }
+                EnvironmentSubcommand::Lock(_) => {
+                    handle_set_env_lock(api_key, project, env_name, true).await?;
+                }
+                EnvironmentSubcommand::Unlock(_) => {
+                    handle_set_env_lock(api_key, project, env_name, false).await?;
+                }
+                EnvironmentSubcommand::Delete(_) => {
+                    handle_delete_environment(api_key, project, env_name).await?;
+                }
+                EnvironmentSubcommand::Update(args) => {
+                    handle_update_environment(
+                        api_key,
+                        project,
+                        env_name,
+                        args.new_name,
+                        args.description,
+                    )
+                    .await?
+                }
+                EnvironmentSubcommand::Duplicate(args) => {
+                    let env_name = get_env_name(state, args.name)?;
+                    handle_duplicate_environment(api_key, project, env_name, args.new_name).await?;
+                }
+                _ => unreachable!(),
             }
         }
 
@@ -207,15 +200,15 @@ pub async fn handle_environment_commands(
     }
 }
 
-fn get_env_name(state: &Option<State>, arg_name: Option<String>) -> Result<String> {
+fn get_env_name(state: &Option<State>, name_arg: Option<String>) -> Result<String> {
     if let Some(s) = state {
         if let Some(env) = &s.environment {
-            match arg_name {
+            match name_arg {
                 Some(arg_name) => Ok(arg_name),
                 None => Ok(env.to_string()),
             }
         } else {
-            match arg_name {
+            match name_arg {
                 Some(arg_name) => Ok(arg_name),
                 None => {
                     let err = InputValidationError::Environments(
@@ -226,7 +219,7 @@ fn get_env_name(state: &Option<State>, arg_name: Option<String>) -> Result<Strin
             }
         }
     } else {
-        match arg_name {
+        match name_arg {
             Some(arg_name) => Ok(arg_name),
             None => {
                 let err = InputValidationError::Environments(
