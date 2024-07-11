@@ -1,6 +1,8 @@
 use clap::{Args, ValueEnum};
 use serde::{Deserialize, Serialize};
 
+use super::config::SecretsOutputFormat;
+
 #[derive(Serialize, Deserialize, Debug, ValueEnum, Clone, PartialEq, Eq)]
 pub enum PullFormat {
     #[serde(rename = "dotenv")]
@@ -9,6 +11,19 @@ pub enum PullFormat {
     Yaml,
     #[serde(rename = "json")]
     Json,
+}
+
+impl TryFrom<PullFormat> for SecretsOutputFormat {
+    type Error = ();
+
+    fn try_from(pf: PullFormat) -> Result<SecretsOutputFormat, Self::Error> {
+        match pf {
+            PullFormat::Dotenv => Ok(SecretsOutputFormat::Dotenv),
+            PullFormat::Yaml => Ok(SecretsOutputFormat::Yaml),
+            PullFormat::Json => Ok(SecretsOutputFormat::Json),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Args)]
