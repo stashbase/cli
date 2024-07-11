@@ -54,6 +54,7 @@ pub enum SecretsInputValidationError {
     KeyFormat { multiple: bool },
     KeyTooShort { multiple: bool },
     KeyTooLong { multiple: bool },
+    DuplicateKeys(Vec<String>),
 
     SearchTooShort,
     SearchFormat,
@@ -249,6 +250,14 @@ impl fmt::Display for SecretsInputValidationError {
             SecretsInputValidationError::NoKeys => {
                 msg = "no secrets keys specified";
                 hint = Some("separate secrets to return with spaces");
+            }
+            SecretsInputValidationError::DuplicateKeys(keys) => {
+                let keys_str = keys.join(", ");
+
+                writeln!(f, "{}", format!("- message: {}", "found duplicate keys"))?;
+                write!(f, "{}", format!("- duplicates: {}", keys_str))?;
+
+                return Ok(());
             }
         }
 
