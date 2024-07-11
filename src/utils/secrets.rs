@@ -37,54 +37,6 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 
             text_to_print
         }
-        SecretsOutputFormat::Dotenv => {
-            let dotenv_string: String = secrets
-                .iter()
-                .enumerate()
-                .map(|(i, s)| {
-                    let is_last = i == secrets.len() - 1;
-
-                    if let Some(descr) = &s.description {
-                        let mut str_line = format!("# {}\n{}={}", descr, s.key, s.value);
-
-                        if is_last == false {
-                            str_line = format!("{}\n", str_line);
-                        }
-
-                        if i != 0 {
-                            str_line = format!("\n{}", str_line);
-                        }
-
-                        return str_line;
-                    } else {
-                        let prev_has_description = match i == 0 {
-                            true => false,
-                            false => {
-                                let prev_line = secrets.get(i - 1);
-                                match prev_line {
-                                    Some(prev_line) => prev_line.description.is_some(),
-                                    None => false,
-                                }
-                            }
-                        };
-
-                        let mut str_line = format!("{}={}", s.key, s.value);
-
-                        if prev_has_description {
-                            str_line = format!("\n{}", str_line);
-                        }
-
-                        if is_last == false {
-                            str_line = format!("{}\n", str_line);
-                        }
-
-                        return str_line;
-                    }
-                })
-                .collect::<_>();
-
-            dotenv_string
-        }
         SecretsOutputFormat::Json => {
             let value = serde_json::to_value(&secrets).unwrap();
             let pretty = to_colored_json_auto(&value).unwrap();
@@ -117,6 +69,62 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                 build_table(&table_secrets).to_string()
             }
         }
+        _ => {
+            let kv_separator = match format {
+                SecretsOutputFormat::Dotenv => "=",
+                SecretsOutputFormat::Yaml => ": ",
+                _ => unreachable!(),
+            };
+
+            // NOTE: YAML or dotenv
+            let output_string: String = secrets
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let is_last = i == secrets.len() - 1;
+
+                    if let Some(descr) = &s.description {
+                        let mut str_line =
+                            format!("# {}\n{}{}{}", descr, s.key, kv_separator, s.value);
+
+                        if is_last == false {
+                            str_line = format!("{}\n", str_line);
+                        }
+
+                        if i != 0 {
+                            str_line = format!("\n{}", str_line);
+                        }
+
+                        return str_line;
+                    } else {
+                        let prev_has_description = match i == 0 {
+                            true => false,
+                            false => {
+                                let prev_line = secrets.get(i - 1);
+                                match prev_line {
+                                    Some(prev_line) => prev_line.description.is_some(),
+                                    None => false,
+                                }
+                            }
+                        };
+
+                        let mut str_line = format!("{}{}{}", s.key, kv_separator, s.value);
+
+                        if prev_has_description {
+                            str_line = format!("\n{}", str_line);
+                        }
+
+                        if is_last == false {
+                            str_line = format!("{}\n", str_line);
+                        }
+
+                        return str_line;
+                    }
+                })
+                .collect::<_>();
+
+            output_string
+        }
     }
 }
 
@@ -137,6 +145,20 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
             text_to_print
         }
         SecretsOutputFormat::Dotenv => {
+            let mut text_to_print = String::new();
+
+            for (i, p) in keys.iter().enumerate() {
+                // is last
+                if i == keys.len() - 1 {
+                    text_to_print.push_str(&format!("{}", p))
+                } else {
+                    text_to_print.push_str(&format!("{}\n", p))
+                }
+            }
+
+            text_to_print
+        }
+        SecretsOutputFormat::Yaml => {
             let mut text_to_print = String::new();
 
             for (i, p) in keys.iter().enumerate() {
