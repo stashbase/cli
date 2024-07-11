@@ -11,7 +11,6 @@ use crate::{
     },
     utils::{
         duplicates::{self, find_duplicates},
-        secrets::find_duplicate_keys,
         separator,
         spinner::request_spinner,
         validation::{
