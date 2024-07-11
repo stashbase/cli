@@ -1,15 +1,16 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
-pub fn find_duplicates(strings: Vec<String>) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut duplicates = HashSet::new();
+pub fn find_duplicates(array: Vec<String>) -> Vec<String> {
+    let mut key_count = HashMap::new();
 
-    for string in strings.iter() {
-        if !seen.insert(string) {
-            // If the string is already in the `seen` set, it's a duplicate.
-            duplicates.insert(string.clone());
-        }
+    // Count occurrences of each key
+    for item in array {
+        *key_count.entry(item).or_insert(0) += 1;
     }
 
-    duplicates.into_iter().collect()
+    // Collect keys with more than one occurrence
+    key_count
+        .into_iter()
+        .filter_map(|(key, count)| if count > 1 { Some(key.clone()) } else { None })
+        .collect()
 }
