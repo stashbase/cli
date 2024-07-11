@@ -4,8 +4,13 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
-    models::{api_client::PostPatchRequestApiResponse, secrets::Secret},
+    models::{
+        api_client::PostPatchRequestApiResponse,
+        secrets::Secret,
+        validation::{InputValidationError, SecretsInputValidationError},
+    },
     utils::{
+        duplicates::find_duplicates,
         separator,
         spinner::request_spinner,
         validation::{validate_project_environment, validate_secret_keys},
@@ -64,6 +69,16 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     if let Err(err) = keys_valid {
         debug!("Error: {:#?}", &err);
+        bail!(err);
+    }
+
+    let duplicate_keys = find_duplicates(&keys);
+
+    if !duplicate_keys.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateKeys(
+            duplicate_keys,
+        ));
+
         bail!(err);
     }
 
