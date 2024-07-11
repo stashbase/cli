@@ -12,7 +12,9 @@ use crate::{
         api_client::GetRequestApiResponse,
         config_env::EnvConfigItem,
         secrets::SecretWithoutDescription,
-        validation::{InputValidationError, LoadEnvironmentInputValidationError},
+        validation::{
+            InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
+        },
     },
     utils::{
         interaction::{self, select},
@@ -56,6 +58,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::FileArgWithInline,
         );
 
+        bail!(err);
+    }
+
+    if command.is_empty() {
+        let err = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
         bail!(err);
     }
 
