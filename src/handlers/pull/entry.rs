@@ -296,7 +296,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                             let file_string = match format {
                                 Some(f) => match f {
-                                    PullFormat::Dotenv => {
+                                    PullFormat::Json => {
+                                        serde_json::to_string_pretty(&secrets).unwrap()
+                                    }
+                                    _ => {
+                                        // yaml or dotenv
                                         let str =
                                             format_secrets(secrets, &SecretsOutputFormat::Dotenv);
                                         let prefix = format!(
@@ -305,9 +309,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     );
 
                                         prefix + &str
-                                    }
-                                    PullFormat::Json => {
-                                        serde_json::to_string_pretty(&secrets).unwrap()
                                     }
                                 },
                                 None => {
@@ -368,16 +369,17 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                         let file_string = match format {
                             Some(f) => match f {
-                                PullFormat::Dotenv => {
+                                PullFormat::Json => serde_json::to_string_pretty(&secrets).unwrap(),
+                                _ => {
+                                    // yaml or dotenv
                                     let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
                                     let prefix = format!(
-                                        "## ------\n## Project:{}\n## Environment: {}\n## ------\n\n",
+                                        "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
                                         project, environment,
                                     );
 
                                     prefix + &str
                                 }
-                                PullFormat::Json => serde_json::to_string_pretty(&secrets).unwrap(),
                             },
                             None => {
                                 let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
