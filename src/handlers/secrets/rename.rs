@@ -7,9 +7,12 @@ use crate::{
     models::{
         api_client::PostPatchRequestApiResponse,
         secrets::{RenameSecretsResponse, RenamedSecret},
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        duplicates, separator,
+        duplicates::{self, find_duplicates},
+        secrets::find_duplicate_keys,
+        separator,
         spinner::request_spinner,
         validation::{
             validate_environment_name, validate_project_environment, validate_project_name,
@@ -70,16 +73,14 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         .map(|k| k.1.to_string())
         .collect::<Vec<_>>();
 
-    let duplicate_new_keys = duplicates::find_duplicates(new_keys);
+    let duplicate_new_keys = duplicates::find_duplicates(&new_keys);
 
     if !duplicate_new_keys.is_empty() {
-        let msg = format!(
-            "{} {} {}",
-            "Input error:".red(),
-            "duplicate new keys provided:",
-            duplicate_new_keys.join(", ")
-        );
-        bail!("{}", msg);
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNewKeys(
+            duplicate_new_keys,
+        ));
+
+        bail!("{}", err);
     }
 
     // OK
@@ -226,6 +227,16 @@ fn validate_input(
     let valid_new_keys = validate_secret_keys(&new_keys);
 
     if let Err(err) = valid_new_keys {
+        bail!(err);
+    }
+
+    let duplicate_keys = find_duplicates(&old_keys);
+
+    if !duplicate_keys.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateKeys(
+            duplicate_keys,
+        ));
+
         bail!(err);
     }
 
