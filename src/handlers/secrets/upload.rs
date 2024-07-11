@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::{bail, Result};
 use log::debug;
@@ -6,9 +6,13 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
-    models::api_client::PostPatchRequestApiResponse,
+    models::{
+        api_client::PostPatchRequestApiResponse,
+        validation::{InputValidationError, SecretsInputValidationError},
+    },
     utils::{
-        secrets::read_dotenv_file, spinner::request_spinner,
+        secrets::{find_duplicate_keys, read_dotenv_file},
+        spinner::request_spinner,
         validation::validate_project_environment,
     },
 };
@@ -49,6 +53,16 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
     match secrets_res {
         Ok(secrets) => {
+            let duplicate_keys = find_duplicate_keys(&secrets);
+
+            if !duplicate_keys.is_empty() {
+                let err = InputValidationError::Secrets(
+                    SecretsInputValidationError::DuplicateKeys(duplicate_keys),
+                );
+
+                bail!("{}", err);
+            }
+
             let mut spinner = request_spinner();
             let res = secrets::set_sercrets(api_key, project, environment, &secrets).await;
             debug!("{:#?}", res);
