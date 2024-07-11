@@ -30,6 +30,7 @@ pub enum SecretsOutputFormat {
     Dotenv,
     Table,
     Json,
+    Yaml,
 }
 
 impl Display for SecretsOutputFormat {
@@ -39,6 +40,7 @@ impl Display for SecretsOutputFormat {
             Self::Dotenv => write!(f, "dotenv"),
             Self::Table => write!(f, "table"),
             Self::Json => write!(f, "json"),
+            Self::Yaml => write!(f, "yaml"),
         }
     }
 }
