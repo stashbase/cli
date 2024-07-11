@@ -80,7 +80,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             }
         } else {
             if output_file.is_none() {
-                bail!("No pull config for selected environment and no output argument");
+                bail!("No pull config for selected environment");
             }
         }
 
@@ -294,6 +294,16 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                 }
                             }
 
+                            if let None = format {
+                                if output_path.ends_with(".yaml") || output_path.ends_with(".yml") {
+                                    format = Some(PullFormat::Yaml)
+                                } else if output_path.ends_with(".json") {
+                                    format = Some(PullFormat::Json)
+                                } else {
+                                    format = Some(PullFormat::Dotenv)
+                                }
+                            }
+
                             let file_string = match format {
                                 Some(f) => match f {
                                     PullFormat::Json => {
@@ -301,8 +311,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     }
                                     _ => {
                                         // yaml or dotenv
-                                        let str =
-                                            format_secrets(secrets, &SecretsOutputFormat::Dotenv);
+                                        let secrets_format =
+                                            SecretsOutputFormat::try_from(f).unwrap();
+
+                                        let str = format_secrets(secrets, &secrets_format);
                                         let prefix = format!(
                                         "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
                                         project, environment,
@@ -311,15 +323,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                         prefix + &str
                                     }
                                 },
-                                None => {
-                                    let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
-                                    let prefix = format!(
-                                        "## ------\n## Project:{}\n## Environment: {}\n## ------\n\n",
-                                        project, environment,
-                                    );
-
-                                    prefix + &str
-                                }
+                                None => unreachable!(),
                             };
 
                             let file_res = write_file(&output_path, file_string);
@@ -367,12 +371,24 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             }
                         }
 
+                        if let None = format {
+                            if output_path.ends_with(".yaml") || output_path.ends_with(".yml") {
+                                format = Some(PullFormat::Yaml)
+                            } else if output_path.ends_with(".json") {
+                                format = Some(PullFormat::Json)
+                            } else {
+                                format = Some(PullFormat::Dotenv)
+                            }
+                        }
+
                         let file_string = match format {
                             Some(f) => match f {
                                 PullFormat::Json => serde_json::to_string_pretty(&secrets).unwrap(),
                                 _ => {
                                     // yaml or dotenv
-                                    let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
+                                    let secrets_format = SecretsOutputFormat::try_from(f).unwrap();
+
+                                    let str = format_secrets(secrets, &secrets_format);
                                     let prefix = format!(
                                         "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
                                         project, environment,
@@ -381,15 +397,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     prefix + &str
                                 }
                             },
-                            None => {
-                                let str = format_secrets(secrets, &SecretsOutputFormat::Dotenv);
-                                let prefix = format!(
-                                    "## ------\n## Project:{}\n## Environment: {}\n## ------\n\n",
-                                    project, environment,
-                                );
-
-                                prefix + &str
-                            }
+                            None => unreachable!(),
                         };
 
                         let file_res = write_file(&output_path, file_string);
