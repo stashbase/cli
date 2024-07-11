@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-pub fn find_duplicates(array: Vec<String>) -> Vec<String> {
+pub fn find_duplicates(array: &Vec<String>) -> Vec<String> {
     let mut key_count = HashMap::new();
 
     // Count occurrences of each key
