@@ -27,10 +27,10 @@ impl Display for OutputFormat {
 pub enum SecretsOutputFormat {
     #[default]
     List,
-    Dotenv,
     Table,
-    Json,
+    Dotenv,
     Yaml,
+    Json,
 }
 
 impl Display for SecretsOutputFormat {
