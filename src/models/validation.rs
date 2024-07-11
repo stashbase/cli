@@ -8,6 +8,7 @@ pub enum InputValidationError {
     Secrets(SecretsInputValidationError),
     Environments(EnvironmentsInputValidationError),
     EnvChangelog(EnvChangelogInputValidationError),
+    Run(RunInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PullEnvironment(PullEnvironmentInputValidationError),
     Webhook(WebhookInputValidationError),
@@ -105,6 +106,11 @@ pub enum PullEnvironmentInputValidationError {
     NoConfigFile { custom_path: bool },
     NoConfigFileEntries,
     // other errors same as from LoadEnvironment
+}
+
+#[derive(Debug)]
+pub enum RunInputValidationError {
+    NoCmdProvided,
 }
 
 impl fmt::Display for CmdArgInputValidationError {
@@ -521,6 +527,22 @@ impl fmt::Display for WebhookInputValidationError {
     }
 }
 
+impl fmt::Display for RunInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RunInputValidationError::NoCmdProvided => {
+                let msg = "no command provided";
+                let hint = "provide command you want to run";
+
+                writeln!(f, "{}", format!("- message: {}", msg),)?;
+                writeln!(f, "{}", format!("- hint: {}", hint),)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
@@ -533,6 +555,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::PullEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),
             InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
+            InputValidationError::Run(inner) => write!(f, "{}", inner),
         }
     }
 }
