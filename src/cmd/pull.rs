@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum PullFormat {
     #[serde(rename = "dotenv")]
     Dotenv,
+    #[serde(rename = "yaml")]
+    Yaml,
     #[serde(rename = "json")]
     Json,
 }
