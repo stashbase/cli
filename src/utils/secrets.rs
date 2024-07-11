@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use log::debug;
 use regex::Regex;
-use std::{fs, path::Path};
+use std::{collections::HashMap, fs, path::Path};
 
 use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
@@ -282,4 +282,19 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
     //
     //         envArray.push({ key: formattedKey, value: value || '' }) // Use an empty string if there's no value
     //       }
+}
+
+pub fn find_duplicate_keys(array: &[Secret]) -> Vec<String> {
+    let mut key_count = HashMap::new();
+
+    // Count occurrences of each key
+    for item in array {
+        *key_count.entry(&item.key).or_insert(0) += 1;
+    }
+
+    // Collect keys with more than one occurrence
+    key_count
+        .into_iter()
+        .filter_map(|(key, count)| if count > 1 { Some(key.clone()) } else { None })
+        .collect()
 }
