@@ -55,6 +55,7 @@ pub enum SecretsInputValidationError {
     KeyTooShort { multiple: bool },
     KeyTooLong { multiple: bool },
     DuplicateKeys(Vec<String>),
+    DuplicateNewKeys(Vec<String>),
 
     SearchTooShort,
     SearchFormat,
@@ -255,6 +256,16 @@ impl fmt::Display for SecretsInputValidationError {
                 let keys_str = keys.join(", ");
 
                 writeln!(f, "{}", format!("- message: {}", "found duplicate keys"))?;
+                write!(f, "{}", format!("- duplicates: {}", keys_str))?;
+
+                return Ok(());
+            }
+            SecretsInputValidationError::DuplicateNewKeys(keys) => {
+                let keys_str = keys.join(", ");
+
+                let msg = "found duplicate new keys";
+
+                writeln!(f, "- message: {}", msg)?;
                 write!(f, "{}", format!("- duplicates: {}", keys_str))?;
 
                 return Ok(());
