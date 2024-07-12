@@ -17,11 +17,15 @@ pub async fn list(
     project: String,
     environment: String,
     only_keys: bool,
+    resolve_refs: bool,
 ) -> Result<GetRequestApiResponse> {
-    let query = match only_keys {
-        true => Some(vec![(format!("only-keys"), format!("true"))]),
-        false => None,
-    };
+    let mut query_str = vec![];
+
+    if only_keys {
+        query_str.push(("only-keys".to_string(), "true".to_string()));
+    } else {
+        query_str.push(("resolve-refs".to_string(), resolve_refs.to_string()));
+    }
 
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -29,7 +33,10 @@ pub async fn list(
             environment,
             path: None,
         },
-        query,
+        query: match !query_str.is_empty() {
+            true => Some(query_str),
+            false => None,
+        },
         api_key,
     };
 
