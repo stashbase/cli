@@ -111,6 +111,10 @@ pub struct ListSecrets {
     /// Print only keys
     #[arg(value_enum, long = "only-keys")]
     pub only_keys: bool,
+
+    /// Raw values references
+    #[arg(value_enum, long = "resolve-refs")]
+    pub resolve_refs: Option<bool>,
 }
 
 #[derive(Debug, Args)]
@@ -125,6 +129,10 @@ pub struct GetSecrets {
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
+
+    /// Raw values references
+    #[arg(value_enum, long = "resolve-refs")]
+    pub resolve_refs: Option<bool>,
 }
 
 #[derive(Debug, Args)]
