@@ -23,6 +23,7 @@ pub struct HandleGetSecretsArgs {
     pub environment: String,
     pub keys: Vec<String>,
     pub format: SecretsOutputFormat,
+    pub resolve_refs: bool,
 }
 
 pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
@@ -32,6 +33,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
         environment,
         keys,
         format,
+        resolve_refs,
     } = args;
 
     let validation_res = validate_input(&project, &environment, &keys);
@@ -42,7 +44,10 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
 
     debug!("listing secrets...:");
 
-    let payload = GetSelectedSecretsPayload { keys: keys.clone() };
+    let payload = GetSelectedSecretsPayload {
+        keys: keys.clone(),
+        resolve_refs,
+    };
 
     let mut spinner = request_spinner();
     let res = secrets::get_selected(api_key, project, environment, &payload).await;
