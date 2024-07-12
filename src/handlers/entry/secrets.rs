@@ -43,6 +43,7 @@ pub async fn handle_secrets_commands(
                 api_key,
                 project,
                 environment,
+                resolve_refs: args.resolve_refs.unwrap_or(false),
                 only_keys: args.only_keys,
                 format,
             };
@@ -57,6 +58,7 @@ pub async fn handle_secrets_commands(
                 project,
                 environment,
                 keys: args.keys,
+                resolve_refs: args.resolve_refs.unwrap_or(false),
                 format,
             };
 
