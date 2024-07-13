@@ -61,8 +61,8 @@ pub enum ConfigSubcommand {
     /// Default output for secrets
     OutputSecrets(SecretsOutputCommand),
 
-    /// Interpolate refereces to other secrets
-    ResolveRefs(ResolveRefsCommand),
+    /// Replace secrets refereces with their values
+    ReplaceRefs(ReplaceRefsCommand),
 
     /// Print current config
     Print,
@@ -146,22 +146,22 @@ pub struct SetSecretsOutput {
 }
 
 #[derive(Debug, Args)]
-pub struct ResolveRefsCommand {
+pub struct ReplaceRefsCommand {
     #[clap(subcommand)]
-    pub subcommand: ResolveRefsSubcommand,
+    pub subcommand: ReplaceRefsSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum ResolveRefsSubcommand {
-    /// Set default resolve-refs (secrets)
-    Set(SetResolveRefs),
+pub enum ReplaceRefsSubcommand {
+    /// Set default replace-refs (secrets)
+    Set(SetReplaceRefs),
 
-    /// Print default resolve-refs (secrets)
+    /// Print default replace-refs (secrets)
     Print,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "config resolve-refs set <ENABLED> [OPTIONS]")]
-pub struct SetResolveRefs {
+#[command(override_usage = "config replace-refs set <ENABLED> [OPTIONS]")]
+pub struct SetReplaceRefs {
     pub enabled: Option<bool>,
 }

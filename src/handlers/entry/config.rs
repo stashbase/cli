@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use crate::{
     cmd::config::{
-        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand, ResolveRefsSubcommand,
-        SecretsOutputSubcommand,
+        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand, ReplaceRefsCommand,
+        ReplaceRefsSubcommand, SecretsOutputSubcommand,
     },
     handlers::config::{
         api_key,
@@ -83,11 +83,11 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 return Err(e);
             };
         }
-        ConfigSubcommand::ResolveRefs(r) => match r.subcommand {
-            ResolveRefsSubcommand::Set(args) => {
+        ConfigSubcommand::ReplaceRefs(r) => match r.subcommand {
+            ReplaceRefsSubcommand::Set(args) => {
                 set_resolve_refs_config(args.enabled);
             }
-            ResolveRefsSubcommand::Print => print_resolve_refs_config(&config.resolve_refs),
+            ReplaceRefsSubcommand::Print => print_resolve_refs_config(&config.resolve_refs),
         },
     }
 
