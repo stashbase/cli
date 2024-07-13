@@ -38,7 +38,7 @@ pub struct HandleRunArgs {
     pub set: Vec<String>,
     pub print_secrets: bool,
     pub file: Option<String>,
-    pub replace_refs: Option<bool>,
+    pub expand_refs: Option<bool>,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
@@ -51,7 +51,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         mut environment,
         mut only,
         mut exclude,
-        mut replace_refs,
+        mut expand_refs,
         mut print_secrets,
     } = args;
 
@@ -97,8 +97,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             if let Some(secrets) = config.secrets {
                 // refs
                 if let Some(refs) = secrets.replace_refs {
-                    if replace_refs.is_none() {
-                        replace_refs = Some(refs);
+                    if expand_refs.is_none() {
+                        expand_refs = Some(refs);
                     }
                 }
                 // print
@@ -285,7 +285,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         environment,
         only,
         exclude,
-        replace_refs.unwrap_or(false),
+        expand_refs.unwrap_or(false),
     )
     .await;
 

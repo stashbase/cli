@@ -46,7 +46,7 @@ pub async fn handle_secrets_commands(
                 format,
                 environment,
                 only_keys: args.only_keys,
-                replace_refs: args.replace_refs.unwrap_or(replace_refs.unwrap_or(false)),
+                replace_refs: args.expand_refs.unwrap_or(replace_refs.unwrap_or(false)),
             };
 
             handle_list_secrets(args).await?;
@@ -60,7 +60,7 @@ pub async fn handle_secrets_commands(
                 project,
                 environment,
                 keys: args.keys,
-                replace_refs: args.replace_refs.unwrap_or(replace_refs.unwrap_or(false)),
+                replace_refs: args.expand_refs.unwrap_or(replace_refs.unwrap_or(false)),
             };
 
             handle_get_secrets(args).await?;
