@@ -31,9 +31,9 @@ pub struct RunCommand {
     #[clap(value_parser, long="set", num_args = 1..)]
     pub set: Vec<String>,
 
-    /// Interpolate refereces to other secrets
-    #[arg(value_enum, long = "resolve-refs")]
-    pub resolve_refs: Option<bool>,
+    /// Replace refereces with referred values
+    #[arg(value_enum, long = "replace-refs")]
+    pub replace_refs: Option<bool>,
 
     /// Print loaded secrets
     #[arg(value_enum, long = "print")]
