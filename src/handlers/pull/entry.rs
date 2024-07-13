@@ -41,6 +41,7 @@ pub struct HandlePullArgs {
     pub file: Option<String>,
     pub output_file: Option<String>,
     pub format: Option<PullFormat>,
+    pub resolve_refs: Option<bool>,
 }
 
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
@@ -53,6 +54,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut only,
         mut exclude,
         mut print_secrets,
+        mut resolve_refs,
     } = args;
 
     let mut project: Option<String> = None;
@@ -85,6 +87,13 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         }
 
         if let Some(secrets) = config.secrets {
+            // refs
+            if let Some(refs) = secrets.resolve_refs {
+                if resolve_refs.is_none() {
+                    resolve_refs = Some(refs);
+                }
+            }
+
             // print
             if let Some(print_secrets_val) = secrets.print {
                 print_secrets = print_secrets_val;
@@ -212,7 +221,15 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         Streams::Stderr,
     );
 
-    let res = secrets::pull(api_key, project.clone(), environment.clone(), only, exclude).await;
+    let res = secrets::pull(
+        api_key,
+        project.clone(),
+        environment.clone(),
+        only,
+        exclude,
+        resolve_refs.unwrap_or(false),
+    )
+    .await;
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
