@@ -130,9 +130,9 @@ pub struct GetSecrets {
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
 
-    /// Interpolate refereces to other secrets
-    #[arg(value_enum, long = "resolve-refs")]
-    pub resolve_refs: Option<bool>,
+    /// Replace refereces with referred values
+    #[arg(value_enum, long = "replace-refs")]
+    pub replace_refs: Option<bool>,
 }
 
 #[derive(Debug, Args)]

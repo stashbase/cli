@@ -58,7 +58,7 @@ pub async fn handle_secrets_commands(
                 project,
                 environment,
                 keys: args.keys,
-                resolve_refs: args.resolve_refs.unwrap_or(false),
+                resolve_refs: args.replace_refs.unwrap_or(false),
                 format,
             };
 
