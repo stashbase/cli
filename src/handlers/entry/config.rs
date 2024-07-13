@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{
     cmd::config::{
-        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand,
+        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand, ResolveRefsSubcommand,
         SecretsOutputSubcommand,
     },
     handlers::config::{
@@ -10,6 +10,7 @@ use crate::{
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
         reset::reset_config,
+        resolve_refs::{print_resolve_refs_config, set_resolve_refs_config},
     },
     models::config::Config,
 };
@@ -82,6 +83,12 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 return Err(e);
             };
         }
+        ConfigSubcommand::ResolveRefs(r) => match r.subcommand {
+            ResolveRefsSubcommand::Set(args) => {
+                set_resolve_refs_config(args.enabled);
+            }
+            ResolveRefsSubcommand::Print => print_resolve_refs_config(&config.resolve_refs),
+        },
     }
 
     Ok(())
