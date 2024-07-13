@@ -60,6 +60,10 @@ pub enum ConfigSubcommand {
     Output(OutputCommand),
     /// Default output for secrets
     OutputSecrets(SecretsOutputCommand),
+
+    /// Interpolate refereces to other secrets
+    ResolveRefs(ResolveRefsCommand),
+
     /// Print current config
     Print,
     /// Reset config file
@@ -139,4 +143,25 @@ pub enum SecretsOutputSubcommand {
 #[command(override_usage = "config set output-secrets <FORMAT> [OPTIONS]")]
 pub struct SetSecretsOutput {
     pub format: SecretsOutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct ResolveRefsCommand {
+    #[clap(subcommand)]
+    pub subcommand: ResolveRefsSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ResolveRefsSubcommand {
+    /// Set default resolve-refs (secrets)
+    Set(SetResolveRefs),
+
+    /// Print default resolve-refs (secrets)
+    Print,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config resolve-refs set <ENABLED> [OPTIONS]")]
+pub struct SetResolveRefs {
+    pub enabled: Option<bool>,
 }
