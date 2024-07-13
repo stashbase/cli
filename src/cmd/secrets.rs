@@ -112,7 +112,7 @@ pub struct ListSecrets {
     #[arg(value_enum, long = "only-keys")]
     pub only_keys: bool,
 
-    /// Replace refereces with referred values
+    /// Replace refereces with their values
     #[arg(value_enum, long = "replace-refs")]
     pub replace_refs: Option<bool>,
 }
@@ -130,7 +130,7 @@ pub struct GetSecrets {
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
 
-    /// Replace refereces with referred values
+    /// Replace refereces with their values
     #[arg(value_enum, long = "replace-refs")]
     pub replace_refs: Option<bool>,
 }
