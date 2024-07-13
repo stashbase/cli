@@ -112,9 +112,9 @@ pub struct ListSecrets {
     #[arg(value_enum, long = "only-keys")]
     pub only_keys: bool,
 
-    /// Raw values references
-    #[arg(value_enum, long = "resolve-refs")]
-    pub resolve_refs: Option<bool>,
+    /// Replace refereces with referred values
+    #[arg(value_enum, long = "replace-refs")]
+    pub replace_refs: Option<bool>,
 }
 
 #[derive(Debug, Args)]
