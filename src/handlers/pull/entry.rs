@@ -41,7 +41,7 @@ pub struct HandlePullArgs {
     pub file: Option<String>,
     pub output_file: Option<String>,
     pub format: Option<PullFormat>,
-    pub resolve_refs: Option<bool>,
+    pub replace_refs: Option<bool>,
 }
 
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
@@ -54,7 +54,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut only,
         mut exclude,
         mut print_secrets,
-        mut resolve_refs,
+        mut replace_refs,
     } = args;
 
     let mut project: Option<String> = None;
@@ -88,9 +88,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Some(secrets) = config.secrets {
             // refs
-            if let Some(refs) = secrets.resolve_refs {
-                if resolve_refs.is_none() {
-                    resolve_refs = Some(refs);
+            if let Some(refs) = secrets.replace_refs {
+                if replace_refs.is_none() {
+                    replace_refs = Some(refs);
                 }
             }
 
@@ -227,7 +227,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         environment.clone(),
         only,
         exclude,
-        resolve_refs.unwrap_or(false),
+        replace_refs.unwrap_or(false),
     )
     .await;
 
