@@ -87,7 +87,7 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
             ExpandRefsSubcommand::Set(args) => {
                 set_replace_refs_config(args.enabled);
             }
-            ExpandRefsSubcommand::Print => print_replace_refs_config(&config.replace_refs),
+            ExpandRefsSubcommand::Print => print_replace_refs_config(&config.expand_refs),
         },
     }
 
