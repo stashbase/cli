@@ -18,7 +18,7 @@ pub fn set_replace_refs_config(enabled: Option<bool>) {
     let res = config::update_config(UpdateConfig {
         api_key: None,
         output_format: None,
-        replace_refs: None,
+        replace_refs: Some(enabled),
     });
 
     if let Err(err) = res {
