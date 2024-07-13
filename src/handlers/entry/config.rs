@@ -2,15 +2,15 @@ use anyhow::Result;
 
 use crate::{
     cmd::config::{
-        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand, ReplaceRefsCommand,
-        ReplaceRefsSubcommand, SecretsOutputSubcommand,
+        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand, ReplaceRefsSubcommand,
+        SecretsOutputSubcommand,
     },
     handlers::config::{
         api_key,
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
         reset::reset_config,
-        resolve_refs::{print_resolve_refs_config, set_resolve_refs_config},
+        resolve_refs::{print_replace_refs_config, set_replace_refs_config},
     },
     models::config::Config,
 };
@@ -85,9 +85,9 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
         }
         ConfigSubcommand::ReplaceRefs(r) => match r.subcommand {
             ReplaceRefsSubcommand::Set(args) => {
-                set_resolve_refs_config(args.enabled);
+                set_replace_refs_config(args.enabled);
             }
-            ReplaceRefsSubcommand::Print => print_resolve_refs_config(&config.resolve_refs),
+            ReplaceRefsSubcommand::Print => print_replace_refs_config(&config.resolve_refs),
         },
     }
 
