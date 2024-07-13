@@ -106,7 +106,7 @@ pub async fn handle_cli(args: Cli) {
                     only: args.only,
                     set: args.set,
                     file: args.file,
-                    replace_refs: args.replace_refs,
+                    expand_refs: args.expand_refs,
                     print_secrets: args.print_secrets,
                 };
 
@@ -121,8 +121,8 @@ pub async fn handle_cli(args: Cli) {
                     format: args.format,
                     only: args.only,
                     exclude: args.exclude,
+                    expand_refs: args.expand_refs,
                     print_secrets: args.print_secrets,
-                    replace_refs: args.replace_refs,
                 };
 
                 handle_pull(args).await
