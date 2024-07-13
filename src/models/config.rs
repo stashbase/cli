@@ -5,7 +5,7 @@ use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub api_key: Option<String>,
-    pub replace_refs: Option<bool>,
+    pub expand_refs: Option<bool>,
     pub ouput_format: Option<OutputFormatConfig>,
 }
 
@@ -29,14 +29,14 @@ impl Config {
         Self {
             api_key: None,
             ouput_format: None,
-            replace_refs: None,
+            expand_refs: None,
         }
     }
     pub fn is_empty(&self) -> bool {
         if let Some(output_format) = &self.ouput_format {
-            self.api_key.is_none() && output_format.is_empty() && self.replace_refs.is_none()
+            self.api_key.is_none() && output_format.is_empty() && self.expand_refs.is_none()
         } else {
-            self.api_key.is_none() && self.ouput_format.is_none() && self.replace_refs.is_none()
+            self.api_key.is_none() && self.ouput_format.is_none() && self.expand_refs.is_none()
         }
     }
 }
@@ -56,6 +56,6 @@ pub struct ConfigWithPath {
 #[derive(Debug)]
 pub struct UpdateConfig {
     pub api_key: Option<String>,
-    pub replace_refs: Option<bool>,
+    pub expand_refs: Option<bool>,
     pub output_format: Option<OutputFormatConfig>,
 }

@@ -84,7 +84,7 @@ pub async fn handle_cli(args: Cli) {
                     cmd,
                     api_key,
                     raw_output,
-                    config.replace_refs,
+                    config.expand_refs,
                     default_secrets_output_format,
                 )
                 .await
