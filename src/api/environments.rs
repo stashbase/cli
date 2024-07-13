@@ -99,7 +99,7 @@ pub async fn load(
     // data: &Option<LoadEnvironmentPayload>,
     only: Vec<String>,
     exclude: Vec<String>,
-    replace_refs: bool,
+    expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let subpath = format!("{}/load", environment);
 
@@ -120,7 +120,7 @@ pub async fn load(
         false => Vec::with_capacity(1),
     };
 
-    query.push(("replace-refs".to_string(), replace_refs.to_string()));
+    query.push(("expand-refs".to_string(), expand_refs.to_string()));
 
     let args = RequestArgs {
         api_key,
