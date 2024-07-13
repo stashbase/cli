@@ -27,7 +27,7 @@ pub fn set_replace_refs_config(enabled: Option<bool>) {
         let msg = format!(
             "{} {}",
             "✔".green(),
-            "Default replace-refs config has been set"
+            "Default expand-refs config has been set"
         );
         eprintln!("{}", msg);
     }

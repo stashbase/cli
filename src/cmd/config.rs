@@ -61,8 +61,8 @@ pub enum ConfigSubcommand {
     /// Default output for secrets
     OutputSecrets(SecretsOutputCommand),
 
-    /// Replace secrets refereces with their values
-    ReplaceRefs(ReplaceRefsCommand),
+    // Expand secrets references to their values
+    ExpandRefs(ExpandRefsCommand),
 
     /// Print current config
     Print,
@@ -146,22 +146,22 @@ pub struct SetSecretsOutput {
 }
 
 #[derive(Debug, Args)]
-pub struct ReplaceRefsCommand {
+pub struct ExpandRefsCommand {
     #[clap(subcommand)]
-    pub subcommand: ReplaceRefsSubcommand,
+    pub subcommand: ExpandRefsSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum ReplaceRefsSubcommand {
-    /// Set default replace-refs (secrets)
-    Set(SetReplaceRefs),
+pub enum ExpandRefsSubcommand {
+    /// Set default expand-refs (secrets)
+    Set(SetExpandRefs),
 
-    /// Print default replace-refs (secrets)
+    /// Print default expand-refs (secrets)
     Print,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "config replace-refs set <ENABLED> [OPTIONS]")]
-pub struct SetReplaceRefs {
+#[command(override_usage = "config expand-refs set <ENABLED> [OPTIONS]")]
+pub struct SetExpandRefs {
     pub enabled: Option<bool>,
 }
