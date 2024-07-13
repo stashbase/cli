@@ -3,7 +3,7 @@ use owo_colors::OwoColorize;
 
 use crate::{config::config, models::config::UpdateConfig};
 
-pub fn set_replace_refs_config(enabled: Option<bool>) {
+pub fn set_expand_refs_config(enabled: Option<bool>) {
     if let None = enabled {
         eprintln!(
             "{} {}",
@@ -33,7 +33,7 @@ pub fn set_replace_refs_config(enabled: Option<bool>) {
     }
 }
 
-pub fn print_replace_refs_config(enabled: &Option<bool>) {
+pub fn print_expand_refs_config(enabled: &Option<bool>) {
     if let Some(enabled) = enabled {
         if *enabled {
             println!("Replace refs: true");

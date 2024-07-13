@@ -31,8 +31,8 @@ pub struct EnvConfigItemSecrets {
     pub exclude: Option<Vec<String>>,
     pub set: Option<HashMap<String, String>>,
 
-    #[serde(rename = "replaceRefs")]
-    pub replace_refs: Option<bool>,
+    #[serde(rename = "expandRefs")]
+    pub expand_refs: Option<bool>,
 }
 
 impl fmt::Display for EnvConfigItem {
