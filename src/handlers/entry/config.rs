@@ -7,9 +7,9 @@ use crate::{
     },
     handlers::config::{
         api_key,
+        expand_refs::{print_replace_refs_config, set_replace_refs_config},
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
-        replace_refs::{print_replace_refs_config, set_replace_refs_config},
         reset::reset_config,
     },
     models::config::Config,
