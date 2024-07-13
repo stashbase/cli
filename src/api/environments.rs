@@ -99,10 +99,11 @@ pub async fn load(
     // data: &Option<LoadEnvironmentPayload>,
     only: Vec<String>,
     exclude: Vec<String>,
+    resolve_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let subpath = format!("{}/load", environment);
 
-    let query = match !only.is_empty() || !exclude.is_empty() {
+    let mut query = match !only.is_empty() || !exclude.is_empty() {
         true => {
             let mut query = vec![];
 
@@ -114,14 +115,16 @@ pub async fn load(
                 query.push(("exclude".to_string(), exclude.join(",")));
             }
 
-            Some(query)
+            query
         }
-        false => None,
+        false => Vec::with_capacity(1),
     };
+
+    query.push(("resolve-refs".to_string(), resolve_refs.to_string()));
 
     let args = RequestArgs {
         api_key,
-        query,
+        query: Some(query),
         path: ApiPath::Environments {
             project,
             path: Some(subpath),
