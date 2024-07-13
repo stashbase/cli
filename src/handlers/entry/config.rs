@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::{
     cmd::config::{
-        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand, ReplaceRefsSubcommand,
+        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, ExpandRefsSubcommand, OutputSubcommand,
         SecretsOutputSubcommand,
     },
     handlers::config::{
@@ -83,11 +83,11 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 return Err(e);
             };
         }
-        ConfigSubcommand::ReplaceRefs(r) => match r.subcommand {
-            ReplaceRefsSubcommand::Set(args) => {
+        ConfigSubcommand::ExpandRefs(r) => match r.subcommand {
+            ExpandRefsSubcommand::Set(args) => {
                 set_replace_refs_config(args.enabled);
             }
-            ReplaceRefsSubcommand::Print => print_replace_refs_config(&config.replace_refs),
+            ExpandRefsSubcommand::Print => print_replace_refs_config(&config.replace_refs),
         },
     }
 
