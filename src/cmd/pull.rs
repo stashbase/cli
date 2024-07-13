@@ -60,7 +60,7 @@ pub struct PullCommand {
     #[clap(value_parser, long="set", num_args = 1..)]
     pub set: Vec<String>,
 
-    /// Replace refereces with referred values
+    /// Replace refereces with their values
     #[arg(value_enum, long = "replace-refs")]
     pub replace_refs: Option<bool>,
 
