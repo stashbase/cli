@@ -17,14 +17,14 @@ pub async fn list(
     project: String,
     environment: String,
     only_keys: bool,
-    replace_refs: bool,
+    expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query_str = vec![];
 
     if only_keys {
         query_str.push(("only-keys".to_string(), "true".to_string()));
     } else {
-        query_str.push(("expand-refs".to_string(), replace_refs.to_string()));
+        query_str.push(("expand-refs".to_string(), expand_refs.to_string()));
     }
 
     let args = RequestArgs {
@@ -49,7 +49,7 @@ pub async fn pull(
     environment: String,
     only: Vec<String>,
     exclude: Vec<String>,
-    replace_refs: bool,
+    expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query = match !only.is_empty() || !exclude.is_empty() {
         true => {
@@ -68,7 +68,7 @@ pub async fn pull(
         false => Vec::with_capacity(1),
     };
 
-    query.push(("expand-refs".to_string(), replace_refs.to_string()));
+    query.push(("expand-refs".to_string(), expand_refs.to_string()));
 
     let args = RequestArgs {
         path: ApiPath::Secrets {
