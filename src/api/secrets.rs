@@ -24,7 +24,7 @@ pub async fn list(
     if only_keys {
         query_str.push(("only-keys".to_string(), "true".to_string()));
     } else {
-        query_str.push(("replace-refs".to_string(), replace_refs.to_string()));
+        query_str.push(("expand-refs".to_string(), replace_refs.to_string()));
     }
 
     let args = RequestArgs {
@@ -68,7 +68,7 @@ pub async fn pull(
         false => Vec::with_capacity(1),
     };
 
-    query.push(("replace-refs".to_string(), replace_refs.to_string()));
+    query.push(("expand-refs".to_string(), replace_refs.to_string()));
 
     let args = RequestArgs {
         path: ApiPath::Secrets {
