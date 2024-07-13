@@ -62,15 +62,15 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
     let UpdateConfig {
         api_key,
         output_format,
-        resolve_refs,
+        replace_refs,
     } = args;
 
     if let Some(new_api_key) = api_key {
         config.api_key = Some(new_api_key);
     }
 
-    if let Some(new_resolve_refs) = resolve_refs {
-        config.resolve_refs = Some(new_resolve_refs);
+    if let Some(new_replace_refs) = replace_refs {
+        config.replace_refs = Some(new_replace_refs);
     }
 
     if let Some(output_format) = output_format {
