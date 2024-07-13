@@ -19,7 +19,7 @@ pub struct HandleListSecretsArgs {
     // pub search: Option<String>,
     pub format: SecretsOutputFormat,
     pub only_keys: bool,
-    pub resolve_refs: bool,
+    pub replace_refs: bool,
 }
 
 pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
@@ -29,7 +29,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         environment: enironment,
         format,
         only_keys,
-        resolve_refs,
+        replace_refs,
     } = args;
 
     let validation_res = validate_project_environment(&project, &enironment, false);
@@ -49,7 +49,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     debug!("listing secrets...:");
 
     let mut spinner = request_spinner();
-    let res = secrets::list(api_key, project, enironment, only_keys, resolve_refs).await;
+    let res = secrets::list(api_key, project, enironment, only_keys, replace_refs).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
