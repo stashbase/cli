@@ -30,6 +30,9 @@ pub struct EnvConfigItemSecrets {
     // Exclude secret keys
     pub exclude: Option<Vec<String>>,
     pub set: Option<HashMap<String, String>>,
+
+    #[serde(rename = "resolveRefs")]
+    pub resolve_refs: Option<bool>,
 }
 
 impl fmt::Display for EnvConfigItem {
