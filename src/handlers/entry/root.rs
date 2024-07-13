@@ -7,7 +7,7 @@ use crate::{
     },
     config::config,
     handlers::{
-        config::replace_refs,
+        config::expand_refs,
         entry::{
             config::handle_config_commands, environments::handle_environment_commands,
             projects::handle_project_commands, secrets::handle_secrets_commands,
