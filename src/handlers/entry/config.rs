@@ -7,7 +7,7 @@ use crate::{
     },
     handlers::config::{
         api_key,
-        expand_refs::{print_replace_refs_config, set_replace_refs_config},
+        expand_refs::{print_expand_refs_config, set_expand_refs_config},
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
         reset::reset_config,
@@ -85,9 +85,9 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
         }
         ConfigSubcommand::ExpandRefs(r) => match r.subcommand {
             ExpandRefsSubcommand::Set(args) => {
-                set_replace_refs_config(args.enabled);
+                set_expand_refs_config(args.enabled);
             }
-            ExpandRefsSubcommand::Print => print_replace_refs_config(&config.expand_refs),
+            ExpandRefsSubcommand::Print => print_expand_refs_config(&config.expand_refs),
         },
     }
 

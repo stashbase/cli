@@ -88,7 +88,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Some(secrets) = config.secrets {
             // refs
-            if let Some(refs) = secrets.replace_refs {
+            if let Some(refs) = secrets.expand_refs {
                 if expand_refs.is_none() {
                     expand_refs = Some(refs);
                 }

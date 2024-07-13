@@ -23,7 +23,7 @@ pub struct HandleGetSecretsArgs {
     pub environment: String,
     pub keys: Vec<String>,
     pub format: SecretsOutputFormat,
-    pub replace_refs: bool,
+    pub expand_refs: bool,
 }
 
 pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
@@ -33,7 +33,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
         environment,
         keys,
         format,
-        replace_refs,
+        expand_refs,
     } = args;
 
     let validation_res = validate_input(&project, &environment, &keys);
@@ -46,7 +46,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
 
     let payload = GetSelectedSecretsPayload {
         keys: keys.clone(),
-        replace_refs,
+        expand_refs,
     };
 
     let mut spinner = request_spinner();
