@@ -49,8 +49,9 @@ pub async fn pull(
     environment: String,
     only: Vec<String>,
     exclude: Vec<String>,
+    resolve_refs: bool,
 ) -> Result<GetRequestApiResponse> {
-    let query = match !only.is_empty() || !exclude.is_empty() {
+    let mut query = match !only.is_empty() || !exclude.is_empty() {
         true => {
             let mut query = vec![];
 
@@ -62,10 +63,12 @@ pub async fn pull(
                 query.push(("exclude".to_string(), exclude.join(",")));
             }
 
-            Some(query)
+            query
         }
-        false => None,
+        false => Vec::with_capacity(1),
     };
+
+    query.push(("resolve-refs".to_string(), resolve_refs.to_string()));
 
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -73,7 +76,7 @@ pub async fn pull(
             environment,
             path: None,
         },
-        query,
+        query: Some(query),
         api_key,
     };
 
