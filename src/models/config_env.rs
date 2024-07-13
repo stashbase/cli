@@ -31,7 +31,7 @@ pub struct EnvConfigItemSecrets {
     pub exclude: Option<Vec<String>>,
     pub set: Option<HashMap<String, String>>,
 
-    #[serde(rename = "expandRefs")]
+    #[serde(rename = "expand-refs")]
     pub expand_refs: Option<bool>,
 }
 
