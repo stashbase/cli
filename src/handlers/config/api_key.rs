@@ -7,7 +7,7 @@ pub fn set_api_key(api_key: String) {
     let res = config::update_config(UpdateConfig {
         api_key: Some(api_key),
         output_format: None,
-        resolve_refs: None,
+        replace_refs: None,
     });
 
     if let Err(err) = res {

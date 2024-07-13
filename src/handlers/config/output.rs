@@ -10,7 +10,7 @@ use crate::{
 pub fn set_default_output_format(output_format: OutputFormat) {
     let res = config::update_config(UpdateConfig {
         api_key: None,
-        resolve_refs: None,
+        replace_refs: None,
         output_format: Some(OutputFormatConfig {
             secrets: None,
             general: Some(output_format),
