@@ -7,6 +7,7 @@ use crate::{
     },
     config::config,
     handlers::{
+        config::replace_refs,
         entry::{
             config::handle_config_commands, environments::handle_environment_commands,
             projects::handle_project_commands, secrets::handle_secrets_commands,
@@ -79,8 +80,14 @@ pub async fn handle_cli(args: Cli) {
                 };
                 //
 
-                handle_secrets_commands(cmd, api_key, raw_output, default_secrets_output_format)
-                    .await
+                handle_secrets_commands(
+                    cmd,
+                    api_key,
+                    raw_output,
+                    config.replace_refs,
+                    default_secrets_output_format,
+                )
+                .await
             }
             EntityType::Webhooks(cmd) => {
                 let default_output_format = match config.ouput_format {
