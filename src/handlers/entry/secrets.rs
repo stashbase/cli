@@ -31,6 +31,7 @@ pub async fn handle_secrets_commands(
     cmd: SecretArgs,
     api_key: String,
     raw_output: bool,
+    replace_refs: Option<bool>,
     default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
     let (project, environment) = cmd.try_get_project_environment()?;
@@ -42,10 +43,10 @@ pub async fn handle_secrets_commands(
             let args = HandleListSecretsArgs {
                 api_key,
                 project,
-                environment,
-                replace_refs: args.replace_refs.unwrap_or(false),
-                only_keys: args.only_keys,
                 format,
+                environment,
+                only_keys: args.only_keys,
+                replace_refs: args.replace_refs.unwrap_or(replace_refs.unwrap_or(false)),
             };
 
             handle_list_secrets(args).await?;
@@ -55,11 +56,11 @@ pub async fn handle_secrets_commands(
 
             let args = HandleGetSecretsArgs {
                 api_key,
+                format,
                 project,
                 environment,
                 keys: args.keys,
-                replace_refs: args.replace_refs.unwrap_or(false),
-                format,
+                replace_refs: args.replace_refs.unwrap_or(replace_refs.unwrap_or(false)),
             };
 
             handle_get_secrets(args).await?;
