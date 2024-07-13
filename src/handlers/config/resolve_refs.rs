@@ -3,7 +3,7 @@ use owo_colors::OwoColorize;
 
 use crate::{config::config, models::config::UpdateConfig};
 
-pub fn set_resolve_refs_config(enabled: Option<bool>) {
+pub fn set_replace_refs_config(enabled: Option<bool>) {
     if let None = enabled {
         eprintln!(
             "{} {}",
@@ -27,18 +27,18 @@ pub fn set_resolve_refs_config(enabled: Option<bool>) {
         let msg = format!(
             "{} {}",
             "✔".green(),
-            "Default resolve-refs config has been set"
+            "Default replace-refs config has been set"
         );
         eprintln!("{}", msg);
     }
 }
 
-pub fn print_resolve_refs_config(enabled: &Option<bool>) {
+pub fn print_replace_refs_config(enabled: &Option<bool>) {
     if let Some(enabled) = enabled {
         if *enabled {
-            println!("Resolve refs: true");
+            println!("Replace refs: true");
         } else {
-            println!("Resolve refs: false");
+            println!("Replace refs: false");
         }
     }
 }
