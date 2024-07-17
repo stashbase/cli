@@ -129,27 +129,36 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
-#[derive(Debug)]
-pub struct ReferencesValidation {
-    pub self_referenced_secrets: Option<Vec<String>>, // vec of secrets (keys)
-    pub invalid_format_references: Option<HashMap<String, Vec<String>>>, // secret (key), refs
-}
-
-impl ReferencesValidation {
-    pub fn new() -> Self {
-        Self {
-            self_referenced_secrets: None,
-            invalid_format_references: None,
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.invalid_format_references.is_none() && self.self_referenced_secrets.is_none()
-    }
-}
-
 // for warning
 // key, invalid referencs
 pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
+
+#[derive(Debug)]
+pub struct ReferencesValidation {
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (keys)
+    pub invalid_format_references: InvalidFormatReferences,
+}
+
+impl ReferencesValidation {
+    pub fn new(
+        self_referenced_secrets: Option<HashSet<String>>,
+        invalid_format_references: Option<InvalidFormatReferences>,
+    ) -> Self {
+        Self {
+            self_referenced_secrets: match self_referenced_secrets {
+                None => Vec::new(),
+                Some(r) => r.into_iter().collect(),
+            },
+            invalid_format_references: match invalid_format_references {
+                None => HashMap::new(),
+                Some(r) => r,
+            },
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format_references.len() == 0 && self.self_referenced_secrets.len() == 0
+    }
+}
 
 // self reference = fatal error, invalid format = warning
 pub fn validate_secrets_key_values_references(
@@ -180,17 +189,8 @@ pub fn validate_secrets_key_values_references(
         }
     }
 
-    let validation_obj = ReferencesValidation {
-        self_referenced_secrets: match self_referenced_secrets.is_empty() {
-            true => None,
-            false => Some(self_referenced_secrets.into_iter().collect()),
-        },
-        invalid_format_references: match invalid_format_secrets.is_empty() {
-            true => None,
-            false => Some(invalid_format_secrets),
-        },
-    };
-
+    let validation_obj =
+        ReferencesValidation::new(Some(self_referenced_secrets), Some(invalid_format_secrets));
     validation_obj
 }
 
