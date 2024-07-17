@@ -87,15 +87,14 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     let references_validation = validate_secrets_key_values_references(&key_value_pairs);
 
-    if references_validation.self_referenced_secrets.is_some() {
+    if !references_validation.self_referenced_secrets.is_empty() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-            references_validation.self_referenced_secrets.unwrap(),
+            references_validation.self_referenced_secrets,
         ));
         bail!(err);
-    } else if references_validation.invalid_format_references.is_some() {
+    } else if !references_validation.invalid_format_references.is_empty() {
         let hint_str = references_validation
             .invalid_format_references
-            .unwrap()
             .iter()
             .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
             .collect::<Vec<_>>()
