@@ -11,9 +11,12 @@ use crate::{
     },
     utils::{
         duplicates::find_duplicates,
-        separator,
+        interaction, separator,
         spinner::request_spinner,
-        validation::{validate_project_environment, validate_secret_keys},
+        validation::{
+            validate_project_environment, validate_secret_keys,
+            validate_secrets_key_values_references,
+        },
     },
 };
 
@@ -80,6 +83,34 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         ));
 
         bail!(err);
+    }
+
+    let references_validation = validate_secrets_key_values_references(&key_value_pairs);
+
+    if references_validation.self_referenced_secrets.is_some() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
+            references_validation.self_referenced_secrets.unwrap(),
+        ));
+        bail!(err);
+    } else if references_validation.invalid_format_references.is_some() {
+        let hint_str = references_validation
+            .invalid_format_references
+            .unwrap()
+            .iter()
+            .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        eprintln!("{}", format!("{}", "Input warning").yellow());
+
+        eprintln!("- message: invalid secret references");
+        eprintln!("- secret: {} \n", hint_str);
+
+        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+
+        if confirm.is_none() || (confirm.unwrap() == false) {
+            return Ok(());
+        }
     }
 
     let description_pairs = separator::key_value(description);
