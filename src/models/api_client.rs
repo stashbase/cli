@@ -209,6 +209,7 @@ pub enum SecretsError {
     SecretNotFound,
     DuplicateNewKeys,
     ExistingDuplicates,
+    SelfReferencingSecrets,
 }
 
 #[derive(Debug, Deserialize)]
@@ -357,6 +358,11 @@ impl From<ApiError> for CustomError {
                         "secrets already exists: {}",
                         api_error.details.unwrap()
                     )),
+                },
+
+                SecretsError::SelfReferencingSecrets => CustomError {
+                    message: format!("found self-referencing secrets"),
+                    hint: Some(api_error.details.unwrap()),
                 },
             },
             ApiErrorEntity::EnvChangelog(e) => match e {
