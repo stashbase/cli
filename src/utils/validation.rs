@@ -1,4 +1,7 @@
+use std::collections::{HashMap, HashSet};
+
 use anyhow::{bail, Result};
+use log::debug;
 use regex::Regex;
 use short_uuid::ShortUuid;
 
@@ -6,6 +9,8 @@ use crate::models::validation::{
     EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
     ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
 };
+
+use super::secrets;
 
 pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
@@ -122,6 +127,71 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     // }
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct ReferencesValidation {
+    pub self_referenced_secrets: Option<Vec<String>>, // vec of secrets (keys)
+    pub invalid_format_references: Option<HashMap<String, Vec<String>>>, // secret (key), refs
+}
+
+impl ReferencesValidation {
+    pub fn new() -> Self {
+        Self {
+            self_referenced_secrets: None,
+            invalid_format_references: None,
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format_references.is_none() && self.self_referenced_secrets.is_none()
+    }
+}
+
+// for warning
+// key, invalid referencs
+pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
+
+// self reference = fatal error, invalid format = warning
+pub fn validate_secrets_key_values_references(
+    secrets: &Vec<(String, String)>,
+) -> ReferencesValidation {
+    let mut self_referenced_secrets: HashSet<_> = HashSet::new();
+    let mut invalid_format_secrets: HashMap<String, Vec<String>> = HashMap::new();
+
+    for (key, value) in secrets {
+        let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
+        let has_self_reference = all_unique_refs.get(key).is_some();
+
+        if has_self_reference {
+            self_referenced_secrets.insert(key.clone());
+        }
+
+        for ref_ in all_unique_refs {
+            let is_valid_secret_key = validate_secret_key(&ref_).is_ok();
+
+            if !is_valid_secret_key {
+                if !self_referenced_secrets.contains(&ref_) {
+                    invalid_format_secrets
+                        .entry(key.clone())
+                        .or_insert_with(Vec::new)
+                        .push(ref_);
+                }
+            }
+        }
+    }
+
+    let validation_obj = ReferencesValidation {
+        self_referenced_secrets: match self_referenced_secrets.is_empty() {
+            true => None,
+            false => Some(self_referenced_secrets.into_iter().collect()),
+        },
+        invalid_format_references: match invalid_format_secrets.is_empty() {
+            true => None,
+            false => Some(invalid_format_secrets),
+        },
+    };
+
+    validation_obj
 }
 
 pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()> {
