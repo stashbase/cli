@@ -85,33 +85,6 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         bail!(err);
     }
 
-    let references_validation = validate_secrets_key_values_references(&key_value_pairs);
-
-    if !references_validation.self_referenced_secrets.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-            references_validation.self_referenced_secrets,
-        ));
-        bail!(err);
-    } else if !references_validation.invalid_format_references.is_empty() {
-        let hint_str = references_validation
-            .invalid_format_references
-            .iter()
-            .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        eprintln!("{}", format!("{}", "Input warning").yellow());
-
-        eprintln!("- message: invalid secret references");
-        eprintln!("- secret: {} \n", hint_str);
-
-        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
-
-        if confirm.is_none() || (confirm.unwrap() == false) {
-            return Ok(());
-        }
-    }
-
     let description_pairs = separator::key_value(description);
     debug!("{:#?}", description_pairs);
 
@@ -142,6 +115,33 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
             }
         })
         .collect::<_>();
+
+    let references_validation = validate_secrets_key_values_references(&payload);
+
+    if !references_validation.self_referenced_secrets.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
+            references_validation.self_referenced_secrets,
+        ));
+        bail!(err);
+    } else if !references_validation.invalid_format_references.is_empty() {
+        let hint_str = references_validation
+            .invalid_format_references
+            .iter()
+            .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        eprintln!("{}", format!("{}", "Input warning").yellow());
+
+        eprintln!("- message: invalid secret references");
+        eprintln!("- secret: {} \n", hint_str);
+
+        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+
+        if confirm.is_none() || (confirm.unwrap() == false) {
+            return Ok(());
+        }
+    }
 
     let mut spinner = request_spinner();
     let res = secrets::set_sercrets(api_key, project, environment, &payload).await;
