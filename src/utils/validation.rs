@@ -164,7 +164,7 @@ impl ReferencesValidation {
 }
 
 // self reference = fatal error, invalid format = warning
-pub fn validate_secrets_key_values_references(
+pub fn validate_secrets_references(
     // secrets: &Vec<(String, String)>,
     secrets: &Vec<Secret>,
 ) -> ReferencesValidation {
