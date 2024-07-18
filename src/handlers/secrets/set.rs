@@ -14,8 +14,7 @@ use crate::{
         interaction, separator,
         spinner::request_spinner,
         validation::{
-            validate_project_environment, validate_secret_keys,
-            validate_secrets_key_values_references,
+            validate_project_environment, validate_secret_keys, validate_secrets_references,
         },
     },
 };
@@ -116,7 +115,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         })
         .collect::<_>();
 
-    let references_validation = validate_secrets_key_values_references(&payload);
+    let references_validation = validate_secrets_references(&payload);
 
     if !references_validation.self_referenced_secrets.is_empty() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
