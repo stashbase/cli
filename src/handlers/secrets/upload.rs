@@ -11,9 +11,10 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
+        interaction,
         secrets::{find_duplicate_keys, read_dotenv_file},
         spinner::request_spinner,
-        validation::validate_project_environment,
+        validation::{validate_project_environment, validate_secrets_references},
     },
 };
 
@@ -61,6 +62,34 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
                 );
 
                 bail!("{}", err);
+            }
+
+            let references_validation = validate_secrets_references(&secrets);
+
+            if !references_validation.self_referenced_secrets.is_empty() {
+                let err =
+                    InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
+                        references_validation.self_referenced_secrets,
+                    ));
+                bail!(err);
+            } else if !references_validation.invalid_format_references.is_empty() {
+                let hint_str = references_validation
+                    .invalid_format_references
+                    .iter()
+                    .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                eprintln!("{}", format!("{}", "Input warning").yellow());
+
+                eprintln!("- message: invalid secret references");
+                eprintln!("- secret: {} \n", hint_str);
+
+                let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+
+                if confirm.is_none() || (confirm.unwrap() == false) {
+                    return Ok(());
+                }
             }
 
             let mut spinner = request_spinner();
