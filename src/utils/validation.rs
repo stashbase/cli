@@ -5,9 +5,12 @@ use log::debug;
 use regex::Regex;
 use short_uuid::ShortUuid;
 
-use crate::models::validation::{
-    EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
-    ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
+use crate::models::{
+    secrets::Secret,
+    validation::{
+        EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
+        ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
+    },
 };
 
 use super::secrets;
@@ -162,12 +165,18 @@ impl ReferencesValidation {
 
 // self reference = fatal error, invalid format = warning
 pub fn validate_secrets_key_values_references(
-    secrets: &Vec<(String, String)>,
+    // secrets: &Vec<(String, String)>,
+    secrets: &Vec<Secret>,
 ) -> ReferencesValidation {
     let mut self_referenced_secrets: HashSet<_> = HashSet::new();
     let mut invalid_format_secrets: HashMap<String, Vec<String>> = HashMap::new();
 
-    for (key, value) in secrets {
+    for Secret {
+        key,
+        value,
+        description: _,
+    } in secrets
+    {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
         let has_self_reference = all_unique_refs.get(key).is_some();
 
