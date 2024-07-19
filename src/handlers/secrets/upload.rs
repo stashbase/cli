@@ -14,7 +14,10 @@ use crate::{
         interaction,
         secrets::{find_duplicate_keys, read_dotenv_file},
         spinner::request_spinner,
-        validation::{validate_project_environment, validate_secrets_references},
+        validation::{
+            validate_project_environment, validate_secrets_references,
+            validate_secrets_references_with_existence,
+        },
     },
 };
 
@@ -64,32 +67,81 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
                 bail!("{}", err);
             }
 
-            let references_validation = validate_secrets_references(&secrets);
+            let refs_validation = validate_secrets_references_with_existence(&secrets);
 
-            if !references_validation.self_referenced_secrets.is_empty() {
+            if !refs_validation.self_referenced_secrets.is_empty() {
                 let err =
                     InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-                        references_validation.self_referenced_secrets,
+                        refs_validation.self_referenced_secrets,
                     ));
                 bail!(err);
-            } else if !references_validation.invalid_format_references.is_empty() {
-                let hint_str = references_validation
-                    .invalid_format_references
-                    .iter()
-                    .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+            } else if !refs_validation.invalid_format.is_empty()
+                || !refs_validation.not_found.is_empty()
+            {
+                let mut print_str = String::new();
 
-                eprintln!("{}", format!("{}", "Input warning").yellow());
+                if !refs_validation.invalid_format.is_empty() {
+                    let hint_str = refs_validation
+                        .invalid_format
+                        .iter()
+                        .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                        .collect::<Vec<_>>()
+                        .join(", ");
 
-                eprintln!("- message: invalid secret references");
-                eprintln!("- secret: {} \n", hint_str);
+                    print_str.push_str(&format!("- message: invalid secret references\n"));
+                    print_str.push_str(&format!("- secret: {} \n", hint_str));
+                }
+
+                if !refs_validation.not_found.is_empty() {
+                    let hint_str = refs_validation
+                        .not_found
+                        .iter()
+                        .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    if !print_str.is_empty() {
+                        print_str.push_str(&format!("\n"));
+                    }
+
+                    print_str.push_str(&format!(
+                        "- message: referenced secrets not found within the file\n"
+                    ));
+                    print_str.push_str(&format!("- secret: {} \n", hint_str));
+                }
+
+                if !refs_validation.invalid_format.is_empty()
+                    && !refs_validation.not_found.is_empty()
+                {
+                    eprintln!("{}", format!("{}", "Input warnings").yellow());
+                } else {
+                    eprintln!("{}", format!("{}", "Input warning").yellow());
+                }
+                eprintln!("{}", print_str);
 
                 let confirm = interaction::confirm_opt("Are you sure you want to continue?");
 
                 if confirm.is_none() || (confirm.unwrap() == false) {
                     return Ok(());
                 }
+
+                // let hint_str = references_validation
+                //     .invalid_format_references
+                //     .iter()
+                //     .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                //     .collect::<Vec<_>>()
+                //     .join(", ");
+                //
+                // eprintln!("{}", format!("{}", "Input warning").yellow());
+                //
+                // eprintln!("- message: invalid secret references");
+                // eprintln!("- secret: {} \n", hint_str);
+                //
+                // let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+                //
+                // if confirm.is_none() || (confirm.unwrap() == false) {
+                //     return Ok(());
+                // }
             }
 
             let mut spinner = request_spinner();
