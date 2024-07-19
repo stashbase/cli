@@ -203,6 +203,83 @@ pub fn validate_secrets_references(
     validation_obj
 }
 
+pub type NotFoundReferences = InvalidFormatReferences;
+
+#[derive(Debug)]
+pub struct ReferencesValidationWithExistence {
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (keys)
+    pub invalid_format: InvalidFormatReferences,
+    // NOTE: refering secrets that do not exist (within input)
+    // (key, reference)
+    pub not_found: NotFoundReferences,
+}
+
+impl ReferencesValidationWithExistence {
+    pub fn new() -> Self {
+        Self {
+            self_referenced_secrets: Vec::new(),
+            invalid_format: HashMap::new(),
+            not_found: NotFoundReferences::new(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format.len() == 0
+            && self.self_referenced_secrets.len() == 0
+            && self.not_found.len() == 0
+    }
+}
+
+// self reference = fatal error, invalid format = warning
+pub fn validate_secrets_references_with_existence(
+    secrets: &Vec<Secret>,
+) -> ReferencesValidationWithExistence {
+    let mut validation_obj = ReferencesValidationWithExistence::new();
+
+    let mut secret_keys = HashSet::new();
+
+    for secret in secrets {
+        secret_keys.insert(secret.key.to_owned());
+    }
+
+    for Secret {
+        key,
+        value,
+        description: _,
+    } in secrets
+    {
+        let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
+        let has_self_reference = all_unique_refs.get(key).is_some();
+
+        if has_self_reference {
+            validation_obj.self_referenced_secrets.push(key.clone());
+        }
+
+        for ref_ in all_unique_refs {
+            let is_valid_secret_key = validate_secret_key(&ref_).is_ok();
+
+            if !is_valid_secret_key {
+                if !validation_obj.self_referenced_secrets.contains(&ref_) {
+                    validation_obj
+                        .invalid_format
+                        .entry(key.clone())
+                        .or_insert_with(Vec::new)
+                        .push(ref_);
+                }
+            } else {
+                if !secret_keys.contains(&ref_) {
+                    validation_obj
+                        .not_found
+                        .entry(key.clone())
+                        .or_insert_with(Vec::new)
+                        .push(ref_);
+                }
+            }
+        }
+    }
+
+    validation_obj
+}
+
 pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
