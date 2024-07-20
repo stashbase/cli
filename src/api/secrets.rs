@@ -6,10 +6,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
         RequestArgs,
     },
-    secrets::{
-        DeleteSecretsPayload, GetSelectedSecretsPayload, RenameSecretsPayload, Secret,
-        UpdateSecretDescriptionPayload,
-    },
+    secrets::{DeleteSecretsPayload, RenameSecretsPayload, Secret, UpdateSecretDescriptionPayload},
 };
 
 pub async fn list(
@@ -88,19 +85,23 @@ pub async fn get_selected(
     api_key: String,
     project: String,
     environment: String,
-    data: &GetSelectedSecretsPayload,
-) -> Result<PostPatchRequestApiResponse> {
+    keys: &Vec<String>,
+    expand_refs: bool,
+) -> Result<GetRequestApiResponse> {
+    let mut query = vec![("keys".to_string(), keys.join(","))];
+    query.push(("expand-refs".to_string(), expand_refs.to_string()));
+
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
             environment,
-            path: Some(String::from("selected")),
+            path: None,
         },
-        query: None,
+        query: Some(query),
         api_key,
     };
 
-    client::post_request(args, Some(data)).await
+    client::get_request(args).await
 }
 
 pub async fn update_description(
