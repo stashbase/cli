@@ -11,9 +11,11 @@ use crate::{
     },
     utils::{
         duplicates::find_duplicates,
-        separator,
+        interaction, separator,
         spinner::request_spinner,
-        validation::{validate_project_environment, validate_secret_keys},
+        validation::{
+            validate_project_environment, validate_secret_keys, validate_secrets_references,
+        },
     },
 };
 
@@ -112,6 +114,33 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
             }
         })
         .collect::<_>();
+
+    let references_validation = validate_secrets_references(&payload);
+
+    if !references_validation.self_referenced_secrets.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
+            references_validation.self_referenced_secrets,
+        ));
+        bail!(err);
+    } else if !references_validation.invalid_format_references.is_empty() {
+        let hint_str = references_validation
+            .invalid_format_references
+            .iter()
+            .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        eprintln!("{}", format!("{}", "Input warning").yellow());
+
+        eprintln!("- message: invalid secret references format");
+        eprintln!("- secrets: {} \n", hint_str);
+
+        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+
+        if confirm.is_none() || (confirm.unwrap() == false) {
+            return Ok(());
+        }
+    }
 
     let mut spinner = request_spinner();
     let res = secrets::set_sercrets(api_key, project, environment, &payload).await;

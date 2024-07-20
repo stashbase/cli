@@ -2,11 +2,12 @@ use anyhow::Result;
 
 use crate::{
     cmd::config::{
-        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, OutputSubcommand,
+        ApiKeySubcommand, ConfigCommand, ConfigSubcommand, ExpandRefsSubcommand, OutputSubcommand,
         SecretsOutputSubcommand,
     },
     handlers::config::{
         api_key,
+        expand_refs::{print_expand_refs_config, set_expand_refs_config},
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
         reset::reset_config,
@@ -82,6 +83,12 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 return Err(e);
             };
         }
+        ConfigSubcommand::ExpandRefs(r) => match r.subcommand {
+            ExpandRefsSubcommand::Set(args) => {
+                set_expand_refs_config(args.enabled);
+            }
+            ExpandRefsSubcommand::Print => print_expand_refs_config(&config.expand_refs),
+        },
     }
 
     Ok(())

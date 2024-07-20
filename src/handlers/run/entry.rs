@@ -38,6 +38,7 @@ pub struct HandleRunArgs {
     pub set: Vec<String>,
     pub print_secrets: bool,
     pub file: Option<String>,
+    pub expand_refs: Option<bool>,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
@@ -50,6 +51,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         mut environment,
         mut only,
         mut exclude,
+        mut expand_refs,
         mut print_secrets,
     } = args;
 
@@ -93,6 +95,12 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             environment = Some(config.environment);
 
             if let Some(secrets) = config.secrets {
+                // refs
+                if let Some(refs) = secrets.expand_refs {
+                    if expand_refs.is_none() {
+                        expand_refs = Some(refs);
+                    }
+                }
                 // print
                 if let Some(print_secrets_val) = secrets.print {
                     print_secrets = print_secrets_val;
@@ -271,7 +279,15 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     //     }
     // };
 
-    let res = environments::load(api_key, project, environment, only, exclude).await;
+    let res = environments::load(
+        api_key,
+        project,
+        environment,
+        only,
+        exclude,
+        expand_refs.unwrap_or(false),
+    )
+    .await;
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
