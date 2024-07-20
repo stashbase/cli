@@ -61,7 +61,7 @@ pub enum ConfigSubcommand {
     /// Default output for secrets
     OutputSecrets(SecretsOutputCommand),
 
-    // Expand secrets references to their values
+    /// Expand secrets references to their values
     ExpandRefs(ExpandRefsCommand),
 
     /// Print current config
