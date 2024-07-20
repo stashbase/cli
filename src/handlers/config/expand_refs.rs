@@ -36,9 +36,9 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
 pub fn print_expand_refs_config(enabled: &Option<bool>) {
     if let Some(enabled) = enabled {
         if *enabled {
-            println!("Replace refs: true");
+            println!("Expand refs: true");
         } else {
-            println!("Replace refs: false");
+            println!("Expand refs: false");
         }
     }
 }
