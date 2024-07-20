@@ -6,8 +6,8 @@ use crate::{
     api::secrets,
     cmd::config::SecretsOutputFormat,
     models::{
-        api_client::PostPatchRequestApiResponse,
-        secrets::{GetSelectedSecretsPayload, Secret},
+        api_client::GetRequestApiResponse,
+        secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
@@ -44,71 +44,59 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
 
     debug!("listing secrets...:");
 
-    let payload = GetSelectedSecretsPayload {
-        keys: keys.clone(),
-        expand_refs,
-    };
-
     let mut spinner = request_spinner();
-    let res = secrets::get_selected(api_key, project, environment, &payload).await;
+    let res = secrets::get_selected(api_key, project, environment, &keys, expand_refs).await;
 
     spinner.stop_and_persist("", "");
 
     if let Err(err) = res {
-        debug!("Error: {:#?}", &err);
         bail!(err);
     }
 
     let res = res.unwrap();
     match res {
-        PostPatchRequestApiResponse::Ok(data) => {
-            if let Some(text) = data.text {
-                debug!("{}", text);
-                let secrets = serde_json::from_str::<Vec<Secret>>(&text);
-                debug!("{:#?}", &secrets);
+        GetRequestApiResponse::Ok(data) => {
+            let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
+            debug!("{:#?}", &secrets);
 
-                match secrets {
-                    Ok(secrets) => {
-                        let secrets_not_found: Vec<_> = keys
-                            .into_iter()
-                            .filter(|k| secrets.iter().find(|s| s.key == *k).is_none())
-                            .collect();
+            match secrets {
+                Ok(secrets) => {
+                    let secrets_not_found: Vec<_> = keys
+                        .into_iter()
+                        .filter(|k| secrets.iter().find(|s| s.key == *k).is_none())
+                        .collect();
 
-                        debug!("{:#?}", &secrets_not_found);
+                    debug!("{:#?}", &secrets_not_found);
 
-                        if !secrets_not_found.is_empty() {
-                            eprintln!(
-                                "{} {}",
-                                "Secrets not found:".red(),
-                                secrets_not_found.join(", ")
-                            )
-                        }
-
-                        if !secrets.is_empty() {
-                            if !secrets_not_found.is_empty() {
-                                eprintln!();
-                            }
-
-                            let print_string = format_secrets(secrets, &format);
-                            println!("{}", print_string);
-
-                            // if format == SecretsFromat::List {
-                            //     print!("{}", print_string);
-                            // } else {
-                            // }
-                        }
+                    if !secrets_not_found.is_empty() {
+                        eprintln!(
+                            "{} {}",
+                            "Secrets not found:".red(),
+                            secrets_not_found.join(", ")
+                        )
                     }
-                    Err(e) => {
-                        error!("{}", e);
-                        bail!("Something went wrong");
+
+                    if !secrets.is_empty() {
+                        if !secrets_not_found.is_empty() {
+                            eprintln!();
+                        }
+
+                        let print_string = format_secrets(secrets, &format);
+                        println!("{}", print_string);
+
+                        // if format == SecretsFromat::List {
+                        //     print!("{}", print_string);
+                        // } else {
+                        // }
                     }
                 }
-            } else {
-                debug!("No data");
-                bail!("Something went wrong");
+                Err(e) => {
+                    error!("{}", e);
+                    bail!("Something went wrong");
+                }
             }
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        GetRequestApiResponse::Err(e) => {
             // bail!("{}", e);
             debug!("Error: {}", e);
             eprintln!("{}", e);
