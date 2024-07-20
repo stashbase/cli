@@ -88,8 +88,8 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
                         .collect::<Vec<_>>()
                         .join(", ");
 
-                    print_str.push_str(&format!("- message: invalid secret references\n"));
-                    print_str.push_str(&format!("- secret: {} \n", hint_str));
+                    print_str.push_str(&format!("- message: invalid secret references format\n"));
+                    print_str.push_str(&format!("- secrets: {} \n", hint_str));
                 }
 
                 if !refs_validation.not_found.is_empty() {
