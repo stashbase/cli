@@ -132,8 +132,8 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
         eprintln!("{}", format!("{}", "Input warning").yellow());
 
-        eprintln!("- message: invalid secret references");
-        eprintln!("- secret: {} \n", hint_str);
+        eprintln!("- message: invalid secret references format");
+        eprintln!("- secrets: {} \n", hint_str);
 
         let confirm = interaction::confirm_opt("Are you sure you want to continue?");
 
