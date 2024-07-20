@@ -112,7 +112,7 @@ pub struct ListSecrets {
     #[arg(value_enum, long = "only-keys")]
     pub only_keys: bool,
 
-    // Expand references to their values
+    /// Expand references to their values
     #[arg(value_enum, long = "expand-refs")]
     pub expand_refs: Option<bool>,
 }
@@ -130,7 +130,7 @@ pub struct GetSecrets {
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
 
-    // Expand references to their values
+    /// Expand references to their values
     #[arg(value_enum, long = "expand-refs")]
     pub expand_refs: Option<bool>,
 }
