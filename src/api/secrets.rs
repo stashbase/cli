@@ -17,11 +17,15 @@ pub async fn list(
     project: String,
     environment: String,
     only_keys: bool,
+    expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
-    let query = match only_keys {
-        true => Some(vec![(format!("only-keys"), format!("true"))]),
-        false => None,
-    };
+    let mut query_str = vec![];
+
+    if only_keys {
+        query_str.push(("only-keys".to_string(), "true".to_string()));
+    } else {
+        query_str.push(("expand-refs".to_string(), expand_refs.to_string()));
+    }
 
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -29,7 +33,10 @@ pub async fn list(
             environment,
             path: None,
         },
-        query,
+        query: match !query_str.is_empty() {
+            true => Some(query_str),
+            false => None,
+        },
         api_key,
     };
 
@@ -42,8 +49,9 @@ pub async fn pull(
     environment: String,
     only: Vec<String>,
     exclude: Vec<String>,
+    expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
-    let query = match !only.is_empty() || !exclude.is_empty() {
+    let mut query = match !only.is_empty() || !exclude.is_empty() {
         true => {
             let mut query = vec![];
 
@@ -55,10 +63,12 @@ pub async fn pull(
                 query.push(("exclude".to_string(), exclude.join(",")));
             }
 
-            Some(query)
+            query
         }
-        false => None,
+        false => Vec::with_capacity(1),
     };
+
+    query.push(("expand-refs".to_string(), expand_refs.to_string()));
 
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -66,7 +76,7 @@ pub async fn pull(
             environment,
             path: None,
         },
-        query,
+        query: Some(query),
         api_key,
     };
 

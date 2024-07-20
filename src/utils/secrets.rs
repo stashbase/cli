@@ -1,7 +1,11 @@
 use anyhow::{bail, Context, Result};
 use log::debug;
 use regex::Regex;
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
@@ -297,4 +301,23 @@ pub fn find_duplicate_keys(array: &[Secret]) -> Vec<String> {
         .into_iter()
         .filter_map(|(key, count)| if count > 1 { Some(key.clone()) } else { None })
         .collect()
+}
+
+pub fn extract_unique_references_from_secret(secret_value: &str) -> HashSet<String> {
+    // Define the regular expression to match ${...}
+    let regex = Regex::new(r"\$\{(.*?)\}").unwrap();
+    // Create a HashSet to store unique references
+    let mut refs = HashSet::new();
+
+    // Iterate over all matches
+    for cap in regex.captures_iter(secret_value) {
+        // cap[1] contains the captured group inside ${}
+        refs.insert(cap[1].to_string());
+    }
+
+    return refs;
+    // // Convert the HashSet back to a Vec
+    // let unique_refs: Vec<String> = refs.into_iter().collect();
+    //
+    // unique_refs
 }

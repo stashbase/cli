@@ -60,6 +60,10 @@ pub enum ConfigSubcommand {
     Output(OutputCommand),
     /// Default output for secrets
     OutputSecrets(SecretsOutputCommand),
+
+    /// Expand secrets references to their values
+    ExpandRefs(ExpandRefsCommand),
+
     /// Print current config
     Print,
     /// Reset config file
@@ -139,4 +143,25 @@ pub enum SecretsOutputSubcommand {
 #[command(override_usage = "config set output-secrets <FORMAT> [OPTIONS]")]
 pub struct SetSecretsOutput {
     pub format: SecretsOutputFormat,
+}
+
+#[derive(Debug, Args)]
+pub struct ExpandRefsCommand {
+    #[clap(subcommand)]
+    pub subcommand: ExpandRefsSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ExpandRefsSubcommand {
+    /// Set default expand-refs (secrets)
+    Set(SetExpandRefs),
+
+    /// Print default expand-refs (secrets)
+    Print,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config expand-refs set <ENABLED> [OPTIONS]")]
+pub struct SetExpandRefs {
+    pub enabled: Option<bool>,
 }

@@ -57,6 +57,7 @@ pub enum SecretsInputValidationError {
     KeyTooLong { multiple: bool },
     DuplicateKeys(Vec<String>),
     DuplicateNewKeys(Vec<String>),
+    SelfReferences(Vec<String>),
 
     SearchTooShort,
     SearchFormat,
@@ -273,6 +274,15 @@ impl fmt::Display for SecretsInputValidationError {
 
                 writeln!(f, "- message: {}", msg)?;
                 write!(f, "{}", format!("- duplicates: {}", keys_str))?;
+
+                return Ok(());
+            }
+            SecretsInputValidationError::SelfReferences(keys) => {
+                let keys_str = keys.join(", ");
+                let msg = "found self-referencing secrets";
+
+                writeln!(f, "{}", format!("- message: {}", msg))?;
+                write!(f, "{}", format!("- secrets: {}", keys_str))?;
 
                 return Ok(());
             }
