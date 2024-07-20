@@ -93,13 +93,6 @@ impl Display for Secret {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetSelectedSecretsPayload {
-    pub keys: Vec<String>,
-    pub expand_refs: bool,
-}
-
-#[derive(Debug, Serialize)]
 pub struct DeleteSecretsPayload {
     pub keys: Vec<String>,
 }
