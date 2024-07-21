@@ -124,6 +124,7 @@ pub async fn handle_environment_commands(
                     description: args.description,
                     env_type: args.env_type,
                     open: args.open,
+                    format: args.file_format,
                     file_path: args.file_path,
                 };
 

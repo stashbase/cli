@@ -6,15 +6,18 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::environments,
-    cmd::environments::EnvironmentType,
+    cmd::{environments::EnvironmentType, secrets::SecretsFileFormat},
     handlers::environments::open::GetEnvUrlResponse,
     models::{
         api_client::PostPatchRequestApiResponse,
         environments::{CreatEnvironmentPayload, EnvType},
         secrets::Secret,
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        files::check_file_exists, secrets::read_dotenv_file, spinner::request_spinner,
+        files::check_file_exists,
+        secrets::{parse_secrets_from_str, read_secrets_from_file},
+        spinner::request_spinner,
         validation::validate_project_environment,
     },
 };
@@ -27,6 +30,7 @@ pub struct HandleCreateEnvironmentArgs {
     pub description: Option<String>,
     pub open: bool,
     pub file_path: Option<String>,
+    pub format: Option<SecretsFileFormat>,
 }
 
 pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Result<()> {
@@ -37,6 +41,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         env_type,
         description,
         file_path,
+        format,
         open,
     } = args;
 
@@ -57,16 +62,38 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
             bail!("{}", err_msg);
         }
 
-        let secrets_res = read_dotenv_file(path);
+        //
+        let target_format = match format {
+            Some(format) => format,
+            None => {
+                if file_path.ends_with(".yaml") || file_path.ends_with(".yml") {
+                    SecretsFileFormat::Yaml
+                } else if file_path.ends_with(".json") {
+                    SecretsFileFormat::Json
+                } else {
+                    SecretsFileFormat::Dotenv
+                }
+            }
+        };
+
+        let secrets_res = read_secrets_from_file(path, &target_format);
 
         match secrets_res {
             Ok(values) => {
                 debug!("{:#?}", values);
 
+                if values.is_empty() {
+                    let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found");
+                    eprintln!("{}", msg);
+
+                    return Ok(());
+                }
+
                 secrets = Some(values);
             }
             Err(e) => {
-                bail!(format!("{} {}", "Error reading file:".red(), e));
+                let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(e));
+                bail!(err);
             }
         }
     }
