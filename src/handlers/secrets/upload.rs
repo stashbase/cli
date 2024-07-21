@@ -168,6 +168,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     if confirm.is_none() || (confirm.unwrap() == false) {
         return Ok(());
     }
+    eprintln!();
 
     let mut spinner = request_spinner();
     let res = secrets::set_sercrets(api_key, project, environment, &secrets).await;
