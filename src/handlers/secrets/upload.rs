@@ -139,13 +139,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         } else {
             eprintln!("{}", format!("{}", "Input warning").yellow());
         }
-        eprintln!("{}", print_str);
-
-        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
-
-        if confirm.is_none() || (confirm.unwrap() == false) {
-            return Ok(());
-        }
+        eprintln!("{}\n", print_str);
 
         // let hint_str = references_validation
         //     .invalid_format_references
@@ -164,6 +158,15 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         // if confirm.is_none() || (confirm.unwrap() == false) {
         //     return Ok(());
         // }
+    }
+
+    let info = format!("Number of screts to upload: {}", secrets.len());
+    eprintln!("{}", info);
+
+    let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+
+    if confirm.is_none() || (confirm.unwrap() == false) {
+        return Ok(());
     }
 
     let mut spinner = request_spinner();
