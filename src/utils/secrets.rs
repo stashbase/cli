@@ -246,7 +246,8 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
                     debug!("{}", value);
 
                     let uppercase_key = key.to_uppercase();
-                    let formatted_key = regex.replace_all(&uppercase_key, "_").to_string();
+                    let formatted_key = regex.replace_all(&uppercase_key, "_").trim().to_owned();
+                    let formatted_value = value.trim().to_owned();
 
                     let description = match index == 0 {
                         true => None,
@@ -269,7 +270,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
                     let secret = Secret {
                         description,
                         key: format!("{}", formatted_key),
-                        value: format!("{}", value),
+                        value: format!("{}", formatted_value),
                     };
 
                     secrets.push(secret);
