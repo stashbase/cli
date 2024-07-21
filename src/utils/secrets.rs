@@ -11,7 +11,7 @@ use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
 
 use crate::{
-    cmd::config::SecretsOutputFormat,
+    cmd::{config::SecretsOutputFormat, secrets::SecretsFileFormat},
     models::secrets::{Secret, SecretOnlyKey, SecretWithDescription, SecretWithoutDescription},
 };
 
@@ -196,15 +196,26 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
     }
 }
 
-// file must exist
-pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
-    let content = fs::read_to_string(&path).context("Failed to read selcted file".red())?;
+pub fn read_secrets_from_file(path: &Path, format: &SecretsFileFormat) -> Result<Vec<Secret>> {
+    let content = fs::read_to_string(&path)?;
     let file_is_empty = content.trim().is_empty();
 
     if file_is_empty {
-        bail!("file is empty");
+        return Ok(vec![]);
     }
 
+    match format {
+        SecretsFileFormat::Yaml => parse_secrets_from_str(&content, true),
+        SecretsFileFormat::Dotenv => parse_secrets_from_str(&content, false),
+        SecretsFileFormat::Json => {
+            let value = serde_json::from_str(&content)?;
+            Ok(value)
+        }
+    }
+}
+
+// file must exist
+pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Secret>> {
     let splitted: Vec<&str> = content.split("\n").collect();
 
     if splitted.is_empty() {
@@ -213,6 +224,11 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
 
     let mut secrets: Vec<Secret> = Vec::new();
     let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
+
+    let delimiter = match is_yaml {
+        true => ":",
+        false => "=",
+    };
 
     for (index, item) in splitted.iter().enumerate() {
         let trimmed = item.trim();
@@ -224,7 +240,7 @@ pub fn read_dotenv_file(path: &Path) -> Result<Vec<Secret>> {
         let is_comment = trimmed.starts_with("#");
 
         if !is_empty && !is_comment {
-            match item.split_once("=") {
+            match item.split_once(delimiter) {
                 Some((key, value)) => {
                     debug!("{}", key);
                     debug!("{}", value);
