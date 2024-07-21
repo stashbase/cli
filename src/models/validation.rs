@@ -58,6 +58,7 @@ pub enum SecretsInputValidationError {
     DuplicateKeys(Vec<String>),
     DuplicateNewKeys(Vec<String>),
     SelfReferences(Vec<String>),
+    ReadFile(anyhow::Error),
 
     SearchTooShort,
     SearchFormat,
@@ -283,6 +284,14 @@ impl fmt::Display for SecretsInputValidationError {
 
                 writeln!(f, "{}", format!("- message: {}", msg))?;
                 write!(f, "{}", format!("- secrets: {}", keys_str))?;
+
+                return Ok(());
+            }
+            SecretsInputValidationError::ReadFile(error) => {
+                let msg = "error reading file";
+
+                writeln!(f, "- message: {}", msg)?;
+                write!(f, "{}", format!("- details: {}", error.to_string()))?;
 
                 return Ok(());
             }
