@@ -1,5 +1,7 @@
+use std::fmt::Display;
+
 use anyhow::Result;
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 use super::{
     config::SecretsOutputFormat,
@@ -175,6 +177,28 @@ pub struct UploadSecrets {
     // NOTE: for now only accepts .env
     /// Path to file (dotenv format)
     pub file_path: String,
+
+    /// Upload format
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<SecretsFileFormat>,
+}
+
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
+pub enum SecretsFileFormat {
+    #[default]
+    Dotenv,
+    Yaml,
+    Json,
+}
+
+impl Display for SecretsFileFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Dotenv => write!(f, "dotenv"),
+            Self::Json => write!(f, "json"),
+            Self::Yaml => write!(f, "yaml"),
+        }
+    }
 }
 
 #[derive(Debug, Args)]
