@@ -219,7 +219,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
     let splitted: Vec<&str> = content.split("\n").collect();
 
     if splitted.is_empty() {
-        bail!("no secrets found");
+        return Ok(vec![]);
     }
 
     let mut secrets: Vec<Secret> = Vec::new();
@@ -282,12 +282,6 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
             }
         }
     }
-
-    if secrets.is_empty() {
-        bail!("no secrets found");
-    }
-
-    debug!("{:#?}", secrets);
 
     Ok(secrets)
 
