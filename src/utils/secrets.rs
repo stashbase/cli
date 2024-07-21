@@ -276,8 +276,15 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
                     secrets.push(secret);
                 }
                 None => {
-                    // TODO: accept key with empty value or error
-                    panic!();
+                    // NOTE: do nothing
+
+                    // let secret = Secret {
+                    //     description,
+                    //     key: format!("{}", trimmed),
+                    //     value: format!(""),
+                    // };
+                    //
+                    // secrets.push(secret);
                 }
             }
         }
