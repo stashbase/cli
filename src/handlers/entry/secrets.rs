@@ -103,6 +103,7 @@ pub async fn handle_secrets_commands(
                 api_key,
                 project,
                 environment,
+                format: args.format,
                 file_path: args.file_path,
             };
 
