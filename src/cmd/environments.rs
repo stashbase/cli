@@ -3,7 +3,7 @@ use core::fmt;
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{config::OutputFormat, shared::SharedProjectEnvArgs};
+use super::{config::OutputFormat, secrets::SecretsFileFormat, shared::SharedProjectEnvArgs};
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -404,10 +404,13 @@ pub struct CreateEnvironment {
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
 
-    // NOTE: for now only accepts .env
-    /// Add with secrets - path to file (dotenv format)
+    /// Add with secrets - path to file
     #[arg(value_enum, short = 'f', long = "file")]
     pub file_path: Option<String>,
+
+    /// Secrets file format (if file_path provided)
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub file_format: Option<SecretsFileFormat>,
 
     /// Open environment in browser
     #[arg(value_enum, long = "open")]
