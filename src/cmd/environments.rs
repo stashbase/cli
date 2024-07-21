@@ -408,8 +408,8 @@ pub struct CreateEnvironment {
     #[arg(value_enum, short = 'f', long = "file")]
     pub file_path: Option<String>,
 
-    /// Secrets file format (if file_path provided)
-    #[arg(value_enum, short = 'f', long = "format")]
+    /// Secrets file format (if file provided)
+    #[arg(value_enum, long = "format")]
     pub file_format: Option<SecretsFileFormat>,
 
     /// Open environment in browser
