@@ -45,7 +45,15 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     debug!("listing secrets...:");
 
     let mut spinner = request_spinner();
-    let res = secrets::get_selected(api_key, project, environment, &keys, expand_refs).await;
+    let res = secrets::list(
+        api_key,
+        project,
+        environment,
+        false,
+        Some(keys.clone()),
+        expand_refs,
+    )
+    .await;
 
     spinner.stop_and_persist("", "");
 
