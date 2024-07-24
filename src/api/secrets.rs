@@ -13,15 +13,20 @@ pub async fn list(
     api_key: String,
     project: String,
     environment: String,
-    only_keys: bool,
+    return_only_keys: bool,
+    only: Option<Vec<String>>,
     expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query_str = vec![];
 
-    if only_keys {
+    if return_only_keys {
         query_str.push(("only-keys".to_string(), "true".to_string()));
     } else {
         query_str.push(("expand-refs".to_string(), expand_refs.to_string()));
+    }
+
+    if let Some(only) = only {
+        query_str.push(("only".to_string(), only.join(",")));
     }
 
     let args = RequestArgs {
@@ -65,30 +70,6 @@ pub async fn pull(
         false => Vec::with_capacity(1),
     };
 
-    query.push(("expand-refs".to_string(), expand_refs.to_string()));
-
-    let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: None,
-        },
-        query: Some(query),
-        api_key,
-    };
-
-    client::get_request(args).await
-}
-
-// post with keys in body?
-pub async fn get_selected(
-    api_key: String,
-    project: String,
-    environment: String,
-    keys: &Vec<String>,
-    expand_refs: bool,
-) -> Result<GetRequestApiResponse> {
-    let mut query = vec![("keys".to_string(), keys.join(","))];
     query.push(("expand-refs".to_string(), expand_refs.to_string()));
 
     let args = RequestArgs {
