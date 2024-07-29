@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{bail, Result};
 use log::{debug, error};
 use owo_colors::OwoColorize;
@@ -69,26 +71,28 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
 
             match secrets {
                 Ok(secrets) => {
-                    let secrets_not_found: Vec<_> = keys
-                        .into_iter()
-                        .filter(|k| secrets.iter().find(|s| s.key == *k).is_none())
-                        .collect();
+                    if secrets.len() < keys.len() {
+                        let keys_set: HashSet<String> = keys.into_iter().collect();
 
-                    debug!("{:#?}", &secrets_not_found);
+                        let secrets_not_found: Vec<_> = keys_set
+                            .difference(&secrets.iter().map(|s| s.key.clone()).collect())
+                            .cloned()
+                            .collect();
 
-                    if !secrets_not_found.is_empty() {
-                        eprintln!(
-                            "{} {}",
-                            "Secrets not found:".red(),
-                            secrets_not_found.join(", ")
-                        )
+                        if !secrets_not_found.is_empty() {
+                            eprintln!(
+                                "{} {}",
+                                "Secrets not found:".red(),
+                                secrets_not_found.join(", ")
+                            )
+                        }
+
+                        if !secrets.is_empty() {
+                            eprintln!();
+                        }
                     }
 
                     if !secrets.is_empty() {
-                        if !secrets_not_found.is_empty() {
-                            eprintln!();
-                        }
-
                         let print_string = format_secrets(secrets, &format);
                         println!("{}", print_string);
 
