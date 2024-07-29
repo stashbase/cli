@@ -44,12 +44,12 @@ impl fmt::Display for ApiPath {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ApiPath::Projects(p) => match p {
-                Some(value) => write!(f, "projects/{}", value),
-                None => write!(f, "projects"),
+                Some(value) => write!(f, "v1/projects/{}", value),
+                None => write!(f, "v1/projects"),
             },
             ApiPath::Environments { project, path } => match path {
-                Some(value) => write!(f, "projects/{}/environments/{}", project, value),
-                None => write!(f, "projects/{}/environments", project),
+                Some(value) => write!(f, "v1/projects/{}/environments/{}", project, value),
+                None => write!(f, "v1/projects/{}/environments", project),
             },
             ApiPath::Secrets {
                 project,
@@ -58,12 +58,12 @@ impl fmt::Display for ApiPath {
             } => match path {
                 Some(p) => write!(
                     f,
-                    "projects/{}/environments/{}/secrets/{}",
+                    "v1/projects/{}/environments/{}/secrets/{}",
                     project, environment, p
                 ),
                 None => write!(
                     f,
-                    "projects/{}/environments/{}/secrets",
+                    "v1/projects/{}/environments/{}/secrets",
                     project, environment,
                 ),
             },
@@ -75,14 +75,14 @@ impl fmt::Display for ApiPath {
                 Some(p) => {
                     write!(
                         f,
-                        "projects/{}/environments/{}/changelog/{}",
+                        "v1/projects/{}/environments/{}/changelog/{}",
                         project, environment, p
                     )
                 }
                 None => {
                     write!(
                         f,
-                        "projects/{}/environments/{}/changelog",
+                        "v1/projects/{}/environments/{}/changelog",
                         project, environment
                     )
                 }
@@ -101,14 +101,14 @@ impl fmt::Display for ApiPath {
                 Some(p) => {
                     write!(
                         f,
-                        "projects/{}/environments/{}/webhooks/{}",
+                        "v1/projects/{}/environments/{}/webhooks/{}",
                         project, environment, p
                     )
                 }
                 None => {
                     write!(
                         f,
-                        "projects/{}/environments/{}/webhooks",
+                        "v1/projects/{}/environments/{}/webhooks",
                         project, environment
                     )
                 }
