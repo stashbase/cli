@@ -191,17 +191,24 @@ pub async fn post_request<T>(
 where
     T: serde::Serialize,
 {
-    post_or_pach(args, Some(data), reqwest::Method::POST).await
+    post_patch_put(args, Some(data), reqwest::Method::POST).await
 }
 
 pub async fn patch_request<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<&T>,
 ) -> Result<PostPatchRequestApiResponse> {
-    post_or_pach(args, data, reqwest::Method::PATCH).await
+    post_patch_put(args, data, reqwest::Method::PATCH).await
 }
 
-async fn post_or_pach<T: serde::Serialize>(
+pub async fn put_request<T: serde::Serialize>(
+    args: RequestArgs,
+    data: Option<&T>,
+) -> Result<PostPatchRequestApiResponse> {
+    post_patch_put(args, data, reqwest::Method::PUT).await
+}
+
+async fn post_patch_put<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<T>,
     method: Method,
