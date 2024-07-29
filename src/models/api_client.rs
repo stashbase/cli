@@ -162,6 +162,10 @@ pub struct ApiErrorResponse {
 #[derive(Debug, Deserialize)]
 pub struct ApiError {
     pub code: ApiErrorEntity,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+
     // now onl for env chagnelog - max page
     pub details: Option<String>,
 }
@@ -368,7 +372,10 @@ impl From<ApiError> for CustomError {
             ApiErrorEntity::EnvChangelog(e) => match e {
                 EnvChangelogError::PageNotFound => CustomError {
                     message: format!("page not found"),
-                    hint: api_error.details,
+                    hint: match api_error.message {
+                        Some(m) => Some(m.to_lowercase()),
+                        None => None,
+                    },
                 },
                 EnvChangelogError::ChangeNotFound => CustomError {
                     message: format!("change record not found"),
