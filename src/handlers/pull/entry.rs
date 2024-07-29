@@ -227,6 +227,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         environment.clone(),
         only,
         exclude,
+        true,
         expand_refs.unwrap_or(false),
     )
     .await;
