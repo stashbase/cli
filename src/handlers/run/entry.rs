@@ -6,7 +6,7 @@ use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
-    api::environments,
+    api::{environments, secrets},
     handlers::run::subprocess,
     models::{
         api_client::GetRequestApiResponse,
@@ -279,12 +279,23 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     //     }
     // };
 
-    let res = environments::load(
+    // let res = environments::load(
+    //     api_key,
+    //     project,
+    //     environment,
+    //     only,
+    //     exclude,
+    //     expand_refs.unwrap_or(false),
+    // )
+    // .await;
+
+    let res = secrets::pull(
         api_key,
-        project,
-        environment,
+        project.clone(),
+        environment.clone(),
         only,
         exclude,
+        false,
         expand_refs.unwrap_or(false),
     )
     .await;
