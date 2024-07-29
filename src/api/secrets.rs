@@ -138,7 +138,7 @@ pub async fn delete_all(
         path: ApiPath::Secrets {
             project,
             environment,
-            path: None,
+            path: Some(String::from("all")),
         },
         query: None,
         api_key,
