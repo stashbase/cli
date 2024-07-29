@@ -171,6 +171,11 @@ pub struct ApiError {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SelfReferencingSecretsErrorDetails {
+    pub secrets: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum ApiErrorEntity {
     Project(ProjectError),
@@ -364,10 +369,25 @@ impl From<ApiError> for CustomError {
                     )),
                 },
 
-                SecretsError::SelfReferencingSecrets => CustomError {
-                    message: format!("found self-referencing secrets"),
-                    hint: Some(api_error.details.unwrap()),
-                },
+                SecretsError::SelfReferencingSecrets => {
+                    let secrets = match api_error.details {
+                        Some(d) => {
+                            let details =
+                                serde_json::from_value::<SelfReferencingSecretsErrorDetails>(d);
+
+                            match details {
+                                Ok(details) => Some(details.secrets.join(", ")),
+                                Err(_) => None,
+                            }
+                        }
+                        None => None,
+                    };
+
+                    return CustomError {
+                        message: format!("found self-referencing secrets"),
+                        hint: secrets,
+                    };
+                }
             },
             ApiErrorEntity::EnvChangelog(e) => match e {
                 EnvChangelogError::PageNotFound => CustomError {
