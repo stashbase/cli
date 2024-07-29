@@ -51,6 +51,7 @@ pub async fn pull(
     environment: String,
     only: Vec<String>,
     exclude: Vec<String>,
+    with_description: bool,
     expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query = match !only.is_empty() || !exclude.is_empty() {
@@ -71,6 +72,10 @@ pub async fn pull(
     };
 
     query.push(("expand-refs".to_string(), expand_refs.to_string()));
+
+    if with_description == false {
+        query.push(("no-description".to_string(), "true".to_string()));
+    }
 
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -158,7 +163,7 @@ pub async fn set_sercrets(
         api_key,
     };
 
-    client::post_request(args, Some(data)).await
+    client::put_request(args, Some(data)).await
 }
 
 pub async fn rename_secrets(
