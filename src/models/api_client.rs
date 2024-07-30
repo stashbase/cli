@@ -130,15 +130,15 @@ pub enum GetRequestApiResponse {
     Err(CustomError),
 }
 
-// NOTE: POST
+// NOTE: POST, PATCH, PUT
 #[derive(Debug)]
-pub enum PostPatchRequestApiResponse {
-    Ok(PostPatchApiResponseOk),
+pub enum RequestApiOptionResponse {
+    Ok(OptionResponseOk),
     Err(CustomError),
 }
 
 #[derive(Debug)]
-pub struct PostPatchApiResponseOk {
+pub struct OptionResponseOk {
     pub status: StatusCode,
     pub text: Option<String>,
 }
@@ -150,7 +150,7 @@ pub enum DeleteRequestApiResponse {
     Err(CustomError),
 }
 
-pub type DeleteApiResponseOk = PostPatchApiResponseOk;
+pub type DeleteApiResponseOk = OptionResponseOk;
 
 // error
 

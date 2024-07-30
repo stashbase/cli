@@ -3,7 +3,7 @@ use anyhow::Result;
 use super::client;
 use crate::models::{
     api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
         RequestArgs,
     },
     secrets::{DeleteSecretsPayload, RenameSecretsPayload, Secret, UpdateSecretDescriptionPayload},
@@ -96,7 +96,7 @@ pub async fn update_description(
     environment: String,
     key: String,
     data: &UpdateSecretDescriptionPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -115,7 +115,7 @@ pub async fn delete(
     project: String,
     environment: String,
     data: &DeleteSecretsPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -152,7 +152,7 @@ pub async fn set_sercrets(
     project: String,
     environment: String,
     data: &Vec<Secret>,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -171,7 +171,7 @@ pub async fn rename_secrets(
     project: String,
     environment: String,
     data: &RenameSecretsPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,

@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     api::webhooks,
-    models::{api_client::PostPatchRequestApiResponse, webhooks::RotateWebhookSecretResponse},
+    models::{api_client::RequestApiOptionResponse, webhooks::RotateWebhookSecretResponse},
     utils::{interaction, spinner::request_spinner},
 };
 
@@ -31,7 +31,7 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(res_data) => {
+        RequestApiOptionResponse::Ok(res_data) => {
             if let Some(res_text) = res_data.text {
                 let data = serde_json::from_str::<RotateWebhookSecretResponse>(&res_text);
 
@@ -51,7 +51,7 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
                 panic!();
             }
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_with_message(&format!("\n{}", e));
         }

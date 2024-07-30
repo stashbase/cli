@@ -5,7 +5,7 @@ use crate::{
     cmd::environments::{EnvSort, EnvironmentType},
     models::{
         api_client::{
-            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
             RequestArgs,
         },
         environments::{
@@ -158,7 +158,7 @@ pub async fn create(
     project: String,
     open: bool,
     data: &CreatEnvironmentPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let query = match open {
         true => Some(vec![(format!("url"), format!("true"))]),
         false => None,
@@ -181,7 +181,7 @@ pub async fn update(
     project: String,
     environment: String,
     data: &UpdateEnvironmentPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Environments {
             project,
@@ -199,7 +199,7 @@ pub async fn duplicate(
     project: String,
     environment: String,
     data: &DuplicateEnvironmentPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let path = format!("{}/duplicate", environment);
 
     let args = RequestArgs {
@@ -219,7 +219,7 @@ pub async fn update_type(
     project: String,
     environment: String,
     data: &UpdateEnvironmentTypePayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let subpath = format!("{}/type", environment);
 
     let args = RequestArgs {
@@ -239,7 +239,7 @@ pub async fn set_lock(
     project: String,
     environment: String,
     locked: bool,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let subpath = match locked {
         true => format!("{}/lock", environment),
         false => format!("{}/unlock", environment),

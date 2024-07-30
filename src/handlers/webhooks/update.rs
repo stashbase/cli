@@ -4,7 +4,7 @@ use log::debug;
 use crate::{
     api::webhooks,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         validation::{InputValidationError, WebhookInputValidationError},
         webhooks::UpdateWebhookPayload,
     },
@@ -62,11 +62,11 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             // println!("Project has been deleted");
             spinner.stop_with_message("✏️ Webhook has been updated!");
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_with_message(&format!("\n{}", e));
         }

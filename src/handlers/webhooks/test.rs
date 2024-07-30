@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::webhooks,
-    models::{api_client::PostPatchRequestApiResponse, webhooks::TestWebhookResponse},
+    models::{api_client::RequestApiOptionResponse, webhooks::TestWebhookResponse},
     utils::{interaction, spinner::request_spinner},
 };
 
@@ -57,7 +57,7 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(data) => {
+        RequestApiOptionResponse::Ok(data) => {
             debug!("{:#?}", &data);
 
             if let Some(res_text) = data.text {
@@ -79,7 +79,7 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
             }
             //
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
         }
     }

@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
-    models::{api_client::PostPatchRequestApiResponse, secrets::UpdateSecretDescriptionPayload},
+    models::{api_client::RequestApiOptionResponse, secrets::UpdateSecretDescriptionPayload},
     utils::{
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_key},
@@ -50,14 +50,14 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             spinner.stop_with_message(&format!(
                 "{} {}",
                 "✓".green(),
                 "Description has been updated!"
             ));
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_with_message(&format!("{}", e));
         }

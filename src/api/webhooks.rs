@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::models::{
     api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
         RequestArgs,
     },
     webhooks::{CreateWebhookPayload, UpdateWebhookPayload, UpdateWebhookStatusPayload},
@@ -80,7 +80,7 @@ pub struct CreateArgs {
     pub data: CreateWebhookPayload,
 }
 
-pub async fn create(args: CreateArgs) -> Result<PostPatchRequestApiResponse> {
+pub async fn create(args: CreateArgs) -> Result<RequestApiOptionResponse> {
     let query = match args.return_secret {
         true => Some(vec![("return-secret".to_string(), "true".to_string())]),
         false => None,
@@ -107,7 +107,7 @@ pub struct TestArgs {
     pub webhook_id: String,
 }
 
-pub async fn test(args: TestArgs) -> Result<PostPatchRequestApiResponse> {
+pub async fn test(args: TestArgs) -> Result<RequestApiOptionResponse> {
     let path = format!("{}/test", args.webhook_id);
 
     let req_args = RequestArgs {
@@ -132,7 +132,7 @@ pub struct UpdateArgs {
     pub data: UpdateWebhookPayload,
 }
 
-pub async fn update(args: UpdateArgs) -> Result<PostPatchRequestApiResponse> {
+pub async fn update(args: UpdateArgs) -> Result<RequestApiOptionResponse> {
     let req_args = RequestArgs {
         path: ApiPath::Webhooks {
             project: args.project,
@@ -154,7 +154,7 @@ pub struct UpdateStatusArgs {
     pub data: UpdateWebhookStatusPayload,
 }
 
-pub async fn update_status(args: UpdateStatusArgs) -> Result<PostPatchRequestApiResponse> {
+pub async fn update_status(args: UpdateStatusArgs) -> Result<RequestApiOptionResponse> {
     let path = format!("{}/status", args.webhook_id);
 
     let req_args = RequestArgs {
@@ -178,7 +178,7 @@ pub struct RotateArgs {
     pub webhook_id: String,
 }
 
-pub async fn rotate_secret(args: RotateArgs) -> Result<PostPatchRequestApiResponse> {
+pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse> {
     let path = format!("{}/secret", args.webhook_id);
 
     let req_args = RequestArgs {
