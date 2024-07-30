@@ -176,7 +176,7 @@ pub async fn rename_secrets(
         path: ApiPath::Secrets {
             project,
             environment,
-            path: None,
+            path: Some(String::from("rename")),
         },
         query: None,
         api_key,
