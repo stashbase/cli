@@ -4,7 +4,7 @@ use log::{debug, error};
 use crate::{
     api::projects,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         projects::UpdateProjectPayload,
         validation::{InputValidationError, ProjectInputValidationError},
     },
@@ -49,11 +49,11 @@ pub async fn handle_update_project(
     let project_res = project_res.unwrap();
 
     match project_res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             // println!("Project has been deleted");
             spinner.stop_with_message("✏️ Project has been updated!");
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_with_message(&format!("\n{}", e));
         }

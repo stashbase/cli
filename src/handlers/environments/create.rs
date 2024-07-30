@@ -9,7 +9,7 @@ use crate::{
     cmd::{environments::EnvironmentType, secrets::SecretsFileFormat},
     handlers::environments::open::GetEnvUrlResponse,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         environments::{CreatEnvironmentPayload, EnvType},
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
@@ -147,7 +147,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     let project_res = project_res.unwrap();
 
     match project_res {
-        PostPatchRequestApiResponse::Ok(data) => {
+        RequestApiOptionResponse::Ok(data) => {
             spinner.stop_with_message("🔥 Environment created!");
 
             debug!("{:#?}", data.text);
@@ -171,7 +171,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 }
             }
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             // spinner.stop_and_persist("", "");
             // eprint!("{}", e);
             // error!("{:#?}", &e);

@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::env_changelog,
-    models::api_client::PostPatchRequestApiResponse,
+    models::api_client::RequestApiOptionResponse,
     utils::{
         interaction,
         spinner::request_spinner,
@@ -69,7 +69,7 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(data) => {
+        RequestApiOptionResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
 
             // nothning to revert
@@ -86,7 +86,7 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
                 ));
             }
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             debug!("Error: {:#?}", e);
             spinner.stop_with_message(&format!("{}", e));
         }

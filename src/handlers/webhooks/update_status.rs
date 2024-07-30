@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     api::webhooks,
-    models::{api_client::PostPatchRequestApiResponse, webhooks::UpdateWebhookStatusPayload},
+    models::{api_client::RequestApiOptionResponse, webhooks::UpdateWebhookStatusPayload},
     utils::{interaction, spinner::request_spinner},
 };
 
@@ -54,7 +54,7 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             let msg = match enabled {
                 true => "✅ Webhook has been enabled!",
                 // false => "❌ Webhook has been disabled!",
@@ -64,7 +64,7 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
             // println!("Project has been deleted");
             spinner.stop_with_message(msg);
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_with_message(&format!("\n{}", e));
         }

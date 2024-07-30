@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         secrets::{RenameSecretsResponse, RenamedSecret},
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -105,7 +105,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(res) => match res.text {
+        RequestApiOptionResponse::Ok(res) => match res.text {
             Some(text) => {
                 spinner.stop_and_persist("", "");
 
@@ -181,7 +181,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
                 ));
             }
         },
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_with_message(&format!("{}", e));
         }

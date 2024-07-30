@@ -4,7 +4,7 @@ use log::debug;
 use crate::{
     api::webhooks,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         webhooks::{CreateWebhookPayload, CreateWebhookResponse},
     },
     utils::spinner::request_spinner,
@@ -57,7 +57,7 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(data) => {
+        RequestApiOptionResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
 
             match data.text {
@@ -92,7 +92,7 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                 }
             }
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
         }
     }

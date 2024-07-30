@@ -3,7 +3,7 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    models::{api_client::PostPatchRequestApiResponse, projects::CreateProjectPayload},
+    models::{api_client::RequestApiOptionResponse, projects::CreateProjectPayload},
     utils::{spinner::request_spinner, validation::validate_project_name},
 };
 
@@ -35,10 +35,10 @@ pub async fn handle_create_project(
     let project_res = project_res.unwrap();
 
     match project_res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             spinner.stop_with_message("🔥 Project created!");
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             // spinner.stop_and_persist("", "");
             // eprint!("{}", e);
             // error!("{:#?}", &e);
