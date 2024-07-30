@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{
-        api_client::{DeleteRequestApiResponse, PostPatchRequestApiResponse},
+        api_client::{DeleteRequestApiResponse, RequestApiOptionResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsPayload, DeleteSecretsResponse},
     },
     utils::{
@@ -120,7 +120,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
             let res = res.unwrap();
 
             match res {
-                PostPatchRequestApiResponse::Ok(res) => {
+                RequestApiOptionResponse::Ok(res) => {
                     // all deleted
                     match res.text {
                         Some(text) => {
@@ -191,7 +191,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                         }
                     }
                 }
-                PostPatchRequestApiResponse::Err(e) => {
+                RequestApiOptionResponse::Err(e) => {
                     spinner.stop_with_message(&format!("\n{}", e));
                 }
             }

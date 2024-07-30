@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::environments,
     handlers::environments::update::validate_input,
-    models::{api_client::PostPatchRequestApiResponse, environments::DuplicateEnvironmentPayload},
+    models::{api_client::RequestApiOptionResponse, environments::DuplicateEnvironmentPayload},
     utils::{interaction, spinner::request_spinner},
 };
 
@@ -54,10 +54,10 @@ pub async fn handle_duplicate_environment(
     let project_res = project_res.unwrap();
 
     match project_res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             spinner.stop_with_message("Environment has been cloned!");
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
         }
     }

@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -154,10 +154,10 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             spinner.stop_with_message(&format!("{} {}", "✓".green(), "Secrets have been setted!"));
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_with_message(&format!("{}", e));
         }

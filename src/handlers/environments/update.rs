@@ -4,7 +4,7 @@ use log::{debug, error};
 use crate::{
     api::environments,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         environments::UpdateEnvironmentPayload,
         validation::{EnvironmentsInputValidationError, InputValidationError},
     },
@@ -55,10 +55,10 @@ pub async fn handle_update_environment(
     let project_res = project_res.unwrap();
 
     match project_res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             spinner.stop_with_message("✏️ Environment has been updated!");
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
         }
     }

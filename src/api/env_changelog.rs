@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::models::api_client::{
-    ApiPath, GetRequestApiResponse, PostPatchRequestApiResponse, RequestArgs,
+    ApiPath, GetRequestApiResponse, RequestApiOptionResponse, RequestArgs,
 };
 
 use super::client;
@@ -87,7 +87,7 @@ pub struct RevertArgs {
     pub change_id: String,
 }
 
-pub async fn revert(args: RevertArgs) -> Result<PostPatchRequestApiResponse> {
+pub async fn revert(args: RevertArgs) -> Result<RequestApiOptionResponse> {
     let RevertArgs {
         api_key,
         project,

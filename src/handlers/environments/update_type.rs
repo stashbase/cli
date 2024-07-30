@@ -5,7 +5,7 @@ use crate::{
     api::environments,
     cmd::environments::EnvironmentType,
     models::{
-        api_client::PostPatchRequestApiResponse,
+        api_client::RequestApiOptionResponse,
         environments::{EnvType, UpdateEnvironmentTypePayload},
     },
     utils::{spinner::request_spinner, validation::validate_project_environment},
@@ -43,10 +43,10 @@ pub async fn handle_update_env_type(
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             spinner.stop_with_message("✏️ Environment type been updated!");
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             // error!("{:#?}", &e);
             // eprint!("{}", e);
             spinner.stop_with_message(&format!("{}", e));

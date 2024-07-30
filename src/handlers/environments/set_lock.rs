@@ -3,7 +3,7 @@ use log::{debug, error};
 
 use crate::{
     api::environments,
-    models::api_client::PostPatchRequestApiResponse,
+    models::api_client::RequestApiOptionResponse,
     utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
@@ -34,14 +34,14 @@ pub async fn handle_set_env_lock(
     let res = res.unwrap();
 
     match res {
-        PostPatchRequestApiResponse::Ok(_) => {
+        RequestApiOptionResponse::Ok(_) => {
             if lock == true {
                 spinner.stop_with_message("🔒 Enviroment locked!");
             } else {
                 spinner.stop_with_message("🔓 Enviroment unlocked!");
             }
         }
-        PostPatchRequestApiResponse::Err(e) => {
+        RequestApiOptionResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
         }
     }

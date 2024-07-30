@@ -11,7 +11,7 @@ use reqwest_retry::{
 
 use crate::models::api_client::{
     ApiErrorResponse, CustomError, DeleteApiResponseOk, DeleteRequestApiResponse, GetApiResponseOk,
-    GetRequestApiResponse, PostPatchApiResponseOk, PostPatchRequestApiResponse, RequestArgs,
+    GetRequestApiResponse, OptionResponseOk, RequestApiOptionResponse, RequestArgs,
 };
 
 struct RetryReqPolicy;
@@ -187,7 +187,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
 pub async fn post_request<T>(
     args: RequestArgs,
     data: Option<&T>,
-) -> Result<PostPatchRequestApiResponse>
+) -> Result<RequestApiOptionResponse>
 where
     T: serde::Serialize,
 {
@@ -197,14 +197,14 @@ where
 pub async fn patch_request<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<&T>,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     post_patch_put(args, data, reqwest::Method::PATCH).await
 }
 
 pub async fn put_request<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<&T>,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     post_patch_put(args, data, reqwest::Method::PUT).await
 }
 
@@ -212,7 +212,7 @@ async fn post_patch_put<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<T>,
     method: Method,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let base_path =
         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000/v1/cli"));
 
@@ -256,12 +256,12 @@ async fn post_patch_put<T: serde::Serialize>(
         if let Some(content_length) = res.content_length() {
             if (content_length as usize) == 0 {
                 let response =
-                    PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk { status, text: None });
+                    RequestApiOptionResponse::Ok(OptionResponseOk { status, text: None });
 
                 Ok(response)
             } else {
                 let text = res.text().await.context("Could not parse response")?;
-                let response = PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk {
+                let response = RequestApiOptionResponse::Ok(OptionResponseOk {
                     status,
                     text: Some(text),
                 });
@@ -269,7 +269,7 @@ async fn post_patch_put<T: serde::Serialize>(
                 Ok(response)
             }
         } else {
-            let response =
+            let response = RequestApiOptionResponse::Ok(OptionResponseOk { status, text: None });
                 PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk { status, text: None });
 
             Ok(response)
@@ -277,12 +277,12 @@ async fn post_patch_put<T: serde::Serialize>(
     } else {
         if status == 401 {
             let error = CustomError::unauthorized();
-            Ok(PostPatchRequestApiResponse::Err(error))
+            Ok(RequestApiOptionResponse::Err(error))
         } else if status == 429 {
             let reset_header = res.headers().get("x-ratelimit-reset");
 
             let error = CustomError::rate_limit_reached(reset_header);
-            Ok(PostPatchRequestApiResponse::Err(error))
+            Ok(RequestApiOptionResponse::Err(error))
         } else {
             let error_response: ApiErrorResponse = res
                 .json()
@@ -291,7 +291,7 @@ async fn post_patch_put<T: serde::Serialize>(
 
             // Convert the API error into your custom error type
             let custom_error: CustomError = error_response.error.into();
-            Ok(PostPatchRequestApiResponse::Err(custom_error))
+            Ok(RequestApiOptionResponse::Err(custom_error))
         }
     }
 }

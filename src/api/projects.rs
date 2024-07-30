@@ -4,7 +4,7 @@ use crate::{
     cmd::projects::Sort,
     models::{
         api_client::{
-            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, PostPatchRequestApiResponse,
+            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
             RequestArgs,
         },
         projects::{CreateProjectPayload, UpdateProjectPayload},
@@ -63,7 +63,7 @@ pub async fn get_project_url(api_key: String, name: String) -> Result<GetRequest
 pub async fn create_project(
     api_key: String,
     data: &CreateProjectPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(None),
         query: None,
@@ -77,7 +77,7 @@ pub async fn update_project(
     api_key: String,
     name: String,
     data: &UpdateProjectPayload,
-) -> Result<PostPatchRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(name)),
         query: None,
