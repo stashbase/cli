@@ -177,6 +177,12 @@ pub struct SecretApiErrorDetails {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangelogPageNotFoundErrorDetails {
+    pub pages_available: usize,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum ApiErrorEntity {
     Project(ProjectError),
@@ -390,13 +396,38 @@ impl From<ApiError> for CustomError {
                 }
             },
             ApiErrorEntity::EnvChangelog(e) => match e {
-                EnvChangelogError::PageNotFound => CustomError {
-                    message: format!("page not found"),
-                    hint: match api_error.message {
-                        Some(m) => Some(m.to_lowercase()),
+                // EnvChangelogError::PageNotFound => CustomError {
+                //     message: format!("page not found"),
+                //     hint: match api_error.message {
+                //         Some(m) => Some(m.to_lowercase()),
+                //         None => None,
+                //     },
+                // },
+                EnvChangelogError::PageNotFound => {
+                    let hint_str = match api_error.details {
+                        Some(d) => {
+                            let details =
+                                serde_json::from_value::<ChangelogPageNotFoundErrorDetails>(d);
+
+                            match details {
+                                Ok(details) => match details.pages_available {
+                                    1 => Some("only 1 page is available".to_string()),
+                                    _ => Some(format!(
+                                        "only {} pages are available",
+                                        details.pages_available
+                                    )),
+                                },
+                                Err(_) => None,
+                            }
+                        }
                         None => None,
-                    },
-                },
+                    };
+
+                    CustomError {
+                        message: format!("page not found"),
+                        hint: hint_str,
+                    }
+                }
                 EnvChangelogError::ChangeNotFound => CustomError {
                     message: format!("change record not found"),
                     hint: Some(format!("make sure that the id is correct")),
