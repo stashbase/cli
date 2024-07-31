@@ -171,8 +171,9 @@ pub struct ApiError {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SelfReferencingSecretsErrorDetails {
-    pub secrets: Vec<String>,
+#[serde(rename_all = "camelCase")]
+pub struct SecretApiErrorDetails {
+    pub secret_keys: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -372,11 +373,10 @@ impl From<ApiError> for CustomError {
                 SecretsError::SelfReferencingSecrets => {
                     let secrets = match api_error.details {
                         Some(d) => {
-                            let details =
-                                serde_json::from_value::<SelfReferencingSecretsErrorDetails>(d);
+                            let details = serde_json::from_value::<SecretApiErrorDetails>(d);
 
                             match details {
-                                Ok(details) => Some(details.secrets.join(", ")),
+                                Ok(details) => Some(details.secret_keys.join(", ")),
                                 Err(_) => None,
                             }
                         }
