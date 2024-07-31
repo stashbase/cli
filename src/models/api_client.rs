@@ -1,5 +1,6 @@
 use core::fmt;
 
+use log::debug;
 use owo_colors::OwoColorize;
 use reqwest::{header::HeaderValue, StatusCode};
 use serde::Deserialize;
@@ -183,6 +184,28 @@ pub struct ChangelogPageNotFoundErrorDetails {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MissingPermissionErrorDetails {
+    // for env/project api keys
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_permissions: Option<Vec<String>>,
+
+    // for personal api key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_workspace_role: Option<PermissionErrorDetails>,
+
+    // for personal api key
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_project_role: Option<PermissionErrorDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PermissionErrorDetails {
+    pub current: String,
+    pub allowed: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum ApiErrorEntity {
     Project(ProjectError),
@@ -290,32 +313,76 @@ impl CustomError {
 impl From<ApiError> for CustomError {
     fn from(api_error: ApiError) -> Self {
         match api_error.code {
-            ApiErrorEntity::Project(e) => match e {
-                ProjectError::InvalidName => CustomError {
-                    message: format!("Invalid name"),
-                    hint: None,
-                },
+            ApiErrorEntity::Project(e) => {
+                match e {
+                    ProjectError::InvalidName => CustomError {
+                        message: format!("Invalid name"),
+                        hint: None,
+                    },
 
-                ProjectError::ProjectNotFound => CustomError {
-                    message: format!("project not found"),
-                    hint: None,
-                },
+                    ProjectError::ProjectNotFound => CustomError {
+                        message: format!("project not found"),
+                        hint: None,
+                    },
 
-                ProjectError::LimitReached => CustomError {
-                    message: format!("project limit reached"),
-                    hint: Some(format!(
-                        "workspace reached the maximum number of projects allowed"
-                    )),
-                },
-                ProjectError::ProjectAlreadyExists => CustomError {
-                    message: format!("project already exists"),
-                    hint: Some(format!("use a different name")),
-                },
-                ProjectError::MissingPermission => CustomError {
-                    message: format!("missing permission"),
-                    hint: Some(format!("you do not have permission to perform this action")),
-                },
-            },
+                    ProjectError::LimitReached => CustomError {
+                        message: format!("project limit reached"),
+                        hint: Some(format!(
+                            "workspace reached the maximum number of projects allowed"
+                        )),
+                    },
+                    ProjectError::ProjectAlreadyExists => CustomError {
+                        message: format!("project already exists"),
+                        hint: Some(format!("use a different name")),
+                    },
+                    // ProjectError::MissingPermission => CustomError {
+                    //     message: format!("missing permission"),
+                    //     hint: Some(format!("you do not have permission to perform this action")),
+                    // },
+                    ProjectError::MissingPermission => {
+                        let hint = if let Some(d) = api_error.details {
+                            let details =
+                                serde_json::from_value::<MissingPermissionErrorDetails>(d);
+
+                            match details {
+                                Ok(details) => {
+                                    if let Some(permissions) = details.required_permissions {
+                                        let msg = format!("required api key permissions to perform this action: {}", permissions.join(", "));
+                                        Some(msg)
+                                    } else if let Some(r) = details.user_workspace_role {
+                                        let msg = format!(
+                                            "allowed user workspace role to perform this action: {}, current role: {}",
+                                            r.allowed.join(", "), r.current
+                                        );
+                                        Some(msg)
+                                    } else if let Some(r) = details.user_project_role {
+                                        let msg = format!(
+                                            "allowed project role to perform this action: {}, current role: {}",
+                                            r.allowed.join(", "), r.current
+                                        );
+                                        Some(msg)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Err(e) => None,
+                            }
+                        } else {
+                            None
+                        };
+
+                        CustomError {
+                            message: format!("missing permission"),
+                            hint: match hint {
+                                Some(h) => Some(h),
+                                None => Some(format!(
+                                    "you do not have permission to perform this action"
+                                )),
+                            },
+                        }
+                    }
+                }
+            }
             ApiErrorEntity::Environment(e) => match e {
                 EnvironmentError::LimitReached => CustomError {
                     message: format!("environment limit reached"),
