@@ -69,8 +69,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 //
 
 pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
-    let base_path =
-        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000/v1/cli"));
+    let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
@@ -82,7 +81,8 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
         .await;
 
     if let Err(_) = &res {
-        bail!("Could not connect to API")
+        let err = CustomError::cannot_connect();
+        bail!(err)
     }
 
     let res = res.unwrap();
@@ -118,8 +118,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
 }
 
 pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse> {
-    let base_path =
-        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000/v1/cli"));
+    let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
@@ -131,7 +130,8 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
         .await;
 
     if let Err(_) = &res {
-        bail!("Could not connect to API")
+        let err = CustomError::cannot_connect();
+        bail!(err)
     }
 
     let res = res.unwrap();
@@ -213,8 +213,7 @@ async fn post_patch_put<T: serde::Serialize>(
     data: Option<T>,
     method: Method,
 ) -> Result<RequestApiOptionResponse> {
-    let base_path =
-        env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000/v1/cli"));
+    let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
@@ -246,7 +245,8 @@ async fn post_patch_put<T: serde::Serialize>(
     };
 
     if let Err(_) = &res {
-        bail!("Could not connect to API")
+        let err = CustomError::cannot_connect();
+        bail!(err)
     }
 
     let res = res.unwrap();
@@ -270,7 +270,6 @@ async fn post_patch_put<T: serde::Serialize>(
             }
         } else {
             let response = RequestApiOptionResponse::Ok(OptionResponseOk { status, text: None });
-                PostPatchRequestApiResponse::Ok(PostPatchApiResponseOk { status, text: None });
 
             Ok(response)
         }
