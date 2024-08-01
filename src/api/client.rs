@@ -163,9 +163,6 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
         if status == 401 {
             let error = CustomError::unauthorized();
             Ok(DeleteRequestApiResponse::Err(error))
-        } else if status == 404 {
-            let error = CustomError::unknown();
-            Ok(DeleteRequestApiResponse::Err(error))
         } else if status == 429 {
             let reset_header = res.headers().get("x-ratelimit-reset");
 
