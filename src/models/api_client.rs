@@ -324,6 +324,12 @@ impl CustomError {
             hint: Some("something went wrong, try again later".to_string()),
         }
     }
+    pub fn cannot_connect() -> CustomError {
+        Self {
+            message: "could not connect to the API".to_string(),
+            hint: Some("please try again later".to_string()),
+        }
+    }
 }
 
 impl From<ApiError> for CustomError {
