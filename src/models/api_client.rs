@@ -320,8 +320,8 @@ impl CustomError {
 
     pub fn unknown() -> CustomError {
         Self {
-            message: "unknown error".to_string(),
-            hint: Some("something went wrong, try again later".to_string()),
+            message: "something went wrong".to_string(),
+            hint: Some("plase try again later".to_string()),
         }
     }
     pub fn cannot_connect() -> CustomError {
