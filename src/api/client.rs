@@ -103,16 +103,16 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
             let error = CustomError::rate_limit_reached(reset_header);
             Ok(GetRequestApiResponse::Err(error))
         } else {
-            // TODO: return unknown error
-            // this is for debugging
-            let error_response: ApiErrorResponse = res
-                .json()
-                .await
-                .with_context(|| "Failed to deserialize API error response")?;
-
-            // Convert the API error into your custom error type
-            let custom_error: CustomError = error_response.error.into();
-            Ok(GetRequestApiResponse::Err(custom_error))
+            // let error_response: ApiErrorResponse = res
+            //     .json()
+            //     .await
+            //     .with_context(|| "Failed to deserialize API error response")?;
+            //
+            // // Convert the API error into your custom error type
+            // let custom_error: CustomError = error_response.error.into();
+            // Ok(GetRequestApiResponse::Err(custom_error))
+            let err = CustomError::unknown();
+            Ok(GetRequestApiResponse::Err(err))
         }
     }
 }
@@ -172,14 +172,8 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
             let error = CustomError::rate_limit_reached(reset_header);
             Ok(DeleteRequestApiResponse::Err(error))
         } else {
-            let error_response: ApiErrorResponse = res
-                .json()
-                .await
-                .with_context(|| "Failed to deserialize API error response")?;
-
-            // Convert the API error into your custom error type
-            let custom_error: CustomError = error_response.error.into();
-            Ok(DeleteRequestApiResponse::Err(custom_error))
+            let err = CustomError::unknown();
+            Ok(DeleteRequestApiResponse::Err(err))
         }
     }
 }
@@ -283,14 +277,8 @@ async fn post_patch_put<T: serde::Serialize>(
             let error = CustomError::rate_limit_reached(reset_header);
             Ok(RequestApiOptionResponse::Err(error))
         } else {
-            let error_response: ApiErrorResponse = res
-                .json()
-                .await
-                .with_context(|| "Failed to deserialize API error response")?;
-
-            // Convert the API error into your custom error type
-            let custom_error: CustomError = error_response.error.into();
-            Ok(RequestApiOptionResponse::Err(custom_error))
+            let err = CustomError::unknown();
+            Ok(RequestApiOptionResponse::Err(err))
         }
     }
 }
