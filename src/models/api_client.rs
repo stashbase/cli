@@ -263,7 +263,7 @@ pub enum ProjectError {
 pub enum SecretsError {
     SecretNotFound,
     DuplicateNewKeys,
-    ExistingDuplicates,
+    ExistingDuplicateSecrets,
     SelfReferencingSecrets,
 }
 
@@ -451,24 +451,24 @@ impl From<ApiError> for CustomError {
                     hint: Some(format!("cannot change multiple secrets to the same key")),
                 },
 
-                SecretsError::ExistingDuplicates => CustomError {
-                    message: format!("cannot renamed to already existing keys"),
-                    hint: Some(format!(
-                        "secrets already exists: {}",
-                        api_error.details.unwrap()
-                    )),
-                },
+                SecretsError::ExistingDuplicateSecrets => {
+                    let secrets = api_error.get_secrets_keys_details();
 
+                    let hint = match secrets {
+                        Some(s) => Some(s.join(",")),
+                        None => None,
+                    };
+
+                    CustomError {
+                        message: format!("cannot rename secrets to already existing secrets"),
+                        hint,
+                    }
+                }
                 SecretsError::SelfReferencingSecrets => {
                     let secrets = api_error.get_secrets_keys_details();
 
                     let hint = match secrets {
                         Some(s) => Some(s.join(",")),
-                            match details {
-                                Ok(details) => Some(details.secret_keys.join(", ")),
-                                Err(_) => None,
-                            }
-                        }
                         None => None,
                     };
 
