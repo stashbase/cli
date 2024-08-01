@@ -171,6 +171,22 @@ pub struct ApiError {
     pub details: Option<serde_json::Value>,
 }
 
+impl ApiError {
+    fn get_secrets_keys_details(self) -> Option<Vec<String>> {
+        match self.details {
+            Some(d) => {
+                let details = serde_json::from_value::<SecretApiErrorDetails>(d);
+
+                match details {
+                    Ok(details) => Some(details.secret_keys),
+                    Err(_) => None,
+                }
+            }
+            None => None,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretApiErrorDetails {
@@ -312,7 +328,7 @@ impl CustomError {
 
 impl From<ApiError> for CustomError {
     fn from(api_error: ApiError) -> Self {
-        match api_error.code {
+        match &api_error.code {
             ApiErrorEntity::Project(e) => {
                 match e {
                     ProjectError::InvalidName => CustomError {
@@ -444,10 +460,10 @@ impl From<ApiError> for CustomError {
                 },
 
                 SecretsError::SelfReferencingSecrets => {
-                    let secrets = match api_error.details {
-                        Some(d) => {
-                            let details = serde_json::from_value::<SecretApiErrorDetails>(d);
+                    let secrets = api_error.get_secrets_keys_details();
 
+                    let hint = match secrets {
+                        Some(s) => Some(s.join(",")),
                             match details {
                                 Ok(details) => Some(details.secret_keys.join(", ")),
                                 Err(_) => None,
@@ -458,7 +474,7 @@ impl From<ApiError> for CustomError {
 
                     return CustomError {
                         message: format!("found self-referencing secrets"),
-                        hint: secrets,
+                        hint,
                     };
                 }
             },
