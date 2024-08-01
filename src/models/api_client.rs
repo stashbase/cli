@@ -297,7 +297,7 @@ impl CustomError {
                 let minutes = (seconds as f64 / 60.0).ceil() as u32;
 
                 Self {
-                    message: "Too many requests".to_string(),
+                    message: "too many requests".to_string(),
                     hint: match minutes == 1 {
                         false => Some(format!("Try again in {} minutes", minutes)),
                         true => Some(format!("Try again in {} minute", minutes)),
@@ -305,23 +305,23 @@ impl CustomError {
                 }
             }
             None => Self {
-                message: "Too many requests".to_string(),
-                hint: Some("Try again later".to_string()),
+                message: "too many requests".to_string(),
+                hint: Some("try again later".to_string()),
             },
         }
     }
 
     pub fn unauthorized() -> CustomError {
         Self {
-            message: "User unauthorized".to_string(),
-            hint: Some("Check your API key".to_string()),
+            message: "not authorized".to_string(),
+            hint: Some("check your api key".to_string()),
         }
     }
 
     pub fn unknown() -> CustomError {
         Self {
-            message: "Unknown error".to_string(),
-            hint: Some("Try again later".to_string()),
+            message: "unknown error".to_string(),
+            hint: Some("something went wrong, try again later".to_string()),
         }
     }
 }
