@@ -222,13 +222,54 @@ pub struct PermissionErrorDetails {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExpiredApiKeyErrorDetails {
+    pub expired_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsupportedApiKeyErrorDetails {
+    pub supported_api_key_types: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TooManyRequestsErrorDetails {
+    retry_after: RetryAfterDetails,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RetryAfterDetails {
+    seconds: usize,
+
+    #[serde(skip)]
+    #[allow(dead_code)]
+    unix_timestamp: usize,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum ApiErrorEntity {
+    Generic(GenericError),
     Project(ProjectError),
     Environment(EnvironmentError),
     Secret(SecretsError),
     EnvChangelog(EnvChangelogError),
     Webhook(WebhookError),
+}
+
+// TODO: env errors
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenericError {
+    InternalServerError,
+    TooManyRequests,
+    Unauthorized,
+    ExpiredApiKey,
+    UnsupportedApiKey,
+    MissingPermission,
 }
 
 // TODO: env errors
@@ -335,6 +376,126 @@ impl CustomError {
 impl From<ApiError> for CustomError {
     fn from(api_error: ApiError) -> Self {
         match &api_error.code {
+            ApiErrorEntity::Generic(e) => match e {
+                GenericError::InternalServerError => CustomError {
+                    message: format!("internal server error"),
+                    hint: Some(format!("please try again later")),
+                },
+                GenericError::Unauthorized => CustomError {
+                    message: format!("you are not authorized"),
+                    hint: Some(format!("provide a valid api key")),
+                },
+                GenericError::ExpiredApiKey => {
+                    let expired_at = if let Some(d) = api_error.details {
+                        let details = serde_json::from_value::<ExpiredApiKeyErrorDetails>(d);
+
+                        match details {
+                            Ok(details) => Some(details.expired_at),
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    let message = match expired_at {
+                        Some(e) => format!("current api key expired at {}", e),
+                        None => format!("current api key is expired"),
+                    };
+
+                    CustomError {
+                        message,
+                        hint: Some(format!("provide new api key and try again")),
+                    }
+                }
+                GenericError::UnsupportedApiKey => {
+                    let hint = if let Some(d) = api_error.details {
+                        let details = serde_json::from_value::<UnsupportedApiKeyErrorDetails>(d);
+
+                        match details {
+                            Ok(details) => Some(format!(
+                                "supported api key types for this action: {}",
+                                details.supported_api_key_types.join(", ")
+                            )),
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    CustomError {
+                        message: format!("current api key is not supported"),
+                        hint,
+                    }
+                }
+                GenericError::MissingPermission => {
+                    let hint = if let Some(d) = api_error.details {
+                        let details = serde_json::from_value::<MissingPermissionErrorDetails>(d);
+
+                        match details {
+                            Ok(details) => {
+                                if let Some(permissions) = details.required_permissions {
+                                    let msg = format!(
+                                        "required api key permissions to perform this action: {}",
+                                        permissions.join(", ")
+                                    );
+                                    Some(msg)
+                                } else if let Some(r) = details.user_workspace_role {
+                                    let msg = format!(
+                                            "allowed user workspace role to perform this action: {}, current role: {}",
+                                            r.allowed.join(", "), r.current
+                                        );
+                                    Some(msg)
+                                } else if let Some(r) = details.user_project_role {
+                                    let msg = format!(
+                                            "allowed project role to perform this action: {}, current role: {}",
+                                            r.allowed.join(", "), r.current
+                                        );
+                                    Some(msg)
+                                } else {
+                                    None
+                                }
+                            }
+                            Err(e) => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    CustomError {
+                        message: format!("missing permission"),
+                        hint: match hint {
+                            Some(h) => Some(h),
+                            None => Some(format!(
+                                "current api key does not have permission to perform this action"
+                            )),
+                        },
+                    }
+                }
+                GenericError::TooManyRequests => {
+                    let hint = if let Some(d) = api_error.details {
+                        let details = serde_json::from_value::<TooManyRequestsErrorDetails>(d);
+
+                        match details {
+                            Ok(d) => {
+                                let minutes = (d.retry_after.seconds as f64 / 60.0).ceil() as u32;
+
+                                match minutes == 1 {
+                                    true => Some(format!("try again in {} minute", minutes)),
+                                    false => Some(format!("try again in {} minutes", minutes)),
+                                }
+                            }
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    CustomError {
+                        message: format!("too many requests"),
+                        hint,
+                    }
+                }
+            },
             ApiErrorEntity::Project(e) => {
                 match e {
                     ProjectError::InvalidName => CustomError {
