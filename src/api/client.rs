@@ -94,26 +94,14 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
 
         Ok(response)
     } else {
-        if status == 401 {
-            let error = CustomError::unauthorized();
-            Ok(GetRequestApiResponse::Err(error))
-        } else if status == 429 {
-            let reset_header = res.headers().get("x-ratelimit-reset");
+        let error_response: ApiErrorResponse = res
+            .json()
+            .await
+            .context("Failed to deserialize API error response")?;
 
-            let error = CustomError::rate_limit_reached(reset_header);
-            Ok(GetRequestApiResponse::Err(error))
-        } else {
-            // let error_response: ApiErrorResponse = res
-            //     .json()
-            //     .await
-            //     .with_context(|| "Failed to deserialize API error response")?;
-            //
-            // // Convert the API error into your custom error type
-            // let custom_error: CustomError = error_response.error.into();
-            // Ok(GetRequestApiResponse::Err(custom_error))
-            let err = CustomError::unknown();
-            Ok(GetRequestApiResponse::Err(err))
-        }
+        // Convert the API error into your custom error type
+        let custom_error: CustomError = error_response.error.into();
+        Ok(GetRequestApiResponse::Err(custom_error))
     }
 }
 
@@ -160,18 +148,14 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
             }))
         }
     } else {
-        if status == 401 {
-            let error = CustomError::unauthorized();
-            Ok(DeleteRequestApiResponse::Err(error))
-        } else if status == 429 {
-            let reset_header = res.headers().get("x-ratelimit-reset");
+        let error_response: ApiErrorResponse = res
+            .json()
+            .await
+            .context("Failed to deserialize API error response")?;
 
-            let error = CustomError::rate_limit_reached(reset_header);
-            Ok(DeleteRequestApiResponse::Err(error))
-        } else {
-            let err = CustomError::unknown();
-            Ok(DeleteRequestApiResponse::Err(err))
-        }
+        // Convert the API error into your custom error type
+        let custom_error: CustomError = error_response.error.into();
+        Ok(DeleteRequestApiResponse::Err(custom_error))
     }
 }
 
@@ -265,18 +249,14 @@ async fn post_patch_put<T: serde::Serialize>(
             Ok(response)
         }
     } else {
-        if status == 401 {
-            let error = CustomError::unauthorized();
-            Ok(RequestApiOptionResponse::Err(error))
-        } else if status == 429 {
-            let reset_header = res.headers().get("x-ratelimit-reset");
+        let error_response: ApiErrorResponse = res
+            .json()
+            .await
+            .context("Failed to deserialize API error response")?;
 
-            let error = CustomError::rate_limit_reached(reset_header);
-            Ok(RequestApiOptionResponse::Err(error))
-        } else {
-            let err = CustomError::unknown();
-            Ok(RequestApiOptionResponse::Err(err))
-        }
+        // Convert the API error into your custom error type
+        let custom_error: CustomError = error_response.error.into();
+        Ok(RequestApiOptionResponse::Err(custom_error))
     }
 }
 
