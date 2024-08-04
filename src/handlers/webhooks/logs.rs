@@ -76,31 +76,45 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
             let data = serde_json::from_str::<WebhookLogList>(&data.text);
 
             match data {
-                Ok(webhook_logs) => match format {
-                    OutputFormat::List => {
-                        print!("{}", webhook_logs);
-                    }
-                    OutputFormat::Json => {
-                        let value = serde_json::to_value(&webhook_logs).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-                        println!("{}", pretty);
-                    }
-                    OutputFormat::Table => {
-                        let table_logs = webhook_logs
-                            .data
-                            .into_iter()
-                            .map(|item| {
-                                let table_item: TableWebhookLog = item.into();
-                                table_item
-                            })
-                            .collect();
+                Ok(webhook_logs) => {
+                    //
 
-                        let table = tables::build::build_table(&table_logs);
-                        println!("{}", table);
+                    match format {
+                        OutputFormat::List => {
+                            if webhook_logs.pages == 0 {
+                                eprintln!("No logs");
+                                return Ok(());
+                            }
 
-                        println!("{} {}/{}", "Pages:", page.unwrap_or(1), webhook_logs.pages);
+                            print!("{}", webhook_logs);
+                        }
+                        OutputFormat::Json => {
+                            let value = serde_json::to_value(&webhook_logs).unwrap();
+                            let pretty = to_colored_json_auto(&value).unwrap();
+                            println!("{}", pretty);
+                        }
+                        OutputFormat::Table => {
+                            if webhook_logs.pages == 0 {
+                                eprintln!("No logs");
+                                return Ok(());
+                            }
+
+                            let table_logs = webhook_logs
+                                .data
+                                .into_iter()
+                                .map(|item| {
+                                    let table_item: TableWebhookLog = item.into();
+                                    table_item
+                                })
+                                .collect();
+
+                            let table = tables::build::build_table(&table_logs);
+                            println!("{}", table);
+
+                            println!("{} {}/{}", "Pages:", page.unwrap_or(1), webhook_logs.pages);
+                        }
                     }
-                },
+                }
                 Err(e) => {
                     debug!("Error: {:#?}", &e);
                 }
