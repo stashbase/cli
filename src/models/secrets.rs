@@ -93,11 +93,6 @@ impl Display for Secret {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DeleteSecretsPayload {
-    pub keys: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct UpdateSecretDescriptionPayload {
     pub description: String,
 }
@@ -122,7 +117,7 @@ pub type RenameSecretsPayload = Vec<RenamedSecret>;
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSecretsResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub not_found: Vec<String>,
+    pub not_found_secrets: Vec<String>,
 }
 
 pub type RenameSecretsResponse = DeleteSecretsResponse;
