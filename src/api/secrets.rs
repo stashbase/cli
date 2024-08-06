@@ -133,18 +133,18 @@ pub async fn delete_all(
     api_key: String,
     project: String,
     environment: String,
-) -> Result<DeleteRequestApiResponse> {
+) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
             environment,
-            path: Some(String::from("all")),
+            path: Some(String::from("delete/all")),
         },
         query: None,
         api_key,
     };
 
-    client::delete_request(args).await
+    client::post_request::<()>(args, None).await
 }
 
 pub async fn set_sercrets(
