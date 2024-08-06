@@ -125,6 +125,5 @@ pub type RenameSecretsResponse = DeleteSecretsResponse;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteAllSecretsResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_empty: Option<bool>,
+    pub deleted_count: usize,
 }
