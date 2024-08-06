@@ -116,8 +116,8 @@ pub type RenameSecretsPayload = Vec<RenamedSecret>;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSecretsResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub not_found_secrets: Vec<String>,
+    pub deleted_count: usize,
 }
 
 pub type RenameSecretsResponse = DeleteSecretsResponse;
