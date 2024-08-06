@@ -6,7 +6,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
         RequestArgs,
     },
-    secrets::{DeleteSecretsPayload, RenameSecretsPayload, Secret, UpdateSecretDescriptionPayload},
+    secrets::{RenameSecretsPayload, Secret, UpdateSecretDescriptionPayload},
 };
 
 pub async fn list(
@@ -114,7 +114,7 @@ pub async fn delete(
     api_key: String,
     project: String,
     environment: String,
-    data: &DeleteSecretsPayload,
+    secrets_to_delete: &Vec<String>,
 ) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
@@ -126,7 +126,7 @@ pub async fn delete(
         api_key,
     };
 
-    client::post_request(args, Some(data)).await
+    client::post_request(args, Some(secrets_to_delete)).await
 }
 
 pub async fn delete_all(

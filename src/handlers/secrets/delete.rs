@@ -6,7 +6,7 @@ use crate::{
     api::secrets,
     models::{
         api_client::{DeleteRequestApiResponse, RequestApiOptionResponse},
-        secrets::{DeleteAllSecretsResponse, DeleteSecretsPayload, DeleteSecretsResponse},
+        secrets::{DeleteAllSecretsResponse, DeleteSecretsResponse},
     },
     utils::{
         interaction,
@@ -107,9 +107,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
             }
         }
         false => {
-            let payload = DeleteSecretsPayload { keys: keys.clone() };
-
-            let res = secrets::delete(api_key, project, environment, &payload).await;
+            let res = secrets::delete(api_key, project, environment, &keys).await;
 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");
@@ -124,56 +122,68 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                     // all deleted
                     match res.text {
                         Some(text) => {
-                            spinner.stop_and_persist("", "");
-
                             let json_data = serde_json::from_str::<DeleteSecretsResponse>(&text);
                             debug!("{:#?}", json_data);
 
                             match json_data {
                                 Ok(data) => {
-                                    let secrets_not_found = data.not_found;
-                                    let not_found_len = secrets_not_found.len();
+                                    let not_found_secrets = data.not_found_secrets;
+                                    let not_found_len = not_found_secrets.len();
 
-                                    debug!("{:#?}", secrets_not_found);
+                                    debug!("{:#?}", not_found_secrets);
 
-                                    let info_msg = format!(
-                                        "{} {}",
-                                        format!(
-                                            "{} {} {}",
-                                            "Secrets".red(),
-                                            format!("({})", not_found_len).red(),
-                                            "not found:".red()
-                                        ),
-                                        secrets_not_found.join(", ")
-                                    );
+                                    if not_found_len > 0 {
+                                        spinner.stop_and_persist("", "");
 
-                                    //
-                                    eprintln!("{}", info_msg);
-
-                                    let keys_len = keys.len();
-
-                                    if not_found_len < keys_len {
-                                        let deleted_len = keys_len - not_found_len;
-
-                                        let secrets_deleted: Vec<_> = keys
-                                            .into_iter()
-                                            .filter(|k| {
-                                                secrets_not_found.iter().find(|s| *s == k).is_none()
-                                            })
-                                            .collect();
-
-                                        let msg = format!(
+                                        let info_msg = format!(
                                             "{} {}",
                                             format!(
                                                 "{} {} {}",
-                                                "Secrets".green(),
-                                                format!("({})", deleted_len).green(),
-                                                "deleted:".green()
+                                                "Secrets".red(),
+                                                format!("({})", not_found_len).red(),
+                                                "not found:".red()
                                             ),
-                                            secrets_deleted.join(", ")
+                                            not_found_secrets.join(", ")
                                         );
 
-                                        println!("{}", msg);
+                                        //
+                                        eprintln!("{}", info_msg);
+
+                                        let keys_len = keys.len();
+
+                                        if not_found_len < keys_len {
+                                            let deleted_len = keys_len - not_found_len;
+
+                                            let secrets_deleted: Vec<_> = keys
+                                                .into_iter()
+                                                .filter(|k| {
+                                                    not_found_secrets
+                                                        .iter()
+                                                        .find(|s| *s == k)
+                                                        .is_none()
+                                                })
+                                                .collect();
+
+                                            let msg = format!(
+                                                "{} {}",
+                                                format!(
+                                                    "{} {} {}",
+                                                    "Secrets".green(),
+                                                    format!("({})", deleted_len).green(),
+                                                    "deleted:".green()
+                                                ),
+                                                secrets_deleted.join(", ")
+                                            );
+
+                                            println!("{}", msg);
+                                        }
+                                    } else {
+                                        // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
+                                        spinner.stop_with_message(&format!(
+                                            "{} {}",
+                                            "✓".green(),
+                                            "Selected secrets have been deleted!"
+                                        ));
                                     }
                                 }
                                 Err(e) => {
@@ -182,12 +192,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             }
                         }
                         None => {
-                            // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
-                            spinner.stop_with_message(&format!(
-                                "{} {}",
-                                "✓".green(),
-                                "Selected secrets have been deleted!"
-                            ));
+                            bail!("Something went wrong");
                         }
                     }
                 }
