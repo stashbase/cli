@@ -161,11 +161,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                         //
                                         eprintln!("{}", info_msg);
 
-                                        let keys_len = keys.len();
+                                        let deleted_count = data.deleted_count;
 
-                                        if not_found_len < keys_len {
-                                            let deleted_len = keys_len - not_found_len;
-
+                                        if deleted_count > 0 {
                                             let secrets_deleted: Vec<_> = keys
                                                 .into_iter()
                                                 .filter(|k| {
@@ -181,7 +179,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                                 format!(
                                                     "{} {} {}",
                                                     "Secrets".green(),
-                                                    format!("({})", deleted_len).green(),
+                                                    format!("({})", deleted_count).green(),
                                                     "deleted:".green()
                                                 ),
                                                 secrets_deleted.join(", ")
