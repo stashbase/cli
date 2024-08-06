@@ -85,20 +85,32 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             let json_data = serde_json::from_str::<DeleteAllSecretsResponse>(&text);
 
                             match json_data {
-                                Ok(j) => {
-                                    spinner.stop_with_message("No secrets to delete");
-                                }
+                                Ok(d) => match d.deleted_count {
+                                    0 => {
+                                        spinner.stop_with_message("No secrets to delete");
+                                    }
+                                    _ => {
+                                        let msg = format!(
+                                            "All secrets ({}) have been deleted!",
+                                            d.deleted_count
+                                        );
+
+                                        spinner.stop_with_message(&format!(
+                                            "{} {}",
+                                            "✓".green(),
+                                            msg
+                                        ));
+                                    }
+                                },
                                 Err(e) => {
                                     error!("{}", e);
                                     bail!("Something went wrong");
                                 }
                             }
                         }
-                        None => spinner.stop_with_message(&format!(
-                            "{} {}",
-                            "✓".green(),
-                            "All secrets have been deleted"
-                        )),
+                        None => {
+                            bail!("Something went wrong");
+                        }
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
