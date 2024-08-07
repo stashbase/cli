@@ -107,64 +107,70 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     match res {
         RequestApiOptionResponse::Ok(res) => match res.text {
             Some(text) => {
-                spinner.stop_and_persist("", "");
-
                 let json_data = serde_json::from_str::<RenameSecretsResponse>(&text);
                 debug!("{:#?}", json_data);
 
                 match json_data {
                     Ok(data) => {
-                        let secrets_not_found = data.not_found;
-                        let not_found_len = secrets_not_found.len();
+                        let not_found_secrets = data.not_found_secrets;
+                        let not_found_len = not_found_secrets.len();
 
-                        debug!("{:#?}", secrets_not_found);
+                        if not_found_len > 0 {
+                            spinner.stop_and_persist("", "");
 
-                        let info_msg = format!(
-                            "{} {}",
-                            format!(
-                                "{} {} {}",
-                                "Secrets".red(),
-                                format!("({})", not_found_len).red(),
-                                "not found:".red()
-                            ),
-                            secrets_not_found.join(", ")
-                        );
-
-                        //
-                        eprintln!("{}", info_msg);
-
-                        let keys_len = payload.len();
-
-                        if not_found_len < keys_len {
-                            let renamed_len = keys_len - not_found_len;
-
-                            let secrets_deleted: Vec<_> = payload
-                                .into_iter()
-                                .filter_map(|k| {
-                                    if secrets_not_found
-                                        .iter()
-                                        .find(|s| **s == k.get_key())
-                                        .is_some()
-                                    {
-                                        None
-                                    } else {
-                                        Some(k.key)
-                                    }
-                                })
-                                .collect();
-
-                            let msg = format!(
+                            let info_msg = format!(
                                 "{} {}",
                                 format!(
                                     "{} {} {}",
-                                    "Secrets".green(),
-                                    format!("({})", renamed_len).green(),
-                                    "renamed:".green()
+                                    "Secrets".red(),
+                                    format!("({})", not_found_len).red(),
+                                    "not found:".red()
                                 ),
-                                secrets_deleted.join(", ")
+                                not_found_secrets.join(", ")
                             );
 
-                            println!("{}", msg);
+                            //
+                            eprintln!("{}", info_msg);
+
+                            let keys_len = payload.len();
+
+                            if not_found_len < keys_len {
+                                let renamed_len = keys_len - not_found_len;
+
+                                let secrets_renamed: Vec<_> = payload
+                                    .into_iter()
+                                    .filter_map(|k| {
+                                        if not_found_secrets
+                                            .iter()
+                                            .find(|s| **s == k.get_key())
+                                            .is_some()
+                                        {
+                                            None
+                                        } else {
+                                            Some(k.key)
+                                        }
+                                    })
+                                    .collect();
+
+                                let msg = format!(
+                                    "{} {}",
+                                    format!(
+                                        "{} {} {}",
+                                        "Secrets".green(),
+                                        format!("({})", renamed_len).green(),
+                                        "renamed:".green()
+                                    ),
+                                    secrets_renamed.join(", ")
+                                );
+
+                                println!("{}", msg);
+                            }
+                        } else {
+                            spinner.stop_with_message(&format!(
+                                "{} {}",
+                                "✓".green(),
+                                "Selected secrets have been renamed!"
+                            ));
                         }
                     }
                     Err(e) => {
@@ -174,11 +180,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
                 }
             }
             None => {
-                spinner.stop_with_message(&format!(
-                    "{} {}",
-                    "✓".green(),
-                    "Selected secrets have been renamed!"
-                ));
+                bail!("Something went wrong");
             }
         },
         RequestApiOptionResponse::Err(e) => {
