@@ -304,7 +304,7 @@ pub enum ProjectError {
 pub enum SecretsError {
     SecretNotFound,
     DuplicateNewKeys,
-    ExistingDuplicateSecrets,
+    SecretsAlreadyExist,
     SelfReferencingSecrets,
 }
 
@@ -618,7 +618,7 @@ impl From<ApiError> for CustomError {
                     hint: Some(format!("cannot change multiple secrets to the same key")),
                 },
 
-                SecretsError::ExistingDuplicateSecrets => {
+                SecretsError::SecretsAlreadyExist => {
                     let secrets = api_error.get_secrets_keys_details();
 
                     let hint = match secrets {
