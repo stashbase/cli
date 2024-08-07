@@ -120,7 +120,13 @@ pub struct DeleteSecretsResponse {
     pub deleted_count: usize,
 }
 
-pub type RenameSecretsResponse = DeleteSecretsResponse;
+// response
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameSecretsResponse {
+    pub not_found_secrets: Vec<String>,
+    pub updated_count: usize,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
