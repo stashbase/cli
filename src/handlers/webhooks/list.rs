@@ -79,8 +79,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                                 println!("{}", pretty);
                             }
                             OutputFormat::Table => {
-                                let reversed = webhooks.into_iter().rev().collect();
-                                let table = tables::build::build_table(&reversed);
+                                let table = tables::build::build_table(&webhooks);
                                 println!("{}", table);
                             }
                         }
