@@ -35,7 +35,7 @@ pub enum ProjectInputValidationError {
     NoUpdateFlags,
     NewNameFormat,
     NewNameTooShort,
-    SameNewName,
+    NewNameEqualsOriginal,
 }
 
 #[derive(Debug)]
@@ -186,9 +186,9 @@ impl fmt::Display for ProjectInputValidationError {
                 msg = "name option value is too short";
                 hint = Some("minimum is 2 characters");
             }
-            ProjectInputValidationError::SameNewName => {
-                msg = "name option value is equals to name";
-                hint = Some("use different name option value");
+            ProjectInputValidationError::NewNameEqualsOriginal => {
+                msg = "new name equals to original name";
+                hint = Some("use different new name");
             }
             ProjectInputValidationError::SearchTooShort => {
                 msg = "argument search is too short";
