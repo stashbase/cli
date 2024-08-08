@@ -80,7 +80,8 @@ pub fn validate_input(
 
     if let Some(new_name) = &new_name {
         if *new_name == name {
-            let err = InputValidationError::Projects(ProjectInputValidationError::SameNewName);
+            let err =
+                InputValidationError::Projects(ProjectInputValidationError::NewNameEqualsOriginal);
             bail!(err)
         }
 
