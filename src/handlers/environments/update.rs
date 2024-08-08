@@ -92,8 +92,9 @@ pub fn validate_input(
 
     if let Some(new_name) = &new_env_name {
         if *new_name == environment {
-            let err =
-                InputValidationError::Environments(EnvironmentsInputValidationError::SameNewName);
+            let err = InputValidationError::Environments(
+                EnvironmentsInputValidationError::NewNameTooShort,
+            );
             bail!(err)
         }
 
