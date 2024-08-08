@@ -76,7 +76,7 @@ pub enum EnvironmentsInputValidationError {
     SearchFormat,
 
     // update
-    SameNewName,
+    NewNameEqualsOriginal,
     NoUpdateFlags,
     NewNameFormat,
     NewNameTooShort,
@@ -334,9 +334,9 @@ impl fmt::Display for EnvironmentsInputValidationError {
                     hint = Some("environment name can contain only alphanumeric characters, underscores or hyphen separator");
                 }
             }
-            EnvironmentsInputValidationError::SameNewName => {
-                msg = "new name option value is equals to name";
-                hint = Some("use different name option value");
+            EnvironmentsInputValidationError::NewNameEqualsOriginal => {
+                msg = "provided new name equals to original name";
+                hint = Some("use different new name");
             }
             EnvironmentsInputValidationError::NoUpdateFlags => {
                 msg = "no update flag specified";
