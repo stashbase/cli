@@ -262,65 +262,111 @@ pub enum ApiErrorEntity {
 
 // TODO: env errors
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum GenericError {
+    #[serde(rename = "unexpected.internal_server_error")]
     InternalServerError,
+
+    #[serde(rename = "rate_limit.too_many_requests")]
     TooManyRequests,
+
+    #[serde(rename = "auth.unauthorized")]
     Unauthorized,
+
+    #[serde(rename = "auth.expired_api_key")]
     ExpiredApiKey,
+
+    #[serde(rename = "access.unsupported_api_key")]
     UnsupportedApiKey,
+
+    #[serde(rename = "access.missing_permission")]
     MissingPermission,
 }
 
 // TODO: env errors
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum EnvironmentError {
+    #[serde(rename = "resource.project_not_found")]
     ProjectNotFound,
+
+    #[serde(rename = "resource.environment_not_found")]
     EnvironmentNotFound,
+
+    #[serde(rename = "resource.compare_to_environment_not_found")]
     CompareToEnvironmentNotFound,
+
+    #[serde(rename = "conflict.environment_not_found")]
     EnvironmentAlreadyExists,
-    EnvironmentAlreadyLocked,
+
+    #[serde(rename = "conflict.environment_already_unlocked")]
     EnvironmentAlreadyUnlocked,
+
+    #[serde(rename = "conflict.environment_already_locked")]
+    EnvironmentAlreadyLocked,
+
+    #[serde(rename = "conflict.current_environment_type")]
     CurrentEnvironmentType,
+
+    #[serde(rename = "resource.environment_locked")]
     EnvironmentLocked,
-    #[serde(rename = "environment_limit_reached")]
-    LimitReached,
+
+    #[serde(rename = "quota.environment_limit_reached")]
+    EnvironmentLimitReached,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum ProjectError {
+    #[serde(rename = "validation.invalid_project_name")]
     InvalidName,
+
+    #[serde(rename = "conflict.project_already_exists")]
     ProjectAlreadyExists,
+
+    #[serde(rename = "resource.project_not_found")]
     ProjectNotFound,
+
+    #[serde(rename = "access.missing_permission")]
     MissingPermission,
-    #[serde(rename = "project_limit_reached")]
-    LimitReached,
+
+    #[serde(rename = "quota.project_limit_reached")]
+    ProjectLimitReached,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum SecretsError {
+    #[serde(rename = "resource.secret_not_found")]
     SecretNotFound,
+
+    #[serde(rename = "validation.duplicate_new_keys")]
     DuplicateNewKeys,
+
+    #[serde(rename = "conflict.secrets_already_exist")]
     SecretsAlreadyExist,
+
+    #[serde(rename = "validation.self_referencing_secrets")]
     SelfReferencingSecrets,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum EnvChangelogError {
+    #[serde(rename = "resource.page_not_found")]
     PageNotFound,
+
+    #[serde(rename = "resource.change_not_found")]
     ChangeNotFound,
+
+    #[serde(rename = "resource.environment_already_exists")]
     RenameEnvironmentAlreadyExists,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum WebhookError {
+    #[serde(rename = "resource.webhook_not_found")]
     WebhookNotFound,
+
+    #[serde(rename = "conflict.webhook_already_enabled")]
     WebhookAlreadyEnabled,
+
+    #[serde(rename = "conflict.webhook_already_disabled")]
     WebhookAlreadyDisabled,
 }
 
@@ -567,7 +613,7 @@ impl From<ApiError> for CustomError {
                 }
             }
             ApiErrorEntity::Environment(e) => match e {
-                EnvironmentError::LimitReached => CustomError {
+                EnvironmentError::EnvironmentLimitReached => CustomError {
                     message: format!("environment limit reached"),
                     hint: Some(format!(
                         "project reached the maximum number of environments allowed"
