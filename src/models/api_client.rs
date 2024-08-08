@@ -377,40 +377,6 @@ pub struct CustomError {
 }
 
 impl CustomError {
-    pub fn rate_limit_reached(reset_header: Option<&HeaderValue>) -> CustomError {
-        match reset_header {
-            Some(header) => {
-                let seconds = header.to_str().unwrap_or("0").parse::<u64>().unwrap_or(0);
-                let minutes = (seconds as f64 / 60.0).ceil() as u32;
-
-                Self {
-                    message: "too many requests".to_string(),
-                    hint: match minutes == 1 {
-                        false => Some(format!("Try again in {} minutes", minutes)),
-                        true => Some(format!("Try again in {} minute", minutes)),
-                    },
-                }
-            }
-            None => Self {
-                message: "too many requests".to_string(),
-                hint: Some("try again later".to_string()),
-            },
-        }
-    }
-
-    pub fn unauthorized() -> CustomError {
-        Self {
-            message: "not authorized".to_string(),
-            hint: Some("check your api key".to_string()),
-        }
-    }
-
-    pub fn unknown() -> CustomError {
-        Self {
-            message: "something went wrong".to_string(),
-            hint: Some("plase try again later".to_string()),
-        }
-    }
     pub fn cannot_connect() -> CustomError {
         Self {
             message: "could not connect to the API".to_string(),
