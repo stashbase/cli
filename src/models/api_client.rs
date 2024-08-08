@@ -344,6 +344,9 @@ pub enum SecretsError {
 
     #[serde(rename = "validation.self_referencing_secrets")]
     SelfReferencingSecrets,
+
+    #[serde(rename = "conflict.self_referencing_secrets")]
+    SelfReferencingSecretsConflict,
 }
 
 #[derive(Debug, Deserialize)]
@@ -655,6 +658,35 @@ impl From<ApiError> for CustomError {
                         message: format!("found self-referencing secrets"),
                         hint,
                     };
+                }
+
+                SecretsError::SelfReferencingSecretsConflict => {
+                    let secrets = api_error.get_secrets_keys_details();
+
+                    let error = match secrets {
+                        Some(s) => match s.len() == 1 {
+                            true => {
+                                 CustomError{
+                                        message:format!("updating this secret would result in self-reference, which is not allowed"),
+                                        hint: None
+                                    }
+                            }
+                            false => {
+                                 CustomError{
+                                        message:format!("updating one or more secrets would result in self-reference, which is not allowed"),
+                                        hint: Some(s.join(","))
+                                    }
+                            }
+                        },
+                        None => {
+                             CustomError{
+                                        message:format!("updating this secret would result in self-reference, which is not allowed"),
+                                        hint: None
+                                    }
+                        }
+                    };
+
+                    return error;
                 }
             },
             ApiErrorEntity::EnvChangelog(e) => match e {
