@@ -554,7 +554,7 @@ impl From<ApiError> for CustomError {
                         hint: None,
                     },
 
-                    ProjectError::LimitReached => CustomError {
+                    ProjectError::ProjectLimitReached => CustomError {
                         message: format!("project limit reached"),
                         hint: Some(format!(
                             "workspace reached the maximum number of projects allowed"
