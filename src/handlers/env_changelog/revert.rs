@@ -71,20 +71,7 @@ pub async fn handle_revert_changelog_change(args: HandleRevertEnvChangelogChange
     match res {
         RequestApiOptionResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-
-            // nothning to revert
-            if data.status == 200 {
-                spinner.stop_with_message(&format!(
-                    "{}",
-                    "Nothing to revert\n- details: this is current state"
-                ))
-            } else {
-                spinner.stop_with_message(&format!(
-                    "{} {}",
-                    "✓".green(),
-                    "Change has been reverted"
-                ));
-            }
+            spinner.stop_with_message(&format!("{} {}", "✓".green(), "Change has been reverted"));
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {:#?}", e);
