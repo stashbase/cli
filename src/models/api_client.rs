@@ -357,9 +357,6 @@ pub enum EnvChangelogError {
     #[serde(rename = "resource.change_not_found")]
     ChangeNotFound,
 
-    #[serde(rename = "resource.environment_already_exists")]
-    RenameEnvironmentAlreadyExists,
-
     #[serde(rename = "conflict.is_current_state")]
     RevertIsCurrentState,
 }
@@ -733,11 +730,6 @@ impl From<ApiError> for CustomError {
                 EnvChangelogError::RevertIsCurrentState => CustomError {
                     message: format!("nothing to revert, this is current state of of the secrets"),
                     hint: None,
-                },
-
-                EnvChangelogError::RenameEnvironmentAlreadyExists => CustomError {
-                    message: format!("cannot revert environment rename"),
-                    hint: Some(format!("environment with the name already exists")),
                 },
             },
             ApiErrorEntity::Webhook(e) => match e {
