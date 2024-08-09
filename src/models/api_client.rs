@@ -359,6 +359,9 @@ pub enum EnvChangelogError {
 
     #[serde(rename = "resource.environment_already_exists")]
     RenameEnvironmentAlreadyExists,
+
+    #[serde(rename = "conflict.is_current_state")]
+    RevertIsCurrentState,
 }
 
 #[derive(Debug, Deserialize)]
@@ -725,6 +728,11 @@ impl From<ApiError> for CustomError {
                 EnvChangelogError::ChangeNotFound => CustomError {
                     message: format!("change record not found"),
                     hint: Some(format!("make sure that the id is correct")),
+                },
+
+                EnvChangelogError::RevertIsCurrentState => CustomError {
+                    message: format!("nothing to revert, this is current state of of the secrets"),
+                    hint: None,
                 },
 
                 EnvChangelogError::RenameEnvironmentAlreadyExists => CustomError {
