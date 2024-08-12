@@ -11,7 +11,10 @@ use crate::{
     utils::{
         interaction,
         spinner::request_spinner,
-        validation::{validate_project_identifier, validate_project_name},
+        validation::{
+            resource_name_has_id_format, validate_project_identifier, validate_project_name,
+            IdentifierResource,
+        },
     },
 };
 
@@ -76,14 +79,24 @@ pub fn validate_input(
         bail!(err)
     }
 
-    let name_is_valid = validate_project_identifier(&name, true);
+    let identifier_validation_res = validate_project_identifier(&name, true);
 
-    if let Err(err) = name_is_valid {
+    if let Err(err) = identifier_validation_res {
         bail!(err);
     }
 
     if let Some(new_name) = &new_name {
-        if *new_name == name {
+        let new_name_is_id = resource_name_has_id_format(IdentifierResource::Project, new_name);
+
+        if new_name_is_id {
+            let err =
+                InputValidationError::Projects(ProjectInputValidationError::NameUsingIdFormat);
+            bail!(err)
+        }
+
+        let name_is_id = resource_name_has_id_format(IdentifierResource::Project, name);
+
+        if *new_name == name && !name_is_id {
             let err =
                 InputValidationError::Projects(ProjectInputValidationError::NewNameEqualsOriginal);
             bail!(err)
