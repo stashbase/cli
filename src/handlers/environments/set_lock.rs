@@ -4,7 +4,7 @@ use log::{debug, error};
 use crate::{
     api::environments,
     models::api_client::RequestApiOptionResponse,
-    utils::{spinner::request_spinner, validation::validate_project_environment},
+    utils::{spinner::request_spinner, validation::validate_project_environment_identifier},
 };
 
 pub async fn handle_set_env_lock(
@@ -13,9 +13,10 @@ pub async fn handle_set_env_lock(
     environment: String,
     lock: bool,
 ) -> Result<()> {
-    let input_valid = validate_project_environment(&project, &environment, true);
+    let input_validation_res =
+        validate_project_environment_identifier(&project, &environment, true);
 
-    if let Err(err) = input_valid {
+    if let Err(err) = input_validation_res {
         bail!(err);
     }
 
