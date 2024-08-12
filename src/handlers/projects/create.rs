@@ -3,8 +3,15 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    models::{api_client::RequestApiOptionResponse, projects::CreateProjectPayload},
-    utils::{spinner::request_spinner, validation::validate_project_name},
+    models::{
+        api_client::RequestApiOptionResponse,
+        projects::CreateProjectPayload,
+        validation::{InputValidationError, ProjectInputValidationError},
+    },
+    utils::{
+        spinner::request_spinner,
+        validation::{resource_name_has_id_format, validate_project_name, IdentifierResource},
+    },
 };
 
 pub async fn handle_create_project(
@@ -16,6 +23,13 @@ pub async fn handle_create_project(
 
     if let Err(err) = name_is_valid {
         bail!(err);
+    }
+
+    let name_has_id_format = resource_name_has_id_format(IdentifierResource::Project, &name);
+
+    if name_has_id_format {
+        let error = InputValidationError::Projects(ProjectInputValidationError::NameUsingIdFormat);
+        bail!(error)
     }
 
     debug!("creating project...:");
