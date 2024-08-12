@@ -9,7 +9,11 @@ use crate::{
         api_client::GetRequestApiResponse,
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
     },
-    utils::{spinner::request_spinner, tables, validation::validate_project_environment},
+    utils::{
+        spinner::request_spinner,
+        tables,
+        validation::{validate_project_environment, validate_project_environment_identifier},
+    },
 };
 
 pub async fn handle_get_environment(
@@ -18,7 +22,7 @@ pub async fn handle_get_environment(
     project: String,
     environment: String,
 ) -> Result<()> {
-    let input_valid = validate_project_environment(&project, &environment, true);
+    let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_valid {
         bail!(err);
