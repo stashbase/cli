@@ -5,13 +5,17 @@ use owo_colors::OwoColorize;
 use crate::{
     api::projects,
     models::api_client::DeleteRequestApiResponse,
-    utils::{interaction, spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        interaction,
+        spinner::request_spinner,
+        validation::{validate_project_identifier, validate_project_name},
+    },
 };
 
 pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> {
-    let name_is_valid = validate_project_name(&name, false, true);
+    let identifier_is_valid = validate_project_identifier(&name, true);
 
-    if let Err(err) = name_is_valid {
+    if let Err(err) = identifier_is_valid {
         bail!(err);
     }
 
