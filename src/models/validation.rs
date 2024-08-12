@@ -75,6 +75,7 @@ pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
     NameFormat { is_root: bool },
 
+    InvalidIdentifierFormat { is_root: bool },
     SearchTooShort,
     SearchFormat,
 
@@ -380,6 +381,19 @@ impl fmt::Display for EnvironmentsInputValidationError {
                 msg = "argument search is invalid";
                 hint =
                     Some("search can contain only alphanumeric characters, underscores or hyphen separator");
+            }
+            EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
+                if *is_root {
+                    let  hint_str = "The name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 255 characters), id must start with the prefix 'pr_' and be 25 characters long.";
+
+                    msg = "argument identifier is invalid";
+                    hint = Some(&hint_str);
+                } else {
+                    let  hint_str = "The environment name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 255 characters), id must start with the prefix 'en_' and be 25 characters long.";
+
+                    msg = "argument project is invalid";
+                    hint = Some(&hint_str);
+                }
             }
         }
 
