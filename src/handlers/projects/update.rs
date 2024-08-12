@@ -8,7 +8,11 @@ use crate::{
         projects::UpdateProjectPayload,
         validation::{InputValidationError, ProjectInputValidationError},
     },
-    utils::{interaction, spinner::request_spinner, validation::validate_project_name},
+    utils::{
+        interaction,
+        spinner::request_spinner,
+        validation::{validate_project_identifier, validate_project_name},
+    },
 };
 
 pub async fn handle_update_project(
@@ -72,7 +76,7 @@ pub fn validate_input(
         bail!(err)
     }
 
-    let name_is_valid = validate_project_name(&name, false, true);
+    let name_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = name_is_valid {
         bail!(err);
