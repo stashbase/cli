@@ -297,12 +297,13 @@ impl fmt::Display for EnvSort {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments get <IDENIFIER> -p <PROJECT> [OPTIONS]")]
+#[command(override_usage = "environments get <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
 pub struct GetEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Environment name or id
+    /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 
     /// Format output
@@ -311,42 +312,46 @@ pub struct GetEnvironment {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments lock/unlock <IDENIFIER> -p <PROJECT> [OPTIONS]")]
+#[command(override_usage = "environments lock/unlock <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
 pub struct SetEnvironmentLock {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Environment name or id
+    /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments delete <IDENIFIER> -p <PROJECT> [OPTIONS]")]
+#[command(override_usage = "environments delete <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
 pub struct DeleteEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Environment name or id
+    /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments open <IDENTIFIER> -p <PROJECT> [OPTIONS]")]
+#[command(override_usage = "environments open <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
 pub struct OpenEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Environment name or id
+    /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments update <NAME> -p <PROJECT> [OPTIONS]")]
+#[command(override_usage = "environments update <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
 pub struct UpdateEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Environment name or id
+    /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 
     /// New environment name
@@ -359,12 +364,13 @@ pub struct UpdateEnvironment {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments duplicate <IDENIFIER> <NEW_NAME> -p <PROJECT> [OPTIONS]")]
+#[command(override_usage = "environments duplicate <NAME_OR_ID> <NEW_NAME> -p <PROJECT> [OPTIONS]")]
 pub struct DuplicateEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Environment name or id
+    /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 
     /// New name
@@ -373,16 +379,18 @@ pub struct DuplicateEnvironment {
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "environments compare <IDENIFIER_1> <IDENIFIER_2> -p <PROJECT> [OPTIONS]"
+    override_usage = "environments compare <NAME_OR_ID_1> <NAME_OR_ID_2> -p <PROJECT> [OPTIONS]"
 )]
 pub struct CompareEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
     /// Environment name or id
+    #[arg(value_name = "NAME_OR_ID_1")]
     pub identifier_1: String,
 
     /// Environment name or id to compare with
+    #[arg(value_name = "NAME_OR_ID_2")]
     pub identifier_2: String,
 
     /// Return only keys without values
@@ -422,13 +430,14 @@ pub struct CreateEnvironment {
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "environments set-type <IDENIFIER> --type <TYPE> -p <PROJECT> [OPTIONS]"
+    override_usage = "environments set-type <NAME_OR_ID> --type <TYPE> -p <PROJECT> [OPTIONS]"
 )]
 pub struct SetType {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
     /// Environment name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 
     // #[arg(name = "type")]
