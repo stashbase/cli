@@ -68,6 +68,28 @@ pub fn validate_project_identifier(value: &str, is_root: bool) -> Result<()> {
 
     Ok(())
 }
+
+pub enum IdentifierResource {
+    Project,
+    Environment,
+}
+
+pub fn resource_name_has_id_format(resource: IdentifierResource, input: &str) -> bool {
+    let prefix = match resource {
+        IdentifierResource::Project => "pr_",
+        IdentifierResource::Environment => "ev_",
+    };
+
+    if input.len() != 25 || !input.starts_with(prefix) {
+        return false;
+    }
+
+    let id_without_prefix = &input[prefix.len()..];
+
+    let alphanumeric_regex = regex::Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+    alphanumeric_regex.is_match(id_without_prefix)
+}
+
 // name of secret
 pub fn validate_secret_key(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
