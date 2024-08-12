@@ -39,17 +39,17 @@ pub async fn handle_project_commands(
 
         ProjectSubcommand::Get(args) => {
             let format = get_output_format(raw_output, default_output_format, args.format);
-            handle_get_project(api_key, format, args.name).await?;
+            handle_get_project(api_key, format, args.identifier).await?;
         }
 
         ProjectSubcommand::Create(args) => {
             handle_create_project(api_key, args.name, args.description).await?;
         }
         ProjectSubcommand::Delete(args) => {
-            handle_delete_project(api_key, args.name).await?;
+            handle_delete_project(api_key, args.identifier).await?;
         }
         ProjectSubcommand::Open(args) => {
-            handle_open_project(api_key, args.name).await?;
+            handle_open_project(api_key, args.identifier).await?;
         }
         ProjectSubcommand::Update(args) => {
             handle_update_project(api_key, args.name, args.new_name, args.description).await?;
