@@ -29,6 +29,8 @@ pub enum ProjectInputValidationError {
     NameFormat { is_root: bool },
 
     InvalidIdentifierFormat { is_root: bool },
+    NameUsingIdFormat,
+
     SearchTooShort,
     SearchFormat,
 
@@ -212,6 +214,12 @@ impl fmt::Display for ProjectInputValidationError {
                     msg = "argument project is invalid";
                     hint = Some(&hint_str);
                 }
+            }
+            ProjectInputValidationError::NameUsingIdFormat => {
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, with hyphens and underscores, without the prefix 'pr_', min 2 max 255 characters.";
+
+                msg = "argument name is using id format";
+                hint = Some(&hint_str);
             }
         }
 
