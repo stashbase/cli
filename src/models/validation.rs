@@ -221,7 +221,7 @@ impl fmt::Display for ProjectInputValidationError {
             ProjectInputValidationError::NameUsingIdFormat => {
                 let hint_str = "Ensure the name is in a valid format: alphanumeric, with hyphens and underscores, without the prefix 'pr_', min 2 max 255 characters.";
 
-                msg = "argument name is using id format";
+                msg = "name is using id format";
                 hint = Some(&hint_str);
             }
         }
@@ -398,9 +398,9 @@ impl fmt::Display for EnvironmentsInputValidationError {
                 }
             }
             EnvironmentsInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, allowing one hyphen separator and underscores, without the prefix 'ev_', min 2 max 255 characters.";
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, allowing one hyphen separator and underscores, without the prefix 'ev_', min 3 max 255 characters.";
 
-                msg = "argument name is using id format";
+                msg = "name is using id format";
                 hint = Some(&hint_str);
             }
         }
