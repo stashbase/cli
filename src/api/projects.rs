@@ -38,9 +38,9 @@ pub async fn list_projects(
     client::get_request(args).await
 }
 
-pub async fn get_project(api_key: String, name: String) -> Result<GetRequestApiResponse> {
+pub async fn get_project(api_key: String, identifier: String) -> Result<GetRequestApiResponse> {
     let args = RequestArgs {
-        path: ApiPath::Projects(Some(name)),
+        path: ApiPath::Projects(Some(identifier)),
         query: None,
         api_key,
     };
@@ -75,11 +75,11 @@ pub async fn create_project(
 
 pub async fn update_project(
     api_key: String,
-    name: String,
+    identifier: String,
     data: &UpdateProjectPayload,
 ) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
-        path: ApiPath::Projects(Some(name)),
+        path: ApiPath::Projects(Some(identifier)),
         query: None,
         api_key,
     };
@@ -87,9 +87,12 @@ pub async fn update_project(
     client::patch_request(args, Some(data)).await
 }
 
-pub async fn delete_project(api_key: String, name: String) -> Result<DeleteRequestApiResponse> {
+pub async fn delete_project(
+    api_key: String,
+    identifier: String,
+) -> Result<DeleteRequestApiResponse> {
     let args = RequestArgs {
-        path: ApiPath::Projects(Some(name)),
+        path: ApiPath::Projects(Some(identifier)),
         query: None,
         api_key,
     };

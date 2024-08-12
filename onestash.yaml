@@ -18,6 +18,18 @@
 - project: hero-hub
   environment: vercel
 
-  # non existing
-- project: hero-hub
-  environment: gdsjfkhlsd
+- project: vercel
+  environment: api-dev
+  pull:
+    output: test.yaml
+  secrets:
+    expand-refs: true
+
+- project: new-name
+  environment: api-prod
+  pull:
+    output: test.yaml
+  secrets:
+    exclude:
+      - DB_URL
+    expand-refs: true
