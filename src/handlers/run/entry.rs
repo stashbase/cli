@@ -20,7 +20,10 @@ use crate::{
         interaction::{self, select},
         separator,
         tables::build::build_table,
-        validation::{validate_project_environment, validate_secret_keys},
+        validation::{
+            validate_project_environment, validate_project_environment_identifier,
+            validate_secret_keys,
+        },
     },
     SUBPROCESS_RUNNING,
 };
@@ -149,7 +152,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     let project = project.unwrap();
     let environment = environment.unwrap();
 
-    let validation_res = validate_project_environment(project.as_ref(), environment.as_ref(), true);
+    let validation_res =
+        validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
         if is_from_file {
