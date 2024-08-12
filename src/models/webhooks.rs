@@ -185,7 +185,7 @@ pub struct TestWebhookError {
     pub status: Option<u16>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_code: Option<TestWebhookErrorCode>,
+    pub error: Option<TestWebhookErrorCode>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -261,8 +261,8 @@ impl Display for TestWebhookError {
         } else {
             writeln!(f, "HTTP status code: N/A")?;
 
-            if let Some(error_code) = &self.error_code {
-                writeln!(f, "Response message: {}", error_code.get_message())?;
+            if let Some(error) = &self.error {
+                writeln!(f, "Response message: {}", error.get_message())?;
             } else {
                 writeln!(f, "Response message: Unknown error")?;
             }
