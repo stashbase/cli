@@ -52,7 +52,8 @@ pub async fn handle_project_commands(
             handle_open_project(api_key, args.identifier).await?;
         }
         ProjectSubcommand::Update(args) => {
-            handle_update_project(api_key, args.name, args.new_name, args.description).await?;
+            handle_update_project(api_key, args.identifier, args.new_name, args.description)
+                .await?;
         }
     }
 
