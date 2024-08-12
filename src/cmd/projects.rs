@@ -92,10 +92,11 @@ pub struct CreateProject {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "projects update <NAME> [OPTIONS]")]
+#[command(override_usage = "projects update <NAME_OR_ID> [OPTIONS]")]
 pub struct UpdateProject {
-    /// Project name
-    pub name: String,
+    /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
+    pub identifier: String,
 
     /// New name
     #[arg(value_enum, short = 'n', long = "name")]
@@ -107,9 +108,10 @@ pub struct UpdateProject {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "projects get <IDENTIFIER> [OPTIONS]")]
+#[command(override_usage = "projects get <NAME_OR_ID> [OPTIONS]")]
 pub struct GetProject {
     /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 
     /// Format output
@@ -118,15 +120,17 @@ pub struct GetProject {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "projects delete <IDENTIFIER> [OPTIONS]")]
+#[command(override_usage = "projects delete <NAME_OR_ID> [OPTIONS]")]
 pub struct DeleteProject {
     /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "projects open <IDENTIFIER> [OPTIONS]")]
+#[command(override_usage = "projects open <NAME_OR_ID> [OPTIONS]")]
 pub struct OpenProject {
     /// Project name or id
+    #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
 }
