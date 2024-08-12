@@ -76,6 +76,8 @@ pub enum EnvironmentsInputValidationError {
     NameFormat { is_root: bool },
 
     InvalidIdentifierFormat { is_root: bool },
+    NameUsingIdFormat,
+
     SearchTooShort,
     SearchFormat,
 
@@ -394,6 +396,12 @@ impl fmt::Display for EnvironmentsInputValidationError {
                     msg = "argument project is invalid";
                     hint = Some(&hint_str);
                 }
+            }
+            EnvironmentsInputValidationError::NameUsingIdFormat => {
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, allowing one hyphen separator and underscores, without the prefix 'ev_', min 2 max 255 characters.";
+
+                msg = "argument name is using id format";
+                hint = Some(&hint_str);
             }
         }
 
