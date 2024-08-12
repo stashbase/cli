@@ -45,6 +45,29 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
     Ok(())
 }
 
+pub fn validate_project_identifier(value: &str, is_root: bool) -> Result<()> {
+    if value.len() < 2 {
+        let err =
+            InputValidationError::Projects(ProjectInputValidationError::InvalidIdentifierFormat {
+                is_root,
+            });
+
+        bail!(err)
+    }
+
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
+
+    if !regex.is_match(value) {
+        let err =
+            InputValidationError::Projects(ProjectInputValidationError::InvalidIdentifierFormat {
+                is_root,
+            });
+
+        bail!(err)
+    }
+
+    Ok(())
+}
 // name of secret
 pub fn validate_secret_key(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
