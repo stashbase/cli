@@ -377,6 +377,32 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
     Ok(())
 }
 
+pub fn validate_environment_identifier(value: &str, is_root: bool) -> Result<()> {
+    if value.len() < 2 {
+        let err = InputValidationError::Environments(
+            EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
+        );
+
+        bail!(err)
+    } else {
+        let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
+
+        let dash_count = count_dashes(value);
+        let is_firt_dash = value.chars().nth(0) == Some('-');
+        let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
+
+        if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
+            let err = InputValidationError::Environments(
+                EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
+            );
+
+            bail!(err)
+        }
+    }
+
+    Ok(())
+}
+
 pub fn validate_project_environment(
     project: &str,
     environment: &str,
@@ -390,6 +416,27 @@ pub fn validate_project_environment(
 
     // validate env
     let env_name_is_valid = validate_environment_name(environment, false, env_is_root);
+
+    if let Err(err) = env_name_is_valid {
+        bail!(err);
+    }
+
+    Ok(())
+}
+
+pub fn validate_project_environment_identifier(
+    project: &str,
+    environment: &str,
+    env_is_root: bool,
+) -> Result<()> {
+    let project_name_is_valid = validate_project_identifier(project, false);
+
+    if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    // validate env
+    let env_name_is_valid = validate_environment_identifier(environment, env_is_root);
 
     if let Err(err) = env_name_is_valid {
         bail!(err);
