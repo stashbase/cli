@@ -26,7 +26,10 @@ use crate::{
     utils::{
         interaction::{self, select},
         secrets::format_secrets,
-        validation::{validate_project_environment, validate_secret_keys},
+        validation::{
+            validate_project_environment, validate_project_environment_identifier,
+            validate_secret_keys,
+        },
     },
 };
 
@@ -141,7 +144,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let project = project.unwrap();
     let environment = environment.unwrap();
 
-    let validation_res = validate_project_environment(project.as_ref(), environment.as_ref(), true);
+    let validation_res =
+        validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
         bail!(e);
