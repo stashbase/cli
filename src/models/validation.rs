@@ -90,6 +90,8 @@ pub enum EnvironmentsInputValidationError {
     NewNameFormat,
     NewNameTooShort,
     NewNameTooLong,
+    //
+    SelfComparison,
 }
 
 #[derive(Debug)]
@@ -433,6 +435,10 @@ impl fmt::Display for EnvironmentsInputValidationError {
             EnvironmentsInputValidationError::NewNameTooLong => {
                 msg = "name option value is too long";
                 hint = Some("maximum is 40 characters");
+            }
+            EnvironmentsInputValidationError::SelfComparison => {
+                msg = "cannot compare an environment with itself";
+                hint = Some("use different environment for comparison");
             }
         }
 
