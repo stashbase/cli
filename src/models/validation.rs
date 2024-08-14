@@ -207,19 +207,19 @@ impl fmt::Display for ProjectInputValidationError {
             }
             ProjectInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include hyphens and underscores (2 to 255 characters), id must start with the prefix 'pr_' and be 25 characters long.";
+                    let  hint_str = "The name or id must be alphanumeric, name may include hyphens and underscores (2 to 40 characters), id must start with the prefix 'pr_' and be 25 characters long.";
 
                     msg = "argument identifier is invalid";
                     hint = Some(&hint_str);
                 } else {
-                    let  hint_str = "The project name or id must be alphanumeric, name may include hyphens and underscores (2 to 255 characters), id must start with the prefix 'pr_' and be 25 characters long.";
+                    let  hint_str = "The project name or id must be alphanumeric, name may include hyphens and underscores (2 to 40 characters), id must start with the prefix 'pr_' and be 25 characters long.";
 
                     msg = "argument project is invalid";
                     hint = Some(&hint_str);
                 }
             }
             ProjectInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, with hyphens and underscores, without the prefix 'pr_', min 2 max 255 characters.";
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, with hyphens and underscores, without the prefix 'pr_', min 2 max 40 characters.";
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
