@@ -10,7 +10,11 @@ use tabled::{
 
 use crate::{
     api::environments::{self, CompareEnvironmentsRequestArgs},
-    models::{api_client::GetRequestApiResponse, environments::CompareEnvironmentsResponse},
+    models::{
+        api_client::GetRequestApiResponse,
+        environments::CompareEnvironmentsResponse,
+        validation::{EnvironmentsInputValidationError, InputValidationError},
+    },
     utils::{
         spinner::request_spinner,
         term_size::get_terminal_size,
@@ -39,6 +43,13 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
 
     if let Err(err) = env_identifier_validation_res {
         bail!(err);
+    }
+
+    if args.environment_1 == args.environment_2 {
+        let err =
+            InputValidationError::Environments(EnvironmentsInputValidationError::SelfComparison);
+
+        bail!(err)
     }
 
     let mut spinner = request_spinner();
