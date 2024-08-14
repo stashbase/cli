@@ -111,10 +111,10 @@ pub async fn handle_environment_commands(
 
             EnvironmentSubcommand::Get(args) => {
                 let format = get_output_format(raw_output, default_output_format, args.format);
-                handle_get_environment(api_key, format, project, args.name).await?;
+                handle_get_environment(api_key, format, project, args.identifier).await?;
             }
             EnvironmentSubcommand::Open(args) => {
-                handle_open_environment(api_key, project, args.name).await?;
+                handle_open_environment(api_key, project, args.identifier).await?;
             }
             EnvironmentSubcommand::Create(args) => {
                 let args = HandleCreateEnvironmentArgs {
@@ -132,29 +132,30 @@ pub async fn handle_environment_commands(
             }
 
             EnvironmentSubcommand::SetType(args) => {
-                handle_update_env_type(api_key, project, args.name, args.env_type).await?;
+                handle_update_env_type(api_key, project, args.identifier, args.env_type).await?;
             }
             EnvironmentSubcommand::Lock(args) => {
-                handle_set_env_lock(api_key, project, args.name, true).await?;
+                handle_set_env_lock(api_key, project, args.identifier, true).await?;
             }
             EnvironmentSubcommand::Unlock(args) => {
-                handle_set_env_lock(api_key, project, args.name, false).await?;
+                handle_set_env_lock(api_key, project, args.identifier, false).await?;
             }
             EnvironmentSubcommand::Delete(args) => {
-                handle_delete_environment(api_key, project, args.name).await?;
+                handle_delete_environment(api_key, project, args.identifier).await?;
             }
             EnvironmentSubcommand::Update(args) => {
                 handle_update_environment(
                     api_key,
                     project,
-                    args.name,
+                    args.identifier,
                     args.new_name,
                     args.description,
                 )
                 .await?
             }
             EnvironmentSubcommand::Duplicate(args) => {
-                handle_duplicate_environment(api_key, project, args.name, args.new_name).await?;
+                handle_duplicate_environment(api_key, project, args.identifier, args.new_name)
+                    .await?;
             }
 
             EnvironmentSubcommand::Compare(args) => {
@@ -163,8 +164,8 @@ pub async fn handle_environment_commands(
                 let handler_args = HandleCompareEnvironmentsArgs {
                     api_key,
                     project,
-                    environment_1: args.name_1,
-                    environment_2: args.name_2,
+                    environment_1: args.identifier_1,
+                    environment_2: args.identifier_2,
                     only_keys: args.only_keys,
                     json_format,
                 };
