@@ -233,7 +233,7 @@ impl fmt::Display for ProjectInputValidationError {
                 }
             }
             ProjectInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, with hyphens and underscores, without the prefix 'pr_', min 2 max 40 characters.";
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and hyphens (-), without the prefix 'ev_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
