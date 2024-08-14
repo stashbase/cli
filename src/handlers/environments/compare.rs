@@ -14,7 +14,7 @@ use crate::{
     utils::{
         spinner::request_spinner,
         term_size::get_terminal_size,
-        validation::{validate_project_environment_identifier, validate_project_identifier},
+        validation::{validate_environment_identifier, validate_project_environment_identifier},
     },
 };
 
@@ -35,7 +35,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         bail!(err);
     }
 
-    let env_identifier_validation_res = validate_project_identifier(&args.environment_2, false);
+    let env_identifier_validation_res = validate_environment_identifier(&args.environment_2, false);
 
     if let Err(err) = env_identifier_validation_res {
         bail!(err);
