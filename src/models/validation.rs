@@ -75,6 +75,7 @@ pub enum SecretsInputValidationError {
 #[derive(Debug)]
 pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
+    NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
 
     InvalidIdentifierFormat { is_root: bool },
@@ -88,6 +89,7 @@ pub enum EnvironmentsInputValidationError {
     NoUpdateFlags,
     NewNameFormat,
     NewNameTooShort,
+    NewNameTooLong,
 }
 
 #[derive(Debug)]
@@ -418,6 +420,19 @@ impl fmt::Display for EnvironmentsInputValidationError {
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
+            }
+            EnvironmentsInputValidationError::NameTooLong { is_root } => {
+                if *is_root {
+                    msg = "argument name is too long";
+                    hint = Some("maximum is 40 characters");
+                } else {
+                    msg = "project argument is too long";
+                    hint = Some("maximum is 40 characters");
+                }
+            }
+            EnvironmentsInputValidationError::NewNameTooLong => {
+                msg = "name option value is too long";
+                hint = Some("maximum is 40 characters");
             }
         }
 
