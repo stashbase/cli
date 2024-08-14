@@ -26,6 +26,7 @@ pub enum CmdArgInputValidationError {
 #[derive(Debug)]
 pub enum ProjectInputValidationError {
     NameTooShort { is_root: bool },
+    NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
 
     InvalidIdentifierFormat { is_root: bool },
@@ -38,6 +39,7 @@ pub enum ProjectInputValidationError {
     NoUpdateFlags,
     NewNameFormat,
     NewNameTooShort,
+    NewNameTooLong,
     NewNameEqualsOriginal,
 }
 
@@ -171,6 +173,16 @@ impl fmt::Display for ProjectInputValidationError {
                     hint = Some("minimum is 2 characters");
                 }
             }
+
+            ProjectInputValidationError::NameTooLong { is_root } => {
+                if *is_root {
+                    msg = "argument name is too long";
+                    hint = Some("maximum is 40 characters");
+                } else {
+                    msg = "project argument is too long";
+                    hint = Some("maximum is 40 characters");
+                }
+            }
             ProjectInputValidationError::NameFormat { is_root } => {
                 if *is_root {
                     msg = "argument name is invalid";
@@ -223,6 +235,10 @@ impl fmt::Display for ProjectInputValidationError {
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
+            }
+            ProjectInputValidationError::NewNameTooLong => {
+                msg = "name option value is too long";
+                hint = Some("maximum is 40 characters");
             }
         }
 
