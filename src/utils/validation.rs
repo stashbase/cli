@@ -400,7 +400,7 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
 }
 
 pub fn validate_environment_identifier(value: &str, is_root: bool) -> Result<()> {
-    if value.len() < 2 {
+    if value.len() < 2 || value.len() > 40 {
         let err = InputValidationError::Environments(
             EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
         );
