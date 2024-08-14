@@ -11,11 +11,11 @@ pub struct RunCommand {
     #[arg(value_enum, long = "file")]
     pub file: Option<String>,
 
-    /// Project name
+    /// Project name or id
     #[arg(value_enum, short = 'p', long = "project")]
     pub project: Option<String>,
 
-    /// Enviornment name
+    /// Enviornment name or id
     #[arg(value_enum, short = 'e', long = "environment")]
     pub environment: Option<String>,
 

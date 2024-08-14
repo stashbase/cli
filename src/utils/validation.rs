@@ -30,6 +30,16 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
         bail!(err)
     }
 
+    if value.len() > 40 {
+        let err = if is_new_name {
+            InputValidationError::Projects(ProjectInputValidationError::NewNameTooLong)
+        } else {
+            InputValidationError::Projects(ProjectInputValidationError::NameTooLong { is_root })
+        };
+
+        bail!(err)
+    }
+
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if !regex.is_match(value) {
@@ -43,6 +53,51 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
     }
 
     Ok(())
+}
+
+pub fn validate_project_identifier(value: &str, is_root: bool) -> Result<()> {
+    if value.len() < 2 || value.len() > 40 {
+        let err =
+            InputValidationError::Projects(ProjectInputValidationError::InvalidIdentifierFormat {
+                is_root,
+            });
+
+        bail!(err)
+    }
+
+    let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
+
+    if !regex.is_match(value) {
+        let err =
+            InputValidationError::Projects(ProjectInputValidationError::InvalidIdentifierFormat {
+                is_root,
+            });
+
+        bail!(err)
+    }
+
+    Ok(())
+}
+
+pub enum IdentifierResource {
+    Project,
+    Environment,
+}
+
+pub fn resource_name_has_id_format(resource: IdentifierResource, input: &str) -> bool {
+    let prefix = match resource {
+        IdentifierResource::Project => "pr_",
+        IdentifierResource::Environment => "ev_",
+    };
+
+    if input.len() != 25 || !input.starts_with(prefix) {
+        return false;
+    }
+
+    let id_without_prefix = &input[prefix.len()..];
+
+    let alphanumeric_regex = regex::Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+    alphanumeric_regex.is_match(id_without_prefix)
 }
 
 // name of secret
@@ -311,19 +366,57 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
         };
 
         bail!(err)
+    }
+
+    if value.len() > 40 {
+        let err = if is_new_name == false {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NameTooLong {
+                is_root,
+            })
+        } else {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NewNameTooLong)
+        };
+
+        bail!(err)
+    }
+
+    let dash_count = count_dashes(value);
+    let is_firt_dash = value.chars().nth(0) == Some('-');
+    let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
+
+    if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
+        let err = if is_new_name == false {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat {
+                is_root,
+            })
+        } else {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NewNameFormat)
+        };
+
+        bail!(err)
+    }
+
+    Ok(())
+}
+
+pub fn validate_environment_identifier(value: &str, is_root: bool) -> Result<()> {
+    if value.len() < 2 || value.len() > 40 {
+        let err = InputValidationError::Environments(
+            EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
+        );
+
+        bail!(err)
     } else {
+        let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
+
         let dash_count = count_dashes(value);
         let is_firt_dash = value.chars().nth(0) == Some('-');
         let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
 
         if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
-            let err = if is_new_name == false {
-                InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat {
-                    is_root,
-                })
-            } else {
-                InputValidationError::Environments(EnvironmentsInputValidationError::NewNameFormat)
-            };
+            let err = InputValidationError::Environments(
+                EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
+            );
 
             bail!(err)
         }
@@ -345,6 +438,27 @@ pub fn validate_project_environment(
 
     // validate env
     let env_name_is_valid = validate_environment_name(environment, false, env_is_root);
+
+    if let Err(err) = env_name_is_valid {
+        bail!(err);
+    }
+
+    Ok(())
+}
+
+pub fn validate_project_environment_identifier(
+    project: &str,
+    environment: &str,
+    env_is_root: bool,
+) -> Result<()> {
+    let project_name_is_valid = validate_project_identifier(project, false);
+
+    if let Err(err) = project_name_is_valid {
+        bail!(err);
+    }
+
+    // validate env
+    let env_name_is_valid = validate_environment_identifier(environment, env_is_root);
 
     if let Err(err) = env_name_is_valid {
         bail!(err);

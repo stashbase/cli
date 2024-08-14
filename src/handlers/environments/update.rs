@@ -11,7 +11,10 @@ use crate::{
     utils::{
         interaction,
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name},
+        validation::{
+            resource_name_has_id_format, validate_environment_name, validate_project_name,
+            IdentifierResource,
+        },
     },
 };
 
@@ -91,7 +94,18 @@ pub fn validate_input(
     }
 
     if let Some(new_name) = &new_env_name {
-        if *new_name == environment {
+        let new_name_is_id = resource_name_has_id_format(IdentifierResource::Environment, new_name);
+
+        if new_name_is_id {
+            let err = InputValidationError::Environments(
+                EnvironmentsInputValidationError::NameUsingIdFormat,
+            );
+            bail!(err)
+        }
+
+        let name_is_id = resource_name_has_id_format(IdentifierResource::Environment, environment);
+
+        if *new_name == environment && !name_is_id {
             let err = InputValidationError::Environments(
                 EnvironmentsInputValidationError::NewNameTooShort,
             );

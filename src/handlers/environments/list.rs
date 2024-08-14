@@ -15,7 +15,7 @@ use crate::{
     utils::{
         spinner::request_spinner,
         tables,
-        validation::{validate_env_search, validate_project_name},
+        validation::{validate_env_search, validate_project_identifier, validate_project_name},
     },
 };
 
@@ -46,9 +46,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
     debug!("{:#?}", types);
 
-    let name_is_valid = validate_project_name(&project, false, false);
+    let project_identifier_vlidation_result = validate_project_identifier(&project, false);
 
-    if let Err(err) = name_is_valid {
+    if let Err(err) = project_identifier_vlidation_result {
         bail!(err);
     }
 

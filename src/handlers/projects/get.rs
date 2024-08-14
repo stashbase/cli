@@ -13,15 +13,17 @@ use crate::{
         },
     },
     utils::{
-        human_datetime::get_human_datetime, spinner::request_spinner, tables,
-        validation::validate_project_name,
+        human_datetime::get_human_datetime,
+        spinner::request_spinner,
+        tables,
+        validation::{validate_project_identifier, validate_project_name},
     },
 };
 
 pub async fn handle_get_project(api_key: String, format: OutputFormat, name: String) -> Result<()> {
-    let name_is_valid = validate_project_name(&name, false, true);
+    let identifier_is_valid = validate_project_identifier(&name, true);
 
-    if let Err(err) = name_is_valid {
+    if let Err(err) = identifier_is_valid {
         bail!(err);
     }
 

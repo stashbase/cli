@@ -26,7 +26,11 @@ pub enum CmdArgInputValidationError {
 #[derive(Debug)]
 pub enum ProjectInputValidationError {
     NameTooShort { is_root: bool },
+    NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
+
+    InvalidIdentifierFormat { is_root: bool },
+    NameUsingIdFormat,
 
     SearchTooShort,
     SearchFormat,
@@ -35,6 +39,7 @@ pub enum ProjectInputValidationError {
     NoUpdateFlags,
     NewNameFormat,
     NewNameTooShort,
+    NewNameTooLong,
     NewNameEqualsOriginal,
 }
 
@@ -70,7 +75,11 @@ pub enum SecretsInputValidationError {
 #[derive(Debug)]
 pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
+    NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
+
+    InvalidIdentifierFormat { is_root: bool },
+    NameUsingIdFormat,
 
     SearchTooShort,
     SearchFormat,
@@ -80,6 +89,7 @@ pub enum EnvironmentsInputValidationError {
     NoUpdateFlags,
     NewNameFormat,
     NewNameTooShort,
+    NewNameTooLong,
 }
 
 #[derive(Debug)]
@@ -165,6 +175,16 @@ impl fmt::Display for ProjectInputValidationError {
                     hint = Some("minimum is 2 characters");
                 }
             }
+
+            ProjectInputValidationError::NameTooLong { is_root } => {
+                if *is_root {
+                    msg = "argument name is too long";
+                    hint = Some("maximum is 40 characters");
+                } else {
+                    msg = "project argument is too long";
+                    hint = Some("maximum is 40 characters");
+                }
+            }
             ProjectInputValidationError::NameFormat { is_root } => {
                 if *is_root {
                     msg = "argument name is invalid";
@@ -198,6 +218,29 @@ impl fmt::Display for ProjectInputValidationError {
                 msg = "argument search is invalid";
                 hint =
                     Some("search can contain only alphanumeric characters, hyphens or underscores");
+            }
+            ProjectInputValidationError::InvalidIdentifierFormat { is_root } => {
+                if *is_root {
+                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' and be exactly 25 characters long and consist of alphanumeric characters.";
+
+                    msg = "argument name or id is invalid";
+                    hint = Some(&hint_str);
+                } else {
+                    let  hint_str = "The project name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' and be exactly 25 characters long and consist of alphanumeric characters.";
+
+                    msg = "argument project is invalid";
+                    hint = Some(&hint_str);
+                }
+            }
+            ProjectInputValidationError::NameUsingIdFormat => {
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and hyphens (-), without the prefix 'ev_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
+
+                msg = "name is using id format";
+                hint = Some(&hint_str);
+            }
+            ProjectInputValidationError::NewNameTooLong => {
+                msg = "name option value is too long";
+                hint = Some("maximum is 40 characters");
             }
         }
 
@@ -358,6 +401,38 @@ impl fmt::Display for EnvironmentsInputValidationError {
                 msg = "argument search is invalid";
                 hint =
                     Some("search can contain only alphanumeric characters, underscores or hyphen separator");
+            }
+            EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
+                if *is_root {
+                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' and be exactly 25 characters long and consist of alphanumeric characters.";
+
+                    msg = "argument name or id is invalid";
+                    hint = Some(&hint_str);
+                } else {
+                    let  hint_str = "The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' and be exactly 25 characters long and consist of alphanumeric characters.";
+
+                    msg = "argument environment is invalid";
+                    hint = Some(&hint_str);
+                }
+            }
+            EnvironmentsInputValidationError::NameUsingIdFormat => {
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and a signle hyphen (-) as as separator, without the prefix 'ev_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
+
+                msg = "name is using id format";
+                hint = Some(&hint_str);
+            }
+            EnvironmentsInputValidationError::NameTooLong { is_root } => {
+                if *is_root {
+                    msg = "argument name is too long";
+                    hint = Some("maximum is 40 characters");
+                } else {
+                    msg = "project argument is too long";
+                    hint = Some("maximum is 40 characters");
+                }
+            }
+            EnvironmentsInputValidationError::NewNameTooLong => {
+                msg = "name option value is too long";
+                hint = Some("maximum is 40 characters");
             }
         }
 
