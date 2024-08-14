@@ -30,6 +30,16 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
         bail!(err)
     }
 
+    if value.len() > 40 {
+        let err = if is_new_name {
+            InputValidationError::Projects(ProjectInputValidationError::NewNameTooLong)
+        } else {
+            InputValidationError::Projects(ProjectInputValidationError::NameTooLong { is_root })
+        };
+
+        bail!(err)
+    }
+
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if !regex.is_match(value) {
