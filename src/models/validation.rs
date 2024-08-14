@@ -386,19 +386,19 @@ impl fmt::Display for EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 255 characters), id must start with the prefix 'pr_' and be 25 characters long.";
+                    let  hint_str = "The name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 40 characters), id must start with the prefix 'pr_' and be 25 characters long.";
 
                     msg = "argument identifier is invalid";
                     hint = Some(&hint_str);
                 } else {
-                    let  hint_str = "The environment name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 255 characters), id must start with the prefix 'en_' and be 25 characters long.";
+                    let  hint_str = "The environment name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 40 characters), id must start with the prefix 'en_' and be 25 characters long.";
 
                     msg = "argument project is invalid";
                     hint = Some(&hint_str);
                 }
             }
             EnvironmentsInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, allowing one hyphen separator and underscores, without the prefix 'ev_', min 3 max 255 characters.";
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, allowing one hyphen separator and underscores, without the prefix 'ev_', min 3 max 40 characters.";
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
