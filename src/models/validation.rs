@@ -404,19 +404,19 @@ impl fmt::Display for EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 40 characters), id must start with the prefix 'pr_' and be 25 characters long.";
+                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' and be exactly 25 characters long and consist of alphanumeric characters.";
 
-                    msg = "argument identifier is invalid";
+                    msg = "argument name or id is invalid";
                     hint = Some(&hint_str);
                 } else {
-                    let  hint_str = "The environment name or id must be alphanumeric, name may include one hyphen separator and underscores (2 to 40 characters), id must start with the prefix 'en_' and be 25 characters long.";
+                    let  hint_str = "The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' and be exactly 25 characters long and consist of alphanumeric characters.";
 
-                    msg = "argument project is invalid";
+                    msg = "argument environment is invalid";
                     hint = Some(&hint_str);
                 }
             }
             EnvironmentsInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, allowing one hyphen separator and underscores, without the prefix 'ev_', min 3 max 40 characters.";
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, allowing one hyphen (-) separator and underscores (_), without the prefix 'ev_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
