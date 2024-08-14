@@ -366,22 +366,34 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
         };
 
         bail!(err)
-    } else {
-        let dash_count = count_dashes(value);
-        let is_firt_dash = value.chars().nth(0) == Some('-');
-        let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
+    }
 
-        if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
-            let err = if is_new_name == false {
-                InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat {
-                    is_root,
-                })
-            } else {
-                InputValidationError::Environments(EnvironmentsInputValidationError::NewNameFormat)
-            };
+    if value.len() > 40 {
+        let err = if is_new_name == false {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NameTooLong {
+                is_root,
+            })
+        } else {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NewNameTooLong)
+        };
 
-            bail!(err)
-        }
+        bail!(err)
+    }
+
+    let dash_count = count_dashes(value);
+    let is_firt_dash = value.chars().nth(0) == Some('-');
+    let is_last_dash = value.chars().nth(value.len() - 1) == Some('-');
+
+    if !regex.is_match(value) || dash_count > 1 || is_firt_dash || is_last_dash {
+        let err = if is_new_name == false {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NameFormat {
+                is_root,
+            })
+        } else {
+            InputValidationError::Environments(EnvironmentsInputValidationError::NewNameFormat)
+        };
+
+        bail!(err)
     }
 
     Ok(())
