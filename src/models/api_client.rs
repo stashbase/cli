@@ -263,7 +263,7 @@ pub enum ApiErrorEntity {
 // TODO: env errors
 #[derive(Debug, Deserialize)]
 pub enum GenericError {
-    #[serde(rename = "unexpected.internal_server_error")]
+    #[serde(rename = "server.internal_error")]
     InternalServerError,
 
     #[serde(rename = "rate_limit.too_many_requests")]
