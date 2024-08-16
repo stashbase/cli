@@ -178,7 +178,6 @@ impl EnvironmentSubcommand {
             EnvironmentSubcommand::Compare(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Lock(l) => l.shared_args.project.as_ref(),
             EnvironmentSubcommand::Unlock(u) => u.shared_args.project.as_ref(),
-            EnvironmentSubcommand::SetType(s) => s.shared_args.project.as_ref(),
             EnvironmentSubcommand::Delete(d) => d.shared_args.project.as_ref(),
             EnvironmentSubcommand::Changelog(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Open(o) => o.shared_args.project.as_ref(),
@@ -216,10 +215,6 @@ pub enum EnvironmentSubcommand {
 
     /// Unlock project
     Unlock(SetEnvironmentLock),
-
-    /// Update environment type
-    #[clap(aliases = &["s"])]
-    SetType(SetType),
 
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
@@ -431,23 +426,6 @@ pub struct CreateEnvironment {
     /// Open environment in browser
     #[arg(value_enum, long = "open")]
     pub open: bool,
-}
-
-#[derive(Debug, Args)]
-#[command(
-    override_usage = "environments set-type <NAME_OR_ID> --type <TYPE> -p <PROJECT> [OPTIONS]"
-)]
-pub struct SetType {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectArgs,
-
-    /// Environment name or id
-    #[arg(value_name = "NAME_OR_ID")]
-    pub identifier: String,
-
-    // #[arg(name = "type")]
-    #[arg(value_enum, name = "type", short = 't', long = "type")]
-    pub env_type: EnvironmentType,
 }
 
 #[derive(Debug, Args)]
