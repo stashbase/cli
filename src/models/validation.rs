@@ -100,6 +100,7 @@ pub enum EnvChangelogInputValidationError {
     // InvalidIdFormat,
     // InvalidIdLength,
     InvalidId,
+    InvalidLimit,
 }
 
 #[derive(Debug)]
@@ -475,6 +476,10 @@ impl fmt::Display for EnvChangelogInputValidationError {
             EnvChangelogInputValidationError::InvalidId => {
                 msg = "invalid changelog id";
                 hint = Some("is must be alphanumeric");
+            }
+            EnvChangelogInputValidationError::InvalidLimit => {
+                msg = "limit option value is invalid";
+                hint = Some("limit can range from 2 to 30");
             }
         }
 
