@@ -101,7 +101,7 @@ pub async fn update_description(
         path: ApiPath::Secrets {
             project,
             environment,
-            path: Some(format!("{}/description", key)),
+            path: Some(format!("{}", key)),
         },
         query: None,
         api_key,
