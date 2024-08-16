@@ -385,7 +385,7 @@ impl fmt::Display for EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::NoUpdateFlags => {
                 msg = "no update flag specified";
-                hint = Some("use one of: -n (--name), -d (--description)");
+                hint = Some("use one of: -n (--name), -d (--description), -t (--type)");
             }
             EnvironmentsInputValidationError::NewNameFormat => {
                 msg = "new name option value is invalid";
