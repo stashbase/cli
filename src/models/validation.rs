@@ -48,7 +48,7 @@ pub enum ProjectInputValidationError {
 pub enum WebhookInputValidationError {
     // update
     NoUpdateFlags,
-    InvalidPerPage,
+    InvalidLimit,
     InvalidId,
     InvalidUrl,
     DescriptionTooLong,
@@ -608,9 +608,9 @@ impl fmt::Display for WebhookInputValidationError {
                 msg = "no update flag specified";
                 hint = Some("use one of: -u (--url), -d (--description)");
             }
-            WebhookInputValidationError::InvalidPerPage => {
-                msg = "invalid '--per-page' option value";
-                hint = Some("value can be 5, 10, 15 or 20");
+            WebhookInputValidationError::InvalidLimit => {
+                msg = "invalid '--limit' option value";
+                hint = Some("limit can range from 2 to 30");
             }
             WebhookInputValidationError::InvalidId => {
                 msg = "invalid webhook id value";
