@@ -224,7 +224,7 @@ pub struct ListLogsArgs {
     pub webhook_id: String,
     pub page: Option<usize>,
     // per page
-    pub per_page: Option<u8>,
+    pub limit: Option<u8>,
 }
 
 pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
@@ -234,7 +234,7 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
         environment,
         webhook_id,
         page,
-        per_page,
+        limit,
     } = args;
 
     let path = format!("{}/logs", webhook_id);
@@ -245,8 +245,8 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
         query.push(("page".to_string(), page.to_string()));
     }
 
-    if let Some(per_page) = per_page {
-        query.push(("per-page".to_string(), per_page.to_string()));
+    if let Some(limit) = limit {
+        query.push(("limit".to_string(), limit.to_string()));
     }
 
     let args = RequestArgs {

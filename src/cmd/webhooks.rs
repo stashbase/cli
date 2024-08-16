@@ -265,8 +265,8 @@ pub struct WebhookLogs {
     pub page: Option<usize>,
 
     /// Items per page
-    #[arg(value_enum, long = "per-page")]
-    pub per_page: Option<u8>,
+    #[arg(value_enum, long = "limit")]
+    pub limit: Option<u8>,
 }
 
 #[derive(Debug, Args)]

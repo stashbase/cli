@@ -177,7 +177,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: cmd_args.webhook_id,
                 page: cmd_args.page,
-                per_page: cmd_args.per_page,
+                limit: cmd_args.limit,
                 format,
             };
 
