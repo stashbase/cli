@@ -8,8 +8,8 @@ use crate::{
     models::{
         api_client::GetRequestApiResponse,
         projects::{
-            ProjectWithCount, ProjectWithCountNoDescriptionTable, SingleProject,
-            SingleProjectTable, SingleProjectWithCountNoDescriptionTable,
+            ProjectWithCountNoDescriptionTable, SingleProject, SingleProjectTable,
+            SingleProjectWithCountNoDescriptionTable,
         },
     },
     utils::{
