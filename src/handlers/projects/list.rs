@@ -11,6 +11,7 @@ use crate::{
             ProjectList, ProjectWithCountNoDescriptionTable, SingleListProject,
             SingleListProjectWithoutDescription,
         },
+        shared::PaginationMetadata,
     },
     utils::{
         human_datetime::get_human_datetime, spinner::request_spinner, tables,
@@ -78,26 +79,31 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                 Ok(data) => {
                     debug!("{:#?}", &data);
 
+                    if let OutputFormat::Json = format {
+                        output_json(&data);
+                        return Ok(());
+                    }
+
                     let mut projects = data.data;
+                    let pagination = data.pagination;
 
                     if projects.is_empty() {
                         spinner.stop_with_message("No projects found");
+                        eprintln!("\n{}", pagination);
                     } else {
                         spinner.stop_and_persist("", "");
 
                         match format {
                             OutputFormat::List => {
-                                output_list(projects);
-                            }
-                            OutputFormat::Json => {
-                                output_json(projects);
+                                output_list(projects, pagination);
                             }
                             OutputFormat::Table => {
                                 // reverse because returned fro list -> last is first (for
                                 // lists)
                                 projects.reverse();
-                                output_table(projects);
+                                output_table(projects, pagination);
                             }
+                            OutputFormat::Json => unreachable!(),
                         }
                     }
                 }
@@ -163,7 +169,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     // Ok(())
 }
 
-fn output_list(projects: Vec<SingleListProject>) {
+fn output_list(projects: Vec<SingleListProject>, pagination: PaginationMetadata) {
     for (i, p) in projects.iter().enumerate() {
         if i == projects.len() - 1 {
             print!("{}", p);
@@ -171,16 +177,18 @@ fn output_list(projects: Vec<SingleListProject>) {
             println!("{}", p);
         }
     }
+
+    eprintln!("\n\n{}", pagination);
 }
 
-fn output_json(projects: Vec<SingleListProject>) {
-    let value = serde_json::to_value(&projects).unwrap();
+fn output_json(data: &ProjectList) {
+    let value = serde_json::to_value(data).unwrap();
     let pretty = to_colored_json_auto(&value).unwrap();
 
     println!("{}", pretty);
 }
 
-fn output_table(projects: Vec<SingleListProject>) {
+fn output_table(projects: Vec<SingleListProject>, pagination: PaginationMetadata) {
     let has_description = projects.iter().any(|p| p.description.is_some());
     if has_description {
         let projects_formatted: Vec<_> = projects
@@ -207,4 +215,6 @@ fn output_table(projects: Vec<SingleListProject>) {
         let table = tables::build::build_table(&projects_formatted);
         println!("{}", table);
     }
+
+    eprintln!("\n{}", pagination);
 }
