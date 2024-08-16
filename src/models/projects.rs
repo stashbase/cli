@@ -34,6 +34,14 @@ pub struct UpdateProjectPayload {
     pub description: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectResponse {
+    pub id: String,
+
+    #[serde(skip_serializing)]
+    pub name: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SingleListProject {
