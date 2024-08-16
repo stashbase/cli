@@ -6,6 +6,8 @@ use tabled::Tabled;
 
 use crate::utils::human_datetime::get_human_datetime;
 
+use super::shared::PaginationMetadata;
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct ListWebhook {
@@ -279,12 +281,8 @@ impl Display for TestWebhookError {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebhookLogList {
-    // pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<usize>,
-    pub pages: usize,
-
     pub data: Vec<WebhookLog>,
+    pub pagination: PaginationMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -395,15 +393,16 @@ impl Display for WebhookLogList {
             .join("\n");
 
         writeln!(f, "{}", list_string)?;
+        writeln!(f, "{}", self.pagination)?;
 
-        let page = self.page.unwrap_or(1);
-
-        if self.pages == 0 {
-            writeln!(f, "No changes")?;
-        } else {
-            writeln!(f, "{} {}/{}", "Pages:", page, self.pages)?;
-        }
-
+        // let page = self.page.unwrap_or(1);
+        //
+        // if self.pages == 0 {
+        //     writeln!(f, "No changes")?;
+        // } else {
+        //     writeln!(f, "{} {}/{}", "Pages:", page, self.pages)?;
+        // }
+        //
         Ok(())
     }
 }
