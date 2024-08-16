@@ -36,10 +36,10 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
     } = args;
 
     if let Some(limit) = limit {
-        let is_valid = limit == 5 || limit == 10 || limit == 15 || limit == 20;
+        let is_valid = limit >= 2 && limit <= 30;
 
         if !is_valid {
-            let webhook_error = WebhookInputValidationError::InvalidPerPage;
+            let webhook_error = WebhookInputValidationError::InvalidLimit;
             let err = InputValidationError::Webhook(webhook_error);
 
             bail!(err);
