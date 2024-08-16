@@ -14,7 +14,7 @@ struct OpenProjectResponse {
 pub async fn handle_open_project(api_key: String, name: String) -> Result<()> {
     // send request
     let mut spinner = request_spinner();
-    let project_res = projects::get_project_url(api_key, name).await;
+    let project_res = projects::get_project_dashboard_url(api_key, name).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
