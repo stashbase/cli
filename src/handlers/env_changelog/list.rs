@@ -5,7 +5,11 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::env_changelog,
-    models::{api_client::GetRequestApiResponse, env_changelog::EnvChangelogList},
+    models::{
+        api_client::GetRequestApiResponse,
+        env_changelog::EnvChangelogList,
+        validation::{EnvChangelogInputValidationError, InputValidationError},
+    },
     utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
@@ -49,6 +53,14 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
                 format!("- message: {error_msg}\n- hint: {hint}")
             );
             bail!(formatted_err);
+        }
+    }
+
+    if let Some(limit) = limit {
+        if limit < 1 || limit > 10 {
+            let error =
+                InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidLimit);
+            bail!(error);
         }
     }
 
