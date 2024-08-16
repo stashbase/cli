@@ -96,6 +96,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                         OutputFormat::Table => {
                             if webhook_logs.data.is_empty() {
                                 eprintln!("No logs\n");
+                                eprintln!("{}", webhook_logs.pagination);
                                 // return Ok(());
                             } else {
                                 let table_logs = webhook_logs
@@ -109,9 +110,8 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
                                 let table = tables::build::build_table(&table_logs);
                                 println!("{}", table);
+                                eprintln!("\n{}", webhook_logs.pagination);
                             }
-
-                            eprintln!("\n{}", webhook_logs.pagination);
                         }
                     }
                 }
