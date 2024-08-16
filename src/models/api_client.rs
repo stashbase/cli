@@ -329,6 +329,9 @@ pub enum ProjectError {
 
     #[serde(rename = "quota.project_limit_reached")]
     ProjectLimitReached,
+
+    #[serde(rename = "validation.new_project_name_equals_original")]
+    NewNameEqualsOriginal,
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,6 +582,10 @@ impl From<ApiError> for CustomError {
                             },
                         }
                     }
+                    ProjectError::NewNameEqualsOriginal => CustomError {
+                        message: format!("new project name equals original"),
+                        hint: Some(format!("use a different new name")),
+                    },
                 }
             }
             ApiErrorEntity::Environment(e) => match e {
