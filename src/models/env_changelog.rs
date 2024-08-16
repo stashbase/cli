@@ -5,17 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::human_datetime::get_human_datetime;
 
-use super::environments::EnvType;
+use super::{environments::EnvType, shared::PaginationMetadata};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvChangelogList {
-    // pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<usize>,
-    pub pages: usize,
-
     pub data: Vec<EnvChangelogListItem>,
+    pub pagination: PaginationMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -202,16 +198,17 @@ impl Display for EnvChangelogList {
         // // };
         // //
         writeln!(f, "{}", list_string)?;
+        writeln!(f, "{}", self.pagination)?;
 
-        // writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
-        let page = self.page.unwrap_or(1);
-
-        if self.pages == 0 {
-            writeln!(f, "No changes")?;
-        } else {
-            writeln!(f, "{} {}/{}", "Pages:".green(), page, self.pages)?;
-        }
-
+        // // writeln!(f, "{} {}", "Has more:".green(), self.has_more)?;
+        // let page = self.page.unwrap_or(1);
+        //
+        // if self.pages == 0 {
+        //     writeln!(f, "No changes")?;
+        // } else {
+        //     writeln!(f, "{} {}/{}", "Pages:".green(), page, self.pages)?;
+        // }
+        //
         Ok(())
     }
 }
