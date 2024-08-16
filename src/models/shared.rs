@@ -31,8 +31,8 @@ impl fmt::Display for PaginationMetadata {
             self.limit,
             self.next_page.map_or("None".to_string(), |n| n.to_string()),
             self.prev_page.map_or("None".to_string(), |p| p.to_string()),
-            self.total_items,
             self.total_pages,
+            self.total_items,
         )
     }
 }
