@@ -16,7 +16,13 @@ pub async fn handle_duplicate_environment(
     new_name: String,
 ) -> Result<()> {
     // validation
-    let input_valid_res = validate_input(&project, &environment, &Some(new_name.clone()), &None);
+    let input_valid_res = validate_input(
+        &project,
+        &environment,
+        &Some(new_name.clone()),
+        &None,
+        &None,
+    );
 
     if let Err(err) = input_valid_res {
         bail!(err);
