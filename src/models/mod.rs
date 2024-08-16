@@ -5,5 +5,6 @@ pub mod env_changelog;
 pub mod environments;
 pub mod projects;
 pub mod secrets;
+pub mod shared;
 pub mod validation;
 pub mod webhooks;
