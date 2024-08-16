@@ -7,7 +7,10 @@ use crate::{
     cmd::{config::OutputFormat, projects::Sort},
     models::{
         api_client::GetRequestApiResponse,
-        projects::{ProjectWithCount, ProjectWithCountNoDescriptionTable},
+        projects::{
+            ProjectList, ProjectWithCountNoDescriptionTable, SingleListProject,
+            SingleListProjectWithoutDescription,
+        },
     },
     utils::{
         human_datetime::get_human_datetime, spinner::request_spinner, tables,
@@ -58,11 +61,13 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     match project_res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-            let projects = serde_json::from_str::<Vec<ProjectWithCount>>(&data.text);
+            let data = serde_json::from_str::<ProjectList>(&data.text);
 
-            match projects {
-                Ok(mut projects) => {
-                    debug!("{:#?}", &projects);
+            match data {
+                Ok(data) => {
+                    debug!("{:#?}", &data);
+
+                    let mut projects = data.data;
 
                     if projects.is_empty() {
                         spinner.stop_with_message("No projects found");
@@ -85,7 +90,8 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    debug!("{:#?}", &e);
                     spinner.stop_and_persist("", "");
                     bail!("Something went wrong")
                 }
@@ -146,7 +152,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     // Ok(())
 }
 
-fn output_list(projects: Vec<ProjectWithCount>) {
+fn output_list(projects: Vec<SingleListProject>) {
     for (i, p) in projects.iter().enumerate() {
         if i == projects.len() - 1 {
             print!("{}", p);
@@ -156,14 +162,14 @@ fn output_list(projects: Vec<ProjectWithCount>) {
     }
 }
 
-fn output_json(projects: Vec<ProjectWithCount>) {
+fn output_json(projects: Vec<SingleListProject>) {
     let value = serde_json::to_value(&projects).unwrap();
     let pretty = to_colored_json_auto(&value).unwrap();
 
     println!("{}", pretty);
 }
 
-fn output_table(projects: Vec<ProjectWithCount>) {
+fn output_table(projects: Vec<SingleListProject>) {
     let has_description = projects.iter().any(|p| p.description.is_some());
     if has_description {
         let projects_formatted: Vec<_> = projects
@@ -183,7 +189,7 @@ fn output_table(projects: Vec<ProjectWithCount>) {
             .map(|mut p| {
                 let (formatted, relative) = get_human_datetime(&p.created_at);
                 p.created_at = format!("{} ({})", formatted, relative);
-                ProjectWithCountNoDescriptionTable::from(p)
+                SingleListProjectWithoutDescription::from(p)
             })
             .collect();
 
