@@ -314,6 +314,9 @@ pub enum EnvironmentError {
 
     #[serde(rename = "validation.environment_self_comparison")]
     SelfComparison,
+
+    #[serde(rename = "validation.new_environment_name_equals_original")]
+    NewNameEqualsOriginal,
 }
 
 #[derive(Debug, Deserialize)]
@@ -634,6 +637,10 @@ impl From<ApiError> for CustomError {
                 EnvironmentError::SelfComparison => CustomError {
                     message: "environment comapring with itself".to_string(),
                     hint: Some(format!("use different environment for comparison")),
+                },
+                EnvironmentError::NewNameEqualsOriginal => CustomError {
+                    message: format!("new environment name equals original"),
+                    hint: Some(format!("use a different new name")),
                 },
             },
             ApiErrorEntity::Secret(e) => match e {
