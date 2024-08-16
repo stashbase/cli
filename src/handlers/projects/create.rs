@@ -5,7 +5,7 @@ use crate::{
     api::projects,
     models::{
         api_client::RequestApiOptionResponse,
-        projects::CreateProjectPayload,
+        projects::{CreateProjectPayload, CreateProjectResponse},
         validation::{InputValidationError, ProjectInputValidationError},
     },
     utils::{
@@ -49,9 +49,29 @@ pub async fn handle_create_project(
     let project_res = project_res.unwrap();
 
     match project_res {
-        RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("🔥 Project created!");
-        }
+        RequestApiOptionResponse::Ok(res) => match res.text {
+            Some(text) => {
+                let response = serde_json::from_str::<CreateProjectResponse>(&text);
+
+                match response {
+                    Ok(data) => {
+                        // let msg = format!("🔥 Project with id {} created!", data.id);
+                        // spinner.stop_with_message(&msg);
+
+                        let msg = format!("🔥 Project created!");
+                        spinner.stop_with_message(&msg);
+                        println!("{}", data.id);
+                    }
+                    Err(e) => {
+                        error!("{:#?}", e);
+                        spinner.stop_with_message(&format!("{}", "Something went wrong"));
+                    }
+                }
+            }
+            None => {
+                spinner.stop_with_message(&format!("{}", "Something went wrong"));
+            }
+        },
         RequestApiOptionResponse::Err(e) => {
             // spinner.stop_and_persist("", "");
             // eprint!("{}", e);
