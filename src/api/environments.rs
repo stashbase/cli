@@ -10,7 +10,6 @@ use crate::{
         },
         environments::{
             CreatEnvironmentPayload, DuplicateEnvironmentPayload, UpdateEnvironmentPayload,
-            UpdateEnvironmentTypePayload,
         },
     },
 };
@@ -212,26 +211,6 @@ pub async fn duplicate(
     };
 
     client::post_request(args, Some(data)).await
-}
-
-pub async fn update_type(
-    api_key: String,
-    project: String,
-    environment: String,
-    data: &UpdateEnvironmentTypePayload,
-) -> Result<RequestApiOptionResponse> {
-    let subpath = format!("{}/type", environment);
-
-    let args = RequestArgs {
-        path: ApiPath::Environments {
-            project,
-            path: Some(subpath),
-        },
-        query: None,
-        api_key,
-    };
-
-    client::patch_request(args, Some(data)).await
 }
 
 pub async fn set_lock(

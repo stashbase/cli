@@ -209,12 +209,6 @@ pub struct CreateEnvironmentResponse {
     pub dashboard_url: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct UpdateEnvironmentTypePayload {
-    #[serde(rename = "type")]
-    pub env_type: EnvType,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateEnvironmentPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
