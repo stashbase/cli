@@ -2,11 +2,12 @@ use core::fmt;
 
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use super::{config::OutputFormat, secrets::SecretsFileFormat, shared::SharedProjectEnvArgs};
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
-#[derive(Debug, ValueEnum, Clone)]
+#[derive(Debug, ValueEnum, Clone, Serialize, Deserialize)]
 pub enum EnvironmentType {
     #[clap(alias = "dev")]
     Development,
@@ -361,6 +362,10 @@ pub struct UpdateEnvironment {
     /// Environment description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
+
+    // #[arg(name = "type")]
+    #[arg(value_enum, name = "type", short = 't', long = "type")]
+    pub env_type: Option<EnvironmentType>,
 }
 
 #[derive(Debug, Args)]
