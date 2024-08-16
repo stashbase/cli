@@ -461,12 +461,6 @@ pub struct ListChangelog {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    // /// Environment name
-    // pub name: String,
-    /// Show secret values
-    #[arg(value_enum, long = "page")]
-    pub page: Option<usize>,
-
     /// Show secret values
     // #[arg(value_enum, long = "only-secrets")]
     // pub only_secrets: bool,
@@ -474,6 +468,14 @@ pub struct ListChangelog {
     /// Show secret values
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
+
+    /// Page (selected page)
+    #[arg(value_enum, long = "page")]
+    pub page: Option<usize>,
+
+    /// Take (number of) items per page
+    #[arg(value_enum, long = "limit")]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Args)]
