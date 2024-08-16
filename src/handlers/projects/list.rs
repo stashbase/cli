@@ -12,6 +12,7 @@ use crate::{
             SingleListProjectWithoutDescription,
         },
         shared::PaginationMetadata,
+        validation::{InputValidationError, ProjectInputValidationError},
     },
     utils::{
         human_datetime::get_human_datetime, spinner::request_spinner, tables,
@@ -46,6 +47,13 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
 
         if let Err(err) = search_validation_res {
             bail!(err);
+        }
+    }
+
+    if let Some(limit) = limit {
+        if limit < 2 || limit > 30 {
+            let error = InputValidationError::Projects(ProjectInputValidationError::InvalidLimit);
+            bail!(error);
         }
     }
 
