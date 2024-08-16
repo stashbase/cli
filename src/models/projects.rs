@@ -6,6 +6,8 @@ use tabled::Tabled;
 
 use crate::utils::human_datetime::get_human_datetime;
 
+use super::shared::PaginationMetadata;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -34,20 +36,48 @@ pub struct UpdateProjectPayload {
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectWithCount {
-    #[tabled(rename = "Name", order = 0)]
+pub struct SingleListProject {
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
     pub name: String,
+
     // date string
-    #[tabled(rename = "Created at", order = 1)]
+    #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 3)]
+    #[tabled(rename = "Description", order = 4)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Environments", order = 2)]
+    #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleListProjectWithoutDescription {
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
+
+    #[tabled(rename = "Environments", order = 3)]
+    pub environment_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectList {
+    pub data: Vec<SingleListProject>,
+    pub pagination: PaginationMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -130,9 +160,19 @@ fn display_option(d: &Option<String>) -> String {
     }
 }
 
-impl From<ProjectWithCount> for ProjectWithCountNoDescriptionTable {
-    fn from(project: ProjectWithCount) -> Self {
+// impl From<ProjectWithCount> for ProjectWithCountNoDescriptionTable {
+//     fn from(project: ProjectWithCount) -> Self {
+//         Self {
+//             name: project.name,
+//             created_at: project.created_at,
+//             environment_count: project.environment_count,
+//         }
+//     }
+// }
+impl From<SingleListProject> for SingleListProjectWithoutDescription {
+    fn from(project: SingleListProject) -> Self {
         Self {
+            id: project.id,
             name: project.name,
             created_at: project.created_at,
             environment_count: project.environment_count,
@@ -156,12 +196,13 @@ impl Display for Project {
     }
 }
 
-impl Display for ProjectWithCount {
+impl Display for SingleListProject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
         writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
 
+        writeln!(f, "{} {}", "Id".green(), self.id)?;
         writeln!(f, "{} {}", "Project name:".green(), self.name)?;
 
         if let Some(description) = &self.description {
