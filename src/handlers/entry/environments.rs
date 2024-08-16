@@ -150,6 +150,7 @@ pub async fn handle_environment_commands(
                     args.identifier,
                     args.new_name,
                     args.description,
+                    args.env_type,
                 )
                 .await?
             }

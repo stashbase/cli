@@ -3,6 +3,7 @@ use log::{debug, error};
 
 use crate::{
     api::environments,
+    cmd::environments::EnvironmentType,
     models::{
         api_client::RequestApiOptionResponse,
         environments::UpdateEnvironmentPayload,
@@ -24,6 +25,7 @@ pub async fn handle_update_environment(
     environment: String,
     new_name: Option<String>,
     new_description: Option<String>,
+    new_type: Option<EnvironmentType>,
 ) -> Result<()> {
     // validation
     let input_valid_res = validate_input(&project, &environment, &new_name, &new_description);
