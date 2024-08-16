@@ -18,6 +18,8 @@ pub async fn list_projects(
     search: Option<String>,
     sort: Sort,
     descending: bool,
+    page: Option<usize>,
+    limit: Option<usize>,
 ) -> Result<GetRequestApiResponse> {
     let mut query = vec![("sort".to_string(), format!("{}", sort))];
 
@@ -27,6 +29,14 @@ pub async fn list_projects(
 
     if let Some(search) = search {
         query.push(("search".to_string(), search));
+    }
+
+    if let Some(page) = page {
+        query.push(("page".to_string(), page.to_string()));
+    }
+
+    if let Some(limit) = limit {
+        query.push(("limit".to_string(), limit.to_string()));
     }
 
     let args = RequestArgs {
