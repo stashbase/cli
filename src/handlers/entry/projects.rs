@@ -31,6 +31,8 @@ pub async fn handle_project_commands(
                 search: args.search,
                 sort: args.sort,
                 descending: args.descending,
+                page: args.page,
+                limit: args.limit,
                 format,
             };
 
