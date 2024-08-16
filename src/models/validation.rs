@@ -34,6 +34,7 @@ pub enum ProjectInputValidationError {
 
     SearchTooShort,
     SearchFormat,
+    InvalidLimit,
 
     // update
     NoUpdateFlags,
@@ -243,6 +244,10 @@ impl fmt::Display for ProjectInputValidationError {
             ProjectInputValidationError::NewNameTooLong => {
                 msg = "name option value is too long";
                 hint = Some("maximum is 40 characters");
+            }
+            ProjectInputValidationError::InvalidLimit => {
+                msg = "limit option value is invalid";
+                hint = Some("limit can range from 2 to 30");
             }
         }
 
