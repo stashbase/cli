@@ -311,6 +311,9 @@ pub enum EnvironmentError {
 
     #[serde(rename = "quota.environment_limit_reached")]
     EnvironmentLimitReached,
+
+    #[serde(rename = "validation.environment_self_comparison")]
+    SelfComparison,
 }
 
 #[derive(Debug, Deserialize)]
@@ -627,6 +630,10 @@ impl From<ApiError> for CustomError {
                 EnvironmentError::EnvironmentLocked => CustomError {
                     message: format!("this environment is locked"),
                     hint: Some(format!("unlock environment to perform this action")),
+                },
+                EnvironmentError::SelfComparison => CustomError {
+                    message: "environment comapring with itself".to_string(),
+                    hint: Some(format!("use different environment for comparison")),
                 },
             },
             ApiErrorEntity::Secret(e) => match e {
