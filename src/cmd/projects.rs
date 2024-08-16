@@ -54,6 +54,14 @@ pub struct ListProjects {
     #[arg(value_enum, long = "desc")]
     pub descending: bool,
 
+    /// Page (selected page)
+    #[arg(value_enum, long = "page")]
+    pub page: Option<usize>,
+
+    /// Take (number of) items per page
+    #[arg(value_enum, long = "limit")]
+    pub limit: Option<usize>,
+
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
