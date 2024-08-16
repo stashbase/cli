@@ -157,7 +157,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
                 match res_data {
                     Ok(data) => {
-                        let url = data.url;
+                        let url = data.dashboard_url;
 
                         eprintln!("{}", &format!("Opening URL: {}", url));
 
