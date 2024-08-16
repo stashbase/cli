@@ -23,6 +23,8 @@ pub struct HandleListProjectsArgs {
     pub search: Option<String>,
     pub sort: Option<Sort>,
     pub descending: bool,
+    pub page: Option<usize>,
+    pub limit: Option<usize>,
     pub format: OutputFormat,
 }
 
@@ -33,6 +35,8 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         sort,
         descending,
         format,
+        page,
+        limit,
     } = args;
 
     // validate search
@@ -47,8 +51,15 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     debug!("listing projects...:");
 
     let mut spinner = request_spinner();
-    let project_res =
-        projects::list_projects(api_key, search, sort.unwrap_or(Sort::Created), descending).await;
+    let project_res = projects::list_projects(
+        api_key,
+        search,
+        sort.unwrap_or(Sort::Created),
+        descending,
+        page,
+        limit,
+    )
+    .await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
