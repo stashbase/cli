@@ -137,9 +137,9 @@ pub async fn load(
 pub async fn get_url(
     api_key: String,
     project: String,
-    environment: String,
+    identifier: String,
 ) -> Result<GetRequestApiResponse> {
-    let subpath = format!("{}/link", environment);
+    let subpath = format!("{}/dashboard-url", identifier);
 
     let args = RequestArgs {
         path: ApiPath::Environments {
