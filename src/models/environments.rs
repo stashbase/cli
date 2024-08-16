@@ -45,6 +45,8 @@ impl From<EnvironmentType> for EnvType {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Environment {
+    pub id: String,
+
     // date string
     pub created_at: String,
     pub name: String,
@@ -63,45 +65,53 @@ pub struct Environment {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableEnvironment {
-    // date string
-    #[tabled(rename = "Created at", order = 1)]
-    pub created_at: String,
-    #[tabled(rename = "Name", order = 0)]
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
     pub name: String,
+
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 5)]
+    #[tabled(rename = "Description", order = 6)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Locked", order = 3)]
+    #[tabled(rename = "Locked", order = 4)]
     pub locked: bool,
 
     #[serde(rename = "type")]
-    #[tabled(rename = "Type", order = 2)]
+    #[tabled(rename = "Type", order = 3)]
     pub env_type: String,
 
-    #[tabled(rename = "Secrets", order = 4)]
+    #[tabled(rename = "Secrets", order = 5)]
     pub secret_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableEnvironmentWithoutDescription {
-    // date string
-    #[tabled(rename = "Created at", order = 1)]
-    pub created_at: String,
-    #[tabled(rename = "Name", order = 0)]
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
     pub name: String,
 
-    #[tabled(rename = "Locked", order = 3)]
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
+
+    #[tabled(rename = "Locked", order = 4)]
     pub locked: bool,
 
     #[serde(rename = "type")]
-    #[tabled(rename = "Type", order = 2)]
+    #[tabled(rename = "Type", order = 3)]
     pub env_type: String,
 
-    #[tabled(rename = "Secrets", order = 4)]
+    #[tabled(rename = "Secrets", order = 5)]
     pub secret_count: usize,
 }
 
@@ -111,6 +121,7 @@ impl From<Environment> for TableEnvironment {
         let created_at = format!("{} ({})", formatted, relative);
 
         Self {
+            id: env.id,
             created_at,
             name: env.name,
             description: env.description,
@@ -132,6 +143,7 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
         let created_at = format!("{} ({})", formatted, relative);
 
         Self {
+            id: env.id,
             created_at,
             name: env.name,
             locked: env.locked,
