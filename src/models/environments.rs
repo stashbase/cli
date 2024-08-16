@@ -200,6 +200,15 @@ pub struct CreatEnvironmentPayload {
     pub secrets: Option<Vec<Secret>>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateEnvironmentResponse {
+    pub id: String,
+    pub name: String,
+
+    #[serde(rename = "dashboardUrl")]
+    pub dashboard_url: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct UpdateEnvironmentTypePayload {
     #[serde(rename = "type")]
