@@ -55,6 +55,7 @@ pub async fn handle_environment_commands(
                     environment,
                     show_values: args.show_values,
                     page: args.page,
+                    limit: args.limit,
                     raw: json_output,
                 };
 

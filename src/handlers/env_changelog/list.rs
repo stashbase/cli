@@ -14,6 +14,7 @@ pub struct HandleEnvChangelogListArgs {
     pub project: String,
     pub environment: String,
     pub page: Option<usize>,
+    pub limit: Option<usize>,
     pub show_values: bool,
     // pub show_secrets: bool,
     // pub only_secrets: bool,
@@ -26,6 +27,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         project,
         environment,
         page,
+        limit,
         show_values,
         raw,
     } = args;
@@ -59,8 +61,9 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         api_key,
         project,
         environment,
-        page,
         show_values,
+        page,
+        limit,
     };
 
     let res = env_changelog::list(args).await;
