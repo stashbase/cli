@@ -58,8 +58,11 @@ pub async fn get_project(api_key: String, identifier: String) -> Result<GetReque
     client::get_request(args).await
 }
 
-pub async fn get_project_url(api_key: String, name: String) -> Result<GetRequestApiResponse> {
-    let subpath = format!("{}/url", name);
+pub async fn get_project_dashboard_url(
+    api_key: String,
+    identifier: String,
+) -> Result<GetRequestApiResponse> {
+    let subpath = format!("{}/dashboard-url", identifier);
 
     let args = RequestArgs {
         path: ApiPath::Projects(Some(subpath)),
