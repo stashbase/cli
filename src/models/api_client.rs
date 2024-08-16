@@ -294,7 +294,7 @@ pub enum EnvironmentError {
     #[serde(rename = "resource.compare_to_environment_not_found")]
     CompareToEnvironmentNotFound,
 
-    #[serde(rename = "conflict.environment_not_found")]
+    #[serde(rename = "conflict.environment_already_exists")]
     EnvironmentAlreadyExists,
 
     #[serde(rename = "conflict.environment_already_unlocked")]
