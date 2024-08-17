@@ -21,15 +21,15 @@ use crate::{
     utils::{
         output::get_output_format,
         validation::{
-            validate_project_environment, validate_webhook_description, validate_webhook_id,
-            validate_webhook_url,
+            validate_project_environment_identifier, validate_webhook_description,
+            validate_webhook_id, validate_webhook_url,
         },
     },
 };
 
 fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcommand) -> Result<()> {
     // validate project and environment
-    let input_valid = validate_project_environment(project, environment, true);
+    let input_valid = validate_project_environment_identifier(project, environment, false);
 
     if let Err(err) = input_valid {
         bail!(err);
