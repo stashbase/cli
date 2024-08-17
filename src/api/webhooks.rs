@@ -242,7 +242,7 @@ pub struct ListLogsArgs {
     pub webhook_id: String,
     pub page: Option<usize>,
     // per page
-    pub limit: Option<u8>,
+    pub limit: Option<usize>,
 }
 
 pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
