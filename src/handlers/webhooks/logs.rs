@@ -81,8 +81,6 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
     match res {
         GetRequestApiResponse::Ok(data) => {
-            spinner.stop_and_persist("", "");
-
             debug!("{:#?}", &data.text);
             let data = serde_json::from_str::<WebhookLogList>(&data.text);
 
@@ -92,6 +90,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
                     match format {
                         OutputFormat::List => {
+                            spinner.stop_and_persist("", "");
                             // if webhook_logs.data == 0 {
                             //     eprintln!("No logs");
                             //     return Ok(());
@@ -100,16 +99,18 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                             print!("{}", webhook_logs);
                         }
                         OutputFormat::Json => {
+                            spinner.stop_and_persist("", "");
                             let value = serde_json::to_value(&webhook_logs).unwrap();
                             let pretty = to_colored_json_auto(&value).unwrap();
                             println!("{}", pretty);
                         }
                         OutputFormat::Table => {
                             if webhook_logs.data.is_empty() {
-                                eprintln!("No logs\n");
+                                spinner.stop_with_message("No change\n");
                                 eprintln!("{}", webhook_logs.pagination);
                                 // return Ok(());
                             } else {
+                                spinner.stop_and_persist("", "");
                                 let table_logs = webhook_logs
                                     .data
                                     .into_iter()
