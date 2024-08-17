@@ -462,10 +462,6 @@ pub struct ListChangelog {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Show secret values
-    // #[arg(value_enum, long = "only-secrets")]
-    // pub only_secrets: bool,
-
-    /// Show secret values
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
 
