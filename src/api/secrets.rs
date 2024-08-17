@@ -74,7 +74,7 @@ pub async fn pull(
     query.push(("expand-refs".to_string(), expand_refs.to_string()));
 
     if with_description == false {
-        query.push(("no-description".to_string(), "true".to_string()));
+        query.push(("omit".to_string(), "description".to_string()));
     }
 
     let args = RequestArgs {
