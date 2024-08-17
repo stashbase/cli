@@ -11,7 +11,6 @@ use crate::{
     utils::{
         secrets::{format_secret_keys, format_secrets},
         spinner::request_spinner,
-        validation::{validate_project_environment, validate_secret_search},
     },
 };
 
@@ -34,12 +33,6 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         only_keys,
         expand_refs,
     } = args;
-
-    let validation_res = validate_project_environment(&project, &enironment, false);
-
-    if let Err(err) = validation_res {
-        bail!(err);
-    }
 
     // if let Some(search) = &search {
     //     let search_validation_res = validate_secret_search(search);

@@ -13,10 +13,7 @@ use crate::{
         duplicates::{self, find_duplicates},
         separator,
         spinner::request_spinner,
-        validation::{
-            validate_environment_name, validate_project_environment, validate_project_name,
-            validate_secret_keys,
-        },
+        validation::{validate_environment_name, validate_project_name, validate_secret_keys},
     },
 };
 
@@ -44,12 +41,6 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         );
 
         bail!("{}", msg);
-    }
-
-    let proj_env_validation_res = validate_project_environment(&project, &environment, false);
-
-    if let Err(err) = proj_env_validation_res {
-        bail!(err);
     }
 
     let key_value_pairs = separator::key_value(secrets);
