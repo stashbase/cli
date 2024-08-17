@@ -35,6 +35,7 @@ pub enum ProjectInputValidationError {
     SearchTooShort,
     SearchFormat,
     InvalidLimit,
+    InvalidPage,
 
     // update
     NoUpdateFlags,
@@ -52,6 +53,7 @@ pub enum WebhookInputValidationError {
     InvalidId,
     InvalidUrl,
     DescriptionTooLong,
+    InvalidPage,
 }
 
 // TODO: key length (min = 2 ???)
@@ -101,6 +103,7 @@ pub enum EnvChangelogInputValidationError {
     // InvalidIdLength,
     InvalidId,
     InvalidLimit,
+    InvalidPage,
 }
 
 #[derive(Debug)]
@@ -249,6 +252,10 @@ impl fmt::Display for ProjectInputValidationError {
             ProjectInputValidationError::InvalidLimit => {
                 msg = "limit option value is invalid";
                 hint = Some("limit can range from 2 to 30");
+            }
+            ProjectInputValidationError::InvalidPage => {
+                msg = "page option value is invalid";
+                hint = Some("page can range from 1 to 1000");
             }
         }
 
@@ -481,6 +488,10 @@ impl fmt::Display for EnvChangelogInputValidationError {
                 msg = "limit option value is invalid";
                 hint = Some("limit can range from 2 to 30");
             }
+            EnvChangelogInputValidationError::InvalidPage => {
+                msg = "page option value is invalid";
+                hint = Some("page can range from 1 to 1000");
+            }
         }
 
         if let Some(hint) = hint {
@@ -623,6 +634,10 @@ impl fmt::Display for WebhookInputValidationError {
             WebhookInputValidationError::DescriptionTooLong => {
                 msg = "description is too long";
                 hint = Some("maximum is 200 characters");
+            }
+            WebhookInputValidationError::InvalidPage => {
+                msg = "page option value is invalid";
+                hint = Some("page can range from 1 to 1000");
             }
         }
 
