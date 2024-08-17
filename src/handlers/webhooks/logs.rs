@@ -21,7 +21,7 @@ pub struct ListWebhookLogsArgs {
     pub webhook_id: String,
     pub page: Option<usize>,
     pub format: OutputFormat,
-    pub limit: Option<u8>,
+    pub limit: Option<usize>,
 }
 
 pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
@@ -40,6 +40,17 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
         if !is_valid {
             let webhook_error = WebhookInputValidationError::InvalidLimit;
+            let err = InputValidationError::Webhook(webhook_error);
+
+            bail!(err);
+        }
+    }
+
+    if let Some(page) = page {
+        let is_valid = page > 0 && page <= 1000;
+
+        if !is_valid {
+            let webhook_error = WebhookInputValidationError::InvalidPage;
             let err = InputValidationError::Webhook(webhook_error);
 
             bail!(err);
