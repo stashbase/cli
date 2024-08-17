@@ -36,12 +36,6 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         format,
     } = args;
 
-    let proj_env_validation_res = validate_project_environment(&project, &environment, false);
-
-    if let Err(err) = proj_env_validation_res {
-        bail!(err);
-    }
-
     let path = Path::new(&file_path);
     debug!("Path: {:#?}", path);
 

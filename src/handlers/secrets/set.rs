@@ -13,9 +13,7 @@ use crate::{
         duplicates::find_duplicates,
         interaction, separator,
         spinner::request_spinner,
-        validation::{
-            validate_project_environment, validate_secret_keys, validate_secrets_references,
-        },
+        validation::{validate_secret_keys, validate_secrets_references},
     },
 };
 
@@ -41,12 +39,6 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         let msg = format!("{} {}", "Input error:".red(), "no secrets to set");
 
         bail!("{}", msg);
-    }
-
-    let proj_env_validation_res = validate_project_environment(&project, &environment, false);
-
-    if let Err(err) = proj_env_validation_res {
-        bail!(err);
     }
 
     debug!("{:#?}", description);
