@@ -156,7 +156,8 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 match res_data {
                     Ok(data) => {
                         spinner.stop_with_message("🔥 Environment created!");
-                        eprintln!("{}", data.id);
+                        eprint!("Id: ");
+                        print!("{}\n", data.id);
 
                         if let Some(dashboard_url) = data.dashboard_url {
                             eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
