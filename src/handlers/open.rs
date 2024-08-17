@@ -8,7 +8,8 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 struct OpenDashboardResponse {
-    url: String,
+    #[serde(rename = "dashboardUrl")]
+    dashboard_url: String,
 }
 
 pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
@@ -30,7 +31,7 @@ pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
 
             match data {
                 Ok(data) => {
-                    let url = data.url;
+                    let url = data.dashboard_url;
                     spinner.stop_with_message(&format!("Opening URL: {}", url));
 
                     if let Err(err) = webbrowser::open(&url) {
