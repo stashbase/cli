@@ -179,7 +179,7 @@ pub struct GetWebhook {
     pub webhook_id: String,
 
     /// With signing secret
-    #[arg(value_enum, long = "secret")]
+    #[arg(value_enum, long = "with-secret")]
     pub with_secret: bool,
 
     /// Format output
