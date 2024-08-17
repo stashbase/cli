@@ -170,6 +170,24 @@ pub async fn update_status(args: UpdateStatusArgs) -> Result<RequestApiOptionRes
     client::patch_request(req_args, Some(&args.data)).await
 }
 
+pub type GetSecretArgs = RotateArgs;
+
+pub async fn get_secret(args: GetSecretArgs) -> Result<GetRequestApiResponse> {
+    let path = format!("{}/signing-secret", args.webhook_id);
+
+    let req_args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project: args.project,
+            environment: args.environment,
+            path: Some(path),
+        },
+        query: None,
+        api_key: args.api_key,
+    };
+
+    client::get_request(req_args).await
+}
+
 // update
 pub struct RotateArgs {
     pub api_key: String,
@@ -179,7 +197,7 @@ pub struct RotateArgs {
 }
 
 pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse> {
-    let path = format!("{}/secret", args.webhook_id);
+    let path = format!("{}/signing-secret", args.webhook_id);
 
     let req_args = RequestArgs {
         path: ApiPath::Webhooks {
@@ -224,7 +242,7 @@ pub struct ListLogsArgs {
     pub webhook_id: String,
     pub page: Option<usize>,
     // per page
-    pub per_page: Option<u8>,
+    pub limit: Option<usize>,
 }
 
 pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
@@ -234,7 +252,7 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
         environment,
         webhook_id,
         page,
-        per_page,
+        limit,
     } = args;
 
     let path = format!("{}/logs", webhook_id);
@@ -245,8 +263,8 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
         query.push(("page".to_string(), page.to_string()));
     }
 
-    if let Some(per_page) = per_page {
-        query.push(("per-page".to_string(), per_page.to_string()));
+    if let Some(limit) = limit {
+        query.push(("limit".to_string(), limit.to_string()));
     }
 
     let args = RequestArgs {

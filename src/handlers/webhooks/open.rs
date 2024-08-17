@@ -10,8 +10,8 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct GetEnvWebhookUrlResponse {
-    // #[serde(rename = "dashboardUrl")]
-    pub url: String,
+    #[serde(rename = "dashboardUrl")]
+    pub dashboard_url: String,
 }
 
 pub async fn handle_open_environment_webhook(
@@ -43,8 +43,8 @@ pub async fn handle_open_environment_webhook(
             match data {
                 Ok(data) => {
                     let url = match webhook_id {
-                        Some(_) => data.url,
-                        None => format!("{}/webhooks", data.url),
+                        Some(_) => data.dashboard_url,
+                        None => format!("{}/webhooks", data.dashboard_url),
                     };
 
                     spinner.stop_with_message(&format!("Opening URL: {}", url));

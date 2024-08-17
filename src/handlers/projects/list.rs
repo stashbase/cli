@@ -7,7 +7,12 @@ use crate::{
     cmd::{config::OutputFormat, projects::Sort},
     models::{
         api_client::GetRequestApiResponse,
-        projects::{ProjectWithCount, ProjectWithCountNoDescriptionTable},
+        projects::{
+            ProjectList, ProjectWithCountNoDescriptionTable, SingleListProject,
+            SingleListProjectWithoutDescription,
+        },
+        shared::PaginationMetadata,
+        validation::{InputValidationError, ProjectInputValidationError},
     },
     utils::{
         human_datetime::get_human_datetime, spinner::request_spinner, tables,
@@ -20,6 +25,8 @@ pub struct HandleListProjectsArgs {
     pub search: Option<String>,
     pub sort: Option<Sort>,
     pub descending: bool,
+    pub page: Option<usize>,
+    pub limit: Option<usize>,
     pub format: OutputFormat,
 }
 
@@ -30,6 +37,8 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         sort,
         descending,
         format,
+        page,
+        limit,
     } = args;
 
     // validate search
@@ -41,11 +50,32 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         }
     }
 
+    if let Some(limit) = limit {
+        if limit < 2 || limit > 30 {
+            let error = InputValidationError::Projects(ProjectInputValidationError::InvalidLimit);
+            bail!(error);
+        }
+    }
+
+    if let Some(page) = page {
+        if page < 1 || page > 1000 {
+            let error = InputValidationError::Projects(ProjectInputValidationError::InvalidPage);
+            bail!(error);
+        }
+    }
+
     debug!("listing projects...:");
 
     let mut spinner = request_spinner();
-    let project_res =
-        projects::list_projects(api_key, search, sort.unwrap_or(Sort::Created), descending).await;
+    let project_res = projects::list_projects(
+        api_key,
+        search,
+        sort.unwrap_or(Sort::Created),
+        descending,
+        page,
+        limit,
+    )
+    .await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
@@ -58,34 +88,42 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     match project_res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-            let projects = serde_json::from_str::<Vec<ProjectWithCount>>(&data.text);
+            let data = serde_json::from_str::<ProjectList>(&data.text);
 
-            match projects {
-                Ok(mut projects) => {
-                    debug!("{:#?}", &projects);
+            match data {
+                Ok(data) => {
+                    debug!("{:#?}", &data);
+
+                    if let OutputFormat::Json = format {
+                        output_json(&data);
+                        return Ok(());
+                    }
+
+                    let mut projects = data.data;
+                    let pagination = data.pagination;
 
                     if projects.is_empty() {
                         spinner.stop_with_message("No projects found");
+                        eprintln!("\n{}", pagination);
                     } else {
                         spinner.stop_and_persist("", "");
 
                         match format {
                             OutputFormat::List => {
-                                output_list(projects);
-                            }
-                            OutputFormat::Json => {
-                                output_json(projects);
+                                output_list(projects, pagination);
                             }
                             OutputFormat::Table => {
                                 // reverse because returned fro list -> last is first (for
                                 // lists)
                                 projects.reverse();
-                                output_table(projects);
+                                output_table(projects, pagination);
                             }
+                            OutputFormat::Json => unreachable!(),
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    debug!("{:#?}", &e);
                     spinner.stop_and_persist("", "");
                     bail!("Something went wrong")
                 }
@@ -146,7 +184,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     // Ok(())
 }
 
-fn output_list(projects: Vec<ProjectWithCount>) {
+fn output_list(projects: Vec<SingleListProject>, pagination: PaginationMetadata) {
     for (i, p) in projects.iter().enumerate() {
         if i == projects.len() - 1 {
             print!("{}", p);
@@ -154,16 +192,18 @@ fn output_list(projects: Vec<ProjectWithCount>) {
             println!("{}", p);
         }
     }
+
+    eprintln!("\n\n{}", pagination);
 }
 
-fn output_json(projects: Vec<ProjectWithCount>) {
-    let value = serde_json::to_value(&projects).unwrap();
+fn output_json(data: &ProjectList) {
+    let value = serde_json::to_value(data).unwrap();
     let pretty = to_colored_json_auto(&value).unwrap();
 
     println!("{}", pretty);
 }
 
-fn output_table(projects: Vec<ProjectWithCount>) {
+fn output_table(projects: Vec<SingleListProject>, pagination: PaginationMetadata) {
     let has_description = projects.iter().any(|p| p.description.is_some());
     if has_description {
         let projects_formatted: Vec<_> = projects
@@ -183,11 +223,13 @@ fn output_table(projects: Vec<ProjectWithCount>) {
             .map(|mut p| {
                 let (formatted, relative) = get_human_datetime(&p.created_at);
                 p.created_at = format!("{} ({})", formatted, relative);
-                ProjectWithCountNoDescriptionTable::from(p)
+                SingleListProjectWithoutDescription::from(p)
             })
             .collect();
 
         let table = tables::build::build_table(&projects_formatted);
         println!("{}", table);
     }
+
+    eprintln!("\n{}", pagination);
 }

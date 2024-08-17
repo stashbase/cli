@@ -4,7 +4,10 @@ use log::debug;
 use crate::{
     api::secrets,
     cmd::config::SecretsOutputFormat,
-    models::{api_client::GetRequestApiResponse, secrets::Secret},
+    models::{
+        api_client::GetRequestApiResponse,
+        secrets::{Secret, SecretOptional},
+    },
     utils::{
         secrets::{format_secret_keys, format_secrets},
         spinner::request_spinner,
@@ -62,15 +65,17 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     match res {
         GetRequestApiResponse::Ok(data) => match only_keys {
             true => {
-                let keys = serde_json::from_str::<Vec<String>>(&data.text);
+                let keys = serde_json::from_str::<Vec<SecretOptional>>(&data.text);
 
                 match keys {
-                    Ok(keys) => {
-                        if keys.is_empty() {
+                    Ok(secrets) => {
+                        if secrets.is_empty() {
                             spinner.stop_with_message("No secrets found");
                         } else {
-                            spinner.stop_and_persist("", "");
+                            let keys = secrets.into_iter().map(|s| s.key).collect::<Vec<_>>();
                             let print_string = format_secret_keys(keys, &format);
+
+                            spinner.stop_and_persist("", "");
 
                             println!("{}", print_string);
                         }

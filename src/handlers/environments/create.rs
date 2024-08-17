@@ -10,7 +10,7 @@ use crate::{
     handlers::environments::open::GetEnvUrlResponse,
     models::{
         api_client::RequestApiOptionResponse,
-        environments::{CreatEnvironmentPayload, EnvType},
+        environments::{CreatEnvironmentPayload, CreateEnvironmentResponse, EnvType},
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -148,25 +148,29 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
     match project_res {
         RequestApiOptionResponse::Ok(data) => {
-            spinner.stop_with_message("🔥 Environment created!");
-
             debug!("{:#?}", data.text);
 
             if let Some(json) = data.text {
-                let res_data = serde_json::from_str::<GetEnvUrlResponse>(&json);
+                let res_data = serde_json::from_str::<CreateEnvironmentResponse>(&json);
 
                 match res_data {
                     Ok(data) => {
-                        let url = data.url;
+                        spinner.stop_with_message("🔥 Environment created!");
+                        eprint!("Id: ");
+                        print!("{}\n", data.id);
 
-                        eprintln!("{}", &format!("Opening URL: {}", url));
+                        if let Some(dashboard_url) = data.dashboard_url {
+                            eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
 
-                        if let Err(err) = webbrowser::open(&url) {
-                            eprintln!("{}", &format!("Error opening URL: {}", err));
+                            if let Err(err) = webbrowser::open(&dashboard_url) {
+                                eprintln!("{}", &format!("Error opening URL: {}", err));
+                            }
                         }
                     }
                     Err(_) => {
-                        bail!("Something went wrong when when opening environment");
+                        spinner.stop_with_message(
+                            "Something went wrong when when opening environment",
+                        );
                     }
                 }
             }

@@ -5,7 +5,12 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::env_changelog,
-    models::{api_client::GetRequestApiResponse, env_changelog::EnvChangelogList},
+    cmd::environments::EnvChangelog,
+    models::{
+        api_client::GetRequestApiResponse,
+        env_changelog::EnvChangelogList,
+        validation::{EnvChangelogInputValidationError, InputValidationError},
+    },
     utils::{spinner::request_spinner, validation::validate_project_environment},
 };
 
@@ -14,6 +19,7 @@ pub struct HandleEnvChangelogListArgs {
     pub project: String,
     pub environment: String,
     pub page: Option<usize>,
+    pub limit: Option<usize>,
     pub show_values: bool,
     // pub show_secrets: bool,
     // pub only_secrets: bool,
@@ -26,6 +32,7 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         project,
         environment,
         page,
+        limit,
         show_values,
         raw,
     } = args;
@@ -50,6 +57,24 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         }
     }
 
+    if let Some(limit) = limit {
+        if limit < 1 || limit > 10 {
+            let error =
+                InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidLimit);
+
+            bail!(error);
+        }
+    }
+
+    if let Some(page) = page {
+        if page < 1 || page > 1_000 {
+            let error =
+                InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidPage);
+
+            bail!(error);
+        }
+    }
+
     // OK
     debug!("listing env changelog...");
 
@@ -59,8 +84,9 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         api_key,
         project,
         environment,
-        page,
         show_values,
+        page,
+        limit,
     };
 
     let res = env_changelog::list(args).await;
@@ -76,7 +102,6 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
     match res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-            spinner.stop_and_persist("", "");
 
             let response_data = serde_json::from_str::<EnvChangelogList>(&data.text);
 
@@ -85,11 +110,18 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
                     debug!("{:#?}", &list);
 
                     if raw {
+                        spinner.stop_and_persist("", "");
                         let value = serde_json::to_value(&list).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
                         println!("{}", pretty);
                     } else {
-                        print!("{}", list);
+                        if list.data.is_empty() {
+                            spinner.stop_with_message("No change\n");
+                            eprintln!("{}", list.pagination);
+                        } else {
+                            spinner.stop_and_persist("", "");
+                            print!("{}", list);
+                        }
                     }
                 }
                 Err(e) => {

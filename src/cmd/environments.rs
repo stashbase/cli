@@ -2,11 +2,12 @@ use core::fmt;
 
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use super::{config::OutputFormat, secrets::SecretsFileFormat, shared::SharedProjectEnvArgs};
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
-#[derive(Debug, ValueEnum, Clone)]
+#[derive(Debug, ValueEnum, Clone, Serialize, Deserialize)]
 pub enum EnvironmentType {
     #[clap(alias = "dev")]
     Development,
@@ -177,7 +178,6 @@ impl EnvironmentSubcommand {
             EnvironmentSubcommand::Compare(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Lock(l) => l.shared_args.project.as_ref(),
             EnvironmentSubcommand::Unlock(u) => u.shared_args.project.as_ref(),
-            EnvironmentSubcommand::SetType(s) => s.shared_args.project.as_ref(),
             EnvironmentSubcommand::Delete(d) => d.shared_args.project.as_ref(),
             EnvironmentSubcommand::Changelog(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Open(o) => o.shared_args.project.as_ref(),
@@ -215,10 +215,6 @@ pub enum EnvironmentSubcommand {
 
     /// Unlock project
     Unlock(SetEnvironmentLock),
-
-    /// Update environment type
-    #[clap(aliases = &["s"])]
-    SetType(SetType),
 
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
@@ -361,6 +357,10 @@ pub struct UpdateEnvironment {
     /// Environment description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
+
+    // #[arg(name = "type")]
+    #[arg(value_enum, name = "type", short = 't', long = "type")]
+    pub env_type: Option<EnvironmentType>,
 }
 
 #[derive(Debug, Args)]
@@ -429,23 +429,6 @@ pub struct CreateEnvironment {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "environments set-type <NAME_OR_ID> --type <TYPE> -p <PROJECT> [OPTIONS]"
-)]
-pub struct SetType {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectArgs,
-
-    /// Environment name or id
-    #[arg(value_name = "NAME_OR_ID")]
-    pub identifier: String,
-
-    // #[arg(name = "type")]
-    #[arg(value_enum, name = "type", short = 't', long = "type")]
-    pub env_type: EnvironmentType,
-}
-
-#[derive(Debug, Args)]
 pub struct EnvChangelog {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -478,19 +461,17 @@ pub struct ListChangelog {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    // /// Environment name
-    // pub name: String,
-    /// Show secret values
-    #[arg(value_enum, long = "page")]
-    pub page: Option<usize>,
-
-    /// Show secret values
-    // #[arg(value_enum, long = "only-secrets")]
-    // pub only_secrets: bool,
-
     /// Show secret values
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
+
+    /// Page (selected page)
+    #[arg(value_enum, long = "page")]
+    pub page: Option<usize>,
+
+    /// Take (number of) items per page
+    #[arg(value_enum, long = "limit")]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Args)]

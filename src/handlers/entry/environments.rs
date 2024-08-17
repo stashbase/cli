@@ -21,7 +21,6 @@ use crate::{
             open::handle_open_environment,
             set_lock::handle_set_env_lock,
             update::handle_update_environment,
-            update_type::handle_update_env_type,
         },
     },
     utils::output::get_output_format,
@@ -56,6 +55,7 @@ pub async fn handle_environment_commands(
                     environment,
                     show_values: args.show_values,
                     page: args.page,
+                    limit: args.limit,
                     raw: json_output,
                 };
 
@@ -131,9 +131,6 @@ pub async fn handle_environment_commands(
                 handle_create_environment(args).await?;
             }
 
-            EnvironmentSubcommand::SetType(args) => {
-                handle_update_env_type(api_key, project, args.identifier, args.env_type).await?;
-            }
             EnvironmentSubcommand::Lock(args) => {
                 handle_set_env_lock(api_key, project, args.identifier, true).await?;
             }
@@ -150,6 +147,7 @@ pub async fn handle_environment_commands(
                     args.identifier,
                     args.new_name,
                     args.description,
+                    args.env_type,
                 )
                 .await?
             }

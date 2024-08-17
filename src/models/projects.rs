@@ -6,6 +6,8 @@ use tabled::Tabled;
 
 use crate::utils::human_datetime::get_human_datetime;
 
+use super::shared::PaginationMetadata;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
@@ -32,35 +34,26 @@ pub struct UpdateProjectPayload {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectWithCount {
-    #[tabled(rename = "Name", order = 0)]
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectResponse {
+    pub id: String,
+
+    #[serde(skip_serializing)]
     pub name: String,
-    // date string
-    #[tabled(rename = "Created at", order = 1)]
-    pub created_at: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 3)]
-    pub description: Option<String>,
-
-    #[tabled(rename = "Environments", order = 2)]
-    pub environment_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
-pub struct SingleProjectTable {
-    #[tabled(rename = "Name", order = 0)]
-    pub name: String,
-    // date string
-    #[tabled(rename = "Created at", order = 1)]
-    pub created_at: String,
+pub struct SingleListProject {
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
 
-    #[tabled(rename = "User role", order = 2)]
-    pub role: String,
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
@@ -71,9 +64,60 @@ pub struct SingleProjectTable {
     pub environment_count: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleListProjectWithoutDescription {
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
+
+    #[tabled(rename = "Environments", order = 3)]
+    pub environment_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectList {
+    pub data: Vec<SingleListProject>,
+    pub pagination: PaginationMetadata,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleProjectTable {
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
+
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "User role", order = 3)]
+    pub user_role: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Description", order = 5)]
+    pub description: Option<String>,
+
+    #[tabled(rename = "Environments", order = 4)]
+    pub environment_count: usize,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SingleProject {
+    pub id: String,
+
     pub name: String,
     // date string
     pub created_at: String,
@@ -82,23 +126,30 @@ pub struct SingleProject {
     pub description: Option<String>,
 
     pub environment_count: usize,
-    pub role: ProjectUserRole,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_role: Option<ProjectUserRole>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SingleProjectWithCountNoDescriptionTable {
-    #[tabled(rename = "Name", order = 0)]
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
     pub name: String,
+
     // date string
-    #[tabled(rename = "Created at", order = 1)]
+    #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
-    #[tabled(rename = "Environments", order = 3)]
-    pub environment_count: usize,
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "User role", order = 3)]
+    pub user_role: Option<String>,
 
-    #[tabled(rename = "User role", order = 2)]
-    pub role: String,
+    #[tabled(rename = "Environments", order = 4)]
+    pub environment_count: usize,
 }
 
 // TODO: rename roles?
@@ -130,9 +181,19 @@ fn display_option(d: &Option<String>) -> String {
     }
 }
 
-impl From<ProjectWithCount> for ProjectWithCountNoDescriptionTable {
-    fn from(project: ProjectWithCount) -> Self {
+// impl From<ProjectWithCount> for ProjectWithCountNoDescriptionTable {
+//     fn from(project: ProjectWithCount) -> Self {
+//         Self {
+//             name: project.name,
+//             created_at: project.created_at,
+//             environment_count: project.environment_count,
+//         }
+//     }
+// }
+impl From<SingleListProject> for SingleListProjectWithoutDescription {
+    fn from(project: SingleListProject) -> Self {
         Self {
+            id: project.id,
             name: project.name,
             created_at: project.created_at,
             environment_count: project.environment_count,
@@ -156,12 +217,13 @@ impl Display for Project {
     }
 }
 
-impl Display for ProjectWithCount {
+impl Display for SingleListProject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
         writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
 
+        writeln!(f, "{} {}", "Id".green(), self.id)?;
         writeln!(f, "{} {}", "Project name:".green(), self.name)?;
 
         if let Some(description) = &self.description {
@@ -194,9 +256,12 @@ impl Display for SingleProject {
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
         writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
-        writeln!(f, "{} {}", "User role:".green(), self.role)?;
+        writeln!(f, "{} {}", "Id:".green(), self.id)?;
+        writeln!(f, "{} {}", "Name:".green(), self.name)?;
 
-        writeln!(f, "{} {}", "Project name:".green(), self.name)?;
+        if let Some(user_role) = &self.user_role {
+            writeln!(f, "{} {}", "User role:".green(), user_role)?;
+        }
 
         if let Some(description) = &self.description {
             writeln!(f, "{} {}", "Description:".green(), description)?;
@@ -218,12 +283,18 @@ impl From<SingleProject> for SingleProjectTable {
         let (formatted, relative) = get_human_datetime(&env.created_at);
         let created_at = format!("{} ({})", formatted, relative);
 
+        let user_role = match env.user_role {
+            Some(role) => Some(format!("{}", role)),
+            None => None,
+        };
+
         Self {
+            id: env.id,
             created_at,
             name: env.name,
-            role: env.role.to_string(),
-            environment_count: env.environment_count,
+            user_role,
             description: env.description,
+            environment_count: env.environment_count,
         }
     }
 }
@@ -233,10 +304,16 @@ impl From<SingleProject> for SingleProjectWithCountNoDescriptionTable {
         let (formatted, relative) = get_human_datetime(&env.created_at);
         let created_at = format!("{} ({})", formatted, relative);
 
+        let user_role = match env.user_role {
+            Some(role) => Some(format!("{}", role)),
+            None => None,
+        };
+
         Self {
+            id: env.id,
             created_at,
+            user_role,
             name: env.name,
-            role: env.role.to_string(),
             environment_count: env.environment_count,
         }
     }

@@ -90,9 +90,9 @@ impl fmt::Display for ApiPath {
             },
             ApiPath::Workspace { path } => match path {
                 Some(p) => {
-                    write!(f, "workspace/{}", p)
+                    write!(f, "v1/workspace/{}", p)
                 }
-                None => write!(f, "workspace"),
+                None => write!(f, "v1/workspace"),
             },
             ApiPath::Webhooks {
                 project,
@@ -294,7 +294,7 @@ pub enum EnvironmentError {
     #[serde(rename = "resource.compare_to_environment_not_found")]
     CompareToEnvironmentNotFound,
 
-    #[serde(rename = "conflict.environment_not_found")]
+    #[serde(rename = "conflict.environment_already_exists")]
     EnvironmentAlreadyExists,
 
     #[serde(rename = "conflict.environment_already_unlocked")]
@@ -311,6 +311,12 @@ pub enum EnvironmentError {
 
     #[serde(rename = "quota.environment_limit_reached")]
     EnvironmentLimitReached,
+
+    #[serde(rename = "validation.environment_self_comparison")]
+    SelfComparison,
+
+    #[serde(rename = "validation.new_environment_name_equals_original")]
+    NewNameEqualsOriginal,
 }
 
 #[derive(Debug, Deserialize)]
@@ -329,6 +335,9 @@ pub enum ProjectError {
 
     #[serde(rename = "quota.project_limit_reached")]
     ProjectLimitReached,
+
+    #[serde(rename = "validation.new_project_name_equals_original")]
+    NewNameEqualsOriginal,
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,6 +588,10 @@ impl From<ApiError> for CustomError {
                             },
                         }
                     }
+                    ProjectError::NewNameEqualsOriginal => CustomError {
+                        message: format!("new project name equals original"),
+                        hint: Some(format!("use a different new name")),
+                    },
                 }
             }
             ApiErrorEntity::Environment(e) => match e {
@@ -620,6 +633,14 @@ impl From<ApiError> for CustomError {
                 EnvironmentError::EnvironmentLocked => CustomError {
                     message: format!("this environment is locked"),
                     hint: Some(format!("unlock environment to perform this action")),
+                },
+                EnvironmentError::SelfComparison => CustomError {
+                    message: "environment comapring with itself".to_string(),
+                    hint: Some(format!("use different environment for comparison")),
+                },
+                EnvironmentError::NewNameEqualsOriginal => CustomError {
+                    message: format!("new environment name equals original"),
+                    hint: Some(format!("use a different new name")),
                 },
             },
             ApiErrorEntity::Secret(e) => match e {

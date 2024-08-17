@@ -6,16 +6,18 @@ use tabled::Tabled;
 
 use crate::utils::human_datetime::get_human_datetime;
 
+use super::shared::PaginationMetadata;
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct ListWebhook {
-    #[tabled(order = 0)]
+    #[tabled(rename = "Id", order = 0)]
     id: String,
 
-    #[tabled(order = 1)]
+    #[tabled(rename = "URL", order = 1)]
     url: String,
 
-    #[tabled(order = 2)]
+    #[tabled(rename = "Enabled", order = 2)]
     enabled: bool,
 }
 
@@ -38,42 +40,55 @@ impl Display for ListWebhook {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Webhook {
-    url: String,
-    enabled: bool,
+    pub id: String,
+    pub url: String,
+    pub enabled: bool,
 
-    created_at: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub created_at: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    signing_secret: Option<String>,
-    // created_by: string
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableWebhook {
-    #[tabled(order = 3)]
-    url: String,
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
 
-    #[tabled(order = 0)]
-    enabled: bool,
+    #[tabled(rename = "Enabled", order = 1)]
+    pub enabled: bool,
 
-    #[tabled(order = 1)]
-    created_at: String,
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
 
-    #[tabled(order = 4)]
-    description: String,
+    #[tabled(rename = "URL", order = 3)]
+    pub url: String,
 
-    #[tabled(order = 2)]
-    signing_secret: String,
-    // created_by: string
+    #[tabled(rename = "Description", order = 4)]
+    pub description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct TableWebhookNoDescription {
+    #[tabled(rename = "Id", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Enabled", order = 1)]
+    pub enabled: bool,
+
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
+
+    #[tabled(rename = "URL", order = 3)]
+    pub url: String,
 }
 
 impl From<Webhook> for TableWebhook {
     fn from(webhook: Webhook) -> Self {
         Self {
+            id: webhook.id,
             url: webhook.url,
             enabled: webhook.enabled,
             created_at: webhook.created_at,
@@ -81,10 +96,17 @@ impl From<Webhook> for TableWebhook {
                 .description
                 .unwrap_or_else(|| "".to_string())
                 .to_string(),
-            signing_secret: webhook
-                .signing_secret
-                .unwrap_or_else(|| "••••••••".to_string())
-                .to_string(),
+        }
+    }
+}
+
+impl From<Webhook> for TableWebhookNoDescription {
+    fn from(webhook: Webhook) -> Self {
+        Self {
+            id: webhook.id,
+            url: webhook.url,
+            enabled: webhook.enabled,
+            created_at: webhook.created_at,
         }
     }
 }
@@ -99,11 +121,6 @@ impl Display for Webhook {
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
         writeln!(f, "{} {} ({})", "Created at:", formatted, relative)?;
-
-        // optional secret
-        if let Some(signing_secret) = &self.signing_secret {
-            writeln!(f, "{} {}", "Signing secret:", signing_secret)?;
-        }
 
         writeln!(f, "{} {}", "URL:", self.url)?;
 
@@ -131,8 +148,7 @@ pub struct CreateWebhookPayload {
 pub struct CreateWebhookResponse {
     pub id: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signing_secret: Option<String>,
+    pub signing_secret: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,17 +290,19 @@ impl Display for TestWebhookError {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookSigningSecret {
+    pub signing_secret: String,
+}
+
 // logs
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebhookLogList {
-    // pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<usize>,
-    pub pages: usize,
-
     pub data: Vec<WebhookLog>,
+    pub pagination: PaginationMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -303,10 +321,10 @@ pub struct WebhookLog {
 
 #[derive(Debug, Tabled)]
 pub struct TableWebhookLog {
-    #[tabled(order = 0)]
+    #[tabled(rename = "Status", order = 0)]
     pub status: Status,
 
-    #[tabled(order = 1, rename = "message")]
+    #[tabled(order = 1, rename = "Mesage")]
     pub response_message: String,
 
     #[tabled(order = 2, rename = "HTTP status")]
@@ -315,7 +333,7 @@ pub struct TableWebhookLog {
     #[tabled(order = 3)]
     pub attempt: u8,
 
-    #[tabled(order = 4, rename = "processed")]
+    #[tabled(order = 4, rename = "Processed")]
     pub processed_at: String,
 }
 
@@ -395,15 +413,16 @@ impl Display for WebhookLogList {
             .join("\n");
 
         writeln!(f, "{}", list_string)?;
+        writeln!(f, "{}", self.pagination)?;
 
-        let page = self.page.unwrap_or(1);
-
-        if self.pages == 0 {
-            writeln!(f, "No changes")?;
-        } else {
-            writeln!(f, "{} {}/{}", "Pages:", page, self.pages)?;
-        }
-
+        // let page = self.page.unwrap_or(1);
+        //
+        // if self.pages == 0 {
+        //     writeln!(f, "No changes")?;
+        // } else {
+        //     writeln!(f, "{} {}/{}", "Pages:", page, self.pages)?;
+        // }
+        //
         Ok(())
     }
 }
