@@ -90,9 +90,9 @@ impl fmt::Display for ApiPath {
             },
             ApiPath::Workspace { path } => match path {
                 Some(p) => {
-                    write!(f, "workspace/{}", p)
+                    write!(f, "v1/workspace/{}", p)
                 }
-                None => write!(f, "workspace"),
+                None => write!(f, "v1/workspace"),
             },
             ApiPath::Webhooks {
                 project,
