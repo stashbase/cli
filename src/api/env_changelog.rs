@@ -30,19 +30,15 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse> {
     let mut query = vec![];
 
     if show_values == true {
-        query.push(("hidden".to_string(), "false".to_string()));
+        query.push(("show-values".to_string(), "true".to_string()));
+    }
+
+    if let Some(page) = page {
+        query.push(("page".to_string(), page.to_string()));
     }
 
     if let Some(limit) = limit {
         query.push(("limit".to_string(), limit.to_string()));
-    }
-
-    // if only_secrets == true {
-    //     query.push(("only-secrets".to_string(), "true".to_string()));
-    // }
-    //
-    if let Some(page) = page {
-        query.push(("page".to_string(), page.to_string()));
     }
 
     let args = RequestArgs {
