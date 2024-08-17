@@ -276,6 +276,12 @@ impl Display for TestWebhookError {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookSigningSecret {
+    pub signing_secret: String,
+}
+
 // logs
 
 #[derive(Debug, Serialize, Deserialize)]
