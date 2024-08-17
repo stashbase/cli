@@ -40,42 +40,55 @@ impl Display for ListWebhook {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Webhook {
-    url: String,
-    enabled: bool,
+    pub id: String,
+    pub url: String,
+    pub enabled: bool,
 
-    created_at: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
+    pub created_at: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    signing_secret: Option<String>,
-    // created_by: string
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableWebhook {
-    #[tabled(order = 3)]
-    url: String,
-
     #[tabled(order = 0)]
-    enabled: bool,
+    pub id: String,
 
     #[tabled(order = 1)]
-    created_at: String,
-
-    #[tabled(order = 4)]
-    description: String,
+    pub enabled: bool,
 
     #[tabled(order = 2)]
-    signing_secret: String,
-    // created_by: string
+    pub created_at: String,
+
+    #[tabled(order = 3)]
+    pub url: String,
+
+    #[tabled(order = 4)]
+    pub description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct TableWebhookNoDescription {
+    #[tabled(order = 0)]
+    pub id: String,
+
+    #[tabled(order = 1)]
+    pub enabled: bool,
+
+    #[tabled(order = 2)]
+    pub created_at: String,
+
+    #[tabled(order = 3)]
+    pub url: String,
 }
 
 impl From<Webhook> for TableWebhook {
     fn from(webhook: Webhook) -> Self {
         Self {
+            id: webhook.id,
             url: webhook.url,
             enabled: webhook.enabled,
             created_at: webhook.created_at,
@@ -83,10 +96,17 @@ impl From<Webhook> for TableWebhook {
                 .description
                 .unwrap_or_else(|| "".to_string())
                 .to_string(),
-            signing_secret: webhook
-                .signing_secret
-                .unwrap_or_else(|| "••••••••".to_string())
-                .to_string(),
+        }
+    }
+}
+
+impl From<Webhook> for TableWebhookNoDescription {
+    fn from(webhook: Webhook) -> Self {
+        Self {
+            id: webhook.id,
+            url: webhook.url,
+            enabled: webhook.enabled,
+            created_at: webhook.created_at,
         }
     }
 }
@@ -101,11 +121,6 @@ impl Display for Webhook {
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
         writeln!(f, "{} {} ({})", "Created at:", formatted, relative)?;
-
-        // optional secret
-        if let Some(signing_secret) = &self.signing_secret {
-            writeln!(f, "{} {}", "Signing secret:", signing_secret)?;
-        }
 
         writeln!(f, "{} {}", "URL:", self.url)?;
 
