@@ -1,6 +1,7 @@
 pub mod create;
 pub mod delete;
 pub mod get;
+pub mod get_secret;
 pub mod list;
 pub mod logs;
 pub mod open;

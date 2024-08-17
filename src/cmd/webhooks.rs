@@ -57,6 +57,9 @@ pub enum WebhookSubcommand {
     /// Send test event
     Test(TestWebhook),
 
+    /// Get signing secret
+    GetSecret(GetSigningSecret),
+
     /// Rotate signing secret
     RotateSecret(RoateteWebhookSecret),
 
@@ -151,6 +154,10 @@ impl WebhookSubcommand {
                 o.shared_args.project.as_deref(),
                 o.shared_args.environment.as_deref(),
             ),
+            WebhookSubcommand::GetSecret(s) => (
+                s.shared_args.project.as_deref(),
+                s.shared_args.environment.as_deref(),
+            ),
         }
     }
 }
@@ -185,6 +192,18 @@ pub struct GetWebhook {
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    override_usage = "webhooks get-secret <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
+pub struct GetSigningSecret {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    /// Id of webhook
+    pub webhook_id: String,
 }
 
 #[derive(Debug, Args)]
