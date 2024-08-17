@@ -5,6 +5,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::env_changelog,
+    cmd::environments::EnvChangelog,
     models::{
         api_client::GetRequestApiResponse,
         env_changelog::EnvChangelogList,
@@ -60,6 +61,16 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
         if limit < 1 || limit > 10 {
             let error =
                 InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidLimit);
+
+            bail!(error);
+        }
+    }
+
+    if let Some(page) = page {
+        if page < 1 || page > 1_000 {
+            let error =
+                InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidPage);
+
             bail!(error);
         }
     }
