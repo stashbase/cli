@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
@@ -14,6 +14,8 @@ use crate::{
         set::{handle_set_secrets, HandleSetSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
+    models::validation,
+    utils::validation::validate_project_environment_identifier,
 };
 
 fn get_output_format(
@@ -35,6 +37,12 @@ pub async fn handle_secrets_commands(
     default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
     let (project, environment) = cmd.try_get_project_environment()?;
+
+    let validation_res = validate_project_environment_identifier(&project, &environment, false);
+
+    if let Err(err) = validation_res {
+        bail!(err);
+    }
 
     match cmd.subcommand {
         SecretSubcommand::List(args) => {
