@@ -102,7 +102,6 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
     match res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-            spinner.stop_and_persist("", "");
 
             let response_data = serde_json::from_str::<EnvChangelogList>(&data.text);
 
@@ -111,11 +110,18 @@ pub async fn handle_list_changelog(args: HandleEnvChangelogListArgs) -> Result<(
                     debug!("{:#?}", &list);
 
                     if raw {
+                        spinner.stop_and_persist("", "");
                         let value = serde_json::to_value(&list).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
                         println!("{}", pretty);
                     } else {
-                        print!("{}", list);
+                        if list.data.is_empty() {
+                            spinner.stop_with_message("No change\n");
+                            eprintln!("{}", list.pagination);
+                        } else {
+                            spinner.stop_and_persist("", "");
+                            print!("{}", list);
+                        }
                     }
                 }
                 Err(e) => {
