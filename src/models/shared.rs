@@ -23,16 +23,30 @@ pub struct PaginationMetadata {
 impl fmt::Display for PaginationMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "------- Pagination Metadata -------")?;
+        write!(f, "Page: {} | Limit: {}", self.page, self.limit)?;
 
-        write!(
-            f,
-            "Page: {} | Limit: {} | Next Page: {} | Prev Page: {} | Total Pages: {} |  Total Items: {} ",
-            self.page,
-            self.limit,
-            self.next_page.map_or("None".to_string(), |n| n.to_string()),
-            self.prev_page.map_or("None".to_string(), |p| p.to_string()),
-            self.total_pages,
-            self.total_items,
-        )
+        if let Some(prev_page) = self.prev_page {
+            write!(f, " | Prev Page: {}", prev_page)?;
+        }
+
+        if let Some(next_page) = self.next_page {
+            write!(f, " | Next Page: {}", next_page)?;
+        }
+
+        write!(f, " | Total Pages: {}", self.total_pages)?;
+        write!(f, " | Total Items: {}", self.total_items)?;
+
+        Ok(())
+
+        // write!(
+        //     f,
+        //     "Page: {} | Limit: {} | Next Page: {} | Prev Page: {} | Total Pages: {} |  Total Items: {} ",
+        //     self.page,
+        //     self.limit,
+        //     self.next_page.map_or("None".to_string(), |n| n.to_string()),
+        //     self.prev_page.map_or("None".to_string(), |p| p.to_string()),
+        //     self.total_pages,
+        //     self.total_items,
+        // )
     }
 }
