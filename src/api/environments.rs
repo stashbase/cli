@@ -91,48 +91,6 @@ pub async fn get(
     client::get_request(args).await
 }
 
-pub async fn load(
-    api_key: String,
-    project: String,
-    environment: String,
-    // data: &Option<LoadEnvironmentPayload>,
-    only: Vec<String>,
-    exclude: Vec<String>,
-    expand_refs: bool,
-) -> Result<GetRequestApiResponse> {
-    let subpath = format!("{}/load", environment);
-
-    let mut query = match !only.is_empty() || !exclude.is_empty() {
-        true => {
-            let mut query = vec![];
-
-            if !only.is_empty() {
-                query.push(("only".to_string(), only.join(",")));
-            }
-
-            if !exclude.is_empty() {
-                query.push(("exclude".to_string(), exclude.join(",")));
-            }
-
-            query
-        }
-        false => Vec::with_capacity(1),
-    };
-
-    query.push(("expand-refs".to_string(), expand_refs.to_string()));
-
-    let args = RequestArgs {
-        api_key,
-        query: Some(query),
-        path: ApiPath::Environments {
-            project,
-            path: Some(subpath),
-        },
-    };
-
-    client::get_request(args).await
-}
-
 pub async fn get_url(
     api_key: String,
     project: String,
