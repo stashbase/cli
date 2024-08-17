@@ -9,6 +9,7 @@ use crate::{
         create::{handle_create_webhook, CreateWebhookArgs},
         delete::{handle_delete_webhook, DeleteWebhookArgs},
         get::{handle_get_webhook, GetWebhookArgs},
+        get_secret::{handle_get_webhook_secret, GetWebhookSecretArgs},
         list::{handle_list_webhooks, ListWebhooksArgs},
         logs::{handle_list_webhook_logs, ListWebhookLogsArgs},
         open::handle_open_environment_webhook,
@@ -20,15 +21,15 @@ use crate::{
     utils::{
         output::get_output_format,
         validation::{
-            validate_project_environment, validate_webhook_description, validate_webhook_id,
-            validate_webhook_url,
+            validate_project_environment_identifier, validate_webhook_description,
+            validate_webhook_id, validate_webhook_url,
         },
     },
 };
 
 fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcommand) -> Result<()> {
     // validate project and environment
-    let input_valid = validate_project_environment(project, environment, true);
+    let input_valid = validate_project_environment_identifier(project, environment, false);
 
     if let Err(err) = input_valid {
         bail!(err);
@@ -177,7 +178,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: cmd_args.webhook_id,
                 page: cmd_args.page,
-                per_page: cmd_args.per_page,
+                limit: cmd_args.limit,
                 format,
             };
 
@@ -196,6 +197,16 @@ pub async fn handle_webhook_commands(
             };
 
             handle_rotate_webhook_secret(fn_args).await?;
+        }
+        WebhookSubcommand::GetSecret(cmd_args) => {
+            let fn_args = GetWebhookSecretArgs {
+                api_key,
+                project,
+                environment,
+                webhook_id: cmd_args.webhook_id,
+            };
+
+            handle_get_webhook_secret(fn_args).await?;
         }
     }
 

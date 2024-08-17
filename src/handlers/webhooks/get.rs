@@ -7,7 +7,7 @@ use crate::{
     cmd::config::OutputFormat,
     models::{
         api_client::GetRequestApiResponse,
-        webhooks::{TableWebhook, Webhook},
+        webhooks::{TableWebhook, TableWebhookNoDescription, Webhook},
     },
     utils::{spinner::request_spinner, tables},
 };
@@ -75,10 +75,17 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                             println!("{}", pretty);
                         }
                         OutputFormat::Table => {
-                            let table_webhook: TableWebhook = webhook.into();
+                            if let Some(_) = webhook.description {
+                                let table_webhook: TableWebhook = webhook.into();
 
-                            let table = tables::build::build_table(&Vec::from([table_webhook]));
-                            println!("{}", table);
+                                let table = tables::build::build_table(&Vec::from([table_webhook]));
+                                println!("{}", table);
+                            } else {
+                                let table_webhook: TableWebhookNoDescription = webhook.into();
+
+                                let table = tables::build::build_table(&Vec::from([table_webhook]));
+                                println!("{}", table);
+                            }
                         }
                     }
                 }

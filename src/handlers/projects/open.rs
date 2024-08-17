@@ -7,14 +7,15 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct OpenProjectResponse {
-    url: String,
+    dashboard_url: String,
 }
 
 pub async fn handle_open_project(api_key: String, name: String) -> Result<()> {
     // send request
     let mut spinner = request_spinner();
-    let project_res = projects::get_project_url(api_key, name).await;
+    let project_res = projects::get_project_dashboard_url(api_key, name).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
@@ -30,7 +31,7 @@ pub async fn handle_open_project(api_key: String, name: String) -> Result<()> {
 
             match data {
                 Ok(data) => {
-                    let url = data.url;
+                    let url = data.dashboard_url;
                     spinner.stop_with_message(&format!("Opening URL: {}", url));
 
                     if let Err(err) = webbrowser::open(&url) {

@@ -21,7 +21,7 @@ pub struct ListWebhookLogsArgs {
     pub webhook_id: String,
     pub page: Option<usize>,
     pub format: OutputFormat,
-    pub per_page: Option<u8>,
+    pub limit: Option<usize>,
 }
 
 pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
@@ -32,14 +32,25 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
         webhook_id,
         page,
         format,
-        per_page,
+        limit,
     } = args;
 
-    if let Some(per_page) = per_page {
-        let is_valid = per_page == 5 || per_page == 10 || per_page == 15 || per_page == 20;
+    if let Some(limit) = limit {
+        let is_valid = limit >= 2 && limit <= 30;
 
         if !is_valid {
-            let webhook_error = WebhookInputValidationError::InvalidPerPage;
+            let webhook_error = WebhookInputValidationError::InvalidLimit;
+            let err = InputValidationError::Webhook(webhook_error);
+
+            bail!(err);
+        }
+    }
+
+    if let Some(page) = page {
+        let is_valid = page > 0 && page <= 1000;
+
+        if !is_valid {
+            let webhook_error = WebhookInputValidationError::InvalidPage;
             let err = InputValidationError::Webhook(webhook_error);
 
             bail!(err);
@@ -52,7 +63,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
         environment,
         webhook_id,
         page,
-        per_page,
+        limit,
     };
 
     let mut spinner = request_spinner();
@@ -70,8 +81,6 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
     match res {
         GetRequestApiResponse::Ok(data) => {
-            spinner.stop_and_persist("", "");
-
             debug!("{:#?}", &data.text);
             let data = serde_json::from_str::<WebhookLogList>(&data.text);
 
@@ -81,37 +90,40 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
                     match format {
                         OutputFormat::List => {
-                            if webhook_logs.pages == 0 {
-                                eprintln!("No logs");
-                                return Ok(());
-                            }
+                            spinner.stop_and_persist("", "");
+                            // if webhook_logs.data == 0 {
+                            //     eprintln!("No logs");
+                            //     return Ok(());
+                            // }
 
                             print!("{}", webhook_logs);
                         }
                         OutputFormat::Json => {
+                            spinner.stop_and_persist("", "");
                             let value = serde_json::to_value(&webhook_logs).unwrap();
                             let pretty = to_colored_json_auto(&value).unwrap();
                             println!("{}", pretty);
                         }
                         OutputFormat::Table => {
-                            if webhook_logs.pages == 0 {
-                                eprintln!("No logs");
-                                return Ok(());
+                            if webhook_logs.data.is_empty() {
+                                spinner.stop_with_message("No change\n");
+                                eprintln!("{}", webhook_logs.pagination);
+                                // return Ok(());
+                            } else {
+                                spinner.stop_and_persist("", "");
+                                let table_logs = webhook_logs
+                                    .data
+                                    .into_iter()
+                                    .map(|item| {
+                                        let table_item: TableWebhookLog = item.into();
+                                        table_item
+                                    })
+                                    .collect();
+
+                                let table = tables::build::build_table(&table_logs);
+                                println!("{}", table);
+                                eprintln!("\n{}", webhook_logs.pagination);
                             }
-
-                            let table_logs = webhook_logs
-                                .data
-                                .into_iter()
-                                .map(|item| {
-                                    let table_item: TableWebhookLog = item.into();
-                                    table_item
-                                })
-                                .collect();
-
-                            let table = tables::build::build_table(&table_logs);
-                            println!("{}", table);
-
-                            println!("{} {}/{}", "Pages:", page.unwrap_or(1), webhook_logs.pages);
                         }
                     }
                 }
