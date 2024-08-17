@@ -8,8 +8,8 @@ use crate::{
     models::{
         api_client::GetRequestApiResponse,
         projects::{
-            ProjectWithCount, ProjectWithCountNoDescriptionTable, SingleProject,
-            SingleProjectTable, SingleProjectWithCountNoDescriptionTable,
+            ProjectWithCountNoDescriptionTable, SingleProject, SingleProjectTable,
+            SingleProjectWithCountNoDescriptionTable,
         },
     },
     utils::{
@@ -46,7 +46,7 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
             let project = serde_json::from_str::<SingleProject>(&data.text);
 
             match project {
-                Ok(mut project) => {
+                Ok(project) => {
                     debug!("{:#?}", &project);
 
                     match format {

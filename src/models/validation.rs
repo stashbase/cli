@@ -34,6 +34,8 @@ pub enum ProjectInputValidationError {
 
     SearchTooShort,
     SearchFormat,
+    InvalidLimit,
+    InvalidPage,
 
     // update
     NoUpdateFlags,
@@ -47,10 +49,11 @@ pub enum ProjectInputValidationError {
 pub enum WebhookInputValidationError {
     // update
     NoUpdateFlags,
-    InvalidPerPage,
+    InvalidLimit,
     InvalidId,
     InvalidUrl,
     DescriptionTooLong,
+    InvalidPage,
 }
 
 // TODO: key length (min = 2 ???)
@@ -99,6 +102,8 @@ pub enum EnvChangelogInputValidationError {
     // InvalidIdFormat,
     // InvalidIdLength,
     InvalidId,
+    InvalidLimit,
+    InvalidPage,
 }
 
 #[derive(Debug)]
@@ -223,12 +228,12 @@ impl fmt::Display for ProjectInputValidationError {
             }
             ProjectInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' and be exactly 25 characters long and consist of alphanumeric characters.";
+                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' followed by 22 alphanumeric characters.";
 
                     msg = "argument name or id is invalid";
                     hint = Some(&hint_str);
                 } else {
-                    let  hint_str = "The project name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' and be exactly 25 characters long and consist of alphanumeric characters.";
+                    let  hint_str = "The project name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' followed by 22 alphanumeric characters.";
 
                     msg = "argument project is invalid";
                     hint = Some(&hint_str);
@@ -243,6 +248,14 @@ impl fmt::Display for ProjectInputValidationError {
             ProjectInputValidationError::NewNameTooLong => {
                 msg = "name option value is too long";
                 hint = Some("maximum is 40 characters");
+            }
+            ProjectInputValidationError::InvalidLimit => {
+                msg = "limit option value is invalid";
+                hint = Some("limit can range from 2 to 30");
+            }
+            ProjectInputValidationError::InvalidPage => {
+                msg = "page option value is invalid";
+                hint = Some("page can range from 1 to 1000");
             }
         }
 
@@ -385,7 +398,7 @@ impl fmt::Display for EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::NoUpdateFlags => {
                 msg = "no update flag specified";
-                hint = Some("use one of: -n (--name), -d (--description)");
+                hint = Some("use one of: -n (--name), -d (--description), -t (--type)");
             }
             EnvironmentsInputValidationError::NewNameFormat => {
                 msg = "new name option value is invalid";
@@ -406,12 +419,12 @@ impl fmt::Display for EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' and be exactly 25 characters long and consist of alphanumeric characters.";
+                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' followed by 22 alphanumeric characters.";
 
                     msg = "argument name or id is invalid";
                     hint = Some(&hint_str);
                 } else {
-                    let  hint_str = "The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' and be exactly 25 characters long and consist of alphanumeric characters.";
+                    let  hint_str = "The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' followed by 22 alphanumeric characters.";
 
                     msg = "argument environment is invalid";
                     hint = Some(&hint_str);
@@ -470,6 +483,14 @@ impl fmt::Display for EnvChangelogInputValidationError {
             EnvChangelogInputValidationError::InvalidId => {
                 msg = "invalid changelog id";
                 hint = Some("is must be alphanumeric");
+            }
+            EnvChangelogInputValidationError::InvalidLimit => {
+                msg = "limit option value is invalid";
+                hint = Some("limit can range from 2 to 30");
+            }
+            EnvChangelogInputValidationError::InvalidPage => {
+                msg = "page option value is invalid";
+                hint = Some("page can range from 1 to 1000");
             }
         }
 
@@ -598,9 +619,9 @@ impl fmt::Display for WebhookInputValidationError {
                 msg = "no update flag specified";
                 hint = Some("use one of: -u (--url), -d (--description)");
             }
-            WebhookInputValidationError::InvalidPerPage => {
-                msg = "invalid '--per-page' option value";
-                hint = Some("value can be 5, 10, 15 or 20");
+            WebhookInputValidationError::InvalidLimit => {
+                msg = "invalid '--limit' option value";
+                hint = Some("limit can range from 2 to 30");
             }
             WebhookInputValidationError::InvalidId => {
                 msg = "invalid webhook id value";
@@ -613,6 +634,10 @@ impl fmt::Display for WebhookInputValidationError {
             WebhookInputValidationError::DescriptionTooLong => {
                 msg = "description is too long";
                 hint = Some("maximum is 200 characters");
+            }
+            WebhookInputValidationError::InvalidPage => {
+                msg = "page option value is invalid";
+                hint = Some("page can range from 1 to 1000");
             }
         }
 

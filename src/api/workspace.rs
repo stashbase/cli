@@ -4,7 +4,7 @@ use super::client;
 use crate::models::api_client::{ApiPath, GetRequestApiResponse, RequestArgs};
 
 pub async fn get_url(api_key: String) -> Result<GetRequestApiResponse> {
-    let subpath = format!("url");
+    let subpath = format!("dashboard-url");
 
     let args = RequestArgs {
         path: ApiPath::Workspace {
