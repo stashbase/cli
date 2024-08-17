@@ -197,7 +197,7 @@ pub struct RotateArgs {
 }
 
 pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse> {
-    let path = format!("{}/secret", args.webhook_id);
+    let path = format!("{}/signing-secret", args.webhook_id);
 
     let req_args = RequestArgs {
         path: ApiPath::Webhooks {
