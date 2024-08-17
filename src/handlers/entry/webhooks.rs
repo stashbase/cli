@@ -9,6 +9,7 @@ use crate::{
         create::{handle_create_webhook, CreateWebhookArgs},
         delete::{handle_delete_webhook, DeleteWebhookArgs},
         get::{handle_get_webhook, GetWebhookArgs},
+        get_secret::{handle_get_webhook_secret, GetWebhookSecretArgs},
         list::{handle_list_webhooks, ListWebhooksArgs},
         logs::{handle_list_webhook_logs, ListWebhookLogsArgs},
         open::handle_open_environment_webhook,
@@ -196,6 +197,16 @@ pub async fn handle_webhook_commands(
             };
 
             handle_rotate_webhook_secret(fn_args).await?;
+        }
+        WebhookSubcommand::GetSecret(cmd_args) => {
+            let fn_args = GetWebhookSecretArgs {
+                api_key,
+                project,
+                environment,
+                webhook_id: cmd_args.webhook_id,
+            };
+
+            handle_get_webhook_secret(fn_args).await?;
         }
     }
 
