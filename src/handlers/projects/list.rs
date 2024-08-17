@@ -57,6 +57,13 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         }
     }
 
+    if let Some(page) = page {
+        if page < 1 || page > 1000 {
+            let error = InputValidationError::Projects(ProjectInputValidationError::InvalidPage);
+            bail!(error);
+        }
+    }
+
     debug!("listing projects...:");
 
     let mut spinner = request_spinner();
