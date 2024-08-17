@@ -170,6 +170,24 @@ pub async fn update_status(args: UpdateStatusArgs) -> Result<RequestApiOptionRes
     client::patch_request(req_args, Some(&args.data)).await
 }
 
+pub type GetSecretArgs = RotateArgs;
+
+pub async fn get_secret(args: GetSecretArgs) -> Result<GetRequestApiResponse> {
+    let path = format!("{}/signing-secret", args.webhook_id);
+
+    let req_args = RequestArgs {
+        path: ApiPath::Webhooks {
+            project: args.project,
+            environment: args.environment,
+            path: Some(path),
+        },
+        query: None,
+        api_key: args.api_key,
+    };
+
+    client::get_request(req_args).await
+}
+
 // update
 pub struct RotateArgs {
     pub api_key: String,
