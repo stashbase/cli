@@ -11,13 +11,13 @@ use super::shared::PaginationMetadata;
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct ListWebhook {
-    #[tabled(order = 0)]
+    #[tabled(rename = "Id", order = 0)]
     id: String,
 
-    #[tabled(order = 1)]
+    #[tabled(rename = "URL", order = 1)]
     url: String,
 
-    #[tabled(order = 2)]
+    #[tabled(rename = "Enabled", order = 2)]
     enabled: bool,
 }
 
@@ -53,35 +53,35 @@ pub struct Webhook {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableWebhook {
-    #[tabled(order = 0)]
+    #[tabled(rename = "Id", order = 0)]
     pub id: String,
 
-    #[tabled(order = 1)]
+    #[tabled(rename = "Enabled", order = 1)]
     pub enabled: bool,
 
-    #[tabled(order = 2)]
+    #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
-    #[tabled(order = 3)]
+    #[tabled(rename = "URL", order = 3)]
     pub url: String,
 
-    #[tabled(order = 4)]
+    #[tabled(rename = "Description", order = 4)]
     pub description: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableWebhookNoDescription {
-    #[tabled(order = 0)]
+    #[tabled(rename = "Id", order = 0)]
     pub id: String,
 
-    #[tabled(order = 1)]
+    #[tabled(rename = "Enabled", order = 1)]
     pub enabled: bool,
 
-    #[tabled(order = 2)]
+    #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
-    #[tabled(order = 3)]
+    #[tabled(rename = "URL", order = 3)]
     pub url: String,
 }
 
@@ -321,10 +321,10 @@ pub struct WebhookLog {
 
 #[derive(Debug, Tabled)]
 pub struct TableWebhookLog {
-    #[tabled(order = 0)]
+    #[tabled(rename = "Status", order = 0)]
     pub status: Status,
 
-    #[tabled(order = 1, rename = "message")]
+    #[tabled(order = 1, rename = "Mesage")]
     pub response_message: String,
 
     #[tabled(order = 2, rename = "HTTP status")]
@@ -333,7 +333,7 @@ pub struct TableWebhookLog {
     #[tabled(order = 3)]
     pub attempt: u8,
 
-    #[tabled(order = 4, rename = "processed")]
+    #[tabled(order = 4, rename = "Processed")]
     pub processed_at: String,
 }
 

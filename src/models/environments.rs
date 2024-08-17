@@ -263,10 +263,10 @@ pub struct CompareEnvironmentsTableItem {
     #[tabled(rename = "Secret key", order = 0)]
     pub key: String,
 
-    #[tabled(order = 1)]
+    #[tabled(rename = "Value 1", order = 0)]
     pub value_1: String,
 
-    #[tabled(order = 2)]
+    #[tabled(rename = "Value 2", order = 0)]
     pub value_2: String,
 }
 
