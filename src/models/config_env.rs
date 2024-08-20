@@ -12,17 +12,17 @@ pub struct EnvConfigItem {
     pub description: Option<String>,
 
     pub secrets: Option<EnvConfigItemSecrets>,
-    pub pull: Option<PullEnvConfig>,
+    pub pull: Option<ActionConfig>,
 
     // both for push/pull
-    pub target: Option<PullEnvConfig>,
+    pub target: Option<ActionConfig>,
 
     // only for push
-    pub push: Option<PullEnvConfig>,
+    pub push: Option<ActionConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PullEnvConfig {
+pub struct ActionConfig {
     #[serde(rename = "path")]
     pub file: String,
     pub format: Option<PullFormat>,
