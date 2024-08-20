@@ -78,5 +78,6 @@ pub enum EntityType {
     #[clap(aliases = &["c", "conf"])]
     Config(ConfigCommand),
 
+    /// Open web dashboard
     Open,
 }
