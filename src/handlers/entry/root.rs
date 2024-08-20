@@ -15,6 +15,7 @@ use crate::{
         },
         open::handle_open_dashboard,
         pull::entry::{handle_pull, HandlePullArgs},
+        push::entry::{handle_push, HandlePushArgs},
         run::entry::{handle_load_env_run, HandleRunArgs},
     },
     models::config::Config,
@@ -126,6 +127,19 @@ pub async fn handle_cli(args: Cli) {
                 };
 
                 handle_pull(args).await
+            }
+
+            EntityType::Push(args) => {
+                let args = HandlePushArgs {
+                    api_key,
+                    config_file_path: args.config_file,
+                    input_file_path: args.input_file,
+                    format: args.format,
+                    only: args.only,
+                    exclude: args.exclude,
+                };
+
+                handle_push(args).await
             }
             EntityType::Open => handle_open_dashboard(api_key).await,
         };
