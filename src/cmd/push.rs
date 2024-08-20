@@ -11,11 +11,11 @@ pub struct PushCommand {
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// Output file path if not specified in the config
+    /// Input file path if not specified in the config
     #[arg(value_enum, short = 'i', long = "input")]
-    pub output_file: Option<String>,
+    pub input_file: Option<String>,
 
-    /// Format output
+    /// Input format
     #[arg(value_enum, long = "format")]
     pub format: Option<PullFormat>,
 
