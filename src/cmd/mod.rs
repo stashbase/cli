@@ -2,6 +2,7 @@ pub mod config;
 pub mod environments;
 pub mod projects;
 pub mod pull;
+pub mod push;
 pub mod root;
 pub mod run;
 pub mod secrets;

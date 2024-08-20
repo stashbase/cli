@@ -2,7 +2,8 @@ use clap::{Parser, Subcommand};
 
 use super::{
     config::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
-    pull::PullCommand, run::RunCommand, secrets::SecretArgs, webhooks::WebhookCommand,
+    pull::PullCommand, push::PushCommand, run::RunCommand, secrets::SecretArgs,
+    webhooks::WebhookCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -53,6 +54,9 @@ pub enum EntityType {
 
     /// Pull environments to local files
     Pull(PullCommand),
+
+    /// Push environments from local files
+    Push(PushCommand),
 
     #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
     /// Manage projects
