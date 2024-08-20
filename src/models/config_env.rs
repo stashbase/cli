@@ -23,7 +23,7 @@ pub struct EnvConfigItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullEnvConfig {
-    #[serde(rename = "output")]
+    #[serde(rename = "path")]
     pub file: String,
     pub format: Option<PullFormat>,
 }
