@@ -18,7 +18,7 @@ pub struct EnvConfigItem {
     pub target: Option<ActionConfig>,
 
     // only for push
-    pub push: Option<ActionConfig>,
+    pub push: Option<PushActionConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +26,20 @@ pub struct ActionConfig {
     #[serde(rename = "path")]
     pub file: String,
     pub format: Option<PullFormat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushActionConfig {
+    #[serde(rename = "path")]
+    pub file: String,
+    pub format: Option<PullFormat>,
+    pub secrets: Option<PushSecretsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushSecretsConfig {
+    pub only: Option<Vec<String>>,
+    pub exclude: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
