@@ -13,6 +13,12 @@ pub struct EnvConfigItem {
 
     pub secrets: Option<EnvConfigItemSecrets>,
     pub pull: Option<PullEnvConfig>,
+
+    // both for push/pull
+    pub target: Option<PullEnvConfig>,
+
+    // only for push
+    pub push: Option<PullEnvConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
