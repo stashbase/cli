@@ -52,10 +52,10 @@ pub enum EntityType {
     /// Load environment and run command
     Run(RunCommand),
 
-    /// Pull environments to local files
+    /// Pull secrets from environment
     Pull(PullCommand),
 
-    /// Push environments from local files
+    /// Push secrets to environment
     Push(PushCommand),
 
     #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
