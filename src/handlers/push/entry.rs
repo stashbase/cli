@@ -6,7 +6,9 @@ use crate::{
     handlers::pull::entry::load_from_file,
     models::{
         api_client::RequestApiOptionResponse,
-        validation::{InputValidationError, SecretsInputValidationError},
+        validation::{
+            InputValidationError, LoadEnvironmentInputValidationError, SecretsInputValidationError,
+        },
     },
     utils::{
         interaction,
@@ -55,18 +57,18 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         project = Some(config.project);
         environment = Some(config.environment);
 
-        match (config.pull, config.target) {
+        match (&config.push, config.target) {
             (None, None) => {
                 bail!("No target or push config for selected environment");
             }
             (Some(pull_config), None) => {
                 // check format
                 if let None = format {
-                    format = pull_config.format;
+                    format = pull_config.format.clone();
                 }
 
                 if let None = input_file_path {
-                    input_file_path = Some(pull_config.file);
+                    input_file_path = Some(pull_config.file.clone());
                 }
             }
             (None, Some(target)) => {
@@ -89,33 +91,93 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             }
         }
 
-        // if let Some(secrets) = config.secrets {
-        //     // only
-        //     if let Some(only_val) = secrets.only {
-        //         if only_val.is_empty() == false {
-        //             for only_secret in only_val {
-        //                 let already_exists = only.contains(&only_secret);
-        //
-        //                 if !already_exists {
-        //                     only.push(only_secret);
-        //                 }
-        //             }
-        //         }
-        //     }
-        //
-        //     // exclude
-        //     if let Some(exclude_val) = secrets.exclude {
-        //         if exclude_val.is_empty() == false {
-        //             for exclude_secret in exclude_val {
-        //                 let already_exists = exclude.contains(&exclude_secret);
-        //
-        //                 if !already_exists {
-        //                     exclude.push(exclude_secret);
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+        // TODO: refactor
+        // remove duplicate code
+        if let Some(push_config) = config.push {
+            if let Some(secrets) = push_config.secrets {
+                // only
+                if let Some(only_val) = secrets.only {
+                    if only_val.is_empty() == false {
+                        for only_secret in only_val {
+                            let already_exists = only.contains(&only_secret);
+
+                            if !already_exists {
+                                only.push(only_secret);
+                            }
+                        }
+                    }
+                }
+
+                // exclude
+                if let Some(exclude_val) = secrets.exclude {
+                    if exclude_val.is_empty() == false {
+                        for exclude_secret in exclude_val {
+                            let already_exists = exclude.contains(&exclude_secret);
+
+                            if !already_exists {
+                                exclude.push(exclude_secret);
+                            }
+                        }
+                    }
+                }
+            } else {
+                if let Some(secrets) = config.secrets {
+                    // only
+                    if let Some(only_val) = secrets.only {
+                        if only_val.is_empty() == false {
+                            for only_secret in only_val {
+                                let already_exists = only.contains(&only_secret);
+
+                                if !already_exists {
+                                    only.push(only_secret);
+                                }
+                            }
+                        }
+                    }
+
+                    // exclude
+                    if let Some(exclude_val) = secrets.exclude {
+                        if exclude_val.is_empty() == false {
+                            for exclude_secret in exclude_val {
+                                let already_exists = exclude.contains(&exclude_secret);
+
+                                if !already_exists {
+                                    exclude.push(exclude_secret);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            if let Some(secrets) = config.secrets {
+                // only
+                if let Some(only_val) = secrets.only {
+                    if only_val.is_empty() == false {
+                        for only_secret in only_val {
+                            let already_exists = only.contains(&only_secret);
+
+                            if !already_exists {
+                                only.push(only_secret);
+                            }
+                        }
+                    }
+                }
+
+                // exclude
+                if let Some(exclude_val) = secrets.exclude {
+                    if exclude_val.is_empty() == false {
+                        for exclude_secret in exclude_val {
+                            let already_exists = exclude.contains(&exclude_secret);
+
+                            if !already_exists {
+                                exclude.push(exclude_secret);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     } else {
         return Ok(());
     }
@@ -158,7 +220,29 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         bail!(err);
     }
 
-    let secrets = secrets_res.unwrap();
+    let mut secrets = secrets_res.unwrap();
+
+    if !only.is_empty() && !exclude.is_empty() {
+        let err = InputValidationError::LoadEnvironment(
+            LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
+        );
+
+        eprintln!();
+        bail!(err);
+    }
+
+    if only.is_empty() == false {
+        // filter unwanted secrets
+        secrets = secrets
+            .into_iter()
+            .filter(|secret| only.contains(&secret.key))
+            .collect();
+    } else if exclude.is_empty() == false {
+        secrets = secrets
+            .into_iter()
+            .filter(|secret| exclude.contains(&secret.key) == false)
+            .collect();
+    }
 
     if secrets.is_empty() {
         let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found");
