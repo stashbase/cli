@@ -26,6 +26,10 @@ pub struct PushCommand {
     /// Exclude secret keys
     #[clap(value_parser, long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
+
+    /// Manually set secrets
+    #[clap(value_parser, long="set", num_args = 1..)]
+    pub set: Vec<String>,
     //
     ///// Expand references to their values
     //#[arg(value_enum, long = "expand-refs")]
