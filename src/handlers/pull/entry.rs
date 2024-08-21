@@ -25,10 +25,7 @@ use crate::{
     utils::{
         interaction::{self, select},
         secrets::format_secrets,
-        validation::{
-            validate_project_environment, validate_project_environment_identifier,
-            validate_secret_keys,
-        },
+        validation::{validate_project_environment_identifier, validate_secret_keys},
     },
 };
 
