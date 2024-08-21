@@ -29,17 +29,21 @@ impl TryFrom<PullFormat> for SecretsOutputFormat {
 #[derive(Debug, Args)]
 #[command(override_usage = "pull [OPTIONS]")]
 pub struct PullCommand {
-    /// Relative path to a config file (default: env-ease.yaml)
+    /// Relative path to a config file (default: stashbase.yaml)
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// Output file path if not specified in the config
-    #[arg(value_enum, short = 'o', long = "output")]
-    pub output_file: Option<String>,
+    /// Target file path if not specified in the config
+    #[arg(value_enum, long = "file")]
+    pub file: Option<String>,
 
-    /// Format output
+    /// Target file format (autodetected by default)
     #[arg(value_enum, long = "format")]
     pub format: Option<PullFormat>,
+
+    /// Overwrite existing file without prompt
+    #[arg(value_enum, long = "overwrite")]
+    pub overwrite: bool,
 
     // /// Project name
     // #[arg(value_enum, short = 'p', long = "project")]

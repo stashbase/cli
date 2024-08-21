@@ -16,20 +16,16 @@ use crate::{
     handlers::run::entry::get_set_key_value_pairs,
     models::{
         api_client::GetRequestApiResponse,
-        config_env::EnvConfigItem,
+        config_env::{ConfigEntity, EnvConfigItem},
         secrets::Secret,
         validation::{
-            InputValidationError, LoadEnvironmentInputValidationError,
-            PullEnvironmentInputValidationError,
+            InputValidationError, LoadEnvironmentInputValidationError, PushPullInputValidationError,
         },
     },
     utils::{
         interaction::{self, select},
         secrets::format_secrets,
-        validation::{
-            validate_project_environment, validate_project_environment_identifier,
-            validate_secret_keys,
-        },
+        validation::{validate_project_environment_identifier, validate_secret_keys},
     },
 };
 
@@ -42,99 +38,115 @@ pub struct HandlePullArgs {
     pub set: Vec<String>,
     pub print_secrets: bool,
     pub file: Option<String>,
-    pub output_file: Option<String>,
+    pub target_file: Option<String>,
     pub format: Option<PullFormat>,
     pub expand_refs: Option<bool>,
+    pub overwrite_file: bool,
 }
 
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let HandlePullArgs {
         api_key,
         file,
-        set,
-        mut output_file,
+        mut set,
+        mut target_file,
         mut format,
         mut only,
         mut exclude,
         mut print_secrets,
         mut expand_refs,
+        overwrite_file,
     } = args;
 
-    let mut project: Option<String> = None;
-    let mut environment: Option<String> = None;
+    let project: Option<String>;
+    let environment: Option<String>;
     let mut setted_secrets = HashMap::<String, String>::new();
 
     // LOAD from file
-    let file_config = load_from_file(file.clone())?;
+    let file_config = load_from_file(file.clone(), &ConfigEntity::Pull)?;
     debug!("file_config: {:?}", file_config);
 
     if let Some(config) = file_config {
         debug!("config: {:?}", config);
 
+        if let None = target_file {
+            let target_file_path = config.get_pull_target_file();
+            target_file = target_file_path;
+        }
+
+        if let None = target_file {
+            let err = InputValidationError::PushPullEnvironment(
+                PushPullInputValidationError::NoFileSpecified { is_push: false },
+            );
+
+            bail!(err);
+        }
+
+        if let None = format {
+            let format_config = config.get_pull_format();
+            format = format_config;
+        }
+
+        let secrets_config = config.get_pull_secrets();
+
+        // expand refs
+        if let Some(expand_refs_val) = secrets_config.expand_refs {
+            if expand_refs.is_none() {
+                expand_refs = Some(expand_refs_val);
+            }
+        }
+
+        // print
+        if let Some(print_secrets_val) = secrets_config.print {
+            print_secrets = print_secrets_val;
+        }
+
+        // only
+        if let Some(only_val) = secrets_config.only {
+            if only_val.is_empty() == false {
+                for only_secret in only_val {
+                    let already_exists = only.contains(&only_secret);
+
+                    if !already_exists {
+                        only.push(only_secret);
+                    }
+                }
+            }
+        }
+
+        // exclude
+        if let Some(exclude_val) = secrets_config.exclude {
+            if exclude_val.is_empty() == false {
+                for exclude_secret in exclude_val {
+                    let already_exists = exclude.contains(&exclude_secret);
+
+                    if !already_exists {
+                        exclude.push(exclude_secret);
+                    }
+                }
+            }
+        }
+
+        // set
+        if let Some(set_val) = secrets_config.set {
+            if set_val.is_empty() == false {
+                let mut set_secrets_from_file = Vec::new();
+
+                for (key, value) in set_val {
+                    let key_value_str = format!("{}={}", key, value);
+
+                    if set.contains(&key_value_str) == false {
+                        set_secrets_from_file.push(key_value_str);
+                    }
+                }
+
+                set = [set_secrets_from_file, set].concat();
+            }
+        }
+
+
         project = Some(config.project);
         environment = Some(config.environment);
-
-        if let Some(pull_config) = config.pull {
-            // check format
-            if let None = format {
-                format = pull_config.format;
-            }
-
-            if let None = output_file {
-                output_file = Some(pull_config.file);
-            }
-        } else {
-            if output_file.is_none() {
-                bail!("No pull config for selected environment");
-            }
-        }
-
-        if let Some(secrets) = config.secrets {
-            // refs
-            if let Some(refs) = secrets.expand_refs {
-                if expand_refs.is_none() {
-                    expand_refs = Some(refs);
-                }
-            }
-
-            // print
-            if let Some(print_secrets_val) = secrets.print {
-                print_secrets = print_secrets_val;
-            }
-
-            // only
-            if let Some(only_val) = secrets.only {
-                if only_val.is_empty() == false {
-                    for only_secret in only_val {
-                        let already_exists = only.contains(&only_secret);
-
-                        if !already_exists {
-                            only.push(only_secret);
-                        }
-                    }
-                }
-            }
-
-            // exclude
-            if let Some(exclude_val) = secrets.exclude {
-                if exclude_val.is_empty() == false {
-                    for exclude_secret in exclude_val {
-                        let already_exists = exclude.contains(&exclude_secret);
-
-                        if !already_exists {
-                            exclude.push(exclude_secret);
-                        }
-                    }
-                }
-            }
-
-            // manually set
-            if let Some(set_val) = secrets.set {
-                if set_val.is_empty() == false {
-                    setted_secrets = set_val;
-                }
-            }
-        }
     } else {
         // eprintln!("\nRun command exited");
         // eprintln!("Run command exited");
@@ -216,7 +228,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     debug!("{:#?}", exclude);
     let only_len = only.len();
 
-    eprintln!();
+    // eprintln!();
 
     let mut spinner = Spinner::new_with_stream(
         spinners::Dots,
@@ -301,9 +313,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                             // save file
 
-                            let output_path = output_file.clone().unwrap();
+                            let output_path = target_file.clone().unwrap();
 
-                            if fs::metadata(&output_path).is_ok() {
+                            if fs::metadata(&output_path).is_ok() && overwrite_file != true {
                                 eprintln!("{}", &format!("File '{}' already exists", output_path));
 
                                 let confirmation =
@@ -375,10 +387,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             }
                         }
 
-                        let output_path = output_file.clone().unwrap();
+                        let output_path = target_file.clone().unwrap();
                         let file_exists = fs::metadata(&output_path).is_ok();
 
-                        if file_exists {
+                        if file_exists && overwrite_file != true {
                             spinner.stop_with_message(&format!(
                                 "File '{}' already exists",
                                 output_path
@@ -478,7 +490,10 @@ fn write_file(file_path: &str, file_string: String) -> Result<()> {
     }
 }
 
-pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
+pub fn load_from_file(
+    relative_path: Option<String>,
+    config_entity: &ConfigEntity,
+) -> Result<Option<EnvConfigItem>> {
     // Load from file
     let file_path = match &relative_path {
         Some(relative_path) => {
@@ -491,11 +506,10 @@ pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigI
     let file_exists = file_path.exists();
 
     if !file_exists {
-        let err = InputValidationError::PullEnvironment(
-            PullEnvironmentInputValidationError::NoConfigFile {
+        let err =
+            InputValidationError::PushPullEnvironment(PushPullInputValidationError::NoConfigFile {
                 custom_path: if relative_path.is_some() { true } else { false },
-            },
-        );
+            });
 
         bail!(err);
     } else {
@@ -508,8 +522,8 @@ pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigI
         let len = deserialized_config.len();
 
         if len == 0 {
-            let err = InputValidationError::PullEnvironment(
-                PullEnvironmentInputValidationError::NoConfigFileEntries,
+            let err = InputValidationError::PushPullEnvironment(
+                PushPullInputValidationError::NoConfigFileEntries,
             );
 
             bail!(err);
@@ -520,7 +534,7 @@ pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigI
             } else {
                 let items = deserialized_config
                     .iter()
-                    .map(|item| item.to_string())
+                    .map(|item| item.get_print_string(config_entity))
                     .collect();
                 // select project
                 let selection = select("Select environment config", items);
