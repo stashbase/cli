@@ -144,52 +144,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             }
         }
 
-        // if let Some(secrets) = config.secrets {
-        //     // refs
-        //     if let Some(refs) = secrets.expand_refs {
-        //         if expand_refs.is_none() {
-        //             expand_refs = Some(refs);
-        //         }
-        //     }
-        //
-        //     // print
-        //     if let Some(print_secrets_val) = secrets.print {
-        //         print_secrets = print_secrets_val;
-        //     }
-        //
-        //     // only
-        //     if let Some(only_val) = secrets.only {
-        //         if only_val.is_empty() == false {
-        //             for only_secret in only_val {
-        //                 let already_exists = only.contains(&only_secret);
-        //
-        //                 if !already_exists {
-        //                     only.push(only_secret);
-        //                 }
-        //             }
-        //         }
-        //     }
-        //
-        //     // exclude
-        //     if let Some(exclude_val) = secrets.exclude {
-        //         if exclude_val.is_empty() == false {
-        //             for exclude_secret in exclude_val {
-        //                 let already_exists = exclude.contains(&exclude_secret);
-        //
-        //                 if !already_exists {
-        //                     exclude.push(exclude_secret);
-        //                 }
-        //             }
-        //         }
-        //     }
-        //
-        //     // manually set
-        //     if let Some(set_val) = secrets.set {
-        //         if set_val.is_empty() == false {
-        //             setted_secrets = set_val;
-        //         }
-        //     }
-        // }
 
         project = Some(config.project);
         environment = Some(config.environment);
