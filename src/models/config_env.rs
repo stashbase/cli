@@ -180,9 +180,9 @@ impl PullSecretsConfig {
         Self {
             only,
             exclude,
-            print: None,
-            set: None,
-            expand_refs: None,
+            print,
+            set,
+            expand_refs,
         }
     }
 }
