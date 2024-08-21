@@ -130,13 +130,17 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         // set
         if let Some(set_val) = secrets_config.set {
             if set_val.is_empty() == false {
+                let mut set_secrets_from_file = Vec::new();
+
                 for (key, value) in set_val {
                     let key_value_str = format!("{}={}", key, value);
 
                     if set.contains(&key_value_str) == false {
-                        set.push(key_value_str);
+                        set_secrets_from_file.push(key_value_str);
                     }
                 }
+
+                set = [set_secrets_from_file, set].concat();
             }
         }
 
