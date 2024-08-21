@@ -6,6 +6,7 @@ pub mod load_old;
 pub mod open;
 pub mod projects;
 pub mod pull;
+pub mod push;
 pub mod run;
 pub mod secrets;
 pub mod test;
