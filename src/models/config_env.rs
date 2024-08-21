@@ -63,27 +63,43 @@ impl EnvConfigItem {
     }
 
     pub fn get_push_secrets(&self) -> PushSecretsConfig {
-        let mut exclude: Option<Vec<String>> = None;
-        let mut only: Option<Vec<String>> = None;
+        let self_secrets = self.secrets.as_ref();
+        let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
+        let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
 
         match &self.push {
             Some(push) => match &push.secrets {
                 Some(push_secrets) => {
-                    exclude = push_secrets.exclude.to_owned();
-                    only = push_secrets.only.to_owned();
+                    if let Some(ex) = push_secrets.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+
+                    if let Some(on) = push_secrets.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
                 }
                 None => match &self.secrets {
                     Some(s) => {
-                        exclude = s.exclude.to_owned();
-                        only = s.only.to_owned();
+                        if let Some(ex) = s.exclude.to_owned() {
+                            exclude = Some(ex.to_owned());
+                        }
+
+                        if let Some(on) = s.only.to_owned() {
+                            only = Some(on.to_owned());
+                        }
                     }
                     _ => {}
                 },
             },
             None => match &self.secrets {
                 Some(s) => {
-                    exclude = s.exclude.to_owned();
-                    only = s.only.to_owned();
+                    if let Some(ex) = s.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+
+                    if let Some(on) = s.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
                 }
                 None => {}
             },
@@ -93,33 +109,52 @@ impl EnvConfigItem {
     }
 
     pub fn get_pull_secrets(&self) -> PullSecretsConfig {
-        let mut exclude: Option<Vec<String>> = None;
-        let mut only: Option<Vec<String>> = None;
-        let mut set: Option<HashMap<String, String>> = None;
+        let self_secrets = self.secrets.as_ref();
+        let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
+        let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
+        let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
+
         let mut expand_refs: Option<bool> = None;
         let mut print_secrets: Option<bool> = None;
 
         match &self.pull {
             Some(push) => match &push.secrets {
                 Some(pull_secrets) => {
-                    exclude = pull_secrets.exclude.to_owned();
-                    only = pull_secrets.only.to_owned();
-                    set = pull_secrets.set.to_owned();
+                    if let Some(ex) = pull_secrets.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+                    if let Some(on) = pull_secrets.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
+
+                    if let Some(s) = pull_secrets.set.to_owned() {
+                        set = Some(s.to_owned());
+                    }
+
                     expand_refs = pull_secrets.expand_refs;
                     print_secrets = pull_secrets.print;
                 }
                 None => match &self.secrets {
                     Some(s) => {
-                        exclude = s.exclude.to_owned();
-                        only = s.only.to_owned();
+                        if let Some(ex) = s.exclude.to_owned() {
+                            exclude = Some(ex.to_owned());
+                        }
+                        if let Some(on) = s.only.to_owned() {
+                            only = Some(on.to_owned());
+                        }
                     }
                     _ => {}
                 },
             },
             None => match &self.secrets {
                 Some(s) => {
-                    exclude = s.exclude.to_owned();
-                    only = s.only.to_owned();
+                    if let Some(ex) = s.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+
+                    if let Some(on) = s.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
                 }
                 None => {}
             },
