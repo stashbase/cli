@@ -124,6 +124,7 @@ pub enum LoadEnvironmentInputValidationError {
 pub enum PullEnvironmentInputValidationError {
     NoConfigFile { custom_path: bool },
     NoConfigFileEntries,
+    NoTargetSpecified,
     // other errors same as from LoadEnvironment
 }
 
@@ -595,6 +596,11 @@ impl fmt::Display for PullEnvironmentInputValidationError {
             PullEnvironmentInputValidationError::NoConfigFileEntries => {
                 msg = "no entries found in 'onestash.yaml'";
                 hint = Some("add entries to the file or use '-p' and '-e' flags");
+            }
+            PullEnvironmentInputValidationError::NoTargetSpecified => {
+                msg = "no target file specified";
+                hint =
+                    Some("add root target path or pull target path to the file or use '-f' flag");
             }
         }
 
