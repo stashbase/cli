@@ -71,14 +71,14 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     if let Some(config) = file_config {
         debug!("config: {:?}", config);
 
-        let target = config.get_pull_target();
-
         if let None = target_file {
-            target = target.file;
+            let target_file_path = config.get_pull_target_file();
+            target_file = target_file_path;
         }
 
         if let None = format {
-            format = target.format;
+            let format_config = config.get_pull_format();
+            format = format_config;
         }
 
         let secrets_config = config.get_pull_secrets();
@@ -349,7 +349,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                             // save file
 
-                            let output_path = output_file.clone().unwrap();
+                            let output_path = target_file.clone().unwrap();
 
                             if fs::metadata(&output_path).is_ok() {
                                 eprintln!("{}", &format!("File '{}' already exists", output_path));
@@ -423,7 +423,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             }
                         }
 
-                        let output_path = output_file.clone().unwrap();
+                        let output_path = target_file.clone().unwrap();
                         let file_exists = fs::metadata(&output_path).is_ok();
 
                         if file_exists {
