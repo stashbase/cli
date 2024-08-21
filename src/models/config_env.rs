@@ -66,6 +66,7 @@ impl EnvConfigItem {
         let self_secrets = self.secrets.as_ref();
         let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
+        let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
 
         match &self.push {
             Some(push) => match &push.secrets {
@@ -77,6 +78,10 @@ impl EnvConfigItem {
                     if let Some(on) = push_secrets.only.to_owned() {
                         only = Some(on.to_owned());
                     }
+
+                    if let Some(s) = push_secrets.set.to_owned() {
+                        set = Some(s.to_owned());
+                    }
                 }
                 None => match &self.secrets {
                     Some(s) => {
@@ -86,6 +91,10 @@ impl EnvConfigItem {
 
                         if let Some(on) = s.only.to_owned() {
                             only = Some(on.to_owned());
+                        }
+
+                        if let Some(s) = s.set.to_owned() {
+                            set = Some(s.to_owned());
                         }
                     }
                     _ => {}
@@ -100,12 +109,16 @@ impl EnvConfigItem {
                     if let Some(on) = s.only.to_owned() {
                         only = Some(on.to_owned());
                     }
+
+                    if let Some(s) = s.set.to_owned() {
+                        set = Some(s.to_owned());
+                    }
                 }
                 None => {}
             },
         }
 
-        PushSecretsConfig::new(only, exclude)
+        PushSecretsConfig::new(only, exclude, set)
     }
 
     pub fn get_pull_secrets(&self) -> PullSecretsConfig {
@@ -185,8 +198,12 @@ pub struct PushActionConfig {
 }
 
 impl PushSecretsConfig {
-    fn new(only: Option<Vec<String>>, exclude: Option<Vec<String>>) -> Self {
-        Self { only, exclude }
+    fn new(
+        only: Option<Vec<String>>,
+        exclude: Option<Vec<String>>,
+        set: Option<HashMap<String, String>>,
+    ) -> Self {
+        Self { only, exclude, set }
     }
 }
 
@@ -194,6 +211,7 @@ impl PushSecretsConfig {
 pub struct PushSecretsConfig {
     pub only: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
+    pub set: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
