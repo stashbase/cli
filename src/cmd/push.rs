@@ -12,8 +12,8 @@ pub struct PushCommand {
     pub config_file: Option<String>,
 
     /// Target file path if not specified in the config
-    #[arg(value_enum, long = "target")]
-    pub target: Option<String>,
+    #[arg(value_enum, long = "file")]
+    pub file: Option<String>,
 
     /// Output format (autodetected by default)
     #[arg(value_enum, long = "format")]
