@@ -34,10 +34,10 @@ pub struct PullCommand {
     pub config_file: Option<String>,
 
     /// Target file path if not specified in the config
-    #[arg(value_enum, short = 't', long = "target-file")]
-    pub target_file: Option<String>,
+    #[arg(value_enum, long = "target")]
+    pub target: Option<String>,
 
-    /// Format output
+    /// Target file format (autodetected by default)
     #[arg(value_enum, long = "format")]
     pub format: Option<PullFormat>,
 
