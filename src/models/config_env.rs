@@ -21,7 +21,79 @@ pub struct EnvConfigItem {
     pub push: Option<PushActionConfig>,
 }
 
+pub enum ConfigEntity {
+    Pull,
+    Push,
+    Run,
+}
+
 impl EnvConfigItem {
+    pub fn get_print_string(&self, config_entity: &ConfigEntity) -> String {
+        let mut args_string = String::new();
+
+        let secrets = match config_entity {
+            ConfigEntity::Pull => {
+                let secrets = self.get_pull_secrets();
+                (secrets.only, secrets.exclude, secrets.set)
+            }
+            ConfigEntity::Push => {
+                let secrets = self.get_push_secrets();
+                (secrets.only, secrets.exclude, secrets.set)
+            }
+            ConfigEntity::Run => match &self.secrets {
+                Some(s) => (s.only.to_owned(), s.exclude.to_owned(), s.set.to_owned()),
+                None => (None, None, None),
+            },
+        };
+
+        let only = &secrets.0;
+        let exclude = &secrets.1;
+        let set = &secrets.2;
+
+        if let Some(only) = only {
+            args_string.push_str(&format!("only ({})", only.len()));
+        }
+
+        if let Some(exclude) = exclude {
+            if args_string != "" {
+                args_string.push_str(", ");
+            }
+            args_string.push_str(&format!("exclude ({})", exclude.len()));
+        }
+
+        if let Some(set) = set {
+            if args_string != "" {
+                args_string.push_str(", ");
+            }
+            args_string.push_str(&format!("set ({})", set.len()));
+        }
+
+        let str = match &self.description {
+            Some(description) => {
+                if args_string.len() > 0 {
+                    format!(
+                        "{} -> {} | {}\n   🗎 {}",
+                        self.project, self.environment, args_string, description
+                    )
+                } else {
+                    format!(
+                        "{} -> {}\n   🗎 {}",
+                        self.project, self.environment, description
+                    )
+                }
+            }
+            None => {
+                if args_string.len() > 0 {
+                    format!("{} -> {} | {}", self.project, self.environment, args_string)
+                } else {
+                    format!("{} -> {}", self.project, self.environment)
+                }
+            }
+        };
+
+        return str;
+    }
+
     pub fn get_push_target_file(&self) -> Option<String> {
         match &self.push {
             Some(p) => match &p.file {
