@@ -46,11 +46,11 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let HandlePushArgs {
         api_key,
         config_file_path,
+        only,
+        exclude,
+        mut set,
         mut format,
         mut target_file,
-        mut only,
-        mut exclude,
-        mut set,
     } = args;
 
     let file_config = load_from_file(config_file_path.clone())?;
@@ -61,8 +61,6 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     let mut only_set: HashSet<_> = only.into_iter().collect();
     let mut exclude_set: HashSet<_> = exclude.into_iter().collect();
-
-    let mut setted_secrets = HashMap::<String, String>::new();
 
     if let Some(config) = file_config {
         debug!("config: {:?}", config);
