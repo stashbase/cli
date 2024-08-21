@@ -33,9 +33,9 @@ pub struct PullCommand {
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// Output file path if not specified in the config
-    #[arg(value_enum, short = 'o', long = "output")]
-    pub output_file: Option<String>,
+    /// Target file path if not specified in the config
+    #[arg(value_enum, short = 't', long = "target-file")]
+    pub target_file: Option<String>,
 
     /// Format output
     #[arg(value_enum, long = "format")]

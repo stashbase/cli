@@ -42,7 +42,7 @@ pub struct HandlePullArgs {
     pub set: Vec<String>,
     pub print_secrets: bool,
     pub file: Option<String>,
-    pub output_file: Option<String>,
+    pub target_file: Option<String>,
     pub format: Option<PullFormat>,
     pub expand_refs: Option<bool>,
 }
@@ -52,7 +52,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         api_key,
         file,
         mut set,
-        mut output_file,
+        target_file: mut output_file,
         mut format,
         mut only,
         mut exclude,
