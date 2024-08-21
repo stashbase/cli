@@ -127,14 +127,12 @@ impl EnvConfigItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionConfig {
-    #[serde(rename = "path")]
     pub file: String,
     pub format: Option<PullFormat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetConfig {
-    #[serde(rename = "path")]
     pub file: String,
     pub format: Option<PullFormat>,
 }
