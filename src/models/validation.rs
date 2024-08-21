@@ -10,7 +10,7 @@ pub enum InputValidationError {
     EnvChangelog(EnvChangelogInputValidationError),
     Run(RunInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
-    PullEnvironment(PullEnvironmentInputValidationError),
+    PushPullEnvironment(PushPullInputValidationError),
     Webhook(WebhookInputValidationError),
 }
 
@@ -121,10 +121,10 @@ pub enum LoadEnvironmentInputValidationError {
 }
 
 #[derive(Debug)]
-pub enum PullEnvironmentInputValidationError {
+pub enum PushPullInputValidationError {
     NoConfigFile { custom_path: bool },
     NoConfigFileEntries,
-    NoTargetSpecified,
+    NoFileSpecified { is_push: bool },
     // other errors same as from LoadEnvironment
 }
 
@@ -575,13 +575,13 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
     }
 }
 
-impl fmt::Display for PullEnvironmentInputValidationError {
+impl fmt::Display for PushPullInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg: &str;
         let hint: Option<&str>;
 
         match self {
-            PullEnvironmentInputValidationError::NoConfigFile { custom_path } => {
+            PushPullInputValidationError::NoConfigFile { custom_path } => {
                 match custom_path {
                     true => {
                         msg = "no config file found";
@@ -593,15 +593,22 @@ impl fmt::Display for PullEnvironmentInputValidationError {
                     }
                 };
             }
-            PullEnvironmentInputValidationError::NoConfigFileEntries => {
+            PushPullInputValidationError::NoConfigFileEntries => {
                 msg = "no entries found in 'onestash.yaml'";
                 hint = Some("add entries to the file or use '-p' and '-e' flags");
             }
-            PullEnvironmentInputValidationError::NoTargetSpecified => {
-                msg = "no target file specified";
-                hint =
-                    Some("add root target path or pull target path to the file or use '-f' flag");
-            }
+            PushPullInputValidationError::NoFileSpecified { is_push } => match is_push {
+                true => {
+                    msg = "no file specified";
+                    hint =
+                    Some("add root property 'file' or push property 'file' to the config or use '--file' flag");
+                }
+                false => {
+                    msg = "no file specified";
+                    hint =
+                    Some("add root property 'file' or push property 'file' to the config or use '--file' flag");
+                }
+            },
         }
 
         if let Some(hint) = hint {
@@ -683,7 +690,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Environments(inner) => write!(f, "{}", inner),
             InputValidationError::EnvChangelog(inner) => write!(f, "{}", inner),
             InputValidationError::LoadEnvironment(inner) => write!(f, "{}", inner),
-            InputValidationError::PullEnvironment(inner) => write!(f, "{}", inner),
+            InputValidationError::PushPullEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),
             InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
             InputValidationError::Run(inner) => write!(f, "{}", inner),
