@@ -19,8 +19,7 @@ use crate::{
         config_env::EnvConfigItem,
         secrets::Secret,
         validation::{
-            InputValidationError, LoadEnvironmentInputValidationError,
-            PullEnvironmentInputValidationError,
+            InputValidationError, LoadEnvironmentInputValidationError, PushPullInputValidationError,
         },
     },
     utils::{
@@ -74,6 +73,14 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         if let None = target_file {
             let target_file_path = config.get_pull_target_file();
             target_file = target_file_path;
+        }
+
+        if let None = target_file {
+            let err = InputValidationError::PushPullEnvironment(
+                PushPullInputValidationError::NoFileSpecified { is_push: false },
+            );
+
+            bail!(err);
         }
 
         if let None = format {
@@ -539,11 +546,10 @@ pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigI
     let file_exists = file_path.exists();
 
     if !file_exists {
-        let err = InputValidationError::PullEnvironment(
-            PullEnvironmentInputValidationError::NoConfigFile {
+        let err =
+            InputValidationError::PushPullEnvironment(PushPullInputValidationError::NoConfigFile {
                 custom_path: if relative_path.is_some() { true } else { false },
-            },
-        );
+            });
 
         bail!(err);
     } else {
@@ -556,8 +562,8 @@ pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigI
         let len = deserialized_config.len();
 
         if len == 0 {
-            let err = InputValidationError::PullEnvironment(
-                PullEnvironmentInputValidationError::NoConfigFileEntries,
+            let err = InputValidationError::PushPullEnvironment(
+                PushPullInputValidationError::NoConfigFileEntries,
             );
 
             bail!(err);
