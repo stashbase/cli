@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
-};
+use std::{collections::HashSet, path::Path};
 
 use crate::{
     api::secrets,
