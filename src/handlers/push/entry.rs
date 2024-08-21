@@ -1,11 +1,15 @@
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 use crate::{
     api::secrets,
     cmd::{push::PushFormat, secrets::SecretsFileFormat},
-    handlers::pull::entry::load_from_file,
+    handlers::{pull::entry::load_from_file, run::entry::get_set_key_value_pairs},
     models::{
         api_client::RequestApiOptionResponse,
+        secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
             PushPullInputValidationError, SecretsInputValidationError,
@@ -32,18 +36,21 @@ pub struct HandlePushArgs {
     //
     pub target_file: Option<String>,
     pub format: Option<PushFormat>,
+    //
     pub only: Vec<String>,
+    pub set: Vec<String>,
     pub exclude: Vec<String>,
 }
 
 pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let HandlePushArgs {
         api_key,
-        only,
-        exclude,
+        config_file_path,
         mut format,
         mut target_file,
-        config_file_path,
+        mut only,
+        mut exclude,
+        mut set,
     } = args;
 
     let file_config = load_from_file(config_file_path.clone())?;
@@ -54,6 +61,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     let mut only_set: HashSet<_> = only.into_iter().collect();
     let mut exclude_set: HashSet<_> = exclude.into_iter().collect();
+
+    let mut setted_secrets = HashMap::<String, String>::new();
 
     if let Some(config) = file_config {
         debug!("config: {:?}", config);
@@ -87,6 +96,23 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         if let Some(exclude_secrets_config) = secrets_config.exclude {
             for exclude_secret in exclude_secrets_config {
                 exclude_set.insert(exclude_secret);
+            }
+        }
+
+        // set
+        if let Some(set_val) = secrets_config.set {
+            if set_val.is_empty() == false {
+                let mut set_secrets_from_file = Vec::new();
+
+                for (key, value) in set_val {
+                    let key_value_str = format!("{}={}", key, value);
+
+                    if set.contains(&key_value_str) == false {
+                        set_secrets_from_file.push(key_value_str);
+                    }
+                }
+
+                set = [set_secrets_from_file, set].concat();
             }
         }
 
@@ -163,6 +189,35 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         eprintln!("{}", msg);
 
         return Ok(());
+    }
+
+    if !set.is_empty() {
+        let key_values_pairs = get_set_key_value_pairs(set);
+
+        match key_values_pairs {
+            Ok(set_secrets) => {
+                for (key, value) in set_secrets {
+                    // find index
+                    let index = secrets.iter().position(|secret| secret.key == key);
+
+                    if let Some(index) = index {
+                        let existing_secret = &mut secrets[index];
+                        existing_secret.value = value;
+                    } else {
+                        let new_secret = Secret {
+                            key,
+                            value,
+                            description: None,
+                        };
+
+                        secrets.push(new_secret);
+                    }
+                }
+            }
+            Err(e) => {
+                bail!(e);
+            }
+        }
     }
 
     let duplicate_keys = find_duplicate_keys(&secrets);
