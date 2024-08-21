@@ -52,7 +52,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         api_key,
         file,
         mut set,
-        target_file: mut output_file,
+        mut target_file,
         mut format,
         mut only,
         mut exclude,
@@ -73,18 +73,12 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         let target = config.get_pull_target();
 
-        if let Some(target) = target {
-            if let None = output_file {
-                output_file = Some(target.file);
-            }
+        if let None = target_file {
+            target = target.file;
+        }
 
-            if let None = format {
-                format = target.format;
-            }
-        } else {
-            let pull_err = PullEnvironmentInputValidationError::NoTargetSpecified;
-            let err = InputValidationError::PullEnvironment(pull_err);
-            bail!(err);
+        if let None = format {
+            format = target.format;
         }
 
         let secrets_config = config.get_pull_secrets();
