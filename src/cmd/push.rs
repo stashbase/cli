@@ -11,9 +11,9 @@ pub struct PushCommand {
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// Input file path if not specified in the config
-    #[arg(value_enum, short = 'i', long = "input")]
-    pub input_file: Option<String>,
+    /// Target file path if not specified in the config
+    #[arg(value_enum, short = 't', long = "target-file")]
+    pub target_file: Option<String>,
 
     /// Input format
     #[arg(value_enum, long = "format")]
