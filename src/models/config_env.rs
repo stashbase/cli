@@ -11,14 +11,11 @@ pub struct EnvConfigItem {
     pub environment: String,
     pub description: Option<String>,
 
-    pub secrets: Option<PullSecretsConfig>,
-    pub pull: Option<PullActionConfig>,
-
-    // both for push/pull
-    pub target: Option<TargetConfig>,
-
     pub file: Option<String>,
     pub format: Option<PullFormat>,
+    pub secrets: Option<PullSecretsConfig>,
+
+    pub pull: Option<PullActionConfig>,
 
     // only for push
     pub push: Option<PushActionConfig>,
