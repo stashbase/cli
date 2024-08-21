@@ -24,28 +24,40 @@ pub struct EnvConfigItem {
 impl EnvConfigItem {
     pub fn get_push_target_file(&self) -> Option<String> {
         match &self.push {
-            Some(p) => p.file.to_owned(),
+            Some(p) => match &p.file {
+                Some(_) => p.file.to_owned(),
+                None => self.file.to_owned(),
+            },
             None => self.file.to_owned(),
         }
     }
 
     pub fn get_pull_target_file(&self) -> Option<String> {
         match &self.pull {
-            Some(p) => p.file.to_owned(),
+            Some(p) => match &p.file {
+                Some(_) => p.file.to_owned(),
+                None => self.file.to_owned(),
+            },
             None => self.file.to_owned(),
         }
     }
 
     pub fn get_push_format(&self) -> Option<PushFormat> {
         match &self.push {
-            Some(p) => p.format.to_owned(),
+            Some(p) => match &p.format {
+                Some(_) => p.format.to_owned(),
+                None => self.format.to_owned(),
+            },
             None => self.format.to_owned(),
         }
     }
 
     pub fn get_pull_format(&self) -> Option<PullFormat> {
         match &self.pull {
-            Some(p) => p.format.to_owned(),
+            Some(p) => match &p.format {
+                Some(_) => p.format.to_owned(),
+                None => self.format.to_owned(),
+            },
             None => self.format.to_owned(),
         }
     }
@@ -153,6 +165,8 @@ pub struct PushSecretsConfig {
 pub struct PullActionConfig {
     pub file: Option<String>,
     pub format: Option<PullFormat>,
+    // Overwrite existing file without prompt
+    pub overwrite: Option<bool>,
     pub secrets: Option<PullSecretsConfig>,
 }
 
