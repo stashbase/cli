@@ -17,7 +17,7 @@ pub struct PushCommand {
 
     /// Target file format (autodetected by default)
     #[arg(value_enum, long = "format")]
-    pub format: Option<PullFormat>,
+    pub format: Option<PushFormat>,
 
     /// Select secret keys
     #[clap(value_parser, long="only", num_args = 1..)]
