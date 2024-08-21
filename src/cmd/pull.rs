@@ -29,7 +29,7 @@ impl TryFrom<PullFormat> for SecretsOutputFormat {
 #[derive(Debug, Args)]
 #[command(override_usage = "pull [OPTIONS]")]
 pub struct PullCommand {
-    /// Relative path to a config file (default: env-ease.yaml)
+    /// Relative path to a config file (default: stashbase.yaml)
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
