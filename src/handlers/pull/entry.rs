@@ -56,8 +56,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut expand_refs,
     } = args;
 
-    let mut project: Option<String> = None;
-    let mut environment: Option<String> = None;
+    let project: Option<String>;
+    let environment: Option<String>;
     let mut setted_secrets = HashMap::<String, String>::new();
 
     // LOAD from file
