@@ -250,12 +250,6 @@ impl EnvConfigItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActionConfig {
-    pub file: String,
-    pub format: Option<PullFormat>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetConfig {
     pub file: Option<String>,
     pub format: Option<PullFormat>,
