@@ -118,7 +118,7 @@ pub async fn handle_cli(args: Cli) {
                     api_key,
                     file: args.config_file,
                     set: args.set,
-                    output_file: args.output_file,
+                    target_file: args.target_file,
                     format: args.format,
                     only: args.only,
                     exclude: args.exclude,
