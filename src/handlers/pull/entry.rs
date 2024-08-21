@@ -81,6 +81,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             if let None = format {
                 format = target.format;
             }
+        } else {
+            let pull_err = PullEnvironmentInputValidationError::NoTargetSpecified;
+            let err = InputValidationError::PullEnvironment(pull_err);
+            bail!(err);
         }
 
         let secrets_config = config.get_pull_secrets();
