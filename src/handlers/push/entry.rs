@@ -29,7 +29,7 @@ pub struct HandlePushArgs {
 
     pub config_file_path: Option<String>,
     //
-    pub target_file: Option<String>,
+    pub target: Option<String>,
     pub format: Option<PushFormat>,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
@@ -42,7 +42,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         mut only,
         mut exclude,
         config_file_path,
-        target_file: mut input_file_path,
+        mut target,
     } = args;
 
     let file_config = load_from_file(config_file_path.clone())?;
@@ -59,14 +59,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
         let target = config.get_push_target();
 
-        if let Some(target) = target {
-            if let None = input_file_path {
-                input_file_path = Some(target.file);
-            }
+        if let None = target {
+            target = target.file;
+        }
 
-            if let None = format {
-                format = target.format;
-            }
+        if let None = format {
+            format = target.format;
         }
 
         let secrets_config = config.get_push_secrets();
