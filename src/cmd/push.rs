@@ -7,7 +7,7 @@ pub type PushFormat = PullFormat;
 #[derive(Debug, Args)]
 #[command(override_usage = "push  [OPTIONS]")]
 pub struct PushCommand {
-    /// Relative path to a config file (default: env-ease.yaml)
+    /// Relative path to a config file (default: stashbase.yaml)
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
