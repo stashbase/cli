@@ -21,6 +21,38 @@ pub struct EnvConfigItem {
     pub push: Option<PushActionConfig>,
 }
 
+impl EnvConfigItem {
+    pub fn get_push_secrets(&self) -> PushSecretsConfig {
+        let mut exclude: Option<Vec<String>> = None;
+        let mut only: Option<Vec<String>> = None;
+
+        match &self.push {
+            Some(push) => match &push.secrets {
+                Some(push_secrets) => {
+                    exclude = push_secrets.exclude.to_owned();
+                    only = push_secrets.only.to_owned();
+                }
+                None => match &self.secrets {
+                    Some(s) => {
+                        exclude = s.exclude.to_owned();
+                        only = s.only.to_owned();
+                    }
+                    _ => {}
+                },
+            },
+            None => match &self.secrets {
+                Some(s) => {
+                    exclude = s.exclude.to_owned();
+                    only = s.only.to_owned();
+                }
+                None => {}
+            },
+        }
+
+        PushSecretsConfig::new(only, exclude)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionConfig {
     #[serde(rename = "path")]
@@ -34,6 +66,12 @@ pub struct PushActionConfig {
     pub file: String,
     pub format: Option<PullFormat>,
     pub secrets: Option<PushSecretsConfig>,
+}
+
+impl PushSecretsConfig {
+    fn new(only: Option<Vec<String>>, exclude: Option<Vec<String>>) -> Self {
+        Self { only, exclude }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
