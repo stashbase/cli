@@ -15,7 +15,7 @@ pub struct PushCommand {
     #[arg(value_enum, long = "file")]
     pub file: Option<String>,
 
-    /// Output format (autodetected by default)
+    /// Target file format (autodetected by default)
     #[arg(value_enum, long = "format")]
     pub format: Option<PullFormat>,
 
