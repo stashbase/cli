@@ -39,9 +39,9 @@ pub struct HandlePushArgs {
 pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let HandlePushArgs {
         api_key,
+        only,
+        exclude,
         mut format,
-        mut only,
-        mut exclude,
         mut target_file,
         config_file_path,
     } = args;
@@ -49,8 +49,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let file_config = load_from_file(config_file_path.clone())?;
     debug!("file_config: {:?}", file_config);
 
-    let mut project: Option<String> = None;
-    let mut environment: Option<String> = None;
+    let project: Option<String>;
+    let environment: Option<String>;
 
     let mut only_set: HashSet<_> = only.into_iter().collect();
     let mut exclude_set: HashSet<_> = exclude.into_iter().collect();
