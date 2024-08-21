@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use crate::{
     api::secrets,
@@ -51,133 +51,40 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let mut project: Option<String> = None;
     let mut environment: Option<String> = None;
 
+    let mut only_set: HashSet<_> = only.into_iter().collect();
+    let mut exclude_set: HashSet<_> = exclude.into_iter().collect();
+
     if let Some(config) = file_config {
         debug!("config: {:?}", config);
 
+        let target = config.get_push_target();
+
+        if let Some(target) = target {
+            if let None = input_file_path {
+                input_file_path = Some(target.file);
+            }
+
+            if let None = format {
+                format = target.format;
+            }
+        }
+
+        let secrets_config = config.get_push_secrets();
+
+        if let Some(only_secrets_config) = secrets_config.only {
+            for only_secret in only_secrets_config {
+                only_set.insert(only_secret);
+            }
+        }
+
+        if let Some(exclude_secrets_config) = secrets_config.exclude {
+            for exclude_secret in exclude_secrets_config {
+                exclude_set.insert(exclude_secret);
+            }
+        }
+
         project = Some(config.project);
         environment = Some(config.environment);
-
-        match (&config.push, config.target) {
-            (None, None) => {
-                bail!("No target or push config for selected environment");
-            }
-            (Some(pull_config), None) => {
-                // check format
-                if let None = format {
-                    format = pull_config.format.clone();
-                }
-
-                if let None = input_file_path {
-                    input_file_path = Some(pull_config.file.clone());
-                }
-            }
-            (None, Some(target)) => {
-                if let None = format {
-                    format = target.format;
-                }
-
-                if let None = input_file_path {
-                    input_file_path = Some(target.file);
-                }
-            }
-            (Some(_), Some(target)) => {
-                if let None = format {
-                    format = target.format;
-                }
-
-                if let None = input_file_path {
-                    input_file_path = Some(target.file);
-                }
-            }
-        }
-
-        // TODO: refactor
-        // remove duplicate code
-        if let Some(push_config) = config.push {
-            if let Some(secrets) = push_config.secrets {
-                // only
-                if let Some(only_val) = secrets.only {
-                    if only_val.is_empty() == false {
-                        for only_secret in only_val {
-                            let already_exists = only.contains(&only_secret);
-
-                            if !already_exists {
-                                only.push(only_secret);
-                            }
-                        }
-                    }
-                }
-
-                // exclude
-                if let Some(exclude_val) = secrets.exclude {
-                    if exclude_val.is_empty() == false {
-                        for exclude_secret in exclude_val {
-                            let already_exists = exclude.contains(&exclude_secret);
-
-                            if !already_exists {
-                                exclude.push(exclude_secret);
-                            }
-                        }
-                    }
-                }
-            } else {
-                if let Some(secrets) = config.secrets {
-                    // only
-                    if let Some(only_val) = secrets.only {
-                        if only_val.is_empty() == false {
-                            for only_secret in only_val {
-                                let already_exists = only.contains(&only_secret);
-
-                                if !already_exists {
-                                    only.push(only_secret);
-                                }
-                            }
-                        }
-                    }
-
-                    // exclude
-                    if let Some(exclude_val) = secrets.exclude {
-                        if exclude_val.is_empty() == false {
-                            for exclude_secret in exclude_val {
-                                let already_exists = exclude.contains(&exclude_secret);
-
-                                if !already_exists {
-                                    exclude.push(exclude_secret);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            if let Some(secrets) = config.secrets {
-                // only
-                if let Some(only_val) = secrets.only {
-                    if only_val.is_empty() == false {
-                        for only_secret in only_val {
-                            let already_exists = only.contains(&only_secret);
-
-                            if !already_exists {
-                                only.push(only_secret);
-                            }
-                        }
-                    }
-                }
-
-                // exclude
-                if let Some(exclude_val) = secrets.exclude {
-                    if exclude_val.is_empty() == false {
-                        for exclude_secret in exclude_val {
-                            let already_exists = exclude.contains(&exclude_secret);
-
-                            if !already_exists {
-                                exclude.push(exclude_secret);
-                            }
-                        }
-                    }
-                }
-            }
-        }
     } else {
         return Ok(());
     }
@@ -222,7 +129,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     let mut secrets = secrets_res.unwrap();
 
-    if !only.is_empty() && !exclude.is_empty() {
+    if !only_set.is_empty() && !exclude_set.is_empty() {
         let err = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
         );
@@ -231,16 +138,16 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         bail!(err);
     }
 
-    if only.is_empty() == false {
+    if only_set.is_empty() == false {
         // filter unwanted secrets
         secrets = secrets
             .into_iter()
-            .filter(|secret| only.contains(&secret.key))
+            .filter(|secret| only_set.contains(&secret.key))
             .collect();
-    } else if exclude.is_empty() == false {
+    } else if exclude_set.is_empty() == false {
         secrets = secrets
             .into_iter()
-            .filter(|secret| exclude.contains(&secret.key) == false)
+            .filter(|secret| !exclude_set.contains(&secret.key))
             .collect();
     }
 
@@ -327,7 +234,14 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         // }
     }
 
-    let info = format!("\nNumber of screts to push: {}", secrets.len());
+    let has_input_warning =
+        !refs_validation.invalid_format.is_empty() || !refs_validation.not_found.is_empty();
+
+    if has_input_warning {
+        eprintln!();
+    }
+
+    let info = format!("Number of screts to push: {}", secrets.len());
     eprintln!("{}", info);
 
     let confirm = interaction::confirm_opt("Are you sure you want to continue?");
