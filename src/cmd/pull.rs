@@ -41,6 +41,10 @@ pub struct PullCommand {
     #[arg(value_enum, long = "format")]
     pub format: Option<PullFormat>,
 
+    // Overwrite existing file without prompt
+    #[arg(value_enum, long = "overwrite")]
+    pub overwrite: bool,
+
     // /// Project name
     // #[arg(value_enum, short = 'p', long = "project")]
     // pub project: Option<String>,
