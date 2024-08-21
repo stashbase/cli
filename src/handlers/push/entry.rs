@@ -2,7 +2,7 @@ use std::{collections::HashSet, path::Path};
 
 use crate::{
     api::secrets,
-    cmd::{config::SecretsOutputFormat, push::PushFormat, secrets::SecretsFileFormat},
+    cmd::{push::PushFormat, secrets::SecretsFileFormat},
     handlers::pull::entry::load_from_file,
     models::{
         api_client::RequestApiOptionResponse,
@@ -19,7 +19,7 @@ use crate::{
         },
     },
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use log::debug;
 use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
