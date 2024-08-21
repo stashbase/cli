@@ -133,7 +133,7 @@ pub async fn handle_cli(args: Cli) {
                 let args = HandlePushArgs {
                     api_key,
                     config_file_path: args.config_file,
-                    input_file_path: args.input_file,
+                    target_file: args.target_file,
                     format: args.format,
                     only: args.only,
                     exclude: args.exclude,
