@@ -7,7 +7,8 @@ use crate::{
     models::{
         api_client::RequestApiOptionResponse,
         validation::{
-            InputValidationError, LoadEnvironmentInputValidationError, SecretsInputValidationError,
+            InputValidationError, LoadEnvironmentInputValidationError,
+            PushPullInputValidationError, SecretsInputValidationError,
         },
     },
     utils::{
@@ -60,6 +61,14 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         if let None = target_file {
             let target_file_path = config.get_push_target_file();
             target_file = target_file_path;
+        }
+
+        if let None = target_file {
+            let err = InputValidationError::PushPullEnvironment(
+                PushPullInputValidationError::NoFileSpecified { is_push: true },
+            );
+
+            bail!(err);
         }
 
         if let None = format {
