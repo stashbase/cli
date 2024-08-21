@@ -15,13 +15,31 @@ pub struct EnvConfigItem {
     pub pull: Option<ActionConfig>,
 
     // both for push/pull
-    pub target: Option<ActionConfig>,
+    pub target: Option<TargetConfig>,
 
     // only for push
     pub push: Option<PushActionConfig>,
 }
 
 impl EnvConfigItem {
+    pub fn get_push_target(&self) -> Option<TargetConfig> {
+        match (&self.target, &self.push) {
+            (None, None) => None,
+            (None, Some(push_config)) => match &push_config.target {
+                Some(target) => Some(target.to_owned()),
+                None => None,
+            },
+            (Some(root_target), None) => Some(root_target.to_owned()),
+            (Some(_), Some(push_config)) => {
+                // push target overrides root target
+                match &push_config.target {
+                    Some(target) => Some(target.to_owned()),
+                    None => None,
+                }
+            }
+        }
+    }
+
     pub fn get_push_secrets(&self) -> PushSecretsConfig {
         let mut exclude: Option<Vec<String>> = None;
         let mut only: Option<Vec<String>> = None;
@@ -61,10 +79,15 @@ pub struct ActionConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PushActionConfig {
+pub struct TargetConfig {
     #[serde(rename = "path")]
     pub file: String,
     pub format: Option<PullFormat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushActionConfig {
+    pub target: Option<TargetConfig>,
     pub secrets: Option<PushSecretsConfig>,
 }
 
