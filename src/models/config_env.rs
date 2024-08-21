@@ -11,8 +11,8 @@ pub struct EnvConfigItem {
     pub environment: String,
     pub description: Option<String>,
 
-    pub secrets: Option<EnvConfigItemSecrets>,
-    pub pull: Option<ActionConfig>,
+    pub secrets: Option<PullSecretsConfig>,
+    pub pull: Option<PullActionConfig>,
 
     // both for push/pull
     pub target: Option<TargetConfig>,
@@ -69,6 +69,60 @@ impl EnvConfigItem {
 
         PushSecretsConfig::new(only, exclude)
     }
+
+    pub fn get_pull_target(&self) -> Option<TargetConfig> {
+        match (&self.target, &self.pull) {
+            (None, None) => None,
+            (None, Some(pull_config)) => match &pull_config.target {
+                Some(target) => Some(target.to_owned()),
+                None => None,
+            },
+            (Some(root_target), None) => Some(root_target.to_owned()),
+            (Some(_), Some(pull_config)) => {
+                // push target overrides root target
+                match &pull_config.target {
+                    Some(target) => Some(target.to_owned()),
+                    None => None,
+                }
+            }
+        }
+    }
+
+    pub fn get_pull_secrets(&self) -> PullSecretsConfig {
+        let mut exclude: Option<Vec<String>> = None;
+        let mut only: Option<Vec<String>> = None;
+        let mut set: Option<HashMap<String, String>> = None;
+        let mut expand_refs: Option<bool> = None;
+        let mut print_secrets: Option<bool> = None;
+
+        match &self.pull {
+            Some(push) => match &push.secrets {
+                Some(pull_secrets) => {
+                    exclude = pull_secrets.exclude.to_owned();
+                    only = pull_secrets.only.to_owned();
+                    set = pull_secrets.set.to_owned();
+                    expand_refs = pull_secrets.expand_refs;
+                    print_secrets = pull_secrets.print;
+                }
+                None => match &self.secrets {
+                    Some(s) => {
+                        exclude = s.exclude.to_owned();
+                        only = s.only.to_owned();
+                    }
+                    _ => {}
+                },
+            },
+            None => match &self.secrets {
+                Some(s) => {
+                    exclude = s.exclude.to_owned();
+                    only = s.only.to_owned();
+                }
+                None => {}
+            },
+        }
+
+        PullSecretsConfig::new(only, exclude, set, expand_refs, print_secrets)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,7 +158,13 @@ pub struct PushSecretsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnvConfigItemSecrets {
+pub struct PullActionConfig {
+    pub target: Option<TargetConfig>,
+    pub secrets: Option<PullSecretsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullSecretsConfig {
     pub print: Option<bool>,
     // Select secret keys
     pub only: Option<Vec<String>>,
@@ -114,6 +174,24 @@ pub struct EnvConfigItemSecrets {
 
     #[serde(rename = "expand-refs")]
     pub expand_refs: Option<bool>,
+}
+
+impl PullSecretsConfig {
+    fn new(
+        only: Option<Vec<String>>,
+        exclude: Option<Vec<String>>,
+        set: Option<HashMap<String, String>>,
+        expand_refs: Option<bool>,
+        print: Option<bool>,
+    ) -> Self {
+        Self {
+            only,
+            exclude,
+            print: None,
+            set: None,
+            expand_refs: None,
+        }
+    }
 }
 
 impl fmt::Display for EnvConfigItem {
