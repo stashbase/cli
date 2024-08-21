@@ -124,6 +124,7 @@ pub async fn handle_cli(args: Cli) {
                     exclude: args.exclude,
                     expand_refs: args.expand_refs,
                     print_secrets: args.print_secrets,
+                    overwrite_file: args.overwrite,
                 };
 
                 handle_pull(args).await

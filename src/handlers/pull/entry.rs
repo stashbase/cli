@@ -41,6 +41,7 @@ pub struct HandlePullArgs {
     pub target_file: Option<String>,
     pub format: Option<PullFormat>,
     pub expand_refs: Option<bool>,
+    pub overwrite_file: bool,
 }
 
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
@@ -54,6 +55,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut exclude,
         mut print_secrets,
         mut expand_refs,
+        overwrite_file,
     } = args;
 
     let project: Option<String>;
@@ -268,7 +270,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     debug!("{:#?}", exclude);
     let only_len = only.len();
 
-    eprintln!();
+    // eprintln!();
 
     let mut spinner = Spinner::new_with_stream(
         spinners::Dots,
@@ -355,7 +357,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                             let output_path = target_file.clone().unwrap();
 
-                            if fs::metadata(&output_path).is_ok() {
+                            if fs::metadata(&output_path).is_ok() && overwrite_file != true {
                                 eprintln!("{}", &format!("File '{}' already exists", output_path));
 
                                 let confirmation =
@@ -430,7 +432,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         let output_path = target_file.clone().unwrap();
                         let file_exists = fs::metadata(&output_path).is_ok();
 
-                        if file_exists {
+                        if file_exists && overwrite_file != true {
                             spinner.stop_with_message(&format!(
                                 "File '{}' already exists",
                                 output_path
