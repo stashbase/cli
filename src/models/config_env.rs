@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::pull::PullFormat;
+use crate::cmd::{pull::PullFormat, push::PushFormat};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvConfigItem {
@@ -11,19 +11,286 @@ pub struct EnvConfigItem {
     pub environment: String,
     pub description: Option<String>,
 
-    pub secrets: Option<EnvConfigItemSecrets>,
-    pub pull: Option<PullEnvConfig>,
+    pub file: Option<String>,
+    pub format: Option<PullFormat>,
+    pub secrets: Option<PullSecretsConfig>,
+
+    pub pull: Option<PullActionConfig>,
+
+    // only for push
+    pub push: Option<PushActionConfig>,
+}
+
+pub enum ConfigEntity {
+    Pull,
+    Push,
+    Run,
+}
+
+impl EnvConfigItem {
+    pub fn get_print_string(&self, config_entity: &ConfigEntity) -> String {
+        let mut args_string = String::new();
+
+        let secrets = match config_entity {
+            ConfigEntity::Pull => {
+                let secrets = self.get_pull_secrets();
+                (secrets.only, secrets.exclude, secrets.set)
+            }
+            ConfigEntity::Push => {
+                let secrets = self.get_push_secrets();
+                (secrets.only, secrets.exclude, secrets.set)
+            }
+            ConfigEntity::Run => match &self.secrets {
+                Some(s) => (s.only.to_owned(), s.exclude.to_owned(), s.set.to_owned()),
+                None => (None, None, None),
+            },
+        };
+
+        let only = &secrets.0;
+        let exclude = &secrets.1;
+        let set = &secrets.2;
+
+        if let Some(only) = only {
+            args_string.push_str(&format!("only ({})", only.len()));
+        }
+
+        if let Some(exclude) = exclude {
+            if args_string != "" {
+                args_string.push_str(", ");
+            }
+            args_string.push_str(&format!("exclude ({})", exclude.len()));
+        }
+
+        if let Some(set) = set {
+            if args_string != "" {
+                args_string.push_str(", ");
+            }
+            args_string.push_str(&format!("set ({})", set.len()));
+        }
+
+        let str = match &self.description {
+            Some(description) => {
+                if args_string.len() > 0 {
+                    format!(
+                        "{} -> {} | {}\n   🗎 {}",
+                        self.project, self.environment, args_string, description
+                    )
+                } else {
+                    format!(
+                        "{} -> {}\n   🗎 {}",
+                        self.project, self.environment, description
+                    )
+                }
+            }
+            None => {
+                if args_string.len() > 0 {
+                    format!("{} -> {} | {}", self.project, self.environment, args_string)
+                } else {
+                    format!("{} -> {}", self.project, self.environment)
+                }
+            }
+        };
+
+        return str;
+    }
+
+    pub fn get_push_target_file(&self) -> Option<String> {
+        match &self.push {
+            Some(p) => match &p.file {
+                Some(_) => p.file.to_owned(),
+                None => self.file.to_owned(),
+            },
+            None => self.file.to_owned(),
+        }
+    }
+
+    pub fn get_pull_target_file(&self) -> Option<String> {
+        match &self.pull {
+            Some(p) => match &p.file {
+                Some(_) => p.file.to_owned(),
+                None => self.file.to_owned(),
+            },
+            None => self.file.to_owned(),
+        }
+    }
+
+    pub fn get_push_format(&self) -> Option<PushFormat> {
+        match &self.push {
+            Some(p) => match &p.format {
+                Some(_) => p.format.to_owned(),
+                None => self.format.to_owned(),
+            },
+            None => self.format.to_owned(),
+        }
+    }
+
+    pub fn get_pull_format(&self) -> Option<PullFormat> {
+        match &self.pull {
+            Some(p) => match &p.format {
+                Some(_) => p.format.to_owned(),
+                None => self.format.to_owned(),
+            },
+            None => self.format.to_owned(),
+        }
+    }
+
+    pub fn get_push_secrets(&self) -> PushSecretsConfig {
+        let self_secrets = self.secrets.as_ref();
+        let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
+        let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
+        let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
+
+        match &self.push {
+            Some(push) => match &push.secrets {
+                Some(push_secrets) => {
+                    if let Some(ex) = push_secrets.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+
+                    if let Some(on) = push_secrets.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
+
+                    if let Some(s) = push_secrets.set.to_owned() {
+                        set = Some(s.to_owned());
+                    }
+                }
+                None => match &self.secrets {
+                    Some(s) => {
+                        if let Some(ex) = s.exclude.to_owned() {
+                            exclude = Some(ex.to_owned());
+                        }
+
+                        if let Some(on) = s.only.to_owned() {
+                            only = Some(on.to_owned());
+                        }
+
+                        if let Some(s) = s.set.to_owned() {
+                            set = Some(s.to_owned());
+                        }
+                    }
+                    _ => {}
+                },
+            },
+            None => match &self.secrets {
+                Some(s) => {
+                    if let Some(ex) = s.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+
+                    if let Some(on) = s.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
+
+                    if let Some(s) = s.set.to_owned() {
+                        set = Some(s.to_owned());
+                    }
+                }
+                None => {}
+            },
+        }
+
+        PushSecretsConfig::new(only, exclude, set)
+    }
+
+    pub fn get_pull_secrets(&self) -> PullSecretsConfig {
+        let self_secrets = self.secrets.as_ref();
+        let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
+        let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
+        let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
+
+        let mut expand_refs: Option<bool> = None;
+        let mut print_secrets: Option<bool> = None;
+
+        match &self.pull {
+            Some(push) => match &push.secrets {
+                Some(pull_secrets) => {
+                    if let Some(ex) = pull_secrets.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+                    if let Some(on) = pull_secrets.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
+
+                    if let Some(s) = pull_secrets.set.to_owned() {
+                        set = Some(s.to_owned());
+                    }
+
+                    expand_refs = pull_secrets.expand_refs;
+                    print_secrets = pull_secrets.print;
+                }
+                None => match &self.secrets {
+                    Some(s) => {
+                        if let Some(ex) = s.exclude.to_owned() {
+                            exclude = Some(ex.to_owned());
+                        }
+                        if let Some(on) = s.only.to_owned() {
+                            only = Some(on.to_owned());
+                        }
+                    }
+                    _ => {}
+                },
+            },
+            None => match &self.secrets {
+                Some(s) => {
+                    if let Some(ex) = s.exclude.to_owned() {
+                        exclude = Some(ex.to_owned());
+                    }
+
+                    if let Some(on) = s.only.to_owned() {
+                        only = Some(on.to_owned());
+                    }
+                }
+                None => {}
+            },
+        }
+
+        PullSecretsConfig::new(only, exclude, set, expand_refs, print_secrets)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PullEnvConfig {
-    #[serde(rename = "output")]
-    pub file: String,
+pub struct TargetConfig {
+    pub file: Option<String>,
     pub format: Option<PullFormat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EnvConfigItemSecrets {
+pub struct PushActionConfig {
+    pub file: Option<String>,
+    pub format: Option<PullFormat>,
+
+    pub secrets: Option<PushSecretsConfig>,
+}
+
+impl PushSecretsConfig {
+    fn new(
+        only: Option<Vec<String>>,
+        exclude: Option<Vec<String>>,
+        set: Option<HashMap<String, String>>,
+    ) -> Self {
+        Self { only, exclude, set }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushSecretsConfig {
+    pub only: Option<Vec<String>>,
+    pub exclude: Option<Vec<String>>,
+    pub set: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullActionConfig {
+    pub file: Option<String>,
+    pub format: Option<PullFormat>,
+    // Overwrite existing file without prompt
+    pub overwrite: Option<bool>,
+    pub secrets: Option<PullSecretsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullSecretsConfig {
     pub print: Option<bool>,
     // Select secret keys
     pub only: Option<Vec<String>>,
@@ -33,6 +300,24 @@ pub struct EnvConfigItemSecrets {
 
     #[serde(rename = "expand-refs")]
     pub expand_refs: Option<bool>,
+}
+
+impl PullSecretsConfig {
+    fn new(
+        only: Option<Vec<String>>,
+        exclude: Option<Vec<String>>,
+        set: Option<HashMap<String, String>>,
+        expand_refs: Option<bool>,
+        print: Option<bool>,
+    ) -> Self {
+        Self {
+            only,
+            exclude,
+            print,
+            set,
+            expand_refs,
+        }
+    }
 }
 
 impl fmt::Display for EnvConfigItem {
