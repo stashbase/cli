@@ -51,7 +51,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let HandlePullArgs {
         api_key,
         file,
-        set,
+        mut set,
         mut output_file,
         mut format,
         mut only,
@@ -71,70 +71,120 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     if let Some(config) = file_config {
         debug!("config: {:?}", config);
 
+        let target = config.get_pull_target();
+
+        if let Some(target) = target {
+            if let None = output_file {
+                output_file = Some(target.file);
+            }
+
+            if let None = format {
+                format = target.format;
+            }
+        }
+
+        let secrets_config = config.get_pull_secrets();
+
+        // expand refs
+        if let Some(expand_refs_val) = secrets_config.expand_refs {
+            if expand_refs.is_none() {
+                expand_refs = Some(expand_refs_val);
+            }
+        }
+
+        // print
+        if let Some(print_secrets_val) = secrets_config.print {
+            print_secrets = print_secrets_val;
+        }
+
+        // only
+        if let Some(only_val) = secrets_config.only {
+            if only_val.is_empty() == false {
+                for only_secret in only_val {
+                    let already_exists = only.contains(&only_secret);
+
+                    if !already_exists {
+                        only.push(only_secret);
+                    }
+                }
+            }
+        }
+
+        // exclude
+        if let Some(exclude_val) = secrets_config.exclude {
+            if exclude_val.is_empty() == false {
+                for exclude_secret in exclude_val {
+                    let already_exists = exclude.contains(&exclude_secret);
+
+                    if !already_exists {
+                        exclude.push(exclude_secret);
+                    }
+                }
+            }
+        }
+
+        // set
+        if let Some(set_val) = secrets_config.set {
+            if set_val.is_empty() == false {
+                for (key, value) in set_val {
+                    let key_value_str = format!("{}={}", key, value);
+
+                    if set.contains(&key_value_str) == false {
+                        set.push(key_value_str);
+                    }
+                }
+            }
+        }
+
+        // if let Some(secrets) = config.secrets {
+        //     // refs
+        //     if let Some(refs) = secrets.expand_refs {
+        //         if expand_refs.is_none() {
+        //             expand_refs = Some(refs);
+        //         }
+        //     }
+        //
+        //     // print
+        //     if let Some(print_secrets_val) = secrets.print {
+        //         print_secrets = print_secrets_val;
+        //     }
+        //
+        //     // only
+        //     if let Some(only_val) = secrets.only {
+        //         if only_val.is_empty() == false {
+        //             for only_secret in only_val {
+        //                 let already_exists = only.contains(&only_secret);
+        //
+        //                 if !already_exists {
+        //                     only.push(only_secret);
+        //                 }
+        //             }
+        //         }
+        //     }
+        //
+        //     // exclude
+        //     if let Some(exclude_val) = secrets.exclude {
+        //         if exclude_val.is_empty() == false {
+        //             for exclude_secret in exclude_val {
+        //                 let already_exists = exclude.contains(&exclude_secret);
+        //
+        //                 if !already_exists {
+        //                     exclude.push(exclude_secret);
+        //                 }
+        //             }
+        //         }
+        //     }
+        //
+        //     // manually set
+        //     if let Some(set_val) = secrets.set {
+        //         if set_val.is_empty() == false {
+        //             setted_secrets = set_val;
+        //         }
+        //     }
+        // }
+
         project = Some(config.project);
         environment = Some(config.environment);
-
-        if let Some(pull_config) = config.pull {
-            // check format
-            if let None = format {
-                format = pull_config.format;
-            }
-
-            if let None = output_file {
-                output_file = Some(pull_config.file);
-            }
-        } else {
-            if output_file.is_none() {
-                bail!("No pull config for selected environment");
-            }
-        }
-
-        if let Some(secrets) = config.secrets {
-            // refs
-            if let Some(refs) = secrets.expand_refs {
-                if expand_refs.is_none() {
-                    expand_refs = Some(refs);
-                }
-            }
-
-            // print
-            if let Some(print_secrets_val) = secrets.print {
-                print_secrets = print_secrets_val;
-            }
-
-            // only
-            if let Some(only_val) = secrets.only {
-                if only_val.is_empty() == false {
-                    for only_secret in only_val {
-                        let already_exists = only.contains(&only_secret);
-
-                        if !already_exists {
-                            only.push(only_secret);
-                        }
-                    }
-                }
-            }
-
-            // exclude
-            if let Some(exclude_val) = secrets.exclude {
-                if exclude_val.is_empty() == false {
-                    for exclude_secret in exclude_val {
-                        let already_exists = exclude.contains(&exclude_secret);
-
-                        if !already_exists {
-                            exclude.push(exclude_secret);
-                        }
-                    }
-                }
-            }
-
-            // manually set
-            if let Some(set_val) = secrets.set {
-                if set_val.is_empty() == false {
-                    setted_secrets = set_val;
-                }
-            }
-        }
     } else {
         // eprintln!("\nRun command exited");
         // eprintln!("Run command exited");
