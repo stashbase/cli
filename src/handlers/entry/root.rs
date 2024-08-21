@@ -138,6 +138,7 @@ pub async fn handle_cli(args: Cli) {
                     format: args.format,
                     only: args.only,
                     exclude: args.exclude,
+                    set: args.set,
                 };
 
                 handle_push(args).await
