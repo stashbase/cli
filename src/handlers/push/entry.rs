@@ -2,7 +2,7 @@ use std::{collections::HashSet, path::Path};
 
 use crate::{
     api::secrets,
-    cmd::{push::PushFormat, secrets::SecretsFileFormat},
+    cmd::{pull::PullFormat, push::PushFormat, secrets::SecretsFileFormat},
     handlers::{pull::entry::load_from_file, run::entry::get_set_key_value_pairs},
     models::{
         api_client::RequestApiOptionResponse,
@@ -133,10 +133,11 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     //
     let target_format = match format {
-        Some(format) => {
-            // TODO: ???
-            SecretsFileFormat::Dotenv
-        }
+        Some(f) => match f {
+            PullFormat::Dotenv => SecretsFileFormat::Dotenv,
+            PullFormat::Yaml => SecretsFileFormat::Yaml,
+            PullFormat::Json => SecretsFileFormat::Json,
+        },
         None => {
             if input_path.ends_with(".yaml") || input_path.ends_with(".yml") {
                 SecretsFileFormat::Yaml
