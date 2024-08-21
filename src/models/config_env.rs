@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::pull::PullFormat;
+use crate::cmd::{pull::PullFormat, push::PushFormat};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvConfigItem {
@@ -17,26 +17,39 @@ pub struct EnvConfigItem {
     // both for push/pull
     pub target: Option<TargetConfig>,
 
+    pub file: Option<String>,
+    pub format: Option<PullFormat>,
+
     // only for push
     pub push: Option<PushActionConfig>,
 }
 
 impl EnvConfigItem {
-    pub fn get_push_target(&self) -> Option<TargetConfig> {
-        match (&self.target, &self.push) {
-            (None, None) => None,
-            (None, Some(push_config)) => match &push_config.target {
-                Some(target) => Some(target.to_owned()),
-                None => None,
-            },
-            (Some(root_target), None) => Some(root_target.to_owned()),
-            (Some(_), Some(push_config)) => {
-                // push target overrides root target
-                match &push_config.target {
-                    Some(target) => Some(target.to_owned()),
-                    None => None,
-                }
-            }
+    pub fn get_push_target_file(&self) -> Option<String> {
+        match &self.push {
+            Some(p) => p.file.to_owned(),
+            None => self.file.to_owned(),
+        }
+    }
+
+    pub fn get_pull_target_file(&self) -> Option<String> {
+        match &self.pull {
+            Some(p) => p.file.to_owned(),
+            None => self.file.to_owned(),
+        }
+    }
+
+    pub fn get_push_format(&self) -> Option<PushFormat> {
+        match &self.push {
+            Some(p) => p.format.to_owned(),
+            None => self.format.to_owned(),
+        }
+    }
+
+    pub fn get_pull_format(&self) -> Option<PullFormat> {
+        match &self.pull {
+            Some(p) => p.format.to_owned(),
+            None => self.format.to_owned(),
         }
     }
 
@@ -68,24 +81,6 @@ impl EnvConfigItem {
         }
 
         PushSecretsConfig::new(only, exclude)
-    }
-
-    pub fn get_pull_target(&self) -> Option<TargetConfig> {
-        match (&self.target, &self.pull) {
-            (None, None) => None,
-            (None, Some(pull_config)) => match &pull_config.target {
-                Some(target) => Some(target.to_owned()),
-                None => None,
-            },
-            (Some(root_target), None) => Some(root_target.to_owned()),
-            (Some(_), Some(pull_config)) => {
-                // push target overrides root target
-                match &pull_config.target {
-                    Some(target) => Some(target.to_owned()),
-                    None => None,
-                }
-            }
-        }
     }
 
     pub fn get_pull_secrets(&self) -> PullSecretsConfig {
@@ -133,13 +128,15 @@ pub struct ActionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetConfig {
-    pub file: String,
+    pub file: Option<String>,
     pub format: Option<PullFormat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushActionConfig {
-    pub target: Option<TargetConfig>,
+    pub file: Option<String>,
+    pub format: Option<PullFormat>,
+
     pub secrets: Option<PushSecretsConfig>,
 }
 
@@ -157,7 +154,8 @@ pub struct PushSecretsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullActionConfig {
-    pub target: Option<TargetConfig>,
+    pub file: Option<String>,
+    pub format: Option<PullFormat>,
     pub secrets: Option<PullSecretsConfig>,
 }
 
