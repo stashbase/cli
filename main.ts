@@ -17,7 +17,7 @@ function initializeQuotesApiClient() {
 async function fetchWeatherData() {
   const apiKey = 'wh_xeC39HqLyjWDarjtT1zdp7dc'
   const clientId = 'weather-api-client-845u345690'
-  console.log(`Fetching data with API key ${apiKey} and client ID ${clientId}`)
+
   const response = await fetch('https://api.weather.com/resource', {
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -39,3 +39,4 @@ async function main() {
 }
 
 main()
+
