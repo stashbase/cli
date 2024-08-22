@@ -1,8 +1,6 @@
-function initializeApiClient() {
+function initializeQuotesApiClient() {
   const baseUrl = 'https://api.quotes.com/v1'
   const token = '9b8b7823b48b0e92390'
-
-  console.log(`API Client initialized with base URL: ${baseUrl}`)
 
   return {
     fetchResource: async (endpoint: string) => {
@@ -16,10 +14,9 @@ function initializeApiClient() {
   }
 }
 
-async function fetchData() {
+async function fetchWeatherData() {
   const apiKey = 'wh_xeC39HqLyjWDarjtT1zdp7dc'
-  const clientId = 'whether-api-client-845u345690'
-
+  const clientId = 'weather-api-client-845u345690'
   console.log(`Fetching data with API key ${apiKey} and client ID ${clientId}`)
   const response = await fetch('https://api.weather.com/resource', {
     headers: {
@@ -32,13 +29,13 @@ async function fetchData() {
 }
 
 async function main() {
-  const apiClient = initializeApiClient()
+  const apiClient = initializeQuotesApiClient()
 
-  const dataFromClient = await apiClient.fetchResource('data')
-  console.log(`Fetched data from API client: ${JSON.stringify(dataFromClient)}`)
+  const quotesData = await apiClient.fetchResource('data')
+  console.log(`Fetched quotes: ${JSON.stringify(quotesData)}`)
 
-  const dataFromFunction = await fetchData()
-  console.log(`Fetched data from fetchData function: ${JSON.stringify(dataFromFunction)}`)
+  const weatherData = await fetchWeatherData()
+  console.log(`Fetched weather data: ${JSON.stringify(weatherData)}`)
 }
 
 main()
