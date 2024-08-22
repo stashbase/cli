@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 use super::{
     config::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
-    pull::PullCommand, push::PushCommand, run::RunCommand, secrets::SecretArgs,
+    pull::PullCommand, push::PushCommand, run::RunCommand, scan::ScanCommand, secrets::SecretArgs,
     webhooks::WebhookCommand,
 };
 
@@ -57,6 +57,9 @@ pub enum EntityType {
 
     /// Push secrets to environment
     Push(PushCommand),
+
+    /// Load environment and run command
+    Scan(ScanCommand),
 
     #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
     /// Manage projects
