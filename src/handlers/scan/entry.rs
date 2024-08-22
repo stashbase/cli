@@ -81,7 +81,7 @@ main()"#;
         false => args.files[0].clone(),
     };
 
-    if args.autofix == false {
+    if args.auto_resolve == false {
         spinner.stop_with_message("Scan completed, found 3 issues:\n");
 
         let items = vec![
@@ -110,6 +110,15 @@ main()"#;
                     target_file,
                 );
                 eprintln!("\n{}", msg);
+
+                if let Some(project) = args.project {
+                    if let Some(environment) = args.environment {
+                        eprintln!(
+                            "Secrets saved to project '{}', environment '{}'",
+                            project, environment
+                        );
+                    }
+                }
             }
             Err(err) => {
                 bail!("\nAction aborted");
