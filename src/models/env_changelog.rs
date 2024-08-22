@@ -189,6 +189,7 @@ impl Display for EnvChangelogList {
                 SecretsChange::WithValues(_) => format!("{}\n", item),
                 SecretsChange::NoValues(_) => format!("{}", item),
             })
+            .rev()
             .collect::<Vec<String>>()
             .join("\n");
 
