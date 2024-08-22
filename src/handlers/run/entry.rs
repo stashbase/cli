@@ -232,19 +232,48 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         }
     }
 
+    let setted_len = setted_secrets.len();
+
+    if setted_len > 0 && setted_len == only.len() {
+        let exists_count = setted_secrets
+            .iter()
+            .filter(|secret| only.contains(&secret.0))
+            .count();
+
+        if exists_count == setted_len {
+            let run_error = RunInputValidationError::NoSecretsToFetch;
+            let err = InputValidationError::Run(run_error);
+
+            bail!(err);
+        }
+    }
+
     // exclude manually
     if !setted_secrets.is_empty() {
         for secret in setted_secrets.iter() {
             let key = secret.0;
 
             let exists = exclude.contains(&key);
-            if !exists {
+
+            // if !exists {
+            //     exclude.push(key.to_string());
+            // }
+
+            if !exists && only.is_empty() {
                 exclude.push(key.to_string());
+            }
+
+            let only_exists = only.contains(&key);
+            if only_exists {
+                // remove from only
+                let index = only.iter().position(|x| x == key).unwrap();
+                only.remove(index);
             }
         }
     }
 
-    debug!("{:#?}", exclude);
+    debug!("{:#?} EXCLUDE", exclude);
+    debug!("{:#?} ONLY", only);
 
     let only_len = only.len();
 
