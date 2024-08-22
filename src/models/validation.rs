@@ -532,7 +532,7 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                         hint = Some("make sure the file exists");
                     }
                     false => {
-                        msg = "no 'env-ease.yaml' config file found";
+                        msg = "no 'stashbase.yaml' config file found";
                         hint = Some("create file or use '-p' and '-e' flags");
                     }
                 };
