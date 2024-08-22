@@ -21,26 +21,26 @@ pub struct EnvConfigItem {
     pub push: Option<PushActionConfig>,
 }
 
-pub enum ConfigEntity {
+pub enum ConfigActionCommand {
     Pull,
     Push,
     Run,
 }
 
 impl EnvConfigItem {
-    pub fn get_print_string(&self, config_entity: &ConfigEntity) -> String {
+    pub fn get_print_string(&self, config_action_command: &ConfigActionCommand) -> String {
         let mut args_string = String::new();
 
-        let secrets = match config_entity {
-            ConfigEntity::Pull => {
+        let secrets = match config_action_command {
+            ConfigActionCommand::Pull => {
                 let secrets = self.get_pull_secrets();
                 (secrets.only, secrets.exclude, secrets.set)
             }
-            ConfigEntity::Push => {
+            ConfigActionCommand::Push => {
                 let secrets = self.get_push_secrets();
                 (secrets.only, secrets.exclude, secrets.set)
             }
-            ConfigEntity::Run => match &self.secrets {
+            ConfigActionCommand::Run => match &self.secrets {
                 Some(s) => (s.only.to_owned(), s.exclude.to_owned(), s.set.to_owned()),
                 None => (None, None, None),
             },
