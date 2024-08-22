@@ -17,7 +17,7 @@ pub struct ScanCommand {
 
     /// Save the result in the cloud
     #[arg(value_enum, long = "remote")]
-    pub remove: bool,
+    pub remote: bool,
     ///// Do not print any output
     //#[arg(value_enum, long = "silent")]
     //pub silent: bool,
