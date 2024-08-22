@@ -6,7 +6,7 @@ use crate::{
     handlers::{pull::entry::load_from_file, run::entry::get_set_key_value_pairs},
     models::{
         api_client::RequestApiOptionResponse,
-        config_env::ConfigEntity,
+        config_env::ConfigActionCommand,
         secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
@@ -51,7 +51,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         mut target_file,
     } = args;
 
-    let file_config = load_from_file(config_file_path.clone(), &ConfigEntity::Push)?;
+    let config_action_command = ConfigActionCommand::Push;
+
+    let file_config = load_from_file(config_file_path.clone(), &config_action_command)?;
     debug!("file_config: {:?}", file_config);
 
     let project: Option<String>;

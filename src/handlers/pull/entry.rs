@@ -16,7 +16,7 @@ use crate::{
     handlers::run::entry::get_set_key_value_pairs,
     models::{
         api_client::GetRequestApiResponse,
-        config_env::{ConfigEntity, EnvConfigItem},
+        config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, PushPullInputValidationError,
@@ -62,8 +62,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let environment: Option<String>;
     let mut setted_secrets = HashMap::<String, String>::new();
 
+    let config_action_command = ConfigActionCommand::Pull;
+
     // LOAD from file
-    let file_config = load_from_file(file.clone(), &ConfigEntity::Pull)?;
+    let file_config = load_from_file(file.clone(), &config_action_command)?;
     debug!("file_config: {:?}", file_config);
 
     if let Some(config) = file_config {
@@ -143,7 +145,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 set = [set_secrets_from_file, set].concat();
             }
         }
-
 
         project = Some(config.project);
         environment = Some(config.environment);
@@ -492,7 +493,7 @@ fn write_file(file_path: &str, file_string: String) -> Result<()> {
 
 pub fn load_from_file(
     relative_path: Option<String>,
-    config_entity: &ConfigEntity,
+    config_action_command: &ConfigActionCommand,
 ) -> Result<Option<EnvConfigItem>> {
     // Load from file
     let file_path = match &relative_path {
@@ -534,7 +535,7 @@ pub fn load_from_file(
             } else {
                 let items = deserialized_config
                     .iter()
-                    .map(|item| item.get_print_string(config_entity))
+                    .map(|item| item.get_print_string(config_action_command))
                     .collect();
                 // select project
                 let selection = select("Select environment config", items);
