@@ -49,7 +49,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         api_key,
         command,
         file,
-        set,
+        mut set,
         mut project,
         mut environment,
         mut only,
@@ -94,54 +94,65 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         let file_config = load_from_file(file)?;
 
         if let Some(config) = file_config {
-            project = Some(config.project);
-            environment = Some(config.environment);
+            let secrets_config = config.get_run_secrets();
 
-            if let Some(secrets) = config.secrets {
-                // refs
-                if let Some(refs) = secrets.expand_refs {
-                    if expand_refs.is_none() {
-                        expand_refs = Some(refs);
-                    }
+            // expand refs
+            if let Some(expand_refs_val) = secrets_config.expand_refs {
+                if expand_refs.is_none() {
+                    expand_refs = Some(expand_refs_val);
                 }
-                // print
-                if let Some(print_secrets_val) = secrets.print {
-                    print_secrets = print_secrets_val;
-                }
+            }
 
-                // only
-                if let Some(only_val) = secrets.only {
-                    if only_val.is_empty() == false {
-                        for only_secret in only_val {
-                            let already_exists = only.contains(&only_secret);
+            // print
+            if let Some(print_secrets_val) = secrets_config.print {
+                print_secrets = print_secrets_val;
+            }
 
-                            if !already_exists {
-                                only.push(only_secret);
-                            }
+            // only
+            if let Some(only_val) = secrets_config.only {
+                if only_val.is_empty() == false {
+                    for only_secret in only_val {
+                        let already_exists = only.contains(&only_secret);
+
+                        if !already_exists {
+                            only.push(only_secret);
                         }
-                    }
-                }
-
-                // exclude
-                if let Some(exclude_val) = secrets.exclude {
-                    if exclude_val.is_empty() == false {
-                        for exclude_secret in exclude_val {
-                            let already_exists = exclude.contains(&exclude_secret);
-
-                            if !already_exists {
-                                exclude.push(exclude_secret);
-                            }
-                        }
-                    }
-                }
-
-                // manually set
-                if let Some(set_val) = secrets.set {
-                    if set_val.is_empty() == false {
-                        setted_secrets = set_val;
                     }
                 }
             }
+
+            // exclude
+            if let Some(exclude_val) = secrets_config.exclude {
+                if exclude_val.is_empty() == false {
+                    for exclude_secret in exclude_val {
+                        let already_exists = exclude.contains(&exclude_secret);
+
+                        if !already_exists {
+                            exclude.push(exclude_secret);
+                        }
+                    }
+                }
+            }
+
+            // set
+            if let Some(set_val) = secrets_config.set {
+                if set_val.is_empty() == false {
+                    let mut set_secrets_from_file = Vec::new();
+
+                    for (key, value) in set_val {
+                        let key_value_str = format!("{}={}", key, value);
+
+                        if set.contains(&key_value_str) == false {
+                            set_secrets_from_file.push(key_value_str);
+                        }
+                    }
+
+                    set = [set_secrets_from_file, set].concat();
+                }
+            }
+
+            project = Some(config.project);
+            environment = Some(config.environment);
         } else {
             eprintln!("\nRun command exited");
             // eprintln!("Run command exited");
