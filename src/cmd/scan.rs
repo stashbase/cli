@@ -18,7 +18,12 @@ pub struct ScanCommand {
     /// Save the result in the cloud
     #[arg(value_enum, long = "remote")]
     pub remote: bool,
-    ///// Do not print any output
-    //#[arg(value_enum, long = "silent")]
-    //pub silent: bool,
+
+    /// Project context
+    #[arg(value_enum, short = 'p', long = "project")]
+    pub project: Option<String>,
+
+    /// Environment context
+    #[arg(value_enum, short = 'e', long = "environment")]
+    pub environment: Option<String>,
 }
