@@ -15,6 +15,7 @@ pub struct EnvConfigItem {
     pub format: Option<PullFormat>,
     pub secrets: Option<PullSecretsConfig>,
 
+    pub run: Option<RunActionConfig>,
     pub pull: Option<PullActionConfig>,
 
     // only for push
@@ -284,6 +285,12 @@ impl PullSecretsConfig {
             expand_refs,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunActionConfig {
+    // pub file: Option<String>,
+    pub secrets: Option<PullSecretsConfig>,
 }
 
 impl fmt::Display for EnvConfigItem {
