@@ -140,54 +140,20 @@ impl EnvConfigItem {
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
         let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
 
-        match &self.push {
-            Some(push) => match &push.secrets {
-                Some(push_secrets) => {
-                    if let Some(ex) = push_secrets.exclude.to_owned() {
-                        exclude = Some(ex.to_owned());
-                    }
-
-                    if let Some(on) = push_secrets.only.to_owned() {
-                        only = Some(on.to_owned());
-                    }
-
-                    if let Some(s) = push_secrets.set.to_owned() {
-                        set = Some(s.to_owned());
-                    }
+        if let Some(p) = &self.push {
+            if let Some(p_secrets) = &p.secrets {
+                if let Some(ex) = p_secrets.exclude.to_owned() {
+                    exclude = Some(ex.to_owned());
                 }
-                None => match &self.secrets {
-                    Some(s) => {
-                        if let Some(ex) = s.exclude.to_owned() {
-                            exclude = Some(ex.to_owned());
-                        }
 
-                        if let Some(on) = s.only.to_owned() {
-                            only = Some(on.to_owned());
-                        }
-
-                        if let Some(s) = s.set.to_owned() {
-                            set = Some(s.to_owned());
-                        }
-                    }
-                    _ => {}
-                },
-            },
-            None => match &self.secrets {
-                Some(s) => {
-                    if let Some(ex) = s.exclude.to_owned() {
-                        exclude = Some(ex.to_owned());
-                    }
-
-                    if let Some(on) = s.only.to_owned() {
-                        only = Some(on.to_owned());
-                    }
-
-                    if let Some(s) = s.set.to_owned() {
-                        set = Some(s.to_owned());
-                    }
+                if let Some(on) = p_secrets.only.to_owned() {
+                    only = Some(on.to_owned());
                 }
-                None => {}
-            },
+
+                if let Some(s) = p_secrets.set.to_owned() {
+                    set = Some(s.to_owned());
+                }
+            }
         }
 
         PushSecretsConfig::new(only, exclude, set)
