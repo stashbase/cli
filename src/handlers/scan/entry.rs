@@ -18,11 +18,9 @@ pub struct HandleScanArgs {
 }
 
 pub async fn handle_scan(args: HandleScanArgs) -> Result<()> {
-    let resolved_content = r#"function initializeApiClient() {
+    let resolved_content = r#"function initializeQuotesApiClient() {
   const baseUrl = process.env.QUOTES_API_BASE_URL
   const token = process.env.QUOTES_API_TOKEN
-
-  console.log(`API Client initialized with base URL: ${baseUrl}`)
 
   return {
     fetchResource: async (endpoint: string) => {
@@ -36,11 +34,10 @@ pub async fn handle_scan(args: HandleScanArgs) -> Result<()> {
   }
 }
 
-async function fetchData() {
+async function fetchWeatherData() {
   const apiKey = process.env.WEATHER_API_KEY
   const clientId = process.env.WEATHER_API_CLIENT_ID
 
-  console.log(`Fetching data with API key ${apiKey} and client ID ${clientId}`)
   const response = await fetch('https://api.weather.com/resource', {
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -52,13 +49,13 @@ async function fetchData() {
 }
 
 async function main() {
-  const apiClient = initializeApiClient()
+  const apiClient = initializeQuotesApiClient()
 
-  const dataFromClient = await apiClient.fetchResource('data')
-  console.log(`Fetched data from API client: ${JSON.stringify(dataFromClient)}`)
+  const quotesData = await apiClient.fetchResource('data')
+  console.log(`Fetched quotes: ${JSON.stringify(quotesData)}`)
 
-  const dataFromFunction = await fetchData()
-  console.log(`Fetched data from fetchData function: ${JSON.stringify(dataFromFunction)}`)
+  const weatherData = await fetchWeatherData()
+  console.log(`Fetched weather data: ${JSON.stringify(weatherData)}`)
 }
 
 main()"#;
