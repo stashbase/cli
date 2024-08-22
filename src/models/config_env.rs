@@ -161,6 +161,14 @@ impl EnvConfigItem {
     }
 
     pub fn get_pull_secrets(&self) -> PullSecretsConfig {
+        self.get_pull_run_secrets(false)
+    }
+
+    pub fn get_run_secrets(&self) -> PullSecretsConfig {
+        self.get_pull_run_secrets(true)
+    }
+
+    fn get_pull_run_secrets(&self, is_run_action: bool) -> PullSecretsConfig {
         let self_secrets = self.secrets.as_ref();
         let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
@@ -169,47 +177,26 @@ impl EnvConfigItem {
         let mut expand_refs: Option<bool> = None;
         let mut print_secrets: Option<bool> = None;
 
-        match &self.pull {
-            Some(push) => match &push.secrets {
-                Some(pull_secrets) => {
-                    if let Some(ex) = pull_secrets.exclude.to_owned() {
-                        exclude = Some(ex.to_owned());
-                    }
-                    if let Some(on) = pull_secrets.only.to_owned() {
-                        only = Some(on.to_owned());
-                    }
+        let action_secrets = match is_run_action {
+            true => self.run.as_ref().and_then(|r| r.secrets.to_owned()),
+            false => self.pull.as_ref().and_then(|p| p.secrets.to_owned()),
+        };
 
-                    if let Some(s) = pull_secrets.set.to_owned() {
-                        set = Some(s.to_owned());
-                    }
+        if let Some(action_secrets) = action_secrets {
+            if let Some(ex) = action_secrets.exclude.to_owned() {
+                exclude = Some(ex.to_owned());
+            }
 
-                    expand_refs = pull_secrets.expand_refs;
-                    print_secrets = pull_secrets.print;
-                }
-                None => match &self.secrets {
-                    Some(s) => {
-                        if let Some(ex) = s.exclude.to_owned() {
-                            exclude = Some(ex.to_owned());
-                        }
-                        if let Some(on) = s.only.to_owned() {
-                            only = Some(on.to_owned());
-                        }
-                    }
-                    _ => {}
-                },
-            },
-            None => match &self.secrets {
-                Some(s) => {
-                    if let Some(ex) = s.exclude.to_owned() {
-                        exclude = Some(ex.to_owned());
-                    }
+            if let Some(on) = action_secrets.only.to_owned() {
+                only = Some(on.to_owned());
+            }
 
-                    if let Some(on) = s.only.to_owned() {
-                        only = Some(on.to_owned());
-                    }
-                }
-                None => {}
-            },
+            if let Some(s) = action_secrets.set.to_owned() {
+                set = Some(s.to_owned());
+            }
+
+            expand_refs = action_secrets.expand_refs;
+            print_secrets = action_secrets.print;
         }
 
         PullSecretsConfig::new(only, exclude, set, expand_refs, print_secrets)
