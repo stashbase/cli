@@ -58,7 +58,7 @@ pub enum EntityType {
     /// Push secrets to environment
     Push(PushCommand),
 
-    /// Load environment and run command
+    /// Scan files for secrets
     Scan(ScanCommand),
 
     #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
