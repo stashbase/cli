@@ -131,6 +131,7 @@ pub enum PushPullInputValidationError {
 #[derive(Debug)]
 pub enum RunInputValidationError {
     NoCmdProvided,
+    NoSecretsToFetch,
 }
 
 impl fmt::Display for CmdArgInputValidationError {
@@ -667,14 +668,25 @@ impl fmt::Display for WebhookInputValidationError {
 
 impl fmt::Display for RunInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
         match self {
             RunInputValidationError::NoCmdProvided => {
-                let msg = "no command provided";
-                let hint = "provide command you want to run";
-
-                writeln!(f, "{}", format!("- message: {}", msg),)?;
-                writeln!(f, "{}", format!("- hint: {}", hint),)?;
+                msg = "no command provided";
+                hint = Some("provide command you want to run");
             }
+            RunInputValidationError::NoSecretsToFetch => {
+                msg = "no secrets to fetch";
+                hint = Some("'set' secrets option overrides all secrets from option 'only'");
+            }
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            write!(f, "{}", format!("- message: {}", msg),)?;
         }
 
         Ok(())
