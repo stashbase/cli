@@ -17,6 +17,7 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
         run::entry::{handle_load_env_run, HandleRunArgs},
+        scan::entry::{handle_scan, HandleScanArgs},
     },
     models::config::Config,
 };
@@ -144,6 +145,15 @@ pub async fn handle_cli(args: Cli) {
                 handle_push(args).await
             }
             EntityType::Open => handle_open_dashboard(api_key).await,
+            EntityType::Scan(cmd) => {
+                let args = HandleScanArgs {
+                    files: cmd.files,
+                    staged: cmd.staged,
+                    autofix: cmd.autofix,
+                };
+
+                handle_scan(args).await
+            }
         };
 
         if let Err(err) = result {

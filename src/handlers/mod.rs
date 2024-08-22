@@ -8,6 +8,7 @@ pub mod projects;
 pub mod pull;
 pub mod push;
 pub mod run;
+pub mod scan;
 pub mod secrets;
 pub mod test;
 pub mod webhooks;
