@@ -1,0 +1,27 @@
+[
+  {
+    "lineNumber": 2,
+    "actualValue": "https://api.example.com/v1/",
+    "suggestedName": "API_BASE_URL"
+  },
+  {
+    "lineNumber": 3,
+    "actualValue": "9b8b7823b48b0e92390",
+    "suggestedName": "API_CLIENT_TOKEN"
+  },
+  {
+    "lineNumber": 4,
+    "actualValue": "v1",
+    "suggestedName": "API_VERSION"
+  },
+  {
+    "lineNumber": 10,
+    "actualValue": "wh_xeC39HqLyjWDarjtT1zdp7dc",
+    "suggestedName": "API_KEY"
+  },
+  {
+    "lineNumber": 11,
+    "actualValue": "my-client-id-123",
+    "suggestedName": "CLIENT_ID"
+  }
+]
