@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    fs,
+    time::{Duration, Instant},
+};
 
 use anyhow::{bail, Result};
 use dialoguer::MultiSelect;
@@ -13,6 +16,51 @@ pub struct HandleScanArgs {
 }
 
 pub async fn handle_scan(args: HandleScanArgs) -> Result<()> {
+    let resolved_content = r#"function initializeApiClient() {
+  const baseUrl = process.env.QUOTES_API_BASE_URL
+  const token = process.env.QUOTES_API_TOKEN
+
+  console.log(`API Client initialized with base URL: ${baseUrl}`)
+
+  return {
+    fetchResource: async (endpoint: string) => {
+      const response = await fetch(`${baseUrl}/${endpoint}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      return response.json()
+    },
+  }
+}
+
+async function fetchData() {
+  const apiKey = process.env.WEATHER_API_KEY
+  const clientId = process.env.WEATHER_API_CLIENT_ID
+
+  console.log(`Fetching data with API key ${apiKey} and client ID ${clientId}`)
+  const response = await fetch('https://api.weather.com/resource', {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Client-ID': clientId,
+    },
+  })
+  const data = await response.json()
+  return data
+}
+
+async function main() {
+  const apiClient = initializeApiClient()
+
+  const dataFromClient = await apiClient.fetchResource('data')
+  console.log(`Fetched data from API client: ${JSON.stringify(dataFromClient)}`)
+
+  const dataFromFunction = await fetchData()
+  console.log(`Fetched data from fetchData function: ${JSON.stringify(dataFromFunction)}`)
+}
+
+main()"#;
+
     let mut spinner = Spinner::new_with_stream(
         spinners::Dots,
         "Scanning in progress...",
@@ -26,7 +74,12 @@ pub async fn handle_scan(args: HandleScanArgs) -> Result<()> {
     let start = Instant::now();
     sleep(random_duration).await;
 
-    if (args.autofix == false) {
+    let target_file = match args.files.is_empty() {
+        true => String::from("main.ts"),
+        false => args.files[0].clone(),
+    };
+
+    if args.autofix == false {
         spinner.stop_with_message("Scan completed, found 3 issues:\n");
 
         let items = vec![
@@ -43,10 +96,18 @@ pub async fn handle_scan(args: HandleScanArgs) -> Result<()> {
 
         match selection {
             Ok(selection) => {
-                println!("You chose:");
-                for i in selection {
-                    println!("{}", items[i]);
+                if selection.is_empty() {
+                    bail!("\nNo issues to resolve selected");
                 }
+
+                fs::write(target_file.clone(), resolved_content).expect("Unable to write file");
+
+                let msg = format!(
+                    "Resolved {} items for file '{}'",
+                    selection.len(),
+                    target_file,
+                );
+                eprintln!("\n{}", msg);
             }
             Err(err) => {
                 bail!("\nAction aborted");
@@ -61,6 +122,8 @@ pub async fn handle_scan(args: HandleScanArgs) -> Result<()> {
             "Line: 9; Value: 'wh_xeC39HqL...'; Variable name: WEATHER_API_KEY",
             "Line: 11; Value: 'weather-api...'; Suggested name: WEATHER_API_CLIENT_ID",
         ];
+
+        fs::write(target_file, resolved_content).expect("Unable to write file");
 
         eprint!("{}", items.join("\n"));
     }
