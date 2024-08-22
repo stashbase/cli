@@ -7,9 +7,9 @@ pub struct RunCommand {
     #[clap(value_parser, num_args = 1..)]
     pub command: Vec<String>,
 
-    /// Relative path to a config file (default: env-ease.yaml)
-    #[arg(value_enum, long = "file")]
-    pub file: Option<String>,
+    /// Relative path to a config file (default: stashbase.yaml)
+    #[arg(value_enum, short = 'c', long = "config")]
+    pub config_file: Option<String>,
 
     /// Project name or id
     #[arg(value_enum, short = 'p', long = "project")]
