@@ -149,7 +149,9 @@ pub async fn handle_cli(args: Cli) {
                 let args = HandleScanArgs {
                     files: cmd.files,
                     staged: cmd.staged,
-                    autofix: cmd.autofix,
+                    auto_resolve: cmd.auto_resolve,
+                    project: cmd.project,
+                    environment: cmd.environment,
                 };
 
                 handle_scan(args).await

@@ -12,7 +12,9 @@ use tokio::time::sleep;
 pub struct HandleScanArgs {
     pub files: Vec<String>,
     pub staged: bool,
-    pub autofix: bool,
+    pub auto_resolve: bool,
+    pub project: Option<String>,
+    pub environment: Option<String>,
 }
 
 pub async fn handle_scan(args: HandleScanArgs) -> Result<()> {

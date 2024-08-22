@@ -11,9 +11,9 @@ pub struct ScanCommand {
     #[arg(value_enum, long = "print")]
     pub staged: bool,
 
-    /// Autofix found issues
-    #[arg(value_enum, long = "autofix")]
-    pub autofix: bool,
+    /// Autoresolve found issues
+    #[arg(value_enum, long = "auto-resolve")]
+    pub auto_resolve: bool,
 
     /// Save the result in the cloud
     #[arg(value_enum, long = "remote")]
