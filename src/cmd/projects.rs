@@ -67,21 +67,27 @@ pub struct ListProjects {
     pub format: Option<OutputFormat>,
 }
 
-#[derive(Debug, ValueEnum, Clone)]
-pub enum Sort {
-    #[clap(alias = "cre")]
-    Created,
-    Name,
-    #[clap(alias = "env")]
-    Environments,
+impl Default for SortBy {
+    fn default() -> Self {
+        SortBy::Name
+    }
 }
 
-impl fmt::Display for Sort {
+#[derive(Debug, ValueEnum, Clone)]
+pub enum SortBy {
+    Name,
+    #[value(name = "createdAt")]
+    CreatedAt,
+    #[value(name = "environmentCount")]
+    EnvironmentCount,
+}
+
+impl fmt::Display for SortBy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Sort::Created => write!(f, "created"),
-            Sort::Name => write!(f, "name"),
-            Sort::Environments => write!(f, "environments"),
+            SortBy::Name => write!(f, "name"),
+            SortBy::CreatedAt => write!(f, "createdAt"),
+            SortBy::EnvironmentCount => write!(f, "environmentCount"),
         }?;
 
         Ok(())
