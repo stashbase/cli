@@ -29,7 +29,7 @@ pub async fn handle_project_commands(
             let args = HandleListProjectsArgs {
                 api_key,
                 search: args.search,
-                sort: args.sort,
+                sort_by: args.sort_by,
                 descending: args.descending,
                 page: args.page,
                 limit: args.limit,
