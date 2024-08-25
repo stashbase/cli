@@ -251,9 +251,9 @@ pub struct ListEnvironments {
     #[arg(value_enum, long = "unlocked")]
     pub unlocked: bool,
 
-    /// Sort projects by
-    #[arg(value_enum, short = 's', long = "sort")]
-    pub sort: Option<EnvSort>,
+    /// Sort environments by property
+    #[arg(value_enum, short = 's', long = "sort-by")]
+    pub sort_by: Option<EnvSortBy>,
 
     /// Descending order
     #[arg(value_enum, long = "desc")]
