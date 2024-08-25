@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use super::client;
 use crate::{
-    cmd::environments::{EnvSort, EnvironmentType},
+    cmd::environments::{EnvSortBy, EnvironmentType},
     models::{
         api_client::{
             ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
@@ -21,7 +21,7 @@ pub struct ListEnvsRequestArgs {
     pub types: Vec<EnvironmentType>,
     pub locked: bool,
     pub unlocked: bool,
-    pub sort: EnvSort,
+    pub sort_by: EnvSortBy,
     pub descending: bool,
 }
 
@@ -33,14 +33,14 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
         types,
         locked,
         unlocked,
-        sort,
+        sort_by: sort,
         descending,
     } = args;
 
-    let mut query = vec![("sort".to_string(), format!("{}", sort))];
+    let mut query = vec![("sort-by".to_string(), format!("{}", sort))];
 
     if descending == true {
-        query.push(("descending".to_string(), "true".to_string()));
+        query.push(("order".to_string(), "desc".to_string()));
     }
 
     if let Some(search) = search {
