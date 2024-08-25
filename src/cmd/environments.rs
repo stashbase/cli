@@ -1,4 +1,5 @@
 use core::fmt;
+use std::default::Default;
 
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
@@ -264,28 +265,30 @@ pub struct ListEnvironments {
     pub format: Option<OutputFormat>,
 }
 
-#[derive(Debug, ValueEnum, Clone)]
-pub enum EnvSort {
-    #[clap(alias = "cre")]
-    Created,
-    Name,
-
-    // #[clap(alias = "alp")]
-    // Alphabet,
-    //
-    #[clap(alias = "sec")]
-    Secrets,
-
-    Lock,
+impl Default for EnvSortBy {
+    fn default() -> Self {
+        EnvSortBy::Name
+    }
 }
 
-impl fmt::Display for EnvSort {
+#[derive(Debug, ValueEnum, Clone)]
+pub enum EnvSortBy {
+    Name,
+    #[value(name = "createdAt")]
+    CreatedAt,
+    #[value(name = "locked")]
+    Locked,
+    #[value(name = "secretCount")]
+    SecretCount,
+}
+
+impl fmt::Display for EnvSortBy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            EnvSort::Created => write!(f, "created"),
-            EnvSort::Name => write!(f, "name"),
-            EnvSort::Secrets => write!(f, "secrets"),
-            EnvSort::Lock => write!(f, "lock"),
+            EnvSortBy::Name => write!(f, "name"),
+            EnvSortBy::Locked => write!(f, "locked"),
+            EnvSortBy::CreatedAt => write!(f, "created"),
+            EnvSortBy::SecretCount => write!(f, "secretCount"),
         }?;
 
         Ok(())
