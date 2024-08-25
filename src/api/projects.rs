@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::projects::Sort,
+    cmd::projects::SortBy,
     models::{
         api_client::{
             ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
@@ -16,15 +16,15 @@ use super::client;
 pub async fn list_projects(
     api_key: String,
     search: Option<String>,
-    sort: Sort,
+    sort_by: SortBy,
     descending: bool,
     page: Option<usize>,
     limit: Option<usize>,
 ) -> Result<GetRequestApiResponse> {
-    let mut query = vec![("sort".to_string(), format!("{}", sort))];
+    let mut query = vec![("sort-by".to_string(), format!("{}", sort_by))];
 
     if descending == true {
-        query.push(("descending".to_string(), "true".to_string()));
+        query.push(("order".to_string(), "desc".to_string()));
     }
 
     if let Some(search) = search {
