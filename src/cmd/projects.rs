@@ -47,8 +47,8 @@ pub struct ListProjects {
     pub search: Option<String>,
 
     /// Sort projects by
-    #[arg(value_enum, short = 's', long = "sort")]
-    pub sort: Option<Sort>,
+    #[arg(value_enum, short = 's', long = "sort-by")]
+    pub sort_by: Option<SortBy>,
 
     /// Descending order
     #[arg(value_enum, long = "desc")]
