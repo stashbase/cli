@@ -98,7 +98,7 @@ pub async fn handle_environment_commands(
                     api_key,
                     project,
                     search: args.search,
-                    sort: args.sort,
+                    sort_by: args.sort_by,
                     descending: args.descending,
                     types: args.types,
                     locked: args.locked,

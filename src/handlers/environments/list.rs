@@ -6,7 +6,7 @@ use crate::{
     api::environments::{self, ListEnvsRequestArgs},
     cmd::{
         config::OutputFormat,
-        environments::{EnvSort, EnvironmentType},
+        environments::{EnvSortBy, EnvironmentType},
     },
     models::{
         api_client::GetRequestApiResponse,
@@ -23,7 +23,7 @@ pub struct HandleListEnvironmentsArgs {
     pub api_key: String,
     pub project: String,
     pub search: Option<String>,
-    pub sort: Option<EnvSort>,
+    pub sort_by: Option<EnvSortBy>,
     pub descending: bool,
     pub types: Vec<EnvironmentType>,
     pub locked: bool,
@@ -36,7 +36,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         api_key,
         project,
         search,
-        sort,
+        sort_by: sort,
         descending,
         types,
         locked,
@@ -72,7 +72,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         locked,
         unlocked,
         search,
-        sort: sort.unwrap_or(EnvSort::Created),
+        sort_by: sort.unwrap_or_default(),
         descending,
     };
 
@@ -122,22 +122,18 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                                 let has_description = envs.iter().any(|e| e.description.is_some());
 
                                 if has_description {
-                                    let mut table_envs: Vec<_> = envs
+                                    let table_envs: Vec<_> = envs
                                         .into_iter()
                                         .map(|env| TableEnvironment::from(env))
                                         .collect();
 
-                                    table_envs.reverse();
-
                                     let table = tables::build::build_table(&table_envs);
                                     println!("{}", table);
                                 } else {
-                                    let mut table_envs: Vec<_> = envs
+                                    let table_envs: Vec<_> = envs
                                         .into_iter()
                                         .map(|env| TableEnvironmentWithoutDescription::from(env))
                                         .collect();
-
-                                    table_envs.reverse();
 
                                     let table = tables::build::build_table(&table_envs);
                                     println!("{}", table);
