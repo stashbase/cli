@@ -4,7 +4,7 @@ use log::{debug, error};
 
 use crate::{
     api::projects,
-    cmd::{config::OutputFormat, projects::Sort},
+    cmd::{config::OutputFormat, projects::SortBy},
     models::{
         api_client::GetRequestApiResponse,
         projects::{
@@ -23,7 +23,7 @@ use crate::{
 pub struct HandleListProjectsArgs {
     pub api_key: String,
     pub search: Option<String>,
-    pub sort: Option<Sort>,
+    pub sort_by: Option<SortBy>,
     pub descending: bool,
     pub page: Option<usize>,
     pub limit: Option<usize>,
@@ -34,7 +34,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     let HandleListProjectsArgs {
         api_key,
         search,
-        sort,
+        sort_by,
         descending,
         format,
         page,
@@ -70,7 +70,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     let project_res = projects::list_projects(
         api_key,
         search,
-        sort.unwrap_or(Sort::Created),
+        sort_by.unwrap_or_default(),
         descending,
         page,
         limit,
@@ -115,7 +115,6 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                             OutputFormat::Table => {
                                 // reverse because returned fro list -> last is first (for
                                 // lists)
-                                projects.reverse();
                                 output_table(projects, pagination);
                             }
                             OutputFormat::Json => unreachable!(),
