@@ -98,13 +98,13 @@ pub struct SecretsChangeNoValues {
     pub renamed: Option<Vec<RenamedSecret>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub new: Option<Vec<String>>,
+    pub new: Option<Vec<NewSecret>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deleted: Option<Vec<String>>,
+    pub deleted: Option<Vec<DeletedSecret>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated: Option<Vec<String>>,
+    pub updated: Option<Vec<UpdatedSecret>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -112,6 +112,24 @@ pub struct SecretsChangeNoValues {
 pub struct RenamedSecret {
     pub old_key: String,
     pub new_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSecret {
+    pub new_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedSecret {
+    pub old_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedSecret {
+    pub key: String,
 }
 
 // NO values end
@@ -254,7 +272,7 @@ impl Display for EnvChangelogListItem {
 
                         let updated_string = updated
                             .into_iter()
-                            .map(|item| format!("{}", item))
+                            .map(|item| format!("{}", item.key))
                             .collect::<Vec<String>>()
                             .join("\n");
 
@@ -268,7 +286,7 @@ impl Display for EnvChangelogListItem {
 
                         let new_string = new
                             .into_iter()
-                            .map(|item| format!("{}", item))
+                            .map(|item| format!("{}", item.new_key))
                             .collect::<Vec<String>>()
                             .join("\n");
 
@@ -282,7 +300,7 @@ impl Display for EnvChangelogListItem {
 
                         let deleted_string = deleted
                             .into_iter()
-                            .map(|item| format!("{}", item))
+                            .map(|item| format!("{}", item.old_key))
                             .collect::<Vec<String>>()
                             .join("\n");
 
