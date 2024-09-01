@@ -30,7 +30,7 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse> {
     let mut query = vec![];
 
     if show_values == true {
-        query.push(("show-values".to_string(), "true".to_string()));
+        query.push(("with-values".to_string(), "true".to_string()));
     }
 
     if let Some(page) = page {
