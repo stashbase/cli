@@ -230,19 +230,19 @@ impl fmt::Display for ProjectInputValidationError {
             }
             ProjectInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' followed by 22 alphanumeric characters.";
+                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'proj_' followed by 22 alphanumeric characters.";
 
                     msg = "argument name or id is invalid";
                     hint = Some(&hint_str);
                 } else {
-                    let  hint_str = "The project name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'pr_' followed by 22 alphanumeric characters.";
+                    let  hint_str = "The project name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'proj_' followed by 22 alphanumeric characters.";
 
                     msg = "argument project is invalid";
                     hint = Some(&hint_str);
                 }
             }
             ProjectInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and hyphens (-), without the prefix 'ev_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and hyphens (-), without the prefix 'proj_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
@@ -421,19 +421,19 @@ impl fmt::Display for EnvironmentsInputValidationError {
             }
             EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
                 if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' followed by 22 alphanumeric characters.";
+                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters.";
 
                     msg = "argument name or id is invalid";
                     hint = Some(&hint_str);
                 } else {
-                    let  hint_str = "The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'ev_' followed by 22 alphanumeric characters.";
+                    let  hint_str = "The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters.";
 
                     msg = "argument environment is invalid";
                     hint = Some(&hint_str);
                 }
             }
             EnvironmentsInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and a signle hyphen (-) as as separator, without the prefix 'ev_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
+                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and a signle hyphen (-) as as separator, without the prefix 'env_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
 
                 msg = "name is using id format";
                 hint = Some(&hint_str);
@@ -483,8 +483,11 @@ impl fmt::Display for EnvChangelogInputValidationError {
             //         hint = Some("id must be 22 characters long");
             //     }
             EnvChangelogInputValidationError::InvalidId => {
+                let hint_str =
+                    "Id must start with the prefix 'chng_' followed by 22 alphanumeric characters.";
+
                 msg = "invalid changelog id";
-                hint = Some("is must be alphanumeric");
+                hint = Some(&hint_str);
             }
             EnvChangelogInputValidationError::InvalidLimit => {
                 msg = "limit option value is invalid";
@@ -638,8 +641,11 @@ impl fmt::Display for WebhookInputValidationError {
                 hint = Some("limit can range from 2 to 30");
             }
             WebhookInputValidationError::InvalidId => {
+                let hint_str =
+                    "Id must start with the prefix 'whk_' followed by 22 alphanumeric characters.";
+
                 msg = "invalid webhook id value";
-                hint = None;
+                hint = Some(&hint_str);
             }
             WebhookInputValidationError::InvalidUrl => {
                 msg = "invalid webhook url";

@@ -86,15 +86,19 @@ pub enum IdentifierResource {
 
 pub fn resource_name_has_id_format(resource: IdentifierResource, input: &str) -> bool {
     let prefix = match resource {
-        IdentifierResource::Project => "pr_",
-        IdentifierResource::Environment => "ev_",
+        IdentifierResource::Project => "proj_",
+        IdentifierResource::Environment => "env_",
     };
 
-    if input.len() != 25 || !input.starts_with(prefix) {
+    if !input.starts_with(prefix) {
         return false;
     }
 
     let id_without_prefix = &input[prefix.len()..];
+
+    if id_without_prefix.len() != 22 {
+        return false;
+    }
 
     let alphanumeric_regex = regex::Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
     alphanumeric_regex.is_match(id_without_prefix)
@@ -526,14 +530,16 @@ pub fn validate_secret_search(value: &str) -> Result<()> {
 }
 
 pub fn validate_env_changelog_id(value: &str) -> Result<()> {
-    let prefix = "ch_";
+    let prefix = "chng_";
 
     if (value.starts_with(prefix)) == false {
         let input_err = EnvChangelogInputValidationError::InvalidId;
         bail!(InputValidationError::EnvChangelog(input_err));
     }
 
-    let parsed = ShortUuid::parse_str(&value.strip_prefix(prefix).unwrap());
+    let id_without_prefix = &value[prefix.len()..];
+
+    let parsed = ShortUuid::parse_str(id_without_prefix);
 
     if let Err(_) = parsed {
         let input_err = EnvChangelogInputValidationError::InvalidId;
@@ -557,7 +563,7 @@ pub fn validate_env_changelog_id(value: &str) -> Result<()> {
 }
 
 pub fn validate_webhook_id(value: &str) -> Result<()> {
-    let prefix = "wh_";
+    let prefix = "whk_";
 
     if (value.starts_with(prefix)) == false {
         let input_err = WebhookInputValidationError::InvalidId;
