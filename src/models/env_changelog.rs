@@ -22,7 +22,7 @@ pub struct EnvChangelogListItem {
     pub created_at: String,
     pub user: Option<EnvChangelogUser>,
     // pub change: EnvChangelogChange,
-    pub change: SecretsChange,
+    pub secrets: SecretsChange,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -203,7 +203,7 @@ impl Display for EnvChangelogList {
         let list_string = self
             .data
             .iter()
-            .map(|item| match &item.change {
+            .map(|item| match &item.secrets {
                 SecretsChange::WithValues(_) => format!("{}\n", item),
                 SecretsChange::NoValues(_) => format!("{}", item),
             })
@@ -247,7 +247,7 @@ impl Display for EnvChangelogListItem {
         writeln!(f, "{} {} ({})", "Date:".green(), formatted, relative)?;
         // writeln!(f, "{} {}", "Change:".green(), self.secrets)?;
 
-        match &self.change {
+        match &self.secrets {
             SecretsChange::NoValues(change) => {
                 // renamed
                 if let Some(renamed) = &change.renamed {
