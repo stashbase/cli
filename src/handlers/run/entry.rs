@@ -93,9 +93,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     } else {
         let config_action_command = ConfigActionCommand::Run;
         // LOAD from file
-        let file_config = load_from_file(file, &config_action_command)?;
+        let selected_config_item = EnvConfigItem::select_from_file(file, &config_action_command)?;
 
-        if let Some(config) = file_config {
+        if let Some(config) = selected_config_item {
             let secrets_config = config.get_run_secrets();
 
             // expand refs
