@@ -19,7 +19,8 @@ use crate::{
         config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::Secret,
         validation::{
-            InputValidationError, LoadEnvironmentInputValidationError, PushPullInputValidationError,
+            InputValidationError, LoadEnvironmentInputValidationError,
+            PushPullInputValidationError, YamlEnvConfigError,
         },
     },
     utils::{
@@ -507,26 +508,43 @@ pub fn load_from_file(
     let file_exists = file_path.exists();
 
     if !file_exists {
-        let err =
-            InputValidationError::PushPullEnvironment(PushPullInputValidationError::NoConfigFile {
-                custom_path: if relative_path.is_some() { true } else { false },
-            });
+        let file_not_found_error = YamlEnvConfigError::FileNotFound {
+            custom_path: if relative_path.is_some() { true } else { false },
+        };
 
+        let err = InputValidationError::YamlConfigFile(file_not_found_error);
         bail!(err);
     } else {
-        let file_content = std::fs::read_to_string(file_path)?;
-        let deserialized_config = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content)
-            .context(format!("{}", "Failed to read env config file".red()))?;
+        let file_content_res = std::fs::read_to_string(file_path);
 
-        debug!("deserialized_config: {:?}", deserialized_config);
+        if let Err(e) = file_content_res {
+            let failed_to_read_err = YamlEnvConfigError::FailedToRead {
+                custom_path: if relative_path.is_some() { true } else { false },
+                message: e.to_string(),
+            };
 
+            let err = InputValidationError::YamlConfigFile(failed_to_read_err);
+            bail!(err);
+        }
+
+        let file_content = file_content_res.unwrap();
+        let deserialized_config_res = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content);
+
+        if let Err(e) = deserialized_config_res {
+            let failed_to_read_err = YamlEnvConfigError::FailedToRead {
+                custom_path: if relative_path.is_some() { true } else { false },
+                message: e.to_string(),
+            };
+
+            let err = InputValidationError::YamlConfigFile(failed_to_read_err);
+            bail!(err);
+        }
+
+        let deserialized_config = deserialized_config_res.unwrap();
         let len = deserialized_config.len();
 
         if len == 0 {
-            let err = InputValidationError::PushPullEnvironment(
-                PushPullInputValidationError::NoConfigFileEntries,
-            );
-
+            let err = InputValidationError::YamlConfigFile(YamlEnvConfigError::NoEntries);
             bail!(err);
         } else {
             if len == 1 {
