@@ -1,9 +1,15 @@
 use core::fmt;
-use std::collections::HashMap;
+use std::{collections::HashMap, env};
 
+use anyhow::{bail, Result};
+use log::debug;
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::{pull::PullFormat, push::PushFormat};
+use crate::{
+    cmd::{pull::PullFormat, push::PushFormat},
+    models::validation::{InputValidationError, YamlEnvConfigError},
+    utils::interaction::select,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvConfigItem {
@@ -29,6 +35,13 @@ pub enum ConfigActionCommand {
 }
 
 impl EnvConfigItem {
+    pub fn load_from_file(
+        relative_path: Option<String>,
+        config_action_command: &ConfigActionCommand,
+    ) -> Result<Option<EnvConfigItem>> {
+        return load_from_file(relative_path, config_action_command);
+    }
+
     pub fn get_print_string(&self, config_action_command: &ConfigActionCommand) -> String {
         let mut args_string = String::new();
 
@@ -330,5 +343,86 @@ impl fmt::Display for EnvConfigItem {
         write!(f, "{}", str)?;
 
         Ok(())
+    }
+}
+
+pub fn load_from_file(
+    relative_path: Option<String>,
+    config_action_command: &ConfigActionCommand,
+) -> Result<Option<EnvConfigItem>> {
+    // Load from file
+    let file_path = match &relative_path {
+        Some(relative_path) => {
+            let mut path = std::env::current_dir()?;
+            path.push(relative_path);
+            path
+        }
+        None => env::current_dir()?.join("stashbase.yaml"),
+    };
+    let file_exists = file_path.exists();
+
+    if !file_exists {
+        let file_not_found_error = YamlEnvConfigError::FileNotFound {
+            custom_path: if relative_path.is_some() { true } else { false },
+        };
+
+        let err = InputValidationError::YamlConfigFile(file_not_found_error);
+        bail!(err);
+    } else {
+        let file_content_res = std::fs::read_to_string(file_path);
+
+        if let Err(e) = file_content_res {
+            let failed_to_read_err = YamlEnvConfigError::FailedToRead {
+                custom_path: if relative_path.is_some() { true } else { false },
+                message: e.to_string(),
+            };
+
+            let err = InputValidationError::YamlConfigFile(failed_to_read_err);
+            bail!(err);
+        }
+
+        let file_content = file_content_res.unwrap();
+        let deserialized_config_res = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content);
+
+        if let Err(e) = deserialized_config_res {
+            let failed_to_read_err = YamlEnvConfigError::FailedToRead {
+                custom_path: if relative_path.is_some() { true } else { false },
+                message: e.to_string(),
+            };
+
+            let err = InputValidationError::YamlConfigFile(failed_to_read_err);
+            bail!(err);
+        }
+
+        let deserialized_config = deserialized_config_res.unwrap();
+        let len = deserialized_config.len();
+
+        if len == 0 {
+            let err = InputValidationError::YamlConfigFile(YamlEnvConfigError::NoEntries);
+            bail!(err);
+        } else {
+            if len == 1 {
+                let item = deserialized_config[0].clone();
+                return Ok(Some(item));
+            } else {
+                let items = deserialized_config
+                    .iter()
+                    .map(|item| item.get_print_string(config_action_command))
+                    .collect();
+                // select project
+                let selection = select("Select environment config", items);
+
+                debug!("selection: {:?}", selection);
+
+                if let Some(selection) = selection {
+                    let item = deserialized_config[selection].clone();
+                    debug!("item: {:?}", item);
+
+                    return Ok(Some(item));
+                } else {
+                    return Ok(None);
+                }
+            }
+        }
     }
 }
