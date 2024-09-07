@@ -66,10 +66,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let config_action_command = ConfigActionCommand::Pull;
 
     // LOAD from file
-    let file_config = load_from_file(file.clone(), &config_action_command)?;
-    debug!("file_config: {:?}", file_config);
+    let selected_config_item =
+        EnvConfigItem::select_from_file(file.clone(), &config_action_command)?;
+    debug!("file_config: {:?}", selected_config_item);
 
-    if let Some(config) = file_config {
+    if let Some(config) = selected_config_item {
         debug!("config: {:?}", config);
 
         if let None = target_file {
