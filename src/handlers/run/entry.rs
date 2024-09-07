@@ -7,13 +7,14 @@ use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
     api::{environments, secrets},
-    handlers::run::subprocess,
+    handlers::{pull::entry::load_from_file, run::subprocess},
     models::{
         api_client::GetRequestApiResponse,
-        config_env::EnvConfigItem,
+        config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::SecretWithoutDescription,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
+            YamlEnvConfigError,
         },
     },
     utils::{
@@ -90,8 +91,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         );
         bail!(err);
     } else {
+        let config_action_command = ConfigActionCommand::Run;
         // LOAD from file
-        let file_config = load_from_file(file)?;
+        let file_config = load_from_file(file, &config_action_command)?;
 
         if let Some(config) = file_config {
             let secrets_config = config.get_run_secrets();
@@ -529,68 +531,6 @@ async fn handle_run(
         });
 
     Ok(())
-}
-
-pub fn load_from_file(relative_path: Option<String>) -> Result<Option<EnvConfigItem>> {
-    // Load from file
-    let file_path = match &relative_path {
-        Some(relative_path) => {
-            let mut path = std::env::current_dir()?;
-            path.push(relative_path);
-            path
-        }
-        None => env::current_dir()?.join("stashbase.yaml"),
-    };
-    let file_exists = file_path.exists();
-
-    if !file_exists {
-        let err = InputValidationError::LoadEnvironment(
-            LoadEnvironmentInputValidationError::NoConfigFile {
-                custom_path: if relative_path.is_some() { true } else { false },
-            },
-        );
-
-        bail!(err);
-    } else {
-        let file_content = std::fs::read_to_string(file_path)?;
-        let deserialized_config = serde_yaml::from_str::<Vec<EnvConfigItem>>(&file_content)
-            .context(format!("{}", "Failed to read env config file".red()))?;
-
-        debug!("deserialized_config: {:?}", deserialized_config);
-
-        let len = deserialized_config.len();
-
-        if len == 0 {
-            let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::NoConfigFileEntries,
-            );
-
-            bail!(err);
-        } else {
-            if len == 1 {
-                let item = deserialized_config[0].clone();
-                return Ok(Some(item));
-            } else {
-                let items = deserialized_config
-                    .iter()
-                    .map(|item| item.to_string())
-                    .collect();
-                // select project
-                let selection = select("Select environment config", items);
-
-                debug!("selection: {:?}", selection);
-
-                if let Some(selection) = selection {
-                    let item = deserialized_config[selection].clone();
-                    debug!("item: {:?}", item);
-
-                    return Ok(Some(item));
-                } else {
-                    return Ok(None);
-                }
-            }
-        }
-    }
 }
 
 fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, String> {
