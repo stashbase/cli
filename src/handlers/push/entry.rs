@@ -6,7 +6,7 @@ use crate::{
     handlers::{pull::entry::load_from_file, run::entry::get_set_key_value_pairs},
     models::{
         api_client::RequestApiOptionResponse,
-        config_env::ConfigActionCommand,
+        config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
@@ -53,8 +53,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     let config_action_command = ConfigActionCommand::Push;
 
-    let file_config = load_from_file(config_file_path.clone(), &config_action_command)?;
-    debug!("file_config: {:?}", file_config);
+    let selected_config_item =
+        EnvConfigItem::select_from_file(config_file_path.clone(), &config_action_command)?;
+    debug!("file_config: {:?}", selected_config_item);
 
     let project: Option<String>;
     let environment: Option<String>;
@@ -62,7 +63,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let mut only_set: HashSet<_> = only.into_iter().collect();
     let mut exclude_set: HashSet<_> = exclude.into_iter().collect();
 
-    if let Some(config) = file_config {
+    if let Some(config) = selected_config_item {
         debug!("config: {:?}", config);
 
         if let None = target_file {
