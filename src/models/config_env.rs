@@ -35,11 +35,11 @@ pub enum ConfigActionCommand {
 }
 
 impl EnvConfigItem {
-    pub fn load_from_file(
+    pub fn select_from_file(
         relative_path: Option<String>,
         config_action_command: &ConfigActionCommand,
     ) -> Result<Option<EnvConfigItem>> {
-        return load_from_file(relative_path, config_action_command);
+        return select_from_file(relative_path, config_action_command);
     }
 
     pub fn get_print_string(&self, config_action_command: &ConfigActionCommand) -> String {
@@ -346,7 +346,7 @@ impl fmt::Display for EnvConfigItem {
     }
 }
 
-pub fn load_from_file(
+pub fn select_from_file(
     relative_path: Option<String>,
     config_action_command: &ConfigActionCommand,
 ) -> Result<Option<EnvConfigItem>> {
