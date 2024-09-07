@@ -8,6 +8,7 @@ pub enum InputValidationError {
     Secrets(SecretsInputValidationError),
     Environments(EnvironmentsInputValidationError),
     EnvChangelog(EnvChangelogInputValidationError),
+    YamlConfigFile(YamlEnvConfigError),
     Run(RunInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PushPullEnvironment(PushPullInputValidationError),
@@ -104,6 +105,14 @@ pub enum EnvChangelogInputValidationError {
     InvalidId,
     InvalidLimit,
     InvalidPage,
+}
+
+// geenral for stashbase.yaml file, shared between load, push and pull commands
+#[derive(Debug)]
+pub enum YamlEnvConfigError {
+    FileNotFound { custom_path: bool },
+    FailedToRead { custom_path: bool, message: String },
+    NoEntries,
 }
 
 #[derive(Debug)]
@@ -699,6 +708,52 @@ impl fmt::Display for RunInputValidationError {
     }
 }
 
+impl fmt::Display for YamlEnvConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let msg: &str;
+        let hint: Option<&str>;
+
+        match self {
+            YamlEnvConfigError::FileNotFound { custom_path } => match custom_path {
+                true => {
+                    msg = "no config file found";
+                    hint = Some("make sure the specified file exists");
+                }
+                false => {
+                    msg = "no 'stashbase.yaml' file found";
+                    hint = Some("create file or use '-p' and '-e' flags");
+                }
+            },
+            YamlEnvConfigError::NoEntries => {
+                msg = "no entries found in 'stashbase.yaml'";
+                hint = Some("add entries to the file or use '-p' and '-e' flags");
+            }
+            YamlEnvConfigError::FailedToRead {
+                custom_path,
+                message,
+            } => match custom_path {
+                true => {
+                    msg = "failed to read the specified config file";
+                    hint = Some(message);
+                }
+                false => {
+                    msg = "failed to read 'stashbase.yaml' file";
+                    hint = Some(message);
+                }
+            },
+        }
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("- hint: {}", hint),)?;
+        } else {
+            write!(f, "{}", format!("- message: {}", msg),)?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
@@ -712,6 +767,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),
             InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
             InputValidationError::Run(inner) => write!(f, "{}", inner),
+            InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
         }
     }
 }
