@@ -117,8 +117,6 @@ pub enum YamlEnvConfigError {
 
 #[derive(Debug)]
 pub enum LoadEnvironmentInputValidationError {
-    NoConfigFile { custom_path: bool },
-    NoConfigFileEntries,
     FileArgWithInline,
     MissingProjectArg,
     MissingEnvArg,
@@ -131,8 +129,6 @@ pub enum LoadEnvironmentInputValidationError {
 
 #[derive(Debug)]
 pub enum PushPullInputValidationError {
-    NoConfigFile { custom_path: bool },
-    NoConfigFileEntries,
     NoFileSpecified { is_push: bool },
     // other errors same as from LoadEnvironment
 }
@@ -537,22 +533,6 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "invalid exclude argument";
                 hint = Some("accepts only uppercase alphanumeric characters and underscores");
             }
-            LoadEnvironmentInputValidationError::NoConfigFile { custom_path } => {
-                match custom_path {
-                    true => {
-                        msg = "no config file found";
-                        hint = Some("make sure the file exists");
-                    }
-                    false => {
-                        msg = "no 'stashbase.yaml' config file found";
-                        hint = Some("create file or use '-p' and '-e' flags");
-                    }
-                };
-            }
-            LoadEnvironmentInputValidationError::NoConfigFileEntries => {
-                msg = "no entries found in 'env-ease.yaml'";
-                hint = Some("add entries to the file or use '-p' and '-e' flags");
-            }
             LoadEnvironmentInputValidationError::MissingProjectArg => {
                 msg = "missing project argument";
                 hint = Some("use '-p' flag to specify the project");
@@ -594,22 +574,6 @@ impl fmt::Display for PushPullInputValidationError {
         let hint: Option<&str>;
 
         match self {
-            PushPullInputValidationError::NoConfigFile { custom_path } => {
-                match custom_path {
-                    true => {
-                        msg = "no config file found";
-                        hint = Some("make sure the file exists");
-                    }
-                    false => {
-                        msg = "no 'stashbase.yaml' config file found";
-                        hint = Some("ceate the file or provide file path with '-c' flag");
-                    }
-                };
-            }
-            PushPullInputValidationError::NoConfigFileEntries => {
-                msg = "no entries found in 'onestash.yaml'";
-                hint = Some("add entries to the file or use '-p' and '-e' flags");
-            }
             PushPullInputValidationError::NoFileSpecified { is_push } => match is_push {
                 true => {
                     msg = "no file specified";
