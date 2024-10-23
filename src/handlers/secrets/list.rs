@@ -66,7 +66,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                             spinner.stop_with_message("No secrets found");
                         } else {
                             let names = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
-                            let print_string = format_secret_keys(names, &format);
+                            let print_string = format_secret_names(names, &format);
 
                             spinner.stop_and_persist("", "");
 
