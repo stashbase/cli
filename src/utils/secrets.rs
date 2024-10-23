@@ -132,14 +132,14 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
     }
 }
 
-pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> String {
+pub fn format_secret_names(names: Vec<String>, format: &SecretsOutputFormat) -> String {
     match format {
         SecretsOutputFormat::List => {
             let mut text_to_print = String::new();
 
-            for (i, p) in keys.iter().enumerate() {
+            for (i, p) in names.iter().enumerate() {
                 // is last
-                if i == keys.len() - 1 {
+                if i == names.len() - 1 {
                     text_to_print.push_str(&format!("{}", p.green()))
                 } else {
                     text_to_print.push_str(&format!("{}\n", p.green()))
@@ -151,9 +151,9 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
         SecretsOutputFormat::Dotenv => {
             let mut text_to_print = String::new();
 
-            for (i, p) in keys.iter().enumerate() {
+            for (i, p) in names.iter().enumerate() {
                 // is last
-                if i == keys.len() - 1 {
+                if i == names.len() - 1 {
                     text_to_print.push_str(&format!("{}", p))
                 } else {
                     text_to_print.push_str(&format!("{}\n", p))
@@ -165,9 +165,9 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
         SecretsOutputFormat::Yaml => {
             let mut text_to_print = String::new();
 
-            for (i, p) in keys.iter().enumerate() {
+            for (i, p) in names.iter().enumerate() {
                 // is last
-                if i == keys.len() - 1 {
+                if i == names.len() - 1 {
                     text_to_print.push_str(&format!("{}", p))
                 } else {
                     text_to_print.push_str(&format!("{}\n", p))
@@ -177,13 +177,13 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
             text_to_print
         }
         SecretsOutputFormat::Json => {
-            let value = serde_json::to_value(&keys).unwrap();
+            let value = serde_json::to_value(&names).unwrap();
             let pretty = to_colored_json_auto(&value).unwrap();
 
             pretty
         }
         SecretsOutputFormat::Table => {
-            let table_secrets = keys
+            let table_secrets = names
                 .into_iter()
                 .map(|s| {
                     let secret: SecretOnlyName = s.into();
