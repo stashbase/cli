@@ -78,11 +78,11 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         return Ok(());
     }
 
-    let duplicate_keys = find_duplicate_names(&secrets);
+    let duplicate_names = find_duplicate_names(&secrets);
 
-    if !duplicate_keys.is_empty() {
+    if !duplicate_names.is_empty() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
-            duplicate_keys,
+            duplicate_names,
         ));
 
         bail!("{}", err);

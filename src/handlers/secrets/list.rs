@@ -58,9 +58,9 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     match res {
         GetRequestApiResponse::Ok(data) => match only_names {
             true => {
-                let keys = serde_json::from_str::<Vec<SecretOptional>>(&data.text);
+                let names = serde_json::from_str::<Vec<SecretOptional>>(&data.text);
 
-                match keys {
+                match names {
                     Ok(secrets) => {
                         if secrets.is_empty() {
                             spinner.stop_with_message("No secrets found");
