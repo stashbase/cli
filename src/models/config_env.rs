@@ -259,9 +259,9 @@ pub struct PullActionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullSecretsConfig {
     pub print: Option<bool>,
-    // Select secret keys
+    // Select secret names
     pub only: Option<Vec<String>>,
-    // Exclude secret keys
+    // Exclude secret names
     pub exclude: Option<Vec<String>>,
     pub set: Option<HashMap<String, String>>,
 
