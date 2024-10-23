@@ -132,7 +132,7 @@ fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Resul
     }
 
     if keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NoKeys);
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NoNames);
         bail!(err);
     }
 
