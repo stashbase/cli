@@ -94,12 +94,12 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
             match description {
                 Some((_, d_value)) => Secret {
-                    key: x.0,
+                    name: x.0,
                     value: x.1,
                     description: Some(d_value.to_string()),
                 },
                 None => Secret {
-                    key: x.0,
+                    name: x.0,
                     value: x.1,
                     description: None,
                 },

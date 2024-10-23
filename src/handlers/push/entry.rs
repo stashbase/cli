@@ -175,12 +175,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         // filter unwanted secrets
         secrets = secrets
             .into_iter()
-            .filter(|secret| only_set.contains(&secret.key))
+            .filter(|secret| only_set.contains(&secret.name))
             .collect();
     } else if exclude_set.is_empty() == false {
         secrets = secrets
             .into_iter()
-            .filter(|secret| !exclude_set.contains(&secret.key))
+            .filter(|secret| !exclude_set.contains(&secret.name))
             .collect();
     }
 
@@ -196,16 +196,16 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
         match key_values_pairs {
             Ok(set_secrets) => {
-                for (key, value) in set_secrets {
+                for (name, value) in set_secrets {
                     // find index
-                    let index = secrets.iter().position(|secret| secret.key == key);
+                    let index = secrets.iter().position(|secret| secret.name == name);
 
                     if let Some(index) = index {
                         let existing_secret = &mut secrets[index];
                         existing_secret.value = value;
                     } else {
                         let new_secret = Secret {
-                            key,
+                            name,
                             value,
                             description: None,
                         };

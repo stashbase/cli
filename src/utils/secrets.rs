@@ -12,7 +12,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     cmd::{config::SecretsOutputFormat, secrets::SecretsFileFormat},
-    models::secrets::{Secret, SecretOnlyKey, SecretWithDescription, SecretWithoutDescription},
+    models::secrets::{Secret, SecretOnlyName, SecretWithDescription, SecretWithoutDescription},
 };
 
 use super::tables::build::build_table;
@@ -89,7 +89,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 
                     if let Some(descr) = &s.description {
                         let mut str_line =
-                            format!("# {}\n{}{}{}", descr, s.key, kv_separator, s.value);
+                            format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
 
                         if is_last == false {
                             str_line = format!("{}\n", str_line);
@@ -112,7 +112,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
-                        let mut str_line = format!("{}{}{}", s.key, kv_separator, s.value);
+                        let mut str_line = format!("{}{}{}", s.name, kv_separator, s.value);
 
                         if prev_has_description {
                             str_line = format!("\n{}", str_line);
@@ -186,7 +186,7 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
             let table_secrets = keys
                 .into_iter()
                 .map(|s| {
-                    let secret: SecretOnlyKey = s.into();
+                    let secret: SecretOnlyName = s.into();
                     secret
                 })
                 .collect::<Vec<_>>();
@@ -269,7 +269,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
 
                     let secret = Secret {
                         description,
-                        key: format!("{}", formatted_key),
+                        name: format!("{}", formatted_key),
                         value: format!("{}", formatted_value),
                     };
 
@@ -311,7 +311,7 @@ pub fn find_duplicate_keys(array: &[Secret]) -> Vec<String> {
 
     // Count occurrences of each key
     for item in array {
-        *key_count.entry(&item.key).or_insert(0) += 1;
+        *key_count.entry(&item.name).or_insert(0) += 1;
     }
 
     // Collect keys with more than one occurrence

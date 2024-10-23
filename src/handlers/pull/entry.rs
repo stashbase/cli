@@ -303,9 +303,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             }
 
                             if !setted_secrets.is_empty() {
-                                for (key, value) in setted_secrets {
+                                for (name, value) in setted_secrets {
                                     let secret = Secret {
-                                        key,
+                                        name,
                                         value,
                                         description: None,
                                     };
@@ -379,9 +379,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         }
                     } else {
                         if !setted_secrets.is_empty() {
-                            for (key, value) in setted_secrets {
+                            for (name, value) in setted_secrets {
                                 let secret = Secret {
-                                    key,
+                                    name,
                                     value,
                                     description: None,
                                 };
