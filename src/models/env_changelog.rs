@@ -64,29 +64,29 @@ pub struct SecretsChangeWithValues {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewSecretWithValues {
-    pub new_key: String,
+    pub new_name: String,
     pub new_value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedSecretWithValues {
-    pub old_key: String,
+    pub old_name: String,
     pub old_value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenamedSecretWithValue {
-    pub old_key: String,
-    pub new_key: String,
+    pub old_name: String,
+    pub new_name: String,
     pub value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatedSecretWithValues {
-    pub key: String,
+    pub name: String,
     pub old_value: String,
     pub new_value: String,
 }
@@ -110,26 +110,26 @@ pub struct SecretsChangeNoValues {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenamedSecret {
-    pub old_key: String,
-    pub new_key: String,
+    pub old_name: String,
+    pub new_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewSecret {
-    pub new_key: String,
+    pub new_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedSecret {
-    pub old_key: String,
+    pub old_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatedSecret {
-    pub key: String,
+    pub name: String,
 }
 
 // NO values end
@@ -163,24 +163,24 @@ pub enum EnvChangelogItemChange {
 #[serde(untagged, rename_all = "camelCase")]
 pub enum EnvChangelogItemSecretsAction {
     Renamed {
-        key: String,
+        name: String,
 
-        #[serde(rename = "newKey")]
-        new_key: String,
+        #[serde(rename = "newName")]
+        new_name: String,
 
         value: String,
     },
     Updated {
-        key: String,
+        name: String,
         old: String,
         new: String,
     },
     Created {
-        key: String,
+        name: String,
         new: String,
     },
     Deleted {
-        key: String,
+        name: String,
         old: String,
     },
 }
@@ -272,7 +272,7 @@ impl Display for EnvChangelogListItem {
 
                         let updated_string = updated
                             .into_iter()
-                            .map(|item| format!("{}", item.key))
+                            .map(|item| format!("{}", item.name))
                             .collect::<Vec<String>>()
                             .join("\n");
 
@@ -286,7 +286,7 @@ impl Display for EnvChangelogListItem {
 
                         let new_string = new
                             .into_iter()
-                            .map(|item| format!("{}", item.new_key))
+                            .map(|item| format!("{}", item.new_name))
                             .collect::<Vec<String>>()
                             .join("\n");
 
@@ -300,7 +300,7 @@ impl Display for EnvChangelogListItem {
 
                         let deleted_string = deleted
                             .into_iter()
-                            .map(|item| format!("{}", item.old_key))
+                            .map(|item| format!("{}", item.old_name))
                             .collect::<Vec<String>>()
                             .join("\n");
 
@@ -321,9 +321,9 @@ impl Display for EnvChangelogListItem {
                             .map(|item| {
                                 format!(
                                     "{} {} {} \n value: {}",
-                                    item.old_key.yellow(),
+                                    item.old_name.yellow(),
                                     "->".yellow(),
-                                    item.new_key.yellow(),
+                                    item.new_name.yellow(),
                                     item.value
                                 )
                             })
@@ -344,7 +344,7 @@ impl Display for EnvChangelogListItem {
                             .map(|item| {
                                 format!(
                                     "{} \n {} {}\n {} {}",
-                                    item.key,
+                                    item.name,
                                     "- old:".red(),
                                     item.old_value,
                                     "+ new:".green(),
@@ -369,7 +369,7 @@ impl Display for EnvChangelogListItem {
                                 format!(
                                     "{} {}{} {}",
                                     "+".green(),
-                                    item.new_key.green(),
+                                    item.new_name.green(),
                                     ":".green(),
                                     item.new_value
                                 )
@@ -392,7 +392,7 @@ impl Display for EnvChangelogListItem {
                                 format!(
                                     "{} {}{} {}",
                                     "-".red(),
-                                    item.old_key.red(),
+                                    item.old_name.red(),
                                     ":".red(),
                                     item.old_value
                                 )
@@ -577,7 +577,7 @@ impl Display for EnvChangelogListItem {
 
 impl Display for RenamedSecret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} -> {}", self.old_key, self.new_key)?;
+        write!(f, "{} -> {}", self.old_name, self.new_name)?;
         Ok(())
     }
 }
@@ -628,28 +628,28 @@ impl Display for EnvChangelogItemSecretsAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EnvChangelogItemSecretsAction::Renamed {
-                key,
-                new_key,
+                name,
+                new_name,
                 value: _,
             } => {
                 // write!(f, "{key} {} {}", "|+/-|".yellow(), new_key,)?;
                 // write!(f, "{key} {} {} | {}", "->".yellow(), new_key, "••••••••")?;
-                write!(f, "{key} {} {}", "->".yellow(), new_key,)?;
+                write!(f, "{name} {} {}", "->".yellow(), new_name,)?;
             }
-            EnvChangelogItemSecretsAction::Created { key, new: _ } => {
-                write!(f, "{key}: {} {}", "|+|".green(), "••••••••")?;
+            EnvChangelogItemSecretsAction::Created { name, new: _ } => {
+                write!(f, "{name}: {} {}", "|+|".green(), "••••••••")?;
             }
-            EnvChangelogItemSecretsAction::Deleted { key, old: _ } => {
-                write!(f, "{key}: {} {}", "|+|".red(), "••••••••")?;
+            EnvChangelogItemSecretsAction::Deleted { name, old: _ } => {
+                write!(f, "{name}: {} {}", "|+|".red(), "••••••••")?;
             }
             EnvChangelogItemSecretsAction::Updated {
-                key,
+                name,
                 old: _,
                 new: _,
             } => {
                 write!(
                     f,
-                    "{key}: {} {} {} {}",
+                    "{name}: {} {} {} {}",
                     "|-|".red(),
                     "••••••••",
                     "|+|".green(),
