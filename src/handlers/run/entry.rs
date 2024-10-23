@@ -403,9 +403,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                         // }
 
                         if !setted_secrets.is_empty() {
-                            for (key, value) in setted_secrets {
+                            for (name, value) in setted_secrets {
                                 // secrets.push(SecretWithoutDescription { key, value })
-                                secrets.push(SecretWithoutDescription { key, value });
+                                secrets.push(SecretWithoutDescription { name, value });
                             }
                         }
 
@@ -421,8 +421,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                     }
                 } else {
                     if !setted_secrets.is_empty() {
-                        for (key, value) in setted_secrets {
-                            secrets.push(SecretWithoutDescription { key, value });
+                        for (name, value) in setted_secrets {
+                            secrets.push(SecretWithoutDescription { name, value });
                         }
                     }
 
@@ -520,7 +520,7 @@ async fn handle_run(
 
     let secrets_hash_map = env_vars
         .into_iter()
-        .map(|s| (s.key, s.value))
+        .map(|s| (s.name, s.value))
         .collect::<HashMap<String, String>>();
 
     // TODO: errors: no such file or directory
@@ -537,7 +537,7 @@ fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, St
     let mut map: HashMap<String, String> = HashMap::new();
 
     for secret in secrets {
-        map.insert(secret.key, secret.value);
+        map.insert(secret.name, secret.value);
     }
 
     map

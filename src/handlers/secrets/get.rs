@@ -75,7 +75,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
                         let keys_set: HashSet<String> = keys.into_iter().collect();
 
                         let secrets_not_found: Vec<_> = keys_set
-                            .difference(&secrets.iter().map(|s| s.key.clone()).collect())
+                            .difference(&secrets.iter().map(|s| s.name.clone()).collect())
                             .cloned()
                             .collect();
 
