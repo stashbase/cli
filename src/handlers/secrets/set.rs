@@ -69,7 +69,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let duplicate_keys = find_duplicates(&keys);
 
     if !duplicate_keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateKeys(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
             duplicate_keys,
         ));
 

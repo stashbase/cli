@@ -110,7 +110,7 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
     let starts_with_digit = value.chars().nth(0).unwrap().is_ascii_digit();
 
     if !regex.is_match(value) || starts_with_digit {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
             multiple: false,
         });
 
@@ -118,7 +118,7 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
     }
 
     if value.len() < 2 {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyTooShort {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
             multiple: false,
         });
 
@@ -126,7 +126,7 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
     }
 
     if value.len() > 255 {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyTooLong {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
             multiple: false,
         });
 
@@ -157,7 +157,7 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     if invalid_format_count > 0 {
         let multiple = invalid_format_count > 1;
         let err =
-            InputValidationError::Secrets(SecretsInputValidationError::KeyFormat { multiple });
+            InputValidationError::Secrets(SecretsInputValidationError::NameFormat { multiple });
 
         bail!(err)
     }
@@ -165,7 +165,7 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     if too_short_count > 0 {
         let multiple = too_short_count > 1;
         let err =
-            InputValidationError::Secrets(SecretsInputValidationError::KeyTooShort { multiple });
+            InputValidationError::Secrets(SecretsInputValidationError::NameTooShort { multiple });
 
         bail!(err)
     }
@@ -173,7 +173,7 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     if too_long_count > 0 {
         let multiple = too_long_count > 1;
         let err =
-            InputValidationError::Secrets(SecretsInputValidationError::KeyTooLong { multiple });
+            InputValidationError::Secrets(SecretsInputValidationError::NameTooLong { multiple });
 
         bail!(err)
     }
@@ -347,7 +347,7 @@ pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()>
         .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
 
     if invalid.is_some() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
             multiple: true,
         });
 

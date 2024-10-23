@@ -60,12 +60,12 @@ pub enum WebhookInputValidationError {
 // TODO: key length (min = 2 ???)
 #[derive(Debug)]
 pub enum SecretsInputValidationError {
-    NoKeys,
-    KeyFormat { multiple: bool },
-    KeyTooShort { multiple: bool },
-    KeyTooLong { multiple: bool },
-    DuplicateKeys(Vec<String>),
-    DuplicateNewKeys(Vec<String>),
+    NoNames,
+    NameFormat { multiple: bool },
+    NameTooShort { multiple: bool },
+    NameTooLong { multiple: bool },
+    DuplicateNames(Vec<String>),
+    DuplicateNewNames(Vec<String>),
     SelfReferences(Vec<String>),
     ReadFile(anyhow::Error),
 
@@ -283,32 +283,32 @@ impl fmt::Display for SecretsInputValidationError {
         let hint: Option<&str>;
 
         match self {
-            SecretsInputValidationError::KeyFormat { multiple } => {
+            SecretsInputValidationError::NameFormat { multiple } => {
                 let message = match multiple {
-                    true => "invalid secret keys",
-                    false => "invalid secret key",
+                    true => "invalid secret names",
+                    false => "invalid secret name",
                 };
                 msg = message;
                 hint = Some(
                     "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
             }
-            SecretsInputValidationError::KeyTooShort { multiple } => {
+            SecretsInputValidationError::NameTooShort { multiple } => {
                 let message = match multiple {
-                    true => "secret keys are too short",
+                    true => "secret names are too short",
                     false => "secret key is too short",
                 };
                 msg = message;
-                hint = Some("mimimal length for secret key is 2 characters");
+                hint = Some("mimimal length for secret name is 2 characters");
             }
 
-            SecretsInputValidationError::KeyTooLong { multiple } => {
+            SecretsInputValidationError::NameTooLong { multiple } => {
                 let message = match multiple {
-                    true => "secret keys are too long",
-                    false => "secret key is too long",
+                    true => "secret names are too long",
+                    false => "secret name is too long",
                 };
                 msg = message;
-                hint = Some("maximum length for secret key is 255 characters");
+                hint = Some("maximum length for secret name is 255 characters");
             }
 
             SecretsInputValidationError::SearchFormat => {
@@ -321,34 +321,34 @@ impl fmt::Display for SecretsInputValidationError {
                 msg = "argument search is too short";
                 hint = Some("minimum is 2 characters");
             }
-            SecretsInputValidationError::NoKeys => {
-                msg = "no secrets keys specified";
-                hint = Some("separate secrets to return with spaces");
+            SecretsInputValidationError::NoNames => {
+                msg = "no secrets names specified";
+                hint = Some("separate names of secrets to return with spaces");
             }
-            SecretsInputValidationError::DuplicateKeys(keys) => {
-                let keys_str = keys.join(", ");
+            SecretsInputValidationError::DuplicateNames(names) => {
+                let names_str = names.join(", ");
 
-                writeln!(f, "{}", format!("- message: {}", "found duplicate keys"))?;
-                write!(f, "{}", format!("- duplicates: {}", keys_str))?;
+                writeln!(f, "{}", format!("- message: {}", "found duplicate names"))?;
+                write!(f, "{}", format!("- duplicates: {}", names_str))?;
 
                 return Ok(());
             }
-            SecretsInputValidationError::DuplicateNewKeys(keys) => {
-                let keys_str = keys.join(", ");
+            SecretsInputValidationError::DuplicateNewNames(names) => {
+                let names_str = names.join(", ");
 
-                let msg = "found duplicate new keys";
+                let msg = "found duplicate new names";
 
                 writeln!(f, "- message: {}", msg)?;
-                write!(f, "{}", format!("- duplicates: {}", keys_str))?;
+                write!(f, "{}", format!("- duplicates: {}", names_str))?;
 
                 return Ok(());
             }
-            SecretsInputValidationError::SelfReferences(keys) => {
-                let keys_str = keys.join(", ");
+            SecretsInputValidationError::SelfReferences(names) => {
+                let names_str = names.join(", ");
                 let msg = "found self-referencing secrets";
 
                 writeln!(f, "{}", format!("- message: {}", msg))?;
-                write!(f, "{}", format!("- secrets: {}", keys_str))?;
+                write!(f, "{}", format!("- secrets: {}", names_str))?;
 
                 return Ok(());
             }

@@ -66,7 +66,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     let duplicate_new_keys = duplicates::find_duplicates(&new_keys);
 
     if !duplicate_new_keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNewKeys(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNewNames(
             duplicate_new_keys,
         ));
 
@@ -225,7 +225,7 @@ fn validate_input(
     let duplicate_keys = find_duplicates(&old_keys);
 
     if !duplicate_keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateKeys(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
             duplicate_keys,
         ));
 
