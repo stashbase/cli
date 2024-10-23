@@ -13,7 +13,7 @@ use crate::{
         duplicates::{self, find_duplicates},
         separator,
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name, validate_secret_keys},
+        validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
 };
 
@@ -205,7 +205,7 @@ fn validate_input(
         .map(|k| k.0.to_string())
         .collect::<Vec<_>>();
 
-    let valid_old_keys = validate_secret_keys(&old_keys);
+    let valid_old_keys = validate_secret_names(&old_keys);
 
     if let Err(err) = valid_old_keys {
         bail!(err);
@@ -216,17 +216,17 @@ fn validate_input(
         .map(|k| k.1.to_string())
         .collect::<Vec<_>>();
 
-    let valid_new_keys = validate_secret_keys(&new_keys);
+    let valid_new_names = validate_secret_names(&new_keys);
 
-    if let Err(err) = valid_new_keys {
+    if let Err(err) = valid_new_names {
         bail!(err);
     }
 
-    let duplicate_keys = find_duplicates(&old_keys);
+    let duplicate_names = find_duplicates(&old_keys);
 
-    if !duplicate_keys.is_empty() {
+    if !duplicate_names.is_empty() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
-            duplicate_keys,
+            duplicate_names,
         ));
 
         bail!(err);

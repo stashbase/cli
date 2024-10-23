@@ -7,7 +7,7 @@ use crate::{
     models::{api_client::RequestApiOptionResponse, secrets::UpdateSecretDescriptionPayload},
     utils::{
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name, validate_secret_key},
+        validation::{validate_environment_name, validate_project_name, validate_secret_name},
     },
 };
 
@@ -79,9 +79,9 @@ fn validate_input(project: &str, environment: &str, key: &str) -> Result<()> {
         bail!(err);
     }
 
-    let key_valid = validate_secret_key(&key);
+    let name_valid = validate_secret_name(&key);
 
-    if let Err(err) = key_valid {
+    if let Err(err) = name_valid {
         debug!("Error: {:#?}", &err);
         bail!(err);
     }

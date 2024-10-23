@@ -26,7 +26,7 @@ use crate::{
     utils::{
         interaction::{self, select},
         secrets::format_secrets,
-        validation::{validate_project_environment_identifier, validate_secret_keys},
+        validation::{validate_project_environment_identifier, validate_secret_names},
     },
 };
 
@@ -176,9 +176,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     }
 
     if !only.is_empty() {
-        let key_validation_res = validate_secret_keys(&only);
+        let name_validation_res = validate_secret_names(&only);
 
-        if let Err(_) = key_validation_res {
+        if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
                 LoadEnvironmentInputValidationError::OnlyKeyFormat,
             );
@@ -189,9 +189,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     }
 
     if !exclude.is_empty() {
-        let key_validation_res = validate_secret_keys(&exclude);
+        let name_validation_res = validate_secret_names(&exclude);
 
-        if let Err(_) = key_validation_res {
+        if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
                 LoadEnvironmentInputValidationError::ExcludeKeyFormat,
             );
