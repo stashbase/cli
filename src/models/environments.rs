@@ -253,15 +253,15 @@ pub type CompareEnvironmentsResponse = Vec<CompareEnvironmentsItem>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CompareEnvironmentsItem {
-    pub key: String,
+    pub name: String,
     //
     pub values: Vec<Option<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 pub struct CompareEnvironmentsTableItem {
-    #[tabled(rename = "Secret key", order = 0)]
-    pub key: String,
+    #[tabled(rename = "Secret name", order = 0)]
+    pub name: String,
 
     #[tabled(rename = "Value 1", order = 0)]
     pub value_1: String,
@@ -273,7 +273,7 @@ pub struct CompareEnvironmentsTableItem {
 impl From<CompareEnvironmentsItem> for CompareEnvironmentsTableItem {
     fn from(item: CompareEnvironmentsItem) -> Self {
         Self {
-            key: item.key,
+            name: item.name,
             value_1: item
                 .values
                 .get(0)
