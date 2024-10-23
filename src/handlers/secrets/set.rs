@@ -13,7 +13,7 @@ use crate::{
         duplicates::find_duplicates,
         interaction, separator,
         spinner::request_spinner,
-        validation::{validate_secret_keys, validate_secrets_references},
+        validation::{validate_secret_names, validate_secrets_references},
     },
 };
 
@@ -51,26 +51,26 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
-    let key_value_pairs = key_value_pairs.unwrap();
+    let name_value_pairs = key_value_pairs.unwrap();
 
-    // validate keys
-    let keys: Vec<_> = key_value_pairs
+    // validate names
+    let names: Vec<_> = name_value_pairs
         .iter()
         .map(|kv| format!("{}", kv.0))
         .collect();
 
-    let keys_valid = validate_secret_keys(&keys);
+    let names_valid = validate_secret_names(&names);
 
-    if let Err(err) = keys_valid {
+    if let Err(err) = names_valid {
         debug!("Error: {:#?}", &err);
         bail!(err);
     }
 
-    let duplicate_keys = find_duplicates(&keys);
+    let duplicate_names = find_duplicates(&names);
 
-    if !duplicate_keys.is_empty() {
+    if !duplicate_names.is_empty() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
-            duplicate_keys,
+            duplicate_names,
         ));
 
         bail!(err);
@@ -87,7 +87,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     // OK
     let description_pairs = description_pairs.unwrap();
 
-    let payload = key_value_pairs
+    let payload = name_value_pairs
         .into_iter()
         .map(|x| {
             let description = description_pairs.iter().find(|d| d.0 == x.0);
