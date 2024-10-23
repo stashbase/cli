@@ -178,7 +178,7 @@ impl ApiError {
                 let details = serde_json::from_value::<SecretApiErrorDetails>(d);
 
                 match details {
-                    Ok(details) => Some(details.secret_keys),
+                    Ok(details) => Some(details.secret_names),
                     Err(_) => None,
                 }
             }
@@ -190,7 +190,7 @@ impl ApiError {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretApiErrorDetails {
-    pub secret_keys: Vec<String>,
+    pub secret_names: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -345,8 +345,8 @@ pub enum SecretsError {
     #[serde(rename = "resource.secret_not_found")]
     SecretNotFound,
 
-    #[serde(rename = "validation.duplicate_new_keys")]
-    DuplicateNewKeys,
+    #[serde(rename = "validation.duplicate_new_names")]
+    DuplicateNewNames,
 
     #[serde(rename = "conflict.secrets_already_exist")]
     SecretsAlreadyExist,
@@ -649,9 +649,9 @@ impl From<ApiError> for CustomError {
                     hint: None,
                 },
 
-                SecretsError::DuplicateNewKeys => CustomError {
-                    message: format!("duplicate new keys"),
-                    hint: Some(format!("cannot change multiple secrets to the same key")),
+                SecretsError::DuplicateNewNames => CustomError {
+                    message: format!("duplicate new names"),
+                    hint: Some(format!("cannot change multiple secrets to the same name")),
                 },
 
                 SecretsError::SecretsAlreadyExist => {
