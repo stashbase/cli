@@ -9,7 +9,7 @@ use crate::{
         secrets::{Secret, SecretOptional},
     },
     utils::{
-        secrets::{format_secret_keys, format_secrets},
+        secrets::{format_secret_names, format_secrets},
         spinner::request_spinner,
     },
 };
