@@ -20,7 +20,7 @@ pub struct HandleListSecretsArgs {
     pub environment: String,
     // pub search: Option<String>,
     pub format: SecretsOutputFormat,
-    pub only_keys: bool,
+    pub only_names: bool,
     pub expand_refs: bool,
 }
 
@@ -30,7 +30,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         project,
         environment: enironment,
         format,
-        only_keys,
+        only_names,
         expand_refs,
     } = args;
 
@@ -45,7 +45,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     debug!("listing secrets...:");
 
     let mut spinner = request_spinner();
-    let res = secrets::list(api_key, project, enironment, only_keys, None, expand_refs).await;
+    let res = secrets::list(api_key, project, enironment, only_names, None, expand_refs).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
@@ -56,7 +56,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        GetRequestApiResponse::Ok(data) => match only_keys {
+        GetRequestApiResponse::Ok(data) => match only_names {
             true => {
                 let keys = serde_json::from_str::<Vec<SecretOptional>>(&data.text);
 
@@ -65,8 +65,8 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         if secrets.is_empty() {
                             spinner.stop_with_message("No secrets found");
                         } else {
-                            let keys = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
-                            let print_string = format_secret_keys(keys, &format);
+                            let names = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
+                            let print_string = format_secret_keys(names, &format);
 
                             spinner.stop_and_persist("", "");
 
