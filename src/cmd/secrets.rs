@@ -110,9 +110,9 @@ pub struct ListSecrets {
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
 
-    /// Print only keys
-    #[arg(value_enum, long = "only-keys")]
-    pub only_keys: bool,
+    /// Print only names
+    #[arg(value_enum, long = "only-names")]
+    pub only_names: bool,
 
     /// Expand references to their values
     #[arg(value_enum, long = "expand-refs")]
@@ -120,13 +120,13 @@ pub struct ListSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets get [KEYS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets get [NAMES] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct GetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
     // #[clap(short='v', long="k", value_parser, num_args = 1.., value_delimiter = ' ')]
-    pub keys: Vec<String>,
+    pub names: Vec<String>,
 
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
@@ -138,14 +138,14 @@ pub struct GetSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets DELETE [KEYS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets DELETE [NAMES] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct DeleteSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    /// Secrets (keys) to delete
+    /// Secrets (names) to delete
     #[clap(value_parser, num_args = 1.., value_delimiter = ' ')]
-    pub keys: Vec<String>,
+    pub names: Vec<String>,
 
     /// Delete all secrets
     #[arg(name = "all", value_enum, long = "all")]
@@ -158,11 +158,11 @@ pub struct SetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    /// Secrets to set: KEY_1=VAL_1 KEY_2=VAL_2
+    /// Secrets to set: NAME_1=VAL_1 NAME_2=VAL_2
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
 
-    /// Descriptions to set: KEY_1=NOTE_1 KEY_2=NOTE_2
+    /// Descriptions to set: NAME_1=NOTE_1 NAME_2=NOTE_2
     // #[clap(value_parser, long="description", short='d', num_args = 1.., value_delimiter = ' ')]
     #[clap(value_parser, long="description", short='d', num_args = 1..)]
     pub descriptions: Vec<String>,
@@ -203,14 +203,14 @@ impl Display for SecretsFileFormat {
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "secrets description <KEY> <DESCRIPTION> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+    override_usage = "secrets description <NAME> <DESCRIPTION> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
 )]
 pub struct SetDescription {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    /// Secret key
-    pub key: String,
+    /// Secret name
+    pub name: String,
 
     /// Description
     pub description: String,
@@ -222,7 +222,7 @@ pub struct RenameSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    /// Secrets to rename: KEY_1=NEW_KEY_1 KEY_2=NEW_KEY_2
+    /// Secrets to rename: NAME_1=NEW_NAME_1 NAME_2=NEW_NAME_2
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
 }
