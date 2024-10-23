@@ -121,10 +121,10 @@ pub enum LoadEnvironmentInputValidationError {
     MissingProjectArg,
     MissingEnvArg,
     UseOfBothExcludeAndOnly,
-    OnlyKeyFormat,
-    ExcludeKeyFormat,
-    SetKeyValueSeparator,
-    SetKeyValueFormat,
+    OnlyNameFormat,
+    ExcludeNameFormat,
+    SetNameValueSeparator,
+    SetNameValueFormat,
 }
 
 #[derive(Debug)]
@@ -525,11 +525,11 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "use of both --exclude and --only flag";
                 hint = Some("use only one of them");
             }
-            LoadEnvironmentInputValidationError::OnlyKeyFormat => {
+            LoadEnvironmentInputValidationError::OnlyNameFormat => {
                 msg = "invalid only argument";
                 hint = Some("accepts only uppercase alphanumeric characters and underscores");
             }
-            LoadEnvironmentInputValidationError::ExcludeKeyFormat => {
+            LoadEnvironmentInputValidationError::ExcludeNameFormat => {
                 msg = "invalid exclude argument";
                 hint = Some("accepts only uppercase alphanumeric characters and underscores");
             }
@@ -545,14 +545,14 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "cannot use '--file' flag and '-p' or '-e' flag at the same time";
                 hint = None;
             }
-            LoadEnvironmentInputValidationError::SetKeyValueSeparator => {
+            LoadEnvironmentInputValidationError::SetNameValueSeparator => {
                 msg = "invalid set argument";
-                hint = Some("expected a key-value pair (separated by '=')");
+                hint = Some("expected a name-value pair (separated by '=')");
             }
-            LoadEnvironmentInputValidationError::SetKeyValueFormat => {
+            LoadEnvironmentInputValidationError::SetNameValueFormat => {
                 msg = "invalid set argument";
                 hint = Some(
-                    "secret key can contain only uppercase alphanumeric characters and underscores",
+                    "secret name can contain only uppercase alphanumeric characters and underscores",
                 );
             }
         }
