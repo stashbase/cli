@@ -13,14 +13,14 @@ pub async fn list(
     api_key: String,
     project: String,
     environment: String,
-    return_only_keys: bool,
+    only_names: bool,
     only: Option<Vec<String>>,
     expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query_str = vec![];
 
-    if return_only_keys {
-        query_str.push(("only-keys".to_string(), "true".to_string()));
+    if only_names {
+        query_str.push(("only-names".to_string(), "true".to_string()));
     } else {
         query_str.push(("expand-refs".to_string(), expand_refs.to_string()));
     }
@@ -94,14 +94,14 @@ pub async fn update_description(
     api_key: String,
     project: String,
     environment: String,
-    key: String,
+    name: String,
     data: &UpdateSecretDescriptionPayload,
 ) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
             environment,
-            path: Some(format!("{}", key)),
+            path: Some(format!("{}", name)),
         },
         query: None,
         api_key,
