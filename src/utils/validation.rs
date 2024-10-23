@@ -231,16 +231,16 @@ pub fn validate_secrets_references(
     let mut invalid_format_secrets: HashMap<String, Vec<String>> = HashMap::new();
 
     for Secret {
-        key,
+        name,
         value,
         description: _,
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(key).is_some();
+        let has_self_reference = all_unique_refs.get(name).is_some();
 
         if has_self_reference {
-            self_referenced_secrets.insert(key.clone());
+            self_referenced_secrets.insert(name.clone());
         }
 
         for ref_ in all_unique_refs {
@@ -249,7 +249,7 @@ pub fn validate_secrets_references(
             if !is_valid_secret_key {
                 if !self_referenced_secrets.contains(&ref_) {
                     invalid_format_secrets
-                        .entry(key.clone())
+                        .entry(name.clone())
                         .or_insert_with(Vec::new)
                         .push(ref_);
                 }
@@ -297,20 +297,20 @@ pub fn validate_secrets_references_with_existence(
     let mut secret_keys = HashSet::new();
 
     for secret in secrets {
-        secret_keys.insert(secret.key.to_owned());
+        secret_keys.insert(secret.name.to_owned());
     }
 
     for Secret {
-        key,
+        name,
         value,
         description: _,
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(key).is_some();
+        let has_self_reference = all_unique_refs.get(name).is_some();
 
         if has_self_reference {
-            validation_obj.self_referenced_secrets.push(key.clone());
+            validation_obj.self_referenced_secrets.push(name.clone());
         }
 
         for ref_ in all_unique_refs {
@@ -320,7 +320,7 @@ pub fn validate_secrets_references_with_existence(
                 if !validation_obj.self_referenced_secrets.contains(&ref_) {
                     validation_obj
                         .invalid_format
-                        .entry(key.clone())
+                        .entry(name.clone())
                         .or_insert_with(Vec::new)
                         .push(ref_);
                 }
@@ -328,7 +328,7 @@ pub fn validate_secrets_references_with_existence(
                 if !secret_keys.contains(&ref_) {
                     validation_obj
                         .not_found
-                        .entry(key.clone())
+                        .entry(name.clone())
                         .or_insert_with(Vec::new)
                         .push(ref_);
                 }

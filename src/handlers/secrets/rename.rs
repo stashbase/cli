@@ -78,8 +78,8 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     let payload: Vec<_> = key_value_pairs
         .into_iter()
         .map(|k| RenamedSecret {
-            key: k.0,
-            new_key: k.1,
+            name: k.0,
+            new_name: k.1,
         })
         .collect();
 
@@ -133,12 +133,12 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
                                     .filter_map(|k| {
                                         if not_found_secrets
                                             .iter()
-                                            .find(|s| **s == k.get_key())
+                                            .find(|s| **s == k.get_name())
                                             .is_some()
                                         {
                                             None
                                         } else {
-                                            Some(k.key)
+                                            Some(k.name)
                                         }
                                     })
                                     .collect();
