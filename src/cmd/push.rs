@@ -19,11 +19,11 @@ pub struct PushCommand {
     #[arg(value_enum, long = "format")]
     pub format: Option<PushFormat>,
 
-    /// Select secret keys
+    /// Select secret names
     #[clap(value_parser, long="only", num_args = 1..)]
     pub only: Vec<String>,
 
-    /// Exclude secret keys
+    /// Exclude secret names
     #[clap(value_parser, long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
 
