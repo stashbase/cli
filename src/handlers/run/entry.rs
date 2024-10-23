@@ -23,7 +23,7 @@ use crate::{
         tables::build::build_table,
         validation::{
             validate_project_environment, validate_project_environment_identifier,
-            validate_secret_keys,
+            validate_secret_names,
         },
     },
     SUBPROCESS_RUNNING,
@@ -188,9 +188,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     }
 
     if !only.is_empty() {
-        let key_validation_res = validate_secret_keys(&only);
+        let name_validation_res = validate_secret_names(&only);
 
-        if let Err(_) = key_validation_res {
+        if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
                 LoadEnvironmentInputValidationError::OnlyKeyFormat,
             );
@@ -204,7 +204,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     }
 
     if !exclude.is_empty() {
-        let key_validation_res = validate_secret_keys(&exclude);
+        let key_validation_res = validate_secret_names(&exclude);
 
         if let Err(_) = key_validation_res {
             let err = InputValidationError::LoadEnvironment(
@@ -559,9 +559,9 @@ pub fn get_set_key_value_pairs(values: Vec<String>) -> Result<Vec<(String, Strin
                 .collect::<Vec<String>>();
             // ok
 
-            let keys_validation = validate_secret_keys(&keys);
+            let names_validation = validate_secret_names(&keys);
 
-            match keys_validation {
+            match names_validation {
                 Ok(_) => {
                     return Ok(key_value_pairs);
                 }

@@ -11,7 +11,7 @@ use crate::{
     utils::{
         interaction,
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name, validate_secret_keys},
+        validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
 };
 
@@ -229,9 +229,9 @@ fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Resul
         bail!(err);
     }
 
-    let keys_valid = validate_secret_keys(keys);
+    let names_valid = validate_secret_names(keys);
 
-    if let Err(err) = keys_valid {
+    if let Err(err) = names_valid {
         debug!("Error: {:#?}", &err);
         bail!(err);
     }
