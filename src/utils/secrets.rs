@@ -306,16 +306,16 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
     //       }
 }
 
-pub fn find_duplicate_keys(array: &[Secret]) -> Vec<String> {
-    let mut key_count = HashMap::new();
+pub fn find_duplicate_names(array: &[Secret]) -> Vec<String> {
+    let mut name_count = HashMap::new();
 
-    // Count occurrences of each key
+    // Count occurrences of each name
     for item in array {
-        *key_count.entry(&item.name).or_insert(0) += 1;
+        *name_count.entry(&item.name).or_insert(0) += 1;
     }
 
-    // Collect keys with more than one occurrence
-    key_count
+    // Collect names with more than one occurrence
+    name_count
         .into_iter()
         .filter_map(|(key, count)| if count > 1 { Some(key.clone()) } else { None })
         .collect()
