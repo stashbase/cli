@@ -23,7 +23,7 @@ pub struct HandleGetSecretsArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
-    pub keys: Vec<String>,
+    pub names: Vec<String>,
     pub format: SecretsOutputFormat,
     pub expand_refs: bool,
 }
@@ -33,12 +33,12 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
         api_key,
         project,
         environment,
-        keys,
+        names,
         format,
         expand_refs,
     } = args;
 
-    let validation_res = validate_input(&project, &environment, &keys);
+    let validation_res = validate_input(&project, &environment, &names);
 
     if let Err(e) = validation_res {
         bail!(e);
@@ -52,7 +52,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
         project,
         environment,
         false,
-        Some(keys.clone()),
+        Some(names.clone()),
         expand_refs,
     )
     .await;
@@ -71,10 +71,10 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
 
             match secrets {
                 Ok(secrets) => {
-                    if secrets.len() < keys.len() {
-                        let keys_set: HashSet<String> = keys.into_iter().collect();
+                    if secrets.len() < names.len() {
+                        let names_set: HashSet<String> = names.into_iter().collect();
 
-                        let secrets_not_found: Vec<_> = keys_set
+                        let secrets_not_found: Vec<_> = names_set
                             .difference(&secrets.iter().map(|s| s.name.clone()).collect())
                             .cloned()
                             .collect();
@@ -118,7 +118,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     Ok(())
 }
 
-fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Result<()> {
+fn validate_input(project: &str, environment: &str, names: &Vec<String>) -> Result<()> {
     let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
@@ -131,12 +131,12 @@ fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Resul
         bail!(err);
     }
 
-    if keys.is_empty() {
+    if names.is_empty() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::NoNames);
         bail!(err);
     }
 
-    let name_validation_res = validate_secret_names(keys);
+    let name_validation_res = validate_secret_names(names);
 
     if let Err(err) = name_validation_res {
         debug!("Error: {:#?}", &err);
