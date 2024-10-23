@@ -13,7 +13,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 use crate::{
     api::secrets,
     cmd::{config::SecretsOutputFormat, pull::PullFormat},
-    handlers::run::entry::get_set_key_value_pairs,
+    handlers::run::entry::get_set_name_value_pairs,
     models::{
         api_client::GetRequestApiResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
@@ -136,11 +136,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             if set_val.is_empty() == false {
                 let mut set_secrets_from_file = Vec::new();
 
-                for (key, value) in set_val {
-                    let key_value_str = format!("{}={}", key, value);
+                for (name, value) in set_val {
+                    let name_value_str = format!("{}={}", name, value);
 
-                    if set.contains(&key_value_str) == false {
-                        set_secrets_from_file.push(key_value_str);
+                    if set.contains(&name_value_str) == false {
+                        set_secrets_from_file.push(name_value_str);
                     }
                 }
 
@@ -180,7 +180,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::OnlyKeyFormat,
+                LoadEnvironmentInputValidationError::OnlyNameFormat,
             );
 
             eprintln!();
@@ -193,7 +193,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::ExcludeKeyFormat,
+                LoadEnvironmentInputValidationError::ExcludeNameFormat,
             );
 
             eprintln!();
@@ -202,12 +202,12 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     }
 
     if !set.is_empty() {
-        let key_values_pairs = get_set_key_value_pairs(set);
+        let name_values_pairs = get_set_name_value_pairs(set);
 
-        match key_values_pairs {
+        match name_values_pairs {
             Ok(secrets) => {
-                for (key, value) in secrets {
-                    setted_secrets.insert(key, value);
+                for (name, value) in secrets {
+                    setted_secrets.insert(name, value);
                 }
             }
             Err(e) => {
@@ -219,11 +219,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     // exclude manually
     if !setted_secrets.is_empty() {
         for secret in setted_secrets.iter() {
-            let key = secret.0;
+            let name = secret.0;
 
-            let exists = exclude.contains(&key);
+            let exists = exclude.contains(&name);
             if !exists {
-                exclude.push(key.to_string());
+                exclude.push(name.to_string());
             }
         }
     }
