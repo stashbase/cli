@@ -132,7 +132,7 @@ fn format_comparison(
             let formatted_1 = get_formatted_table_value(value_1, only_keys);
             let formatted_2 = get_formatted_table_value(value_2, only_keys);
 
-            table_data.push(vec![row.key, formatted_1, formatted_2]);
+            table_data.push(vec![row.name, formatted_1, formatted_2]);
         }
 
         let mut table = Builder::from(table_data).build();
