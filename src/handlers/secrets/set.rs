@@ -43,15 +43,15 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     debug!("{:#?}", description);
 
-    let key_value_pairs = separator::key_value(values);
+    let name_value_pairs = separator::key_value(values);
 
-    debug!("{:#?}", key_value_pairs);
+    debug!("{:#?}", name_value_pairs);
 
-    if let Err(err) = key_value_pairs {
+    if let Err(err) = name_value_pairs {
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
-    let name_value_pairs = key_value_pairs.unwrap();
+    let name_value_pairs = name_value_pairs.unwrap();
 
     // validate names
     let names: Vec<_> = name_value_pairs
