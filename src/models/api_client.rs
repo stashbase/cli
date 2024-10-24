@@ -172,7 +172,7 @@ pub struct ApiError {
 }
 
 impl ApiError {
-    fn get_secrets_keys_details(self) -> Option<Vec<String>> {
+    fn get_secrets_names_details(self) -> Option<Vec<String>> {
         match self.details {
             Some(d) => {
                 let details = serde_json::from_value::<SecretApiErrorDetails>(d);
@@ -655,7 +655,7 @@ impl From<ApiError> for CustomError {
                 },
 
                 SecretsError::SecretsAlreadyExist => {
-                    let secrets = api_error.get_secrets_keys_details();
+                    let secrets = api_error.get_secrets_names_details();
 
                     let hint = match secrets {
                         Some(s) => Some(s.join(",")),
@@ -668,7 +668,7 @@ impl From<ApiError> for CustomError {
                     }
                 }
                 SecretsError::SelfReferencingSecrets => {
-                    let secrets = api_error.get_secrets_keys_details();
+                    let secrets = api_error.get_secrets_names_details();
 
                     let hint = match secrets {
                         Some(s) => Some(s.join(",")),
@@ -682,7 +682,7 @@ impl From<ApiError> for CustomError {
                 }
 
                 SecretsError::SelfReferencingSecretsConflict => {
-                    let secrets = api_error.get_secrets_keys_details();
+                    let secrets = api_error.get_secrets_names_details();
 
                     let error = match secrets {
                         Some(s) => match s.len() == 1 {
