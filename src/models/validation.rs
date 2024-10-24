@@ -296,7 +296,7 @@ impl fmt::Display for SecretsInputValidationError {
             SecretsInputValidationError::NameTooShort { multiple } => {
                 let message = match multiple {
                     true => "secret names are too short",
-                    false => "secret key is too short",
+                    false => "secret name is too short",
                 };
                 msg = message;
                 hint = Some("mimimal length for secret name is 2 characters");
