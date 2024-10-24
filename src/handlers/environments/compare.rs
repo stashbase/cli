@@ -27,7 +27,7 @@ pub struct HandleCompareEnvironmentsArgs {
     pub project: String,
     pub environment_1: String,
     pub environment_2: String,
-    pub only_keys: bool,
+    pub only_names: bool,
     pub json_format: bool,
 }
 
@@ -59,7 +59,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         project: args.project,
         environment_1: &args.environment_1,
         environment_2: &args.environment_2,
-        only_keys: &args.only_keys,
+        only_names: &args.only_names,
     };
 
     let res = environments::compare(req_args).await;
@@ -90,7 +90,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                             args.environment_2,
                             data,
                             args.json_format,
-                            args.only_keys,
+                            args.only_names,
                         );
 
                         println!("{}", print_string);
@@ -116,21 +116,21 @@ fn format_comparison(
     environment_2: String,
     data: CompareEnvironmentsResponse,
     json_format: bool,
-    only_keys: bool,
+    only_names: bool,
 ) -> String {
     if json_format {
         let value = serde_json::to_value(&data).unwrap();
         let pretty = to_colored_json_auto(&value).unwrap();
         return pretty;
     } else {
-        let mut table_data = vec![vec![String::from("Key"), environment_1, environment_2]];
+        let mut table_data = vec![vec![String::from("Name"), environment_1, environment_2]];
 
         for row in data {
             let value_1 = row.values.get(0).cloned().unwrap();
             let value_2 = row.values.get(1).cloned().unwrap();
 
-            let formatted_1 = get_formatted_table_value(value_1, only_keys);
-            let formatted_2 = get_formatted_table_value(value_2, only_keys);
+            let formatted_1 = get_formatted_table_value(value_1, only_names);
+            let formatted_2 = get_formatted_table_value(value_2, only_names);
 
             table_data.push(vec![row.name, formatted_1, formatted_2]);
         }
@@ -150,10 +150,10 @@ fn format_comparison(
     }
 }
 
-fn get_formatted_table_value(value: Option<String>, only_keys: bool) -> String {
+fn get_formatted_table_value(value: Option<String>, only_names: bool) -> String {
     match value {
         Some(v) => {
-            if only_keys {
+            if only_names {
                 "•••••••••••".to_string()
             } else {
                 match v == "" {
