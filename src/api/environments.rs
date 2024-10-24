@@ -233,7 +233,7 @@ pub async fn compare<'a>(
     let path = format!("{}/compare/{}", environment_1, environment_2);
 
     let query = match only_names {
-        true => Some(vec![(format!("only-names"), format!("true"))]),
+        true => Some(vec![(format!("hide-values"), format!("true"))]),
         false => None,
     };
 
