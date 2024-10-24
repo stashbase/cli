@@ -7,23 +7,23 @@ use tabled::Tabled;
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithoutDescription {
-    #[tabled(rename = "Key")]
-    pub key: String,
+    #[tabled(rename = "Name")]
+    pub name: String,
 
     #[tabled(rename = "Value")]
     pub value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-pub struct SecretOnlyKey {
-    #[tabled(rename = "Key")]
-    pub key: String,
+pub struct SecretOnlyName {
+    #[tabled(rename = "Name")]
+    pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Secret {
-    pub key: String,
+    pub name: String,
     pub value: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,7 +33,7 @@ pub struct Secret {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretOptional {
-    pub key: String,
+    pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
@@ -51,8 +51,8 @@ impl Secret {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithDescription {
-    #[tabled(rename = "Key")]
-    pub key: String,
+    #[tabled(rename = "Name")]
+    pub name: String,
 
     #[tabled(rename = "Value")]
     pub value: String,
@@ -61,16 +61,16 @@ pub struct SecretWithDescription {
     pub description: String,
 }
 
-impl From<String> for SecretOnlyKey {
-    fn from(key: String) -> Self {
-        Self { key }
+impl From<String> for SecretOnlyName {
+    fn from(name: String) -> Self {
+        Self { name }
     }
 }
 
 impl From<Secret> for SecretWithDescription {
     fn from(secret: Secret) -> Self {
         Self {
-            key: secret.key,
+            name: secret.name,
             value: secret.value,
             description: secret.description.unwrap_or("".to_string()),
         }
@@ -80,7 +80,7 @@ impl From<Secret> for SecretWithDescription {
 impl From<Secret> for SecretWithoutDescription {
     fn from(secret: Secret) -> Self {
         Self {
-            key: secret.key,
+            name: secret.name,
             value: secret.value,
         }
     }
@@ -90,7 +90,7 @@ impl Display for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // writeln!(f, "{} {}", "Key:".green(), self.key)?;
         // writeln!(f, "{} {}", "Value:".green(), self.value)?;
-        write!(f, "{} {}", format!("{}:", self.key).green(), self.value)?;
+        write!(f, "{} {}", format!("{}:", self.name).green(), self.value)?;
 
         if self.description.is_some() {
             writeln!(f, "")?;
@@ -112,13 +112,13 @@ pub struct UpdateSecretDescriptionPayload {
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct RenamedSecret {
-    pub key: String,
-    pub new_key: String,
+    pub name: String,
+    pub new_name: String,
 }
 
 impl RenamedSecret {
-    pub fn get_key(&self) -> String {
-        self.key.to_string()
+    pub fn get_name(&self) -> String {
+        self.name.to_string()
     }
 }
 

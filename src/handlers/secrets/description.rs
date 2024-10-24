@@ -7,7 +7,7 @@ use crate::{
     models::{api_client::RequestApiOptionResponse, secrets::UpdateSecretDescriptionPayload},
     utils::{
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name, validate_secret_key},
+        validation::{validate_environment_name, validate_project_name, validate_secret_name},
     },
 };
 
@@ -15,7 +15,7 @@ pub struct HandleDescriptionArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
-    pub key: String,
+    pub name: String,
     pub description: String,
 }
 
@@ -25,10 +25,10 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
         project,
         environment,
         description,
-        key,
+        name,
     } = args;
 
-    let input_validation_res = validate_input(&project, &environment, &key);
+    let input_validation_res = validate_input(&project, &environment, &name);
 
     if let Err(e) = input_validation_res {
         bail!(e);
@@ -39,7 +39,7 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
 
     let mut spinner = request_spinner();
 
-    let res = secrets::update_description(api_key, project, environment, key, &payload).await;
+    let res = secrets::update_description(api_key, project, environment, name, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
@@ -66,7 +66,7 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
     Ok(())
 }
 
-fn validate_input(project: &str, environment: &str, key: &str) -> Result<()> {
+fn validate_input(project: &str, environment: &str, name: &str) -> Result<()> {
     let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
@@ -79,9 +79,9 @@ fn validate_input(project: &str, environment: &str, key: &str) -> Result<()> {
         bail!(err);
     }
 
-    let key_valid = validate_secret_key(&key);
+    let name_valid = validate_secret_name(&name);
 
-    if let Err(err) = key_valid {
+    if let Err(err) = name_valid {
         debug!("Error: {:#?}", &err);
         bail!(err);
     }

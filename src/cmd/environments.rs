@@ -396,9 +396,9 @@ pub struct CompareEnvironment {
     #[arg(value_name = "NAME_OR_ID_2")]
     pub identifier_2: String,
 
-    /// Return only keys without values
-    #[arg(value_enum, long = "only-keys")]
-    pub only_keys: bool,
+    /// Return only names without values
+    #[arg(value_enum, long = "only-names")]
+    pub only_names: bool,
 }
 
 #[derive(Debug, Args)]
