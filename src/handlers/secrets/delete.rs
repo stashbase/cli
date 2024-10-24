@@ -11,7 +11,7 @@ use crate::{
     utils::{
         interaction,
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name, validate_secret_keys},
+        validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
 };
 
@@ -19,7 +19,7 @@ pub struct HandleDeleteSecretsArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
-    pub keys: Vec<String>,
+    pub names: Vec<String>,
     pub delete_all: bool,
 }
 
@@ -30,10 +30,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         project,
         environment,
         delete_all,
-        keys,
+        names,
     } = args;
 
-    if keys.is_empty() && !delete_all {
+    if names.is_empty() && !delete_all {
         let msg = format!(
             "{} {}",
             "Input error:".red(),
@@ -42,7 +42,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         bail!("{}", msg);
     }
 
-    let validation_res = validate_input(&project, &environment, &keys);
+    let validation_res = validate_input(&project, &environment, &names);
 
     if let Err(e) = validation_res {
         bail!("{}", e);
@@ -119,7 +119,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
             }
         }
         false => {
-            let res = secrets::delete(api_key, project, environment, &keys).await;
+            let res = secrets::delete(api_key, project, environment, &names).await;
 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");
@@ -164,7 +164,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                         let deleted_count = data.deleted_count;
 
                                         if deleted_count > 0 {
-                                            let secrets_deleted: Vec<_> = keys
+                                            let secrets_deleted: Vec<_> = names
                                                 .into_iter()
                                                 .filter(|k| {
                                                     not_found_secrets
@@ -216,7 +216,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
     Ok(())
 }
 
-fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Result<()> {
+fn validate_input(project: &str, environment: &str, names: &Vec<String>) -> Result<()> {
     let name_is_valid = validate_project_name(project, false, false);
 
     if let Err(err) = name_is_valid {
@@ -229,9 +229,9 @@ fn validate_input(project: &str, environment: &str, keys: &Vec<String>) -> Resul
         bail!(err);
     }
 
-    let keys_valid = validate_secret_keys(keys);
+    let names_valid = validate_secret_names(names);
 
-    if let Err(err) = keys_valid {
+    if let Err(err) = names_valid {
         debug!("Error: {:#?}", &err);
         bail!(err);
     }

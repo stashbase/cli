@@ -23,7 +23,7 @@ use crate::{
         tables::build::build_table,
         validation::{
             validate_project_environment, validate_project_environment_identifier,
-            validate_secret_keys,
+            validate_secret_names,
         },
     },
     SUBPROCESS_RUNNING,
@@ -141,11 +141,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 if set_val.is_empty() == false {
                     let mut set_secrets_from_file = Vec::new();
 
-                    for (key, value) in set_val {
-                        let key_value_str = format!("{}={}", key, value);
+                    for (name, value) in set_val {
+                        let name_value_str = format!("{}={}", name, value);
 
-                        if set.contains(&key_value_str) == false {
-                            set_secrets_from_file.push(key_value_str);
+                        if set.contains(&name_value_str) == false {
+                            set_secrets_from_file.push(name_value_str);
                         }
                     }
 
@@ -188,11 +188,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     }
 
     if !only.is_empty() {
-        let key_validation_res = validate_secret_keys(&only);
+        let name_validation_res = validate_secret_names(&only);
 
-        if let Err(_) = key_validation_res {
+        if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::OnlyKeyFormat,
+                LoadEnvironmentInputValidationError::OnlyNameFormat,
             );
 
             if is_from_file {
@@ -204,11 +204,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     }
 
     if !exclude.is_empty() {
-        let key_validation_res = validate_secret_keys(&exclude);
+        let name_validation_res = validate_secret_names(&exclude);
 
-        if let Err(_) = key_validation_res {
+        if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::ExcludeKeyFormat,
+                LoadEnvironmentInputValidationError::ExcludeNameFormat,
             );
 
             if is_from_file {
@@ -220,12 +220,12 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     }
 
     if !set.is_empty() {
-        let key_values_pairs = get_set_key_value_pairs(set);
+        let name_values_pairs = get_set_name_value_pairs(set);
 
-        match key_values_pairs {
+        match name_values_pairs {
             Ok(secrets) => {
-                for (key, value) in secrets {
-                    setted_secrets.insert(key, value);
+                for (name, value) in secrets {
+                    setted_secrets.insert(name, value);
                 }
             }
             Err(e) => {
@@ -253,22 +253,22 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     // exclude manually
     if !setted_secrets.is_empty() {
         for secret in setted_secrets.iter() {
-            let key = secret.0;
+            let name = secret.0;
 
-            let exists = exclude.contains(&key);
+            let exists = exclude.contains(&name);
 
             // if !exists {
             //     exclude.push(key.to_string());
             // }
 
             if !exists && only.is_empty() {
-                exclude.push(key.to_string());
+                exclude.push(name.to_string());
             }
 
-            let only_exists = only.contains(&key);
+            let only_exists = only.contains(&name);
             if only_exists {
                 // remove from only
-                let index = only.iter().position(|x| x == key).unwrap();
+                let index = only.iter().position(|x| x == name).unwrap();
                 only.remove(index);
             }
         }
@@ -403,9 +403,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                         // }
 
                         if !setted_secrets.is_empty() {
-                            for (key, value) in setted_secrets {
+                            for (name, value) in setted_secrets {
                                 // secrets.push(SecretWithoutDescription { key, value })
-                                secrets.push(SecretWithoutDescription { key, value });
+                                secrets.push(SecretWithoutDescription { name, value });
                             }
                         }
 
@@ -421,8 +421,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                     }
                 } else {
                     if !setted_secrets.is_empty() {
-                        for (key, value) in setted_secrets {
-                            secrets.push(SecretWithoutDescription { key, value });
+                        for (name, value) in setted_secrets {
+                            secrets.push(SecretWithoutDescription { name, value });
                         }
                     }
 
@@ -520,7 +520,7 @@ async fn handle_run(
 
     let secrets_hash_map = env_vars
         .into_iter()
-        .map(|s| (s.key, s.value))
+        .map(|s| (s.name, s.value))
         .collect::<HashMap<String, String>>();
 
     // TODO: errors: no such file or directory
@@ -537,7 +537,7 @@ fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, St
     let mut map: HashMap<String, String> = HashMap::new();
 
     for secret in secrets {
-        map.insert(secret.key, secret.value);
+        map.insert(secret.name, secret.value);
     }
 
     map
@@ -548,26 +548,26 @@ fn print_table(secrets: &Vec<SecretWithoutDescription>) {
     println!("{}\n", table);
 }
 
-pub fn get_set_key_value_pairs(values: Vec<String>) -> Result<Vec<(String, String)>> {
-    let key_value_pairs_res = separator::key_value(values);
+pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, String)>> {
+    let name_value_pairs_res = separator::key_value(values);
 
-    match key_value_pairs_res {
-        Ok(key_value_pairs) => {
-            let keys = key_value_pairs
+    match name_value_pairs_res {
+        Ok(name_value_pairs) => {
+            let names = name_value_pairs
                 .iter()
                 .map(|kv| format!("{}", kv.0))
                 .collect::<Vec<String>>();
             // ok
 
-            let keys_validation = validate_secret_keys(&keys);
+            let names_validation = validate_secret_names(&names);
 
-            match keys_validation {
+            match names_validation {
                 Ok(_) => {
-                    return Ok(key_value_pairs);
+                    return Ok(name_value_pairs);
                 }
                 Err(_) => {
                     let err = InputValidationError::LoadEnvironment(
-                        LoadEnvironmentInputValidationError::SetKeyValueFormat,
+                        LoadEnvironmentInputValidationError::SetNameValueFormat,
                     );
 
                     bail!(err);
@@ -576,7 +576,7 @@ pub fn get_set_key_value_pairs(values: Vec<String>) -> Result<Vec<(String, Strin
         }
         Err(_) => {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::SetKeyValueSeparator,
+                LoadEnvironmentInputValidationError::SetNameValueSeparator,
             );
 
             bail!(err);

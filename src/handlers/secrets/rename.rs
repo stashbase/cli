@@ -13,7 +13,7 @@ use crate::{
         duplicates::{self, find_duplicates},
         separator,
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name, validate_secret_keys},
+        validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
 };
 
@@ -43,31 +43,31 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         bail!("{}", msg);
     }
 
-    let key_value_pairs = separator::key_value(secrets);
-    debug!("{:#?}", key_value_pairs);
+    let name_value_pairs = separator::key_value(secrets);
+    debug!("{:#?}", name_value_pairs);
 
-    if let Err(err) = key_value_pairs {
+    if let Err(err) = name_value_pairs {
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
-    let key_value_pairs = key_value_pairs.unwrap();
+    let name_value_pairs = name_value_pairs.unwrap();
 
-    let validation_res = validate_input(&project, &environment, &key_value_pairs);
+    let validation_res = validate_input(&project, &environment, &name_value_pairs);
 
     if let Err(e) = validation_res {
         bail!("{}", e);
     }
 
-    let new_keys = key_value_pairs
+    let new_names = name_value_pairs
         .iter()
         .map(|k| k.1.to_string())
         .collect::<Vec<_>>();
 
-    let duplicate_new_keys = duplicates::find_duplicates(&new_keys);
+    let duplicate_new_names = duplicates::find_duplicates(&new_names);
 
-    if !duplicate_new_keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNewKeys(
-            duplicate_new_keys,
+    if !duplicate_new_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNewNames(
+            duplicate_new_names,
         ));
 
         bail!("{}", err);
@@ -75,11 +75,11 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
     // OK
 
-    let payload: Vec<_> = key_value_pairs
+    let payload: Vec<_> = name_value_pairs
         .into_iter()
         .map(|k| RenamedSecret {
-            key: k.0,
-            new_key: k.1,
+            name: k.0,
+            new_name: k.1,
         })
         .collect();
 
@@ -123,22 +123,22 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
                             //
                             eprintln!("{}", info_msg);
 
-                            let keys_len = payload.len();
+                            let names_len = payload.len();
 
-                            if not_found_len < keys_len {
-                                let renamed_len = keys_len - not_found_len;
+                            if not_found_len < names_len {
+                                let renamed_len = names_len - not_found_len;
 
                                 let secrets_renamed: Vec<_> = payload
                                     .into_iter()
                                     .filter_map(|k| {
                                         if not_found_secrets
                                             .iter()
-                                            .find(|s| **s == k.get_key())
+                                            .find(|s| **s == k.get_name())
                                             .is_some()
                                         {
                                             None
                                         } else {
-                                            Some(k.key)
+                                            Some(k.name)
                                         }
                                     })
                                     .collect();
@@ -186,7 +186,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 fn validate_input(
     project: &str,
     environment: &str,
-    key_value_pairs: &Vec<(String, String)>,
+    name_value_pairs: &Vec<(String, String)>,
 ) -> Result<()> {
     let project_name_validation_res = validate_project_name(project, false, false);
 
@@ -200,33 +200,33 @@ fn validate_input(
         bail!(err);
     }
 
-    let old_keys = key_value_pairs
+    let old_names = name_value_pairs
         .iter()
         .map(|k| k.0.to_string())
         .collect::<Vec<_>>();
 
-    let valid_old_keys = validate_secret_keys(&old_keys);
+    let valid_old_names = validate_secret_names(&old_names);
 
-    if let Err(err) = valid_old_keys {
+    if let Err(err) = valid_old_names {
         bail!(err);
     }
 
-    let new_keys = key_value_pairs
+    let new_names = name_value_pairs
         .iter()
         .map(|k| k.1.to_string())
         .collect::<Vec<_>>();
 
-    let valid_new_keys = validate_secret_keys(&new_keys);
+    let valid_new_names = validate_secret_names(&new_names);
 
-    if let Err(err) = valid_new_keys {
+    if let Err(err) = valid_new_names {
         bail!(err);
     }
 
-    let duplicate_keys = find_duplicates(&old_keys);
+    let duplicate_names = find_duplicates(&old_names);
 
-    if !duplicate_keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateKeys(
-            duplicate_keys,
+    if !duplicate_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
+            duplicate_names,
         ));
 
         bail!(err);

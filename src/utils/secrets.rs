@@ -12,7 +12,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     cmd::{config::SecretsOutputFormat, secrets::SecretsFileFormat},
-    models::secrets::{Secret, SecretOnlyKey, SecretWithDescription, SecretWithoutDescription},
+    models::secrets::{Secret, SecretOnlyName, SecretWithDescription, SecretWithoutDescription},
 };
 
 use super::tables::build::build_table;
@@ -89,7 +89,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 
                     if let Some(descr) = &s.description {
                         let mut str_line =
-                            format!("# {}\n{}{}{}", descr, s.key, kv_separator, s.value);
+                            format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
 
                         if is_last == false {
                             str_line = format!("{}\n", str_line);
@@ -112,7 +112,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
-                        let mut str_line = format!("{}{}{}", s.key, kv_separator, s.value);
+                        let mut str_line = format!("{}{}{}", s.name, kv_separator, s.value);
 
                         if prev_has_description {
                             str_line = format!("\n{}", str_line);
@@ -132,14 +132,14 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
     }
 }
 
-pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> String {
+pub fn format_secret_names(names: Vec<String>, format: &SecretsOutputFormat) -> String {
     match format {
         SecretsOutputFormat::List => {
             let mut text_to_print = String::new();
 
-            for (i, p) in keys.iter().enumerate() {
+            for (i, p) in names.iter().enumerate() {
                 // is last
-                if i == keys.len() - 1 {
+                if i == names.len() - 1 {
                     text_to_print.push_str(&format!("{}", p.green()))
                 } else {
                     text_to_print.push_str(&format!("{}\n", p.green()))
@@ -151,9 +151,9 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
         SecretsOutputFormat::Dotenv => {
             let mut text_to_print = String::new();
 
-            for (i, p) in keys.iter().enumerate() {
+            for (i, p) in names.iter().enumerate() {
                 // is last
-                if i == keys.len() - 1 {
+                if i == names.len() - 1 {
                     text_to_print.push_str(&format!("{}", p))
                 } else {
                     text_to_print.push_str(&format!("{}\n", p))
@@ -165,9 +165,9 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
         SecretsOutputFormat::Yaml => {
             let mut text_to_print = String::new();
 
-            for (i, p) in keys.iter().enumerate() {
+            for (i, p) in names.iter().enumerate() {
                 // is last
-                if i == keys.len() - 1 {
+                if i == names.len() - 1 {
                     text_to_print.push_str(&format!("{}", p))
                 } else {
                     text_to_print.push_str(&format!("{}\n", p))
@@ -177,16 +177,16 @@ pub fn format_secret_keys(keys: Vec<String>, format: &SecretsOutputFormat) -> St
             text_to_print
         }
         SecretsOutputFormat::Json => {
-            let value = serde_json::to_value(&keys).unwrap();
+            let value = serde_json::to_value(&names).unwrap();
             let pretty = to_colored_json_auto(&value).unwrap();
 
             pretty
         }
         SecretsOutputFormat::Table => {
-            let table_secrets = keys
+            let table_secrets = names
                 .into_iter()
                 .map(|s| {
-                    let secret: SecretOnlyKey = s.into();
+                    let secret: SecretOnlyName = s.into();
                     secret
                 })
                 .collect::<Vec<_>>();
@@ -241,12 +241,12 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
 
         if !is_empty && !is_comment {
             match item.split_once(delimiter) {
-                Some((key, value)) => {
-                    debug!("{}", key);
+                Some((name, value)) => {
+                    debug!("{}", name);
                     debug!("{}", value);
 
-                    let uppercase_key = key.to_uppercase();
-                    let formatted_key = regex.replace_all(&uppercase_key, "_").trim().to_owned();
+                    let uppercase_name = name.to_uppercase();
+                    let formatted_name = regex.replace_all(&uppercase_name, "_").trim().to_owned();
                     let formatted_value = value.trim().to_owned();
 
                     let description = match index == 0 {
@@ -269,7 +269,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
 
                     let secret = Secret {
                         description,
-                        key: format!("{}", formatted_key),
+                        name: format!("{}", formatted_name),
                         value: format!("{}", formatted_value),
                     };
 
@@ -306,18 +306,18 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
     //       }
 }
 
-pub fn find_duplicate_keys(array: &[Secret]) -> Vec<String> {
-    let mut key_count = HashMap::new();
+pub fn find_duplicate_names(array: &[Secret]) -> Vec<String> {
+    let mut name_count = HashMap::new();
 
-    // Count occurrences of each key
+    // Count occurrences of each name
     for item in array {
-        *key_count.entry(&item.key).or_insert(0) += 1;
+        *name_count.entry(&item.name).or_insert(0) += 1;
     }
 
-    // Collect keys with more than one occurrence
-    key_count
+    // Collect names with more than one occurrence
+    name_count
         .into_iter()
-        .filter_map(|(key, count)| if count > 1 { Some(key.clone()) } else { None })
+        .filter_map(|(name, count)| if count > 1 { Some(name.clone()) } else { None })
         .collect()
 }
 

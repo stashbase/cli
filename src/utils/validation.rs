@@ -105,12 +105,12 @@ pub fn resource_name_has_id_format(resource: IdentifierResource, input: &str) ->
 }
 
 // name of secret
-pub fn validate_secret_key(value: &str) -> Result<()> {
+pub fn validate_secret_name(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
     let starts_with_digit = value.chars().nth(0).unwrap().is_ascii_digit();
 
     if !regex.is_match(value) || starts_with_digit {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
             multiple: false,
         });
 
@@ -118,7 +118,7 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
     }
 
     if value.len() < 2 {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyTooShort {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
             multiple: false,
         });
 
@@ -126,7 +126,7 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
     }
 
     if value.len() > 255 {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyTooLong {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
             multiple: false,
         });
 
@@ -136,7 +136,7 @@ pub fn validate_secret_key(value: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
+pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
     let (invalid_format_count, too_short_count, too_long_count): (usize, usize, usize) =
@@ -157,7 +157,7 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     if invalid_format_count > 0 {
         let multiple = invalid_format_count > 1;
         let err =
-            InputValidationError::Secrets(SecretsInputValidationError::KeyFormat { multiple });
+            InputValidationError::Secrets(SecretsInputValidationError::NameFormat { multiple });
 
         bail!(err)
     }
@@ -165,7 +165,7 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     if too_short_count > 0 {
         let multiple = too_short_count > 1;
         let err =
-            InputValidationError::Secrets(SecretsInputValidationError::KeyTooShort { multiple });
+            InputValidationError::Secrets(SecretsInputValidationError::NameTooShort { multiple });
 
         bail!(err)
     }
@@ -173,7 +173,7 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
     if too_long_count > 0 {
         let multiple = too_long_count > 1;
         let err =
-            InputValidationError::Secrets(SecretsInputValidationError::KeyTooLong { multiple });
+            InputValidationError::Secrets(SecretsInputValidationError::NameTooLong { multiple });
 
         bail!(err)
     }
@@ -192,12 +192,12 @@ pub fn validate_secret_keys(values: &Vec<String>) -> Result<()> {
 }
 
 // for warning
-// key, invalid referencs
+// name, invalid referencs
 pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
 
 #[derive(Debug)]
 pub struct ReferencesValidation {
-    pub self_referenced_secrets: Vec<String>, // vec of secrets (keys)
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
     pub invalid_format_references: InvalidFormatReferences,
 }
 
@@ -231,25 +231,25 @@ pub fn validate_secrets_references(
     let mut invalid_format_secrets: HashMap<String, Vec<String>> = HashMap::new();
 
     for Secret {
-        key,
+        name,
         value,
         description: _,
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(key).is_some();
+        let has_self_reference = all_unique_refs.get(name).is_some();
 
         if has_self_reference {
-            self_referenced_secrets.insert(key.clone());
+            self_referenced_secrets.insert(name.clone());
         }
 
         for ref_ in all_unique_refs {
-            let is_valid_secret_key = validate_secret_key(&ref_).is_ok();
+            let is_valid_secret_name = validate_secret_name(&ref_).is_ok();
 
-            if !is_valid_secret_key {
+            if !is_valid_secret_name {
                 if !self_referenced_secrets.contains(&ref_) {
                     invalid_format_secrets
-                        .entry(key.clone())
+                        .entry(name.clone())
                         .or_insert_with(Vec::new)
                         .push(ref_);
                 }
@@ -266,10 +266,10 @@ pub type NotFoundReferences = InvalidFormatReferences;
 
 #[derive(Debug)]
 pub struct ReferencesValidationWithExistence {
-    pub self_referenced_secrets: Vec<String>, // vec of secrets (keys)
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
     pub invalid_format: InvalidFormatReferences,
     // NOTE: refering secrets that do not exist (within input)
-    // (key, reference)
+    // (names, reference)
     pub not_found: NotFoundReferences,
 }
 
@@ -294,41 +294,41 @@ pub fn validate_secrets_references_with_existence(
 ) -> ReferencesValidationWithExistence {
     let mut validation_obj = ReferencesValidationWithExistence::new();
 
-    let mut secret_keys = HashSet::new();
+    let mut secret_names = HashSet::new();
 
     for secret in secrets {
-        secret_keys.insert(secret.key.to_owned());
+        secret_names.insert(secret.name.to_owned());
     }
 
     for Secret {
-        key,
+        name,
         value,
         description: _,
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(key).is_some();
+        let has_self_reference = all_unique_refs.get(name).is_some();
 
         if has_self_reference {
-            validation_obj.self_referenced_secrets.push(key.clone());
+            validation_obj.self_referenced_secrets.push(name.clone());
         }
 
         for ref_ in all_unique_refs {
-            let is_valid_secret_key = validate_secret_key(&ref_).is_ok();
+            let is_valid_secret_name = validate_secret_name(&ref_).is_ok();
 
-            if !is_valid_secret_key {
+            if !is_valid_secret_name {
                 if !validation_obj.self_referenced_secrets.contains(&ref_) {
                     validation_obj
                         .invalid_format
-                        .entry(key.clone())
+                        .entry(name.clone())
                         .or_insert_with(Vec::new)
                         .push(ref_);
                 }
             } else {
-                if !secret_keys.contains(&ref_) {
+                if !secret_names.contains(&ref_) {
                     validation_obj
                         .not_found
-                        .entry(key.clone())
+                        .entry(name.clone())
                         .or_insert_with(Vec::new)
                         .push(ref_);
                 }
@@ -339,7 +339,7 @@ pub fn validate_secrets_references_with_existence(
     validation_obj
 }
 
-pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()> {
+pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
     let invalid = values
@@ -347,7 +347,7 @@ pub fn validate_secret_key_new_key(values: &Vec<(String, String)>) -> Result<()>
         .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
 
     if invalid.is_some() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::KeyFormat {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
             multiple: true,
         });
 
