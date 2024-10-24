@@ -241,12 +241,12 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
 
         if !is_empty && !is_comment {
             match item.split_once(delimiter) {
-                Some((key, value)) => {
-                    debug!("{}", key);
+                Some((name, value)) => {
+                    debug!("{}", name);
                     debug!("{}", value);
 
-                    let uppercase_key = key.to_uppercase();
-                    let formatted_key = regex.replace_all(&uppercase_key, "_").trim().to_owned();
+                    let uppercase_name = name.to_uppercase();
+                    let formatted_name = regex.replace_all(&uppercase_name, "_").trim().to_owned();
                     let formatted_value = value.trim().to_owned();
 
                     let description = match index == 0 {
@@ -269,7 +269,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
 
                     let secret = Secret {
                         description,
-                        name: format!("{}", formatted_key),
+                        name: format!("{}", formatted_name),
                         value: format!("{}", formatted_value),
                     };
 
@@ -317,7 +317,7 @@ pub fn find_duplicate_names(array: &[Secret]) -> Vec<String> {
     // Collect names with more than one occurrence
     name_count
         .into_iter()
-        .filter_map(|(key, count)| if count > 1 { Some(key.clone()) } else { None })
+        .filter_map(|(name, count)| if count > 1 { Some(name.clone()) } else { None })
         .collect()
 }
 
