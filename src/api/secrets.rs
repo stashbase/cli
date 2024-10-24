@@ -20,7 +20,7 @@ pub async fn list(
     let mut query_str = vec![];
 
     if only_names {
-        query_str.push(("only-names".to_string(), "true".to_string()));
+        query_str.push(("omit".to_string(), "value,description".to_string()));
     } else {
         query_str.push(("expand-refs".to_string(), expand_refs.to_string()));
     }
