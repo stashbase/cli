@@ -13,7 +13,7 @@ use crate::{
     },
     utils::{
         interaction,
-        secrets::{find_duplicate_keys, read_secrets_from_file},
+        secrets::{find_duplicate_names, read_secrets_from_file},
         spinner::request_spinner,
         validation::{validate_project_environment, validate_secrets_references_with_existence},
     },
@@ -78,11 +78,11 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         return Ok(());
     }
 
-    let duplicate_keys = find_duplicate_keys(&secrets);
+    let duplicate_names = find_duplicate_names(&secrets);
 
-    if !duplicate_keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateKeys(
-            duplicate_keys,
+    if !duplicate_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
+            duplicate_names,
         ));
 
         bail!("{}", err);

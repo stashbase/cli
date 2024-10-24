@@ -3,7 +3,7 @@ use std::{collections::HashSet, path::Path};
 use crate::{
     api::secrets,
     cmd::{pull::PullFormat, push::PushFormat, secrets::SecretsFileFormat},
-    handlers::{pull::entry::load_from_file, run::entry::get_set_key_value_pairs},
+    handlers::{pull::entry::load_from_file, run::entry::get_set_name_value_pairs},
     models::{
         api_client::RequestApiOptionResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
@@ -15,7 +15,7 @@ use crate::{
     },
     utils::{
         interaction,
-        secrets::{find_duplicate_keys, read_secrets_from_file},
+        secrets::{find_duplicate_names, read_secrets_from_file},
         validation::{
             validate_project_environment_identifier, validate_secrets_references_with_existence,
         },
@@ -103,11 +103,11 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             if set_val.is_empty() == false {
                 let mut set_secrets_from_file = Vec::new();
 
-                for (key, value) in set_val {
-                    let key_value_str = format!("{}={}", key, value);
+                for (name, value) in set_val {
+                    let name_value_str = format!("{}={}", name, value);
 
-                    if set.contains(&key_value_str) == false {
-                        set_secrets_from_file.push(key_value_str);
+                    if set.contains(&name_value_str) == false {
+                        set_secrets_from_file.push(name_value_str);
                     }
                 }
 
@@ -175,12 +175,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         // filter unwanted secrets
         secrets = secrets
             .into_iter()
-            .filter(|secret| only_set.contains(&secret.key))
+            .filter(|secret| only_set.contains(&secret.name))
             .collect();
     } else if exclude_set.is_empty() == false {
         secrets = secrets
             .into_iter()
-            .filter(|secret| !exclude_set.contains(&secret.key))
+            .filter(|secret| !exclude_set.contains(&secret.name))
             .collect();
     }
 
@@ -192,20 +192,20 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     }
 
     if !set.is_empty() {
-        let key_values_pairs = get_set_key_value_pairs(set);
+        let name_values_pairs = get_set_name_value_pairs(set);
 
-        match key_values_pairs {
+        match name_values_pairs {
             Ok(set_secrets) => {
-                for (key, value) in set_secrets {
+                for (name, value) in set_secrets {
                     // find index
-                    let index = secrets.iter().position(|secret| secret.key == key);
+                    let index = secrets.iter().position(|secret| secret.name == name);
 
                     if let Some(index) = index {
                         let existing_secret = &mut secrets[index];
                         existing_secret.value = value;
                     } else {
                         let new_secret = Secret {
-                            key,
+                            name,
                             value,
                             description: None,
                         };
@@ -220,11 +220,11 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         }
     }
 
-    let duplicate_keys = find_duplicate_keys(&secrets);
+    let duplicate_names = find_duplicate_names(&secrets);
 
-    if !duplicate_keys.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateKeys(
-            duplicate_keys,
+    if !duplicate_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
+            duplicate_names,
         ));
 
         bail!("{}", err);

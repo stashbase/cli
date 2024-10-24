@@ -53,7 +53,7 @@ pub async fn handle_secrets_commands(
                 project,
                 format,
                 environment,
-                only_keys: args.only_keys,
+                only_names: args.only_names,
                 expand_refs: args.expand_refs.unwrap_or(expand_refs.unwrap_or(false)),
             };
 
@@ -67,7 +67,7 @@ pub async fn handle_secrets_commands(
                 format,
                 project,
                 environment,
-                keys: args.keys,
+                names: args.names,
                 expand_refs: args.expand_refs.unwrap_or(expand_refs.unwrap_or(false)),
             };
 
@@ -78,7 +78,7 @@ pub async fn handle_secrets_commands(
                 api_key,
                 project,
                 environment,
-                keys: args.keys,
+                names: args.names,
                 delete_all: args.delete_all,
             };
 
@@ -101,7 +101,7 @@ pub async fn handle_secrets_commands(
                 project,
                 environment,
                 description: args.description,
-                key: args.key,
+                name: args.name,
             };
 
             handle_update_description(args).await?;
