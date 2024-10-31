@@ -1,3 +1,4 @@
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
@@ -144,4 +145,51 @@ pub struct RenameSecretsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteAllSecretsResponse {
     pub deleted_count: usize,
+}
+
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SecretsSearchOutputFormat {
+    #[default]
+    List,
+    Table,
+    Json,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProjectSecretSearchedByName {
+    #[serde(rename = "")]
+    pub value: Option<String>,
+    pub environments: Vec<SecretsSearchEnvironment>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretsSearchEnvironment {
+    pub id: String,
+    pub name: String,
+}
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSecretSearchedByNameTable {
+    #[tabled(rename = "Value")]
+    pub secret_value: String,
+
+    #[tabled(rename = "Environments")]
+    pub environment_name: String,
+}
+
+impl From<ProjectSecretSearchedByName> for ProjectSecretSearchedByNameTable {
+    fn from(secret: ProjectSecretSearchedByName) -> Self {
+        let environment_names = secret
+            .environments
+            .iter()
+            .map(|env| env.name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        Self {
+            secret_value: secret.value.unwrap_or("••••••••".to_string()),
+            environment_name: environment_names,
+        }
+    }
 }
