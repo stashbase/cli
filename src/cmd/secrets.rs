@@ -3,6 +3,8 @@ use std::fmt::Display;
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 
+use crate::models::secrets::SecretsSearchOutputFormat;
+
 use super::{
     config::SecretsOutputFormat,
     shared::{try_get_project_environment, SharedProjectEnvArgs},
@@ -65,6 +67,7 @@ impl SecretSubcommand {
                 d.shared_args.project.as_deref(),
                 d.shared_args.environment.as_deref(),
             ),
+            SecretSubcommand::Search(search_secrets) => (search_secrets.project.as_deref(), None),
         }
     }
 }
@@ -98,6 +101,9 @@ pub enum SecretSubcommand {
     /// Delete one or multiple secrets
     #[clap(aliases = &[ "del"])]
     Delete(DeleteSecrets),
+
+    /// Search secrets by exact name or value
+    Search(SearchSecrets),
 }
 
 #[derive(Debug, Args)]
@@ -225,4 +231,28 @@ pub struct RenameSecrets {
     /// Secrets to rename: NAME_1=NEW_NAME_1 NAME_2=NEW_NAME_2
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "secrets search [OPTIONS]")]
+pub struct SearchSecrets {
+    /// Project name
+    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    pub project: Option<String>,
+
+    /// Secret name to search for
+    #[arg(value_enum, long = "name", required = false)]
+    pub name: Option<String>,
+
+    /// Secret value to search for
+    #[arg(value_enum, long = "value", required = false)]
+    pub value: Option<String>,
+
+    /// Show secret values, for search by name
+    #[arg(value_enum, long = "show-values")]
+    pub show_values: bool,
+
+    /// Output format
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<SecretsSearchOutputFormat>,
 }
