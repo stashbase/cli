@@ -37,19 +37,20 @@ pub async fn handle_secrets_commands(
     expand_refs: Option<bool>,
     default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
-    if let SecretSubcommand::Search(search_secrets) = cmd.subcommand {
+    if let SecretSubcommand::Search(args) = cmd.subcommand {
         let format = match raw_output {
             true => SecretsSearchOutputFormat::Json,
-            false => search_secrets.format.unwrap_or_default(),
+            false => args.format.unwrap_or_default(),
         };
 
-        if let Some(project) = search_secrets.project {
+        if let Some(project) = args.project {
             let args = HandleSearchProjectSecretsArgs {
                 api_key,
                 format,
                 project: project,
-                name: search_secrets.name,
-                value: search_secrets.value,
+                name: args.name,
+                value: args.value,
+                show_values: args.show_values,
             };
 
             handle_search_project_secrets(args).await?;
