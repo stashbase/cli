@@ -36,6 +36,9 @@ pub enum ApiPath {
         environment: String,
         path: Option<String>,
     },
+    SearchSecrets {
+        project: Option<String>,
+    },
     Workspace {
         path: Option<String>,
     },
@@ -113,6 +116,10 @@ impl fmt::Display for ApiPath {
                         project, environment
                     )
                 }
+            },
+            ApiPath::SearchSecrets { project } => match project {
+                Some(p) => write!(f, "v1/projects/{}/secrets-search", p),
+                None => write!(f, "v1/secrets-search"),
             },
         }
     }
