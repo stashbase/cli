@@ -72,34 +72,49 @@ pub async fn handle_search_project_secrets(args: HandleSearchProjectSecretsArgs)
             let secrets = serde_json::from_str::<Vec<ProjectSecretSearchedByName>>(&data.text);
 
             match secrets {
-                Ok(secrets) => match format {
-                    SecretsSearchOutputFormat::List => {
-                        let names = secrets.into_iter().map(|s| s.value).collect::<Vec<_>>();
-                        todo!()
+                Ok(secrets) => {
+                    if secrets.is_empty() {
+                        spinner.stop_with_message("No secrets found");
+                    } else {
+                        spinner.stop_and_persist("", "");
                     }
-                    SecretsSearchOutputFormat::Table => {
-                        let table_items = secrets
-                            .into_iter()
-                            .map(|s| s.into())
-                            .collect::<Vec<ProjectSecretSearchedByNameTable>>();
 
-                        let table = tables::build::build_table(&table_items);
-                        println!("{}", table);
-                    }
-                    SecretsSearchOutputFormat::Json => {
-                        let value = serde_json::to_value(&secrets).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
+                    match format {
+                        SecretsSearchOutputFormat::List => {
+                            let names = secrets
+                                .into_iter()
+                                .map(|s| s.secret_value)
+                                .collect::<Vec<_>>();
+                            todo!()
+                        }
+                        SecretsSearchOutputFormat::Table => {
+                            let table_items = secrets
+                                .into_iter()
+                                .map(|s| s.into())
+                                .collect::<Vec<ProjectSecretSearchedByNameTable>>();
 
-                        println!("{}", pretty);
+                            let table = tables::build::build_table(&table_items);
+                            println!("{}", table);
+                        }
+                        SecretsSearchOutputFormat::Json => {
+                            let value = serde_json::to_value(&secrets).unwrap();
+                            let pretty = to_colored_json_auto(&value).unwrap();
+
+                            println!("{}", pretty);
+                        }
                     }
-                },
-                Err(e) => bail!("{}", e),
+                }
+                Err(_) => {
+                    spinner.stop_and_persist("", "");
+                    bail!("Something went wrong")
+                }
             }
         }
         GetRequestApiResponse::Err(err) => {
+            spinner.stop_and_persist("", "");
             bail!("{}", err);
         }
     }
 
-    todo!()
+    Ok(())
 }
