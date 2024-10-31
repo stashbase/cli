@@ -190,11 +190,16 @@ pub async fn search_project_secrets_by_name_or_value(
     project: String,
     name: &Option<String>,
     value: &Option<String>,
+    show_values: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query = vec![];
 
     if let Some(name) = name {
         query.push(("name".to_string(), name.to_string()));
+
+        if show_values {
+            query.push(("show-values".to_string(), "true".to_string()));
+        }
     } else if let Some(value) = value {
         query.push(("value".to_string(), value.to_string()));
     }
