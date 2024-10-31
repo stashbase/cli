@@ -20,6 +20,7 @@ pub struct HandleSearchProjectSecretsArgs {
     pub format: SecretsSearchOutputFormat,
     pub name: Option<String>,
     pub value: Option<String>,
+    pub show_values: bool,
 }
 
 pub async fn handle_search_project_secrets(args: HandleSearchProjectSecretsArgs) -> Result<()> {
@@ -29,6 +30,7 @@ pub async fn handle_search_project_secrets(args: HandleSearchProjectSecretsArgs)
         format,
         name,
         value,
+        show_values,
     } = args;
 
     if name.is_none() && value.is_none() {
@@ -48,8 +50,14 @@ pub async fn handle_search_project_secrets(args: HandleSearchProjectSecretsArgs)
     }
 
     let mut spinner = request_spinner();
-    let res =
-        secrets::search_project_secrets_by_name_or_value(api_key, project, &name, &value).await;
+    let res = secrets::search_project_secrets_by_name_or_value(
+        api_key,
+        project,
+        &name,
+        &value,
+        show_values,
+    )
+    .await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
