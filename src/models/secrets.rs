@@ -158,7 +158,7 @@ pub enum SecretsSearchOutputFormat {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectSecretSearchedByName {
-    #[serde(rename = "")]
+    #[serde(rename = "secretValue")]
     pub value: Option<String>,
     pub environments: Vec<SecretsSearchEnvironment>,
 }
