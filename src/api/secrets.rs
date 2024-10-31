@@ -184,3 +184,28 @@ pub async fn rename_secrets(
 
     client::patch_request(args, Some(data)).await
 }
+
+pub async fn search_project_secrets_by_name_or_value(
+    api_key: String,
+    project: String,
+    name: &Option<String>,
+    value: &Option<String>,
+) -> Result<GetRequestApiResponse> {
+    let mut query = vec![];
+
+    if let Some(name) = name {
+        query.push(("name".to_string(), name.to_string()));
+    } else if let Some(value) = value {
+        query.push(("value".to_string(), value.to_string()));
+    }
+
+    let args = RequestArgs {
+        path: ApiPath::SearchSecrets {
+            project: Some(project),
+        },
+        query: Some(query),
+        api_key,
+    };
+
+    client::get_request(args).await
+}
