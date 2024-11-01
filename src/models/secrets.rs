@@ -181,7 +181,8 @@ pub struct ProjectSecretSearchedByName {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SecretsSearchEnvironment {
-    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub name: String,
 }
 
@@ -190,12 +191,15 @@ impl SecretsSearchEnvironment {
         self.name.to_string()
     }
 
-    pub fn get_id_string(&self) -> String {
-        self.id.to_string()
+    pub fn get_id_string(&self) -> Option<String> {
+        self.id.clone()
     }
 
     pub fn get_name_id_string(&self) -> String {
-        format!("{} ({})", self.name, self.id)
+        match &self.id {
+            Some(id) => format!("{} ({})", self.name, id),
+            None => self.name.to_string(),
+        }
     }
 }
 
@@ -216,7 +220,7 @@ impl SecretsSearchEnvironmentVecExt for Vec<SecretsSearchEnvironment> {
 
     fn get_ids_string(&self) -> String {
         self.iter()
-            .map(|env| env.id.as_str())
+            .map(|env| env.id.clone().unwrap_or("".to_string()))
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -310,7 +314,8 @@ pub struct WorkspaceSecretSearchedByName {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkspaceSecretSearchProject {
-    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub name: String,
     pub environments: Vec<SecretsSearchEnvironment>,
 }
@@ -332,8 +337,13 @@ impl Display for WorkspaceSecretSearchedByName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let environments_str = self.project.environments.get_names_ids_string();
 
+        let project_str = match &self.project.id {
+            Some(id) => format!("{} ({})", self.project.name, id),
+            None => self.project.name.to_string(),
+        };
+
         writeln!(f, "Secret value: {}", self.value.display())?;
-        writeln!(f, "Project: {}", self.project.name)?;
+        writeln!(f, "Project: {}", project_str)?;
         writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
@@ -365,8 +375,13 @@ impl Display for WorkspaceSecretSearchedByValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let environments_str = self.project.environments.get_names_ids_string();
 
+        let project_str = match &self.project.id {
+            Some(id) => format!("{} ({})", self.project.name, id),
+            None => self.project.name.to_string(),
+        };
+
         writeln!(f, "Secret name: {}", self.name)?;
-        writeln!(f, "Project: {}", self.project.name)?;
+        writeln!(f, "Project: {}", project_str)?;
         writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
