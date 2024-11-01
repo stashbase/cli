@@ -25,6 +25,7 @@ pub struct HandleSearchSecretsArgs {
     pub name: Option<String>,
     pub value: Option<String>,
     pub show_values: bool,
+    pub with_ids: bool,
 }
 
 pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> {
@@ -35,6 +36,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         name,
         value,
         show_values,
+        with_ids,
     } = args;
 
     if name.is_none() && value.is_none() {
@@ -56,7 +58,8 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
     let search_by_name = name.is_some();
 
     let mut spinner = request_spinner();
-    let res = secrets::search_secrets(api_key, &project, &name, &value, show_values).await;
+    let res =
+        secrets::search_secrets(api_key, &project, &name, &value, show_values, with_ids).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
