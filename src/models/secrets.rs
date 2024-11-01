@@ -320,6 +320,15 @@ pub struct WorkspaceSecretSearchProject {
     pub environments: Vec<SecretsSearchEnvironment>,
 }
 
+impl WorkspaceSecretSearchProject {
+    pub fn get_name_id_string(&self) -> String {
+        match &self.id {
+            Some(id) => format!("{} ({})", self.name, id),
+            None => self.name.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSecretSearchedByNameTable {
