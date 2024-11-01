@@ -185,9 +185,9 @@ pub async fn rename_secrets(
     client::patch_request(args, Some(data)).await
 }
 
-pub async fn search_project_secrets_by_name_or_value(
+pub async fn search_secrets(
     api_key: String,
-    project: String,
+    project: &Option<String>,
     name: &Option<String>,
     value: &Option<String>,
     show_values: bool,
@@ -206,7 +206,7 @@ pub async fn search_project_secrets_by_name_or_value(
 
     let args = RequestArgs {
         path: ApiPath::SearchSecrets {
-            project: Some(project),
+            project: project.as_ref().map(|p| p.to_string()),
         },
         query: Some(query),
         api_key,
