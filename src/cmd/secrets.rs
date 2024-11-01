@@ -252,7 +252,7 @@ pub struct SearchSecrets {
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
 
-    // Return names with Ids for project and environments
+    /// Display also IDs of the projects and environments
     #[arg(value_enum, long = "with-ids")]
     pub with_ids: bool,
 
