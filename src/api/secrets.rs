@@ -191,6 +191,7 @@ pub async fn search_secrets(
     name: &Option<String>,
     value: &Option<String>,
     show_values: bool,
+    with_ids: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query = vec![];
 
@@ -202,6 +203,10 @@ pub async fn search_secrets(
         }
     } else if let Some(value) = value {
         query.push(("value".to_string(), value.to_string()));
+    }
+
+    if with_ids {
+        query.push(("with-ids".to_string(), "true".to_string()));
     }
 
     let args = RequestArgs {
