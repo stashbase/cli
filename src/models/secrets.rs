@@ -168,6 +168,51 @@ pub struct SecretsSearchEnvironment {
     pub id: String,
     pub name: String,
 }
+
+impl SecretsSearchEnvironment {
+    pub fn get_name_string(&self) -> String {
+        self.name.to_string()
+    }
+
+    pub fn get_id_string(&self) -> String {
+        self.id.to_string()
+    }
+
+    pub fn get_name_id_string(&self) -> String {
+        format!("{} ({})", self.name, self.id)
+    }
+}
+
+pub trait SecretsSearchEnvironmentVecExt {
+    fn get_names_ids_string(&self) -> String;
+    fn get_names_string(&self) -> String;
+    fn get_ids_string(&self) -> String;
+}
+
+// Implement the trait for Vec<SecretsSearchEnvironment>
+impl SecretsSearchEnvironmentVecExt for Vec<SecretsSearchEnvironment> {
+    fn get_names_string(&self) -> String {
+        self.iter()
+            .map(|env| env.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn get_ids_string(&self) -> String {
+        self.iter()
+            .map(|env| env.id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn get_names_ids_string(&self) -> String {
+        self.iter()
+            .map(|env| env.get_name_id_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSecretSearchedByNameTable {
@@ -296,16 +341,11 @@ impl Display for WorkspaceSecretSearchedByName {
             None => "••••••••".to_string(),
         };
 
-        let environment_names = self
-            .project
-            .environments
-            .iter()
-            .map(|env| env.name.to_string())
-            .collect::<Vec<_>>();
+        let environments_str = self.project.environments.get_names_ids_string();
 
         writeln!(f, "Secret value: {}", valur_str)?;
         writeln!(f, "Project: {}", self.project.name)?;
-        writeln!(f, "Environments: {}", environment_names.join(", "))?;
+        writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
     }
