@@ -124,7 +124,7 @@ fn handle_search_project_secrets_response(
                             .collect::<Vec<_>>()
                             .join("\n");
 
-                        println!("{}", str);
+                        print!("{}", str);
                     }
                     SecretsSearchOutputFormat::Table => {
                         let table_items = secrets
@@ -171,7 +171,7 @@ fn handle_search_project_secrets_response(
                             .collect::<Vec<_>>()
                             .join("\n");
 
-                        println!("{}", str);
+                        print!("{}", str);
                     }
                     SecretsSearchOutputFormat::Table => {
                         let table_items = secrets
@@ -229,7 +229,7 @@ fn handle_search_workspace_secrets_response(
                             .collect::<Vec<_>>()
                             .join("\n");
 
-                        println!("{}", str);
+                        print!("{}", str);
                     }
                     SecretsSearchOutputFormat::Table => {
                         let table_items = secrets
@@ -276,7 +276,7 @@ fn handle_search_workspace_secrets_response(
                             .collect::<Vec<_>>()
                             .join("\n");
 
-                        println!("{}", str);
+                        print!("{}", str);
                     }
                     SecretsSearchOutputFormat::Table => {
                         let table_items = secrets
