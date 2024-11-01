@@ -5,6 +5,8 @@ use std::fmt::Display;
 use owo_colors::OwoColorize;
 use tabled::Tabled;
 
+use crate::cmd::config::SecretsOutputFormat;
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithoutDescription {
@@ -155,6 +157,18 @@ pub enum SecretsSearchOutputFormat {
     List,
     Table,
     Json,
+}
+
+impl From<SecretsOutputFormat> for Option<SecretsSearchOutputFormat> {
+    fn from(format: SecretsOutputFormat) -> Self {
+        match format {
+            SecretsOutputFormat::Table => Some(SecretsSearchOutputFormat::Table),
+            SecretsOutputFormat::Json => Some(SecretsSearchOutputFormat::Json),
+            SecretsOutputFormat::List => Some(SecretsSearchOutputFormat::List),
+            SecretsOutputFormat::Dotenv => None,
+            SecretsOutputFormat::Yaml => None,
+        }
+    }
 }
 
 pub type SecretSearchedValue = Option<String>;
