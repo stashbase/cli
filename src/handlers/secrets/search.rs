@@ -14,8 +14,13 @@ use crate::{
             WorkspaceSecretSearchedByNameTable, WorkspaceSecretSearchedByValue,
             WorkspaceSecretSearchedByValueTable,
         },
+        validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{spinner::request_spinner, tables, validation::validate_secret_name},
+    utils::{
+        spinner::request_spinner,
+        tables,
+        validation::{validate_project_identifier, validate_secret_name},
+    },
 };
 
 pub struct HandleSearchSecretsArgs {
@@ -39,18 +44,53 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         with_ids,
     } = args;
 
+    if let Some(project) = &project {
+        let validation_res = validate_project_identifier(project, false);
+
+        if let Err(err) = validation_res {
+            bail!(err);
+        }
+    }
+
     if name.is_none() && value.is_none() {
-        bail!("{}", "Input error: no search criteria provided");
+        let search_error = SecretsInputValidationError::SearchMissingNameOrValue;
+        let err = InputValidationError::Secrets(search_error);
+
+        bail!(err);
     }
 
     if name.is_some() && value.is_some() {
-        bail!("{}", "Input error: cannot provide both name and value");
+        let search_error = SecretsInputValidationError::SearchBothNameAndValue;
+        let err = InputValidationError::Secrets(search_error);
+
+        bail!(err);
     }
 
     if let Some(name) = &name {
+        if name.is_empty() {
+            let search_error = SecretsInputValidationError::NameTooShort { multiple: false };
+            let err = InputValidationError::Secrets(search_error);
+
+            bail!(err);
+        }
+
         let validation_res = validate_secret_name(name);
 
         if let Err(err) = validation_res {
+            bail!(err);
+        }
+    }
+
+    if let Some(value) = &value {
+        if value.is_empty() {
+            let search_error = SecretsInputValidationError::SearchValueEmpty;
+            let err = InputValidationError::Secrets(search_error);
+
+            bail!(err);
+        } else if value.len() > 1000 {
+            let search_error = SecretsInputValidationError::SearchValueTooLong;
+            let err = InputValidationError::Secrets(search_error);
+
             bail!(err);
         }
     }
