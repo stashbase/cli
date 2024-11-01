@@ -86,9 +86,10 @@ fn handle_search_project_secrets_response(
         Ok(secrets) => {
             if secrets.is_empty() {
                 spinner.stop_with_message("No secrets found");
-            } else {
-                spinner.stop_and_persist("", "");
+                return Ok(());
             }
+
+            spinner.stop_and_persist("", "");
 
     match format {
         SecretsSearchOutputFormat::List => {
