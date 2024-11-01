@@ -101,7 +101,15 @@ fn handle_search_project_secrets_response(
 
         match secrets {
             Ok(secrets) => {
-                if secrets.is_empty() {
+                if let SecretsSearchOutputFormat::Json = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_json::to_value(&secrets).unwrap();
+                    let pretty = to_colored_json_auto(&value).unwrap();
+                    println!("{}", pretty);
+
+                    return Ok(());
+                } else if secrets.is_empty() {
                     spinner.stop_with_message("No secrets found");
                     return Ok(());
                 }
@@ -127,12 +135,7 @@ fn handle_search_project_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => {
-                        let value = serde_json::to_value(&secrets).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-
-                        println!("{}", pretty);
-                    }
+                    SecretsSearchOutputFormat::Json => unreachable!(),
                 }
             }
             Err(_) => {
@@ -145,7 +148,15 @@ fn handle_search_project_secrets_response(
 
         match secrets {
             Ok(secrets) => {
-                if secrets.is_empty() {
+                if let SecretsSearchOutputFormat::Json = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_json::to_value(&secrets).unwrap();
+                    let pretty = to_colored_json_auto(&value).unwrap();
+                    println!("{}", pretty);
+
+                    return Ok(());
+                } else if secrets.is_empty() {
                     spinner.stop_with_message("No secrets found");
                     return Ok(());
                 }
@@ -171,12 +182,7 @@ fn handle_search_project_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => {
-                        let value = serde_json::to_value(&secrets).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-
-                        println!("{}", pretty);
-                    }
+                    SecretsSearchOutputFormat::Json => unreachable!(),
                 }
             }
             Err(_) => {
@@ -200,7 +206,15 @@ fn handle_search_workspace_secrets_response(
 
         match secrets {
             Ok(secrets) => {
-                if secrets.is_empty() {
+                if let SecretsSearchOutputFormat::Json = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_json::to_value(&secrets).unwrap();
+                    let pretty = to_colored_json_auto(&value).unwrap();
+                    println!("{}", pretty);
+
+                    return Ok(());
+                } else if secrets.is_empty() {
                     spinner.stop_with_message("No secrets found");
                     return Ok(());
                 }
@@ -226,12 +240,7 @@ fn handle_search_workspace_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => {
-                        let value = serde_json::to_value(&secrets).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-
-                        println!("{}", pretty);
-                    }
+                    SecretsSearchOutputFormat::Json => unreachable!(),
                 }
             }
             Err(_) => {
@@ -244,7 +253,15 @@ fn handle_search_workspace_secrets_response(
 
         match secrets {
             Ok(secrets) => {
-                if secrets.is_empty() {
+                if let SecretsSearchOutputFormat::Json = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_json::to_value(&secrets).unwrap();
+                    let pretty = to_colored_json_auto(&value).unwrap();
+                    println!("{}", pretty);
+
+                    return Ok(());
+                } else if secrets.is_empty() {
                     spinner.stop_with_message("No secrets found");
                     return Ok(());
                 }
@@ -270,12 +287,7 @@ fn handle_search_workspace_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => {
-                        let value = serde_json::to_value(&secrets).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
-
-                        println!("{}", pretty);
-                    }
+                    SecretsSearchOutputFormat::Json => unreachable!(),
                 }
             }
             Err(_) => {
