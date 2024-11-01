@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
 use log::debug;
+use spinoff::Spinner;
 
 use crate::{
     api::secrets,
@@ -61,30 +62,10 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
     let res = res.unwrap();
 
     match res {
-        GetRequestApiResponse::Ok(data) => {
-            let secrets = serde_json::from_str::<Vec<ProjectSecretSearchedByName>>(&data.text);
-
-            match secrets {
-                Ok(secrets) => {
-                    if secrets.is_empty() {
-                        spinner.stop_with_message("No secrets found");
-                    } else {
-                        spinner.stop_and_persist("", "");
-                    }
-
-                    match project {
-                        Some(_) => {
-                            handle_search_project_secrets_response(secrets, format)?;
-                        }
+        GetRequestApiResponse::Ok(data) => match project {
+            Some(_) => handle_search_project_secrets_response(&mut spinner, format, data)?,
                         None => todo!(),
-                    }
-                }
-                Err(_) => {
-                    spinner.stop_and_persist("", "");
-                    bail!("Something went wrong")
-                }
-            }
-        }
+        },
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
             bail!("{}", err);
@@ -95,9 +76,20 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
 }
 
 fn handle_search_project_secrets_response(
-    secrets: Vec<ProjectSecretSearchedByName>,
+    spinner: &mut Spinner,
     format: SecretsSearchOutputFormat,
+    data: GetApiResponseOk,
 ) -> Result<()> {
+    let secrets = serde_json::from_str::<Vec<ProjectSecretSearchedByName>>(&data.text);
+
+    match secrets {
+        Ok(secrets) => {
+            if secrets.is_empty() {
+                spinner.stop_with_message("No secrets found");
+            } else {
+                spinner.stop_and_persist("", "");
+            }
+
     match format {
         SecretsSearchOutputFormat::List => {
             let str = secrets
@@ -122,6 +114,12 @@ fn handle_search_project_secrets_response(
             let pretty = to_colored_json_auto(&value).unwrap();
 
             println!("{}", pretty);
+                }
+            }
+        }
+        Err(_) => {
+            spinner.stop_and_persist("", "");
+            bail!("Something went wrong")
         }
     }
 
