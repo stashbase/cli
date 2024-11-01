@@ -14,17 +14,17 @@ use crate::{
     utils::{spinner::request_spinner, tables, validation::validate_secret_name},
 };
 
-pub struct HandleSearchProjectSecretsArgs {
+pub struct HandleSearchSecretsArgs {
     pub api_key: String,
-    pub project: String,
+    pub project: Option<String>,
     pub format: SecretsSearchOutputFormat,
     pub name: Option<String>,
     pub value: Option<String>,
     pub show_values: bool,
 }
 
-pub async fn handle_search_project_secrets(args: HandleSearchProjectSecretsArgs) -> Result<()> {
-    let HandleSearchProjectSecretsArgs {
+pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> {
+    let HandleSearchSecretsArgs {
         api_key,
         project,
         format,
@@ -50,14 +50,7 @@ pub async fn handle_search_project_secrets(args: HandleSearchProjectSecretsArgs)
     }
 
     let mut spinner = request_spinner();
-    let res = secrets::search_project_secrets_by_name_or_value(
-        api_key,
-        project,
-        &name,
-        &value,
-        show_values,
-    )
-    .await;
+    let res = secrets::search_secrets(api_key, &project, &name, &value, show_values).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
