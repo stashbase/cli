@@ -213,3 +213,50 @@ impl Display for ProjectSecretSearchedByName {
         Ok(())
     }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProjectSecretSearchedByValue {
+    #[serde(rename = "secretName")]
+    pub name: String,
+    pub environments: Vec<SecretsSearchEnvironment>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSecretSearchedByValueTable {
+    #[tabled(rename = "Name")]
+    pub name: String,
+
+    #[tabled(rename = "Environments")]
+    pub environment_names: String,
+}
+
+impl From<ProjectSecretSearchedByValue> for ProjectSecretSearchedByValueTable {
+    fn from(secret: ProjectSecretSearchedByValue) -> Self {
+        let environment_names = secret
+            .environments
+            .iter()
+            .map(|env| env.name.to_string())
+            .collect::<Vec<_>>();
+
+        Self {
+            name: secret.name,
+            environment_names: environment_names.join(", "),
+        }
+    }
+}
+
+impl Display for ProjectSecretSearchedByValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let environment_names = self
+            .environments
+            .iter()
+            .map(|env| env.name.to_string())
+            .collect::<Vec<_>>();
+
+        writeln!(f, "Secret name: {}", self.name)?;
+        writeln!(f, "Environments: {}", environment_names.join(", "))?;
+
+        Ok(())
+    }
+}
