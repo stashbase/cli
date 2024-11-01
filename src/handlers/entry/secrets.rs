@@ -11,7 +11,7 @@ use crate::{
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
         rename::{handle_rename_secrets, HandleRenameSecretsArgs},
-        search::{handle_search_project_secrets, HandleSearchProjectSecretsArgs},
+        search::{handle_search_secrets, HandleSearchSecretsArgs},
         set::{handle_set_secrets, HandleSetSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
@@ -43,18 +43,16 @@ pub async fn handle_secrets_commands(
             false => args.format.unwrap_or_default(),
         };
 
-        if let Some(project) = args.project {
-            let args = HandleSearchProjectSecretsArgs {
-                api_key,
-                format,
-                project: project,
-                name: args.name,
-                value: args.value,
-                show_values: args.show_values,
-            };
+        let args = HandleSearchSecretsArgs {
+            api_key,
+            format,
+            project: args.project,
+            name: args.name,
+            value: args.value,
+            show_values: args.show_values,
+        };
 
-            handle_search_project_secrets(args).await?;
-        }
+        handle_search_secrets(args).await?;
 
         return Ok(());
     }
