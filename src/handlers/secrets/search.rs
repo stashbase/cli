@@ -72,31 +72,11 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
                         spinner.stop_and_persist("", "");
                     }
 
-                    match format {
-                        SecretsSearchOutputFormat::List => {
-                            let str = secrets
-                                .into_iter()
-                                .map(|s| s.to_string())
-                                .collect::<Vec<_>>()
-                                .join("\n");
-
-                            println!("{}", str);
+                    match project {
+                        Some(_) => {
+                            handle_search_project_secrets_response(secrets, format)?;
                         }
-                        SecretsSearchOutputFormat::Table => {
-                            let table_items = secrets
-                                .into_iter()
-                                .map(|s| s.into())
-                                .collect::<Vec<ProjectSecretSearchedByNameTable>>();
-
-                            let table = tables::build::build_table(&table_items);
-                            println!("{}", table);
-                        }
-                        SecretsSearchOutputFormat::Json => {
-                            let value = serde_json::to_value(&secrets).unwrap();
-                            let pretty = to_colored_json_auto(&value).unwrap();
-
-                            println!("{}", pretty);
-                        }
+                        None => todo!(),
                     }
                 }
                 Err(_) => {
@@ -108,6 +88,40 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
             bail!("{}", err);
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_search_project_secrets_response(
+    secrets: Vec<ProjectSecretSearchedByName>,
+    format: SecretsSearchOutputFormat,
+) -> Result<()> {
+    match format {
+        SecretsSearchOutputFormat::List => {
+            let str = secrets
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            println!("{}", str);
+        }
+        SecretsSearchOutputFormat::Table => {
+            let table_items = secrets
+                .into_iter()
+                .map(|s| s.into())
+                .collect::<Vec<ProjectSecretSearchedByNameTable>>();
+
+            let table = tables::build::build_table(&table_items);
+            println!("{}", table);
+        }
+        SecretsSearchOutputFormat::Json => {
+            let value = serde_json::to_value(&secrets).unwrap();
+            let pretty = to_colored_json_auto(&value).unwrap();
+
+            println!("{}", pretty);
         }
     }
 
