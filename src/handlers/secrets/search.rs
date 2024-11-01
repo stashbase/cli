@@ -149,6 +149,13 @@ fn handle_search_project_secrets_response(
                     println!("{}", pretty);
 
                     return Ok(());
+                } else if let SecretsSearchOutputFormat::Yaml = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_yaml::to_string(&secrets).unwrap();
+                    print!("{}", value);
+
+                    return Ok(());
                 } else if secrets.is_empty() {
                     spinner.stop_with_message("No secrets found");
                     return Ok(());
@@ -175,7 +182,7 @@ fn handle_search_project_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => unreachable!(),
+                    _ => unreachable!(),
                 }
             }
             Err(_) => {
@@ -194,6 +201,13 @@ fn handle_search_project_secrets_response(
                     let value = serde_json::to_value(&secrets).unwrap();
                     let pretty = to_colored_json_auto(&value).unwrap();
                     println!("{}", pretty);
+
+                    return Ok(());
+                } else if let SecretsSearchOutputFormat::Yaml = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_yaml::to_string(&secrets).unwrap();
+                    print!("{}", value);
 
                     return Ok(());
                 } else if secrets.is_empty() {
@@ -222,7 +236,7 @@ fn handle_search_project_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => unreachable!(),
+                    _ => unreachable!(),
                 }
             }
             Err(_) => {
@@ -254,6 +268,13 @@ fn handle_search_workspace_secrets_response(
                     println!("{}", pretty);
 
                     return Ok(());
+                } else if let SecretsSearchOutputFormat::Yaml = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_yaml::to_string(&secrets).unwrap();
+                    print!("{}", value);
+
+                    return Ok(());
                 } else if secrets.is_empty() {
                     spinner.stop_with_message("No secrets found");
                     return Ok(());
@@ -280,7 +301,7 @@ fn handle_search_workspace_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => unreachable!(),
+                    _ => unreachable!(),
                 }
             }
             Err(_) => {
@@ -299,6 +320,13 @@ fn handle_search_workspace_secrets_response(
                     let value = serde_json::to_value(&secrets).unwrap();
                     let pretty = to_colored_json_auto(&value).unwrap();
                     println!("{}", pretty);
+
+                    return Ok(());
+                } else if let SecretsSearchOutputFormat::Yaml = format {
+                    spinner.stop_and_persist("", "");
+
+                    let value = serde_yaml::to_string(&secrets).unwrap();
+                    print!("{}", value);
 
                     return Ok(());
                 } else if secrets.is_empty() {
@@ -327,7 +355,7 @@ fn handle_search_workspace_secrets_response(
                         let table = tables::build::build_table(&table_items);
                         println!("{}", table);
                     }
-                    SecretsSearchOutputFormat::Json => unreachable!(),
+                    _ => unreachable!(),
                 }
             }
             Err(_) => {
