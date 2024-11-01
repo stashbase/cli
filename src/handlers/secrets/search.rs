@@ -81,11 +81,13 @@ pub async fn handle_search_project_secrets(args: HandleSearchProjectSecretsArgs)
 
                     match format {
                         SecretsSearchOutputFormat::List => {
-                            let names = secrets
+                            let str = secrets
                                 .into_iter()
-                                .map(|s| s.secret_value)
-                                .collect::<Vec<_>>();
-                            todo!()
+                                .map(|s| s.to_string())
+                                .collect::<Vec<_>>()
+                                .join("\n");
+
+                            println!("{}", str);
                         }
                         SecretsSearchOutputFormat::Table => {
                             let table_items = secrets
