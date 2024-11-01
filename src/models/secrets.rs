@@ -220,21 +220,16 @@ pub struct ProjectSecretSearchedByNameTable {
     pub secret_value: String,
 
     #[tabled(rename = "Environments")]
-    pub environment_name: String,
+    pub environments: String,
 }
 
 impl From<ProjectSecretSearchedByName> for ProjectSecretSearchedByNameTable {
     fn from(secret: ProjectSecretSearchedByName) -> Self {
-        let environment_names = secret
-            .environments
-            .iter()
-            .map(|env| env.name.clone())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let environments_str = secret.environments.get_names_ids_string();
 
         Self {
             secret_value: secret.value.unwrap_or("••••••••".to_string()),
-            environment_name: environment_names,
+            environments: environments_str,
         }
     }
 }
@@ -246,14 +241,10 @@ impl Display for ProjectSecretSearchedByName {
             None => "••••••••".to_string(),
         };
 
-        let environment_names = self
-            .environments
-            .iter()
-            .map(|env| env.name.to_string())
-            .collect::<Vec<_>>();
+        let environments_str = self.environments.get_names_ids_string();
 
         writeln!(f, "Secret value: {}", valur_str)?;
-        writeln!(f, "Environments: {}", environment_names.join(", "))?;
+        writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
     }
@@ -273,34 +264,26 @@ pub struct ProjectSecretSearchedByValueTable {
     pub name: String,
 
     #[tabled(rename = "Environments")]
-    pub environment_names: String,
+    pub environments: String,
 }
 
 impl From<ProjectSecretSearchedByValue> for ProjectSecretSearchedByValueTable {
     fn from(secret: ProjectSecretSearchedByValue) -> Self {
-        let environment_names = secret
-            .environments
-            .iter()
-            .map(|env| env.name.to_string())
-            .collect::<Vec<_>>();
+        let environments_str = secret.environments.get_names_ids_string();
 
         Self {
             name: secret.name,
-            environment_names: environment_names.join(", "),
+            environments: environments_str,
         }
     }
 }
 
 impl Display for ProjectSecretSearchedByValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let environment_names = self
-            .environments
-            .iter()
-            .map(|env| env.name.to_string())
-            .collect::<Vec<_>>();
+        let environments_str = self.environments.get_names_ids_string();
 
         writeln!(f, "Secret name: {}", self.name)?;
-        writeln!(f, "Environments: {}", environment_names.join(", "))?;
+        writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
     }
@@ -331,7 +314,7 @@ pub struct WorkspaceSecretSearchedByNameTable {
     pub project_name: String,
 
     #[tabled(rename = "Environments")]
-    pub environment_names: String,
+    pub environments: String,
 }
 
 impl Display for WorkspaceSecretSearchedByName {
@@ -358,17 +341,12 @@ impl From<WorkspaceSecretSearchedByName> for WorkspaceSecretSearchedByNameTable 
             None => "••••••••".to_string(),
         };
 
-        let environment_names = secret
-            .project
-            .environments
-            .iter()
-            .map(|env| env.name.to_string())
-            .collect::<Vec<_>>();
+        let environments_str = secret.project.environments.get_names_ids_string();
 
         Self {
             secret_value: valur_str,
             project_name: secret.project.name,
-            environment_names: environment_names.join(", "),
+            environments: environments_str,
         }
     }
 }
@@ -383,16 +361,11 @@ pub struct WorkspaceSecretSearchedByValue {
 
 impl Display for WorkspaceSecretSearchedByValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let environment_names = self
-            .project
-            .environments
-            .iter()
-            .map(|env| env.name.to_string())
-            .collect::<Vec<_>>();
+        let environments_str = self.project.environments.get_names_ids_string();
 
         writeln!(f, "Secret name: {}", self.name)?;
         writeln!(f, "Project: {}", self.project.name)?;
-        writeln!(f, "Environments: {}", environment_names.join(", "))?;
+        writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
     }
@@ -408,22 +381,17 @@ pub struct WorkspaceSecretSearchedByValueTable {
     pub project_name: String,
 
     #[tabled(rename = "Environments")]
-    pub environment_names: String,
+    pub environments: String,
 }
 
 impl From<WorkspaceSecretSearchedByValue> for WorkspaceSecretSearchedByValueTable {
     fn from(secret: WorkspaceSecretSearchedByValue) -> Self {
-        let environment_names = secret
-            .project
-            .environments
-            .iter()
-            .map(|env| env.name.to_string())
-            .collect::<Vec<_>>();
+        let environments_str = secret.project.environments.get_names_ids_string();
 
         Self {
             name: secret.name,
             project_name: secret.project.name,
-            environment_names: environment_names.join(", "),
+            environments: environments_str,
         }
     }
 }
