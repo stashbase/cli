@@ -193,3 +193,23 @@ impl From<ProjectSecretSearchedByName> for ProjectSecretSearchedByNameTable {
         }
     }
 }
+
+impl Display for ProjectSecretSearchedByName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let valur_str = match &self.value {
+            Some(value) => format!("{}", value),
+            None => "••••••••".to_string(),
+        };
+
+        let environment_names = self
+            .environments
+            .iter()
+            .map(|env| env.name.to_string())
+            .collect::<Vec<_>>();
+
+        writeln!(f, "Secret value: {}", valur_str)?;
+        writeln!(f, "Environments: {}", environment_names.join(", "))?;
+
+        Ok(())
+    }
+}
