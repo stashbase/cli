@@ -147,6 +147,7 @@ pub struct DeleteAllSecretsResponse {
     pub deleted_count: usize,
 }
 
+// Search secrets
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SecretsSearchOutputFormat {
@@ -156,10 +157,25 @@ pub enum SecretsSearchOutputFormat {
     Json,
 }
 
+pub type SecretSearchedValue = Option<String>;
+
+pub trait SecretValueDisplay {
+    fn display(&self) -> String;
+}
+
+impl SecretValueDisplay for SecretSearchedValue {
+    fn display(&self) -> String {
+        match self {
+            Some(value) => value.to_string(),
+            None => "••••••••".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectSecretSearchedByName {
     #[serde(rename = "secretValue")]
-    pub value: Option<String>,
+    pub value: SecretSearchedValue,
     pub environments: Vec<SecretsSearchEnvironment>,
 }
 
@@ -228,7 +244,7 @@ impl From<ProjectSecretSearchedByName> for ProjectSecretSearchedByNameTable {
         let environments_str = secret.environments.get_names_ids_string();
 
         Self {
-            secret_value: secret.value.unwrap_or("••••••••".to_string()),
+            secret_value: secret.value.display(),
             environments: environments_str,
         }
     }
@@ -236,14 +252,9 @@ impl From<ProjectSecretSearchedByName> for ProjectSecretSearchedByNameTable {
 
 impl Display for ProjectSecretSearchedByName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let valur_str = match &self.value {
-            Some(value) => format!("{}", value),
-            None => "••••••••".to_string(),
-        };
-
         let environments_str = self.environments.get_names_ids_string();
 
-        writeln!(f, "Secret value: {}", valur_str)?;
+        writeln!(f, "Secret value: {}", self.value.display())?;
         writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
@@ -293,7 +304,7 @@ impl Display for ProjectSecretSearchedByValue {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkspaceSecretSearchedByName {
     #[serde(rename = "secretValue")]
-    pub value: Option<String>,
+    pub value: SecretSearchedValue,
     pub project: WorkspaceSecretSearchProject,
 }
 
@@ -319,14 +330,9 @@ pub struct WorkspaceSecretSearchedByNameTable {
 
 impl Display for WorkspaceSecretSearchedByName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let valur_str = match &self.value {
-            Some(value) => format!("{}", value),
-            None => "••••••••".to_string(),
-        };
-
         let environments_str = self.project.environments.get_names_ids_string();
 
-        writeln!(f, "Secret value: {}", valur_str)?;
+        writeln!(f, "Secret value: {}", self.value.display())?;
         writeln!(f, "Project: {}", self.project.name)?;
         writeln!(f, "Environments: {}", environments_str)?;
 
@@ -336,15 +342,11 @@ impl Display for WorkspaceSecretSearchedByName {
 
 impl From<WorkspaceSecretSearchedByName> for WorkspaceSecretSearchedByNameTable {
     fn from(secret: WorkspaceSecretSearchedByName) -> Self {
-        let valur_str = match &secret.value {
-            Some(value) => format!("{}", value),
-            None => "••••••••".to_string(),
-        };
-
+        let value_str = secret.value.display();
         let environments_str = secret.project.environments.get_names_ids_string();
 
         Self {
-            secret_value: valur_str,
+            secret_value: value_str,
             project_name: secret.project.name,
             environments: environments_str,
         }
