@@ -156,6 +156,7 @@ pub enum SecretsSearchOutputFormat {
     #[default]
     List,
     Table,
+    Yaml,
     Json,
 }
 
@@ -165,8 +166,8 @@ impl From<SecretsOutputFormat> for Option<SecretsSearchOutputFormat> {
             SecretsOutputFormat::Table => Some(SecretsSearchOutputFormat::Table),
             SecretsOutputFormat::Json => Some(SecretsSearchOutputFormat::Json),
             SecretsOutputFormat::List => Some(SecretsSearchOutputFormat::List),
+            SecretsOutputFormat::Yaml => Some(SecretsSearchOutputFormat::Yaml),
             SecretsOutputFormat::Dotenv => None,
-            SecretsOutputFormat::Yaml => None,
         }
     }
 }
