@@ -336,7 +336,7 @@ pub struct WorkspaceSecretSearchedByNameTable {
     pub secret_value: String,
 
     #[tabled(rename = "Project")]
-    pub project_name: String,
+    pub project: String,
 
     #[tabled(rename = "Environments")]
     pub environments: String,
@@ -346,13 +346,8 @@ impl Display for WorkspaceSecretSearchedByName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let environments_str = self.project.environments.get_names_ids_string();
 
-        let project_str = match &self.project.id {
-            Some(id) => format!("{} ({})", self.project.name, id),
-            None => self.project.name.to_string(),
-        };
-
         writeln!(f, "Secret value: {}", self.value.display())?;
-        writeln!(f, "Project: {}", project_str)?;
+        writeln!(f, "Project: {}", self.project.get_name_id_string())?;
         writeln!(f, "Environments: {}", environments_str)?;
 
         Ok(())
@@ -362,11 +357,12 @@ impl Display for WorkspaceSecretSearchedByName {
 impl From<WorkspaceSecretSearchedByName> for WorkspaceSecretSearchedByNameTable {
     fn from(secret: WorkspaceSecretSearchedByName) -> Self {
         let value_str = secret.value.display();
+        let project_str = secret.project.get_name_id_string();
         let environments_str = secret.project.environments.get_names_ids_string();
 
         Self {
+            project: project_str,
             secret_value: value_str,
-            project_name: secret.project.name,
             environments: environments_str,
         }
     }
@@ -382,12 +378,8 @@ pub struct WorkspaceSecretSearchedByValue {
 
 impl Display for WorkspaceSecretSearchedByValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let project_str = self.project.get_name_id_string();
         let environments_str = self.project.environments.get_names_ids_string();
-
-        let project_str = match &self.project.id {
-            Some(id) => format!("{} ({})", self.project.name, id),
-            None => self.project.name.to_string(),
-        };
 
         writeln!(f, "Secret name: {}", self.name)?;
         writeln!(f, "Project: {}", project_str)?;
@@ -404,7 +396,7 @@ pub struct WorkspaceSecretSearchedByValueTable {
     pub name: String,
 
     #[tabled(rename = "Project")]
-    pub project_name: String,
+    pub project: String,
 
     #[tabled(rename = "Environments")]
     pub environments: String,
@@ -412,11 +404,12 @@ pub struct WorkspaceSecretSearchedByValueTable {
 
 impl From<WorkspaceSecretSearchedByValue> for WorkspaceSecretSearchedByValueTable {
     fn from(secret: WorkspaceSecretSearchedByValue) -> Self {
+        let project_str = secret.project.get_name_id_string();
         let environments_str = secret.project.environments.get_names_ids_string();
 
         Self {
             name: secret.name,
-            project_name: secret.project.name,
+            project: project_str,
             environments: environments_str,
         }
     }
