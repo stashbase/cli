@@ -248,7 +248,7 @@ pub struct SearchSecrets {
     #[arg(value_enum, long = "value", required = false)]
     pub value: Option<String>,
 
-    /// Show secret values, for search by name
+    /// Reveal secret values, for search by name
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
 
