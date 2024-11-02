@@ -249,7 +249,6 @@ impl SecretsSearchEnvironmentVecExt for Vec<SecretsSearchEnvironment> {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct ProjectSecretSearchedByNameTable {
     #[tabled(rename = "Value")]
     pub secret_value: String,
@@ -288,7 +287,6 @@ pub struct ProjectSecretSearchedByValue {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct ProjectSecretSearchedByValueTable {
     #[tabled(rename = "Name")]
     pub name: String,
@@ -345,7 +343,6 @@ impl WorkspaceSecretSearchProject {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSecretSearchedByNameTable {
     #[tabled(rename = "Value")]
     pub secret_value: String,
