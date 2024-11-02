@@ -11,10 +11,11 @@ use crate::{
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
         rename::{handle_rename_secrets, HandleRenameSecretsArgs},
+        search::{handle_search_secrets, HandleSearchSecretsArgs},
         set::{handle_set_secrets, HandleSetSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
-    models::validation,
+    models::secrets::SecretsSearchOutputFormat,
     utils::validation::validate_project_environment_identifier,
 };
 
@@ -36,6 +37,38 @@ pub async fn handle_secrets_commands(
     expand_refs: Option<bool>,
     default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
+    if let SecretSubcommand::Search(args) = cmd.subcommand {
+        let format = match raw_output {
+            true => SecretsSearchOutputFormat::Json,
+            false => match args.format {
+                Some(format) => format,
+                None => match default_output_format {
+                    Some(default_format) => {
+                        let search_format: Option<SecretsSearchOutputFormat> =
+                            default_format.into();
+
+                        search_format.unwrap_or_default()
+                    }
+                    None => SecretsSearchOutputFormat::default(),
+                },
+            },
+        };
+
+        let args = HandleSearchSecretsArgs {
+            api_key,
+            format,
+            project: args.project,
+            name: args.name,
+            value: args.value,
+            show_values: args.show_values,
+            with_ids: args.with_ids,
+        };
+
+        handle_search_secrets(args).await?;
+
+        return Ok(());
+    }
+
     let (project, environment) = cmd.try_get_project_environment()?;
 
     let validation_res = validate_project_environment_identifier(&project, &environment, false);
@@ -127,6 +160,7 @@ pub async fn handle_secrets_commands(
 
             handle_rename_secrets(args).await?;
         }
+        _ => unreachable!(),
     }
 
     Ok(())
