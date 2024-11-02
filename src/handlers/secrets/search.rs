@@ -1,7 +1,11 @@
+use std::fmt::Display;
+
 use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
 use log::debug;
+use serde::{de::DeserializeOwned, Serialize};
 use spinoff::Spinner;
+use tabled::Tabled;
 
 use crate::{
     api::secrets,
@@ -111,15 +115,26 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
 
     match res {
         GetRequestApiResponse::Ok(data) => match project {
-            Some(_) => {
-                handle_search_project_secrets_response(&mut spinner, format, search_by_name, data)?
-            }
-            None => handle_search_workspace_secrets_response(
-                &mut spinner,
-                format,
-                search_by_name,
-                data,
-            )?,
+            Some(_) => match search_by_name {
+                true => handle_search_secrets_response::<
+                    ProjectSecretSearchedByName,
+                    ProjectSecretSearchedByNameTable,
+                >(&mut spinner, format, data)?,
+                false => handle_search_secrets_response::<
+                    ProjectSecretSearchedByValue,
+                    ProjectSecretSearchedByValueTable,
+                >(&mut spinner, format, data)?,
+            },
+            None => match search_by_name {
+                true => handle_search_secrets_response::<
+                    WorkspaceSecretSearchedByName,
+                    WorkspaceSecretSearchedByNameTable,
+                >(&mut spinner, format, data)?,
+                false => handle_search_secrets_response::<
+                    WorkspaceSecretSearchedByValue,
+                    WorkspaceSecretSearchedByValueTable,
+                >(&mut spinner, format, data)?,
+            },
         },
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
@@ -130,238 +145,66 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
     Ok(())
 }
 
-fn handle_search_project_secrets_response(
+fn handle_search_secrets_response<SecretType, TableType>(
     spinner: &mut Spinner,
     format: SecretsSearchOutputFormat,
-    search_by_name: bool,
     data: GetApiResponseOk,
-) -> Result<()> {
-    if search_by_name == true {
-        let secrets = serde_json::from_str::<Vec<ProjectSecretSearchedByName>>(&data.text);
+) -> Result<()>
+where
+    SecretType: DeserializeOwned + Serialize + Display,
+    TableType: From<SecretType> + Tabled,
+{
+    let secrets = serde_json::from_str::<Vec<SecretType>>(&data.text);
 
-        match secrets {
-            Ok(secrets) => {
-                if let SecretsSearchOutputFormat::Json = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_json::to_value(&secrets).unwrap();
-                    let pretty = to_colored_json_auto(&value).unwrap();
-                    println!("{}", pretty);
-
-                    return Ok(());
-                } else if let SecretsSearchOutputFormat::Yaml = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_yaml::to_string(&secrets).unwrap();
-                    print!("{}", value);
-
-                    return Ok(());
-                } else if secrets.is_empty() {
-                    spinner.stop_with_message("No secrets found");
-                    return Ok(());
-                }
-
+    match secrets {
+        Ok(secrets) => {
+            if let SecretsSearchOutputFormat::Json = format {
                 spinner.stop_and_persist("", "");
 
-                match format {
-                    SecretsSearchOutputFormat::List => {
-                        let str = secrets
-                            .into_iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n");
+                let value = serde_json::to_value(&secrets).unwrap();
+                let pretty = to_colored_json_auto(&value).unwrap();
+                println!("{}", pretty);
 
-                        print!("{}", str);
-                    }
-                    SecretsSearchOutputFormat::Table => {
-                        let table_items = secrets
-                            .into_iter()
-                            .map(|s| s.into())
-                            .collect::<Vec<ProjectSecretSearchedByNameTable>>();
+                return Ok(());
+            } else if let SecretsSearchOutputFormat::Yaml = format {
+                spinner.stop_and_persist("", "");
 
-                        let table = tables::build::build_table(&table_items);
-                        println!("{}", table);
-                    }
-                    _ => unreachable!(),
-                }
+                let value = serde_yaml::to_string(&secrets).unwrap();
+                print!("{}", value);
+
+                return Ok(());
+            } else if secrets.is_empty() {
+                spinner.stop_with_message("No secrets found");
+                return Ok(());
             }
-            Err(_) => {
-                spinner.stop_and_persist("", "");
-                bail!("Something went wrong")
+
+            spinner.stop_and_persist("", "");
+
+            match format {
+                SecretsSearchOutputFormat::List => {
+                    let str = secrets
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    print!("{}", str);
+                }
+                SecretsSearchOutputFormat::Table => {
+                    let table_items = secrets
+                        .into_iter()
+                        .map(|s| s.into())
+                        .collect::<Vec<TableType>>();
+
+                    let table = tables::build::build_table(&table_items);
+                    println!("{}", table);
+                }
+                _ => unreachable!(),
             }
         }
-    } else {
-        let secrets = serde_json::from_str::<Vec<ProjectSecretSearchedByValue>>(&data.text);
-
-        match secrets {
-            Ok(secrets) => {
-                if let SecretsSearchOutputFormat::Json = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_json::to_value(&secrets).unwrap();
-                    let pretty = to_colored_json_auto(&value).unwrap();
-                    println!("{}", pretty);
-
-                    return Ok(());
-                } else if let SecretsSearchOutputFormat::Yaml = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_yaml::to_string(&secrets).unwrap();
-                    print!("{}", value);
-
-                    return Ok(());
-                } else if secrets.is_empty() {
-                    spinner.stop_with_message("No secrets found");
-                    return Ok(());
-                }
-
-                spinner.stop_and_persist("", "");
-
-                match format {
-                    SecretsSearchOutputFormat::List => {
-                        let str = secrets
-                            .into_iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-
-                        print!("{}", str);
-                    }
-                    SecretsSearchOutputFormat::Table => {
-                        let table_items = secrets
-                            .into_iter()
-                            .map(|s| s.into())
-                            .collect::<Vec<ProjectSecretSearchedByValueTable>>();
-
-                        let table = tables::build::build_table(&table_items);
-                        println!("{}", table);
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            Err(_) => {
-                spinner.stop_and_persist("", "");
-                bail!("Something went wrong")
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn handle_search_workspace_secrets_response(
-    spinner: &mut Spinner,
-    format: SecretsSearchOutputFormat,
-    search_by_name: bool,
-    data: GetApiResponseOk,
-) -> Result<()> {
-    if search_by_name == true {
-        let secrets = serde_json::from_str::<Vec<WorkspaceSecretSearchedByName>>(&data.text);
-
-        match secrets {
-            Ok(secrets) => {
-                if let SecretsSearchOutputFormat::Json = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_json::to_value(&secrets).unwrap();
-                    let pretty = to_colored_json_auto(&value).unwrap();
-                    println!("{}", pretty);
-
-                    return Ok(());
-                } else if let SecretsSearchOutputFormat::Yaml = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_yaml::to_string(&secrets).unwrap();
-                    print!("{}", value);
-
-                    return Ok(());
-                } else if secrets.is_empty() {
-                    spinner.stop_with_message("No secrets found");
-                    return Ok(());
-                }
-
-                spinner.stop_and_persist("", "");
-
-                match format {
-                    SecretsSearchOutputFormat::List => {
-                        let str = secrets
-                            .into_iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-
-                        print!("{}", str);
-                    }
-                    SecretsSearchOutputFormat::Table => {
-                        let table_items = secrets
-                            .into_iter()
-                            .map(|s| s.into())
-                            .collect::<Vec<WorkspaceSecretSearchedByNameTable>>();
-
-                        let table = tables::build::build_table(&table_items);
-                        println!("{}", table);
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            Err(_) => {
-                spinner.stop_and_persist("", "");
-                bail!("Something went wrong")
-            }
-        }
-    } else {
-        let secrets = serde_json::from_str::<Vec<WorkspaceSecretSearchedByValue>>(&data.text);
-
-        match secrets {
-            Ok(secrets) => {
-                if let SecretsSearchOutputFormat::Json = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_json::to_value(&secrets).unwrap();
-                    let pretty = to_colored_json_auto(&value).unwrap();
-                    println!("{}", pretty);
-
-                    return Ok(());
-                } else if let SecretsSearchOutputFormat::Yaml = format {
-                    spinner.stop_and_persist("", "");
-
-                    let value = serde_yaml::to_string(&secrets).unwrap();
-                    print!("{}", value);
-
-                    return Ok(());
-                } else if secrets.is_empty() {
-                    spinner.stop_with_message("No secrets found");
-                    return Ok(());
-                }
-
-                spinner.stop_and_persist("", "");
-
-                match format {
-                    SecretsSearchOutputFormat::List => {
-                        let str = secrets
-                            .into_iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-
-                        print!("{}", str);
-                    }
-                    SecretsSearchOutputFormat::Table => {
-                        let table_items = secrets
-                            .into_iter()
-                            .map(|s| s.into())
-                            .collect::<Vec<WorkspaceSecretSearchedByValueTable>>();
-
-                        let table = tables::build::build_table(&table_items);
-                        println!("{}", table);
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            Err(_) => {
-                spinner.stop_and_persist("", "");
-                bail!("Something went wrong")
-            }
+        Err(_) => {
+            spinner.stop_and_persist("", "");
+            bail!("Something went wrong")
         }
     }
 
