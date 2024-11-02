@@ -1,8 +1,11 @@
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
 use owo_colors::OwoColorize;
 use tabled::Tabled;
+
+use crate::cmd::config::SecretsOutputFormat;
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
@@ -144,4 +147,282 @@ pub struct RenameSecretsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteAllSecretsResponse {
     pub deleted_count: usize,
+}
+
+// Search secrets
+#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SecretsSearchOutputFormat {
+    #[default]
+    List,
+    Table,
+    Yaml,
+    Json,
+}
+
+impl From<SecretsOutputFormat> for Option<SecretsSearchOutputFormat> {
+    fn from(format: SecretsOutputFormat) -> Self {
+        match format {
+            SecretsOutputFormat::Table => Some(SecretsSearchOutputFormat::Table),
+            SecretsOutputFormat::Json => Some(SecretsSearchOutputFormat::Json),
+            SecretsOutputFormat::List => Some(SecretsSearchOutputFormat::List),
+            SecretsOutputFormat::Yaml => Some(SecretsSearchOutputFormat::Yaml),
+            SecretsOutputFormat::Dotenv => None,
+        }
+    }
+}
+
+pub type SecretSearchedValue = Option<String>;
+
+pub trait SecretValueDisplay {
+    fn display(&self) -> String;
+}
+
+impl SecretValueDisplay for SecretSearchedValue {
+    fn display(&self) -> String {
+        match self {
+            Some(value) => value.to_string(),
+            None => "••••••••".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProjectSecretSearchedByName {
+    #[serde(rename = "secretValue")]
+    pub value: SecretSearchedValue,
+    pub environments: Vec<SecretsSearchEnvironment>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretsSearchEnvironment {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub name: String,
+}
+
+impl SecretsSearchEnvironment {
+    pub fn get_name_string(&self) -> String {
+        self.name.to_string()
+    }
+
+    pub fn get_id_string(&self) -> Option<String> {
+        self.id.clone()
+    }
+
+    pub fn get_name_id_string(&self) -> String {
+        match &self.id {
+            Some(id) => format!("{} ({})", self.name, id),
+            None => self.name.to_string(),
+        }
+    }
+}
+
+pub trait SecretsSearchEnvironmentVecExt {
+    fn get_names_ids_string(&self) -> String;
+    fn get_names_string(&self) -> String;
+    fn get_ids_string(&self) -> String;
+}
+
+// Implement the trait for Vec<SecretsSearchEnvironment>
+impl SecretsSearchEnvironmentVecExt for Vec<SecretsSearchEnvironment> {
+    fn get_names_string(&self) -> String {
+        self.iter()
+            .map(|env| env.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn get_ids_string(&self) -> String {
+        self.iter()
+            .map(|env| env.id.clone().unwrap_or("".to_string()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn get_names_ids_string(&self) -> String {
+        self.iter()
+            .map(|env| env.get_name_id_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct ProjectSecretSearchedByNameTable {
+    #[tabled(rename = "Value")]
+    pub secret_value: String,
+
+    #[tabled(rename = "Environments")]
+    pub environments: String,
+}
+
+impl From<ProjectSecretSearchedByName> for ProjectSecretSearchedByNameTable {
+    fn from(secret: ProjectSecretSearchedByName) -> Self {
+        let environments_str = secret.environments.get_names_ids_string();
+
+        Self {
+            secret_value: secret.value.display(),
+            environments: environments_str,
+        }
+    }
+}
+
+impl Display for ProjectSecretSearchedByName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let environments_str = self.environments.get_names_ids_string();
+
+        writeln!(f, "Secret value: {}", self.value.display())?;
+        writeln!(f, "Environments: {}", environments_str)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProjectSecretSearchedByValue {
+    #[serde(rename = "secretName")]
+    pub name: String,
+    pub environments: Vec<SecretsSearchEnvironment>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct ProjectSecretSearchedByValueTable {
+    #[tabled(rename = "Name")]
+    pub name: String,
+
+    #[tabled(rename = "Environments")]
+    pub environments: String,
+}
+
+impl From<ProjectSecretSearchedByValue> for ProjectSecretSearchedByValueTable {
+    fn from(secret: ProjectSecretSearchedByValue) -> Self {
+        let environments_str = secret.environments.get_names_ids_string();
+
+        Self {
+            name: secret.name,
+            environments: environments_str,
+        }
+    }
+}
+
+impl Display for ProjectSecretSearchedByValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let environments_str = self.environments.get_names_ids_string();
+
+        writeln!(f, "Secret name: {}", self.name)?;
+        writeln!(f, "Environments: {}", environments_str)?;
+
+        Ok(())
+    }
+}
+
+// worksapce search secrets
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkspaceSecretSearchedByName {
+    #[serde(rename = "secretValue")]
+    pub value: SecretSearchedValue,
+    pub project: WorkspaceSecretSearchProject,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkspaceSecretSearchProject {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub name: String,
+    pub environments: Vec<SecretsSearchEnvironment>,
+}
+
+impl WorkspaceSecretSearchProject {
+    pub fn get_name_id_string(&self) -> String {
+        match &self.id {
+            Some(id) => format!("{} ({})", self.name, id),
+            None => self.name.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct WorkspaceSecretSearchedByNameTable {
+    #[tabled(rename = "Value")]
+    pub secret_value: String,
+
+    #[tabled(rename = "Project")]
+    pub project: String,
+
+    #[tabled(rename = "Environments")]
+    pub environments: String,
+}
+
+impl Display for WorkspaceSecretSearchedByName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let environments_str = self.project.environments.get_names_ids_string();
+
+        writeln!(f, "Secret value: {}", self.value.display())?;
+        writeln!(f, "Project: {}", self.project.get_name_id_string())?;
+        writeln!(f, "Environments: {}", environments_str)?;
+
+        Ok(())
+    }
+}
+
+impl From<WorkspaceSecretSearchedByName> for WorkspaceSecretSearchedByNameTable {
+    fn from(secret: WorkspaceSecretSearchedByName) -> Self {
+        let value_str = secret.value.display();
+        let project_str = secret.project.get_name_id_string();
+        let environments_str = secret.project.environments.get_names_ids_string();
+
+        Self {
+            project: project_str,
+            secret_value: value_str,
+            environments: environments_str,
+        }
+    }
+}
+
+// workspace search secrets by value
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkspaceSecretSearchedByValue {
+    #[serde(rename = "secretName")]
+    pub name: String,
+    pub project: WorkspaceSecretSearchProject,
+}
+
+impl Display for WorkspaceSecretSearchedByValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let project_str = self.project.get_name_id_string();
+        let environments_str = self.project.environments.get_names_ids_string();
+
+        writeln!(f, "Secret name: {}", self.name)?;
+        writeln!(f, "Project: {}", project_str)?;
+        writeln!(f, "Environments: {}", environments_str)?;
+
+        Ok(())
+    }
+}
+
+// workspace search secrets by value table
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct WorkspaceSecretSearchedByValueTable {
+    #[tabled(rename = "Name")]
+    pub name: String,
+
+    #[tabled(rename = "Project")]
+    pub project: String,
+
+    #[tabled(rename = "Environments")]
+    pub environments: String,
+}
+
+impl From<WorkspaceSecretSearchedByValue> for WorkspaceSecretSearchedByValueTable {
+    fn from(secret: WorkspaceSecretSearchedByValue) -> Self {
+        let project_str = secret.project.get_name_id_string();
+        let environments_str = secret.project.environments.get_names_ids_string();
+
+        Self {
+            name: secret.name,
+            project: project_str,
+            environments: environments_str,
+        }
+    }
 }

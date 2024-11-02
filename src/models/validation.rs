@@ -68,6 +68,11 @@ pub enum SecretsInputValidationError {
     DuplicateNewNames(Vec<String>),
     SelfReferences(Vec<String>),
     ReadFile(anyhow::Error),
+    // for search command
+    SearchBothNameAndValue,
+    SearchMissingNameOrValue,
+    SearchValueTooLong,
+    SearchValueEmpty,
 
     SearchTooShort,
     SearchFormat,
@@ -359,6 +364,22 @@ impl fmt::Display for SecretsInputValidationError {
                 write!(f, "{}", format!("- details: {}", error.to_string()))?;
 
                 return Ok(());
+            }
+            SecretsInputValidationError::SearchBothNameAndValue => {
+                msg = "cannot provide both 'name' and 'value' options";
+                hint = Some("provide only one of them");
+            }
+            SecretsInputValidationError::SearchMissingNameOrValue => {
+                msg = "no search criteria provided";
+                hint = Some("provide either 'name' or 'value' option");
+            }
+            SecretsInputValidationError::SearchValueTooLong => {
+                msg = "option 'value' is too long";
+                hint = Some("maximum length is 1000 characters");
+            }
+            SecretsInputValidationError::SearchValueEmpty => {
+                msg = "option 'value' is empty";
+                hint = Some("provide non-empty string value");
             }
         }
 
