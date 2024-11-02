@@ -46,6 +46,7 @@ pub async fn handle_secrets_commands(
                     Some(default_format) => {
                         let search_format: Option<SecretsSearchOutputFormat> =
                             default_format.into();
+
                         search_format.unwrap_or_default()
                     }
                     None => SecretsSearchOutputFormat::default(),
