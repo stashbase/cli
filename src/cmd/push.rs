@@ -30,8 +30,8 @@ pub struct PushCommand {
     /// Manually set secrets
     #[clap(value_parser, long="set", num_args = 1..)]
     pub set: Vec<String>,
-    //
-    ///// Expand references to their values
-    //#[arg(value_enum, long = "expand-refs")]
-    //pub expand_refs: Option<bool>,
+
+    /// Expand references to their values
+    #[arg(value_enum, long = "expand-refs")]
+    pub expand_refs: Option<bool>,
 }
