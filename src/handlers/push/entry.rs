@@ -14,7 +14,7 @@ use crate::{
         },
     },
     utils::{
-        interaction,
+        self, interaction,
         secrets::{find_duplicate_names, read_secrets_from_file},
         validation::{
             validate_project_environment_identifier, validate_secrets_references_with_existence,
@@ -38,6 +38,7 @@ pub struct HandlePushArgs {
     pub only: Vec<String>,
     pub set: Vec<String>,
     pub exclude: Vec<String>,
+    pub expand_refs: Option<bool>,
 }
 
 pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
@@ -46,6 +47,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         config_file_path,
         only,
         exclude,
+        mut expand_refs,
         mut set,
         mut format,
         mut target_file,
@@ -85,6 +87,13 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         }
 
         let secrets_config = config.get_push_secrets();
+
+        // expand refs
+        if let Some(expand_refs_val) = secrets_config.expand_refs {
+            if expand_refs.is_none() {
+                expand_refs = Some(expand_refs_val);
+            }
+        }
 
         if let Some(only_secrets_config) = secrets_config.only {
             for only_secret in only_secrets_config {
@@ -321,6 +330,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     if let Err(e) = validation_res {
         bail!(e);
+    }
+
+    if let Some(expand_refs) = expand_refs {
+        if expand_refs == true {
+            utils::secrets::expand_secret_references(&mut secrets);
+        }
     }
 
     let mut spinner = Spinner::new_with_stream(
