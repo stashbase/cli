@@ -154,8 +154,12 @@ impl EnvConfigItem {
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
         let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
 
+        let mut expand_refs: Option<bool> = None;
+
         if let Some(p) = &self.push {
             if let Some(p_secrets) = &p.secrets {
+                expand_refs = p_secrets.expand_refs;
+
                 if let Some(ex) = p_secrets.exclude.to_owned() {
                     exclude = Some(ex.to_owned());
                 }
@@ -170,7 +174,7 @@ impl EnvConfigItem {
             }
         }
 
-        PushSecretsConfig::new(only, exclude, set)
+        PushSecretsConfig::new(only, exclude, set, expand_refs)
     }
 
     pub fn get_pull_secrets(&self) -> PullSecretsConfig {
@@ -235,8 +239,14 @@ impl PushSecretsConfig {
         only: Option<Vec<String>>,
         exclude: Option<Vec<String>>,
         set: Option<HashMap<String, String>>,
+        expand_refs: Option<bool>,
     ) -> Self {
-        Self { only, exclude, set }
+        Self {
+            only,
+            exclude,
+            set,
+            expand_refs,
+        }
     }
 }
 
@@ -245,6 +255,9 @@ pub struct PushSecretsConfig {
     pub only: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
     pub set: Option<HashMap<String, String>>,
+
+    #[serde(rename = "expand-refs")]
+    pub expand_refs: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
