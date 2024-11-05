@@ -339,3 +339,23 @@ pub fn extract_unique_references_from_secret(secret_value: &str) -> HashSet<Stri
     //
     // unique_refs
 }
+
+pub fn expand_secret_references(secrets: &mut Vec<Secret>) {
+    let secrets_map: HashMap<_, _> = secrets
+        .iter()
+        .map(|s| (s.name.clone(), s.value.clone()))
+        .collect();
+
+    for secret in secrets {
+        let all_unique_refs = extract_unique_references_from_secret(&secret.value);
+
+        if !all_unique_refs.is_empty() {
+            for ref_ in all_unique_refs {
+                if let Some(value) = secrets_map.get(&ref_) {
+                    let to_replace = format!("${{{}}}", ref_);
+                    secret.value = secret.value.replace(&to_replace, value);
+                }
+            }
+        }
+    }
+}
