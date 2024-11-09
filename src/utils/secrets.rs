@@ -120,6 +120,19 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
+                        let is_multiline = s.value.contains("\n");
+
+                        let prev_is_multiline = match i == 0 {
+                            true => false,
+                            false => {
+                                let prev_line = secrets.get(i - 1);
+                                match prev_line {
+                                    Some(prev_line) => prev_line.value.contains("\n"),
+                                    None => false,
+                                }
+                            }
+                        };
+
                         // let mut str_line = format!("{}{}{}", s.name, kv_separator, s.value);
 
                         let mut str_line = format!(
@@ -129,7 +142,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             format!("\"{}\"", s.value.replace("\"", "\\\""))
                         );
 
-                        if prev_has_description {
+                        if prev_has_description || is_multiline || prev_is_multiline {
                             str_line = format!("\n{}", str_line);
                         }
 
