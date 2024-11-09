@@ -88,8 +88,16 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                     let is_last = i == secrets.len() - 1;
 
                     if let Some(descr) = &s.description {
-                        let mut str_line =
-                            format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
+                        // let mut str_line =
+                        //     format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
+
+                        let mut str_line = format!(
+                            "# {}\n{}{}{}",
+                            descr,
+                            s.name,
+                            kv_separator,
+                            format!("\"{}\"", s.value.replace("\"", "\\\""))
+                        );
 
                         if is_last == false {
                             str_line = format!("{}\n", str_line);
@@ -112,7 +120,14 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
-                        let mut str_line = format!("{}{}{}", s.name, kv_separator, s.value);
+                        // let mut str_line = format!("{}{}{}", s.name, kv_separator, s.value);
+
+                        let mut str_line = format!(
+                            "{}{}{}",
+                            s.name,
+                            kv_separator,
+                            format!("\"{}\"", s.value.replace("\"", "\\\""))
+                        );
 
                         if prev_has_description {
                             str_line = format!("\n{}", str_line);
@@ -359,3 +374,5 @@ pub fn expand_secret_references(secrets: &mut Vec<Secret>) {
         }
     }
 }
+
+// ... rest of the code remains unchanged
