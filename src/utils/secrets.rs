@@ -185,8 +185,10 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
-                        if prev_has_description || is_multiline || prev_is_multiline {
-                            str_line = format!("\n{}", str_line);
+                        if i != 0 {
+                            if prev_has_description || is_multiline || prev_is_multiline {
+                                str_line = format!("\n{}", str_line);
+                            }
                         }
 
                         if is_last == false {
