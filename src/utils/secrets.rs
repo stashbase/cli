@@ -288,105 +288,129 @@ pub fn read_secrets_from_file(path: &Path, format: &SecretsFileFormat) -> Result
 }
 
 pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
-    let splitted: Vec<&str> = content.split("\n").collect();
-
-    if splitted.is_empty() {
-        return Ok(vec![]);
-    }
-
+    let lines: Vec<&str> = content.trim().split('\n').collect();
     let mut secrets: Vec<Secret> = Vec::new();
     let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
 
-    let delimiter = "=";
-    let mut in_multiline = false;
-    let mut current_name = String::new();
-    let mut current_value = String::new();
-    let mut current_description = None;
+    let mut current_multiline_value: Vec<String> = Vec::new();
+    let mut is_in_multiline = false;
+    let mut pending_secret: Option<(String, Option<String>)> = None; // (name, description)
 
-    for (_, item) in splitted.iter().enumerate() {
-        let trimmed = item.trim();
+    for (index, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
 
-        debug!("{}", trimmed);
-        debug!("{}", trimmed.len());
-
-        let is_empty = trimmed.len() == 0;
-        let is_comment = trimmed.starts_with("#");
-
-        // Capture description from comments
-        if is_comment {
-            let desc = trimmed.replace("#", "").trim().to_owned();
-            current_description = Some(desc);
+        // Skip empty lines and comments
+        if trimmed.starts_with('#') {
             continue;
         }
 
-        if !is_empty {
-            if in_multiline {
-                if trimmed.ends_with("\"") {
-                    in_multiline = false;
-                    current_value.push_str(&trimmed[..trimmed.len() - 1]);
+        // Handle multiline mode
+        if is_in_multiline {
+            current_multiline_value.push(line.to_string());
 
-                    let secret = Secret {
-                        description: current_description.take(),
-                        name: current_name.clone(),
-                        value: current_value.clone(),
-                    };
-                    secrets.push(secret);
-
-                    current_value.clear();
-                    current_name.clear();
-                } else {
-                    current_value.push_str(trimmed);
-                    current_value.push('\n');
-                }
-            } else {
-                match item.split_once(delimiter) {
-                    Some((name, value)) => {
-                        let uppercase_name = name.to_uppercase();
-                        let formatted_name =
-                            regex.replace_all(&uppercase_name, "_").trim().to_owned();
-                        let trimmed_value = value.trim();
-
-                        // Add validation for single quote at the end
-                        if trimmed_value.ends_with("\"") && !trimmed_value.starts_with("\"") {
-                            bail!("Malformed secret value for {}: Value ends with quote but doesn't start with one", name);
-                        }
-
-                        if trimmed_value.starts_with("\"") {
-                            if trimmed_value.ends_with("\"") && !trimmed_value.contains("\n") {
-                                // Single-line quoted value
-                                let formatted_value =
-                                    trimmed_value[1..trimmed_value.len() - 1].to_owned();
-                                let secret = Secret {
-                                    description: current_description.take(),
-                                    name: formatted_name,
-                                    value: formatted_value,
-                                };
-                                secrets.push(secret);
+            if trimmed.ends_with("\"") {
+                is_in_multiline = false;
+                if let Some((name, description)) = pending_secret.take() {
+                    // Join all lines and handle the case where the quote is at the end of first line
+                    let full_value = current_multiline_value
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, line)| {
+                            if idx == 0 && line.trim() == "\"" {
+                                "\"".to_string() // Keep the opening quote if it's alone
                             } else {
-                                // Start of multiline value
-                                in_multiline = true;
-                                current_name = formatted_name;
-                                current_value = trimmed_value[1..].to_owned();
-                                current_value.push('\n');
+                                line.to_string()
                             }
-                        } else {
-                            // Unquoted value
-                            let secret = Secret {
-                                description: current_description.take(),
-                                name: formatted_name,
-                                value: trimmed_value.to_owned(),
-                            };
-                            secrets.push(secret);
-                        }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    // Remove surrounding quotes and handle escaping
+                    let clean_value = if full_value.starts_with("\"") && full_value.ends_with("\"")
+                    {
+                        full_value[1..full_value.len() - 1].to_string()
+                    } else {
+                        full_value
+                    };
+
+                    secrets.push(Secret {
+                        name,
+                        value: clean_value,
+                        description,
+                    });
+                    current_multiline_value.clear();
+                }
+            }
+            continue;
+        }
+
+        // Process new secrets only when not in multiline mode
+        if !trimmed.is_empty() {
+            if let Some((name_part, value_part)) = line.split_once('=') {
+                let formatted_name = regex
+                    .replace_all(&name_part.to_uppercase(), "_")
+                    .trim()
+                    .to_owned();
+
+                // Get description from previous line if it's a comment
+                let description = if index > 0 {
+                    let prev_line = lines[index - 1].trim();
+                    if prev_line.starts_with('#') {
+                        Some(prev_line.replace('#', "").trim().to_owned())
+                    } else {
+                        None
                     }
-                    None => {}
+                } else {
+                    None
+                };
+
+                let trimmed_value = value_part.trim();
+
+                // Check if this starts a multiline value
+                if trimmed_value.starts_with("\"") && !trimmed_value.ends_with("\"") {
+                    is_in_multiline = true;
+                    current_multiline_value = vec![value_part.to_string()];
+                    pending_secret = Some((formatted_name, description));
+                } else if trimmed_value == "\"" {
+                    // Handle case where value is just a quote
+                    is_in_multiline = true;
+                    current_multiline_value = vec![value_part.to_string()];
+                    pending_secret = Some((formatted_name, description));
+                } else {
+                    // Single line value
+                    let clean_value =
+                        if trimmed_value.starts_with("\"") && trimmed_value.ends_with("\"") {
+                            trimmed_value[1..trimmed_value.len() - 1].to_string()
+                        } else {
+                            trimmed_value.to_string()
+                        };
+
+                    secrets.push(Secret {
+                        name: formatted_name,
+                        value: clean_value,
+                        description,
+                    });
                 }
             }
         }
     }
 
-    if in_multiline {
-        bail!("Unclosed double quotes for secret: {}", current_name)
+    // Handle any remaining multiline value
+    if is_in_multiline {
+        if let Some((name, description)) = pending_secret {
+            let full_value = current_multiline_value.join("\n");
+            let clean_value = if full_value.starts_with("\"") && full_value.ends_with("\"") {
+                full_value[1..full_value.len() - 1].to_string()
+            } else {
+                full_value
+            };
+
+            secrets.push(Secret {
+                name,
+                value: clean_value,
+                description,
+            });
+        }
     }
 
     Ok(secrets)
