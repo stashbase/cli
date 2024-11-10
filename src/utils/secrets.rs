@@ -277,12 +277,117 @@ pub fn read_secrets_from_file(path: &Path, format: &SecretsFileFormat) -> Result
 
     match format {
         SecretsFileFormat::Yaml => parse_secrets_from_str(&content, true),
-        SecretsFileFormat::Dotenv => parse_secrets_from_str(&content, false),
+        SecretsFileFormat::Dotenv => parse_dotenv_secrets_from_str(&content),
         SecretsFileFormat::Json => {
             let value = serde_json::from_str(&content)?;
             Ok(value)
         }
     }
+}
+
+pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
+    let splitted: Vec<&str> = content.split("\n").collect();
+
+    if splitted.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut secrets: Vec<Secret> = Vec::new();
+    let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
+
+    let delimiter = "=";
+    let mut in_multiline = false;
+    let mut current_name = String::new();
+    let mut current_value = String::new();
+    let mut current_description = None;
+
+    for (_, item) in splitted.iter().enumerate() {
+        let trimmed = item.trim();
+
+        debug!("{}", trimmed);
+        debug!("{}", trimmed.len());
+
+        let is_empty = trimmed.len() == 0;
+        let is_comment = trimmed.starts_with("#");
+
+        // Capture description from comments
+        if is_comment {
+            let desc = trimmed.replace("#", "").trim().to_owned();
+            current_description = Some(desc);
+            continue;
+        }
+
+        if !is_empty {
+            if in_multiline {
+                if trimmed.ends_with("\"") {
+                    in_multiline = false;
+                    current_value.push_str(&trimmed[..trimmed.len() - 1]);
+
+                    let secret = Secret {
+                        description: current_description.take(),
+                        name: current_name.clone(),
+                        value: current_value.clone(),
+                    };
+                    secrets.push(secret);
+
+                    current_value.clear();
+                    current_name.clear();
+                } else {
+                    current_value.push_str(trimmed);
+                    current_value.push('\n');
+                }
+            } else {
+                match item.split_once(delimiter) {
+                    Some((name, value)) => {
+                        let uppercase_name = name.to_uppercase();
+                        let formatted_name =
+                            regex.replace_all(&uppercase_name, "_").trim().to_owned();
+                        let trimmed_value = value.trim();
+
+                        // Add validation for single quote at the end
+                        if trimmed_value.ends_with("\"") && !trimmed_value.starts_with("\"") {
+                            bail!("Malformed secret value for {}: Value ends with quote but doesn't start with one", name);
+                        }
+
+                        if trimmed_value.starts_with("\"") {
+                            if trimmed_value.ends_with("\"") && !trimmed_value.contains("\n") {
+                                // Single-line quoted value
+                                let formatted_value =
+                                    trimmed_value[1..trimmed_value.len() - 1].to_owned();
+                                let secret = Secret {
+                                    description: current_description.take(),
+                                    name: formatted_name,
+                                    value: formatted_value,
+                                };
+                                secrets.push(secret);
+                            } else {
+                                // Start of multiline value
+                                in_multiline = true;
+                                current_name = formatted_name;
+                                current_value = trimmed_value[1..].to_owned();
+                                current_value.push('\n');
+                            }
+                        } else {
+                            // Unquoted value
+                            let secret = Secret {
+                                description: current_description.take(),
+                                name: formatted_name,
+                                value: trimmed_value.to_owned(),
+                            };
+                            secrets.push(secret);
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+
+    if in_multiline {
+        bail!("Unclosed double quotes for secret: {}", current_name)
+    }
+
+    Ok(secrets)
 }
 
 // file must exist
