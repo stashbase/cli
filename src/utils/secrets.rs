@@ -76,7 +76,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
         _ => {
             let kv_separator = match format {
                 SecretsOutputFormat::Dotenv => "=",
-                SecretsOutputFormat::Yaml => ": ",
+                SecretsOutputFormat::Yaml => ":",
                 _ => unreachable!(),
             };
 
@@ -86,18 +86,52 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                 .enumerate()
                 .map(|(i, s)| {
                     let is_last = i == secrets.len() - 1;
+                    let is_multiline = s.value.contains("\n");
+
+                    let replaced_value = match SecretsOutputFormat::Dotenv == *format {
+                        true => format!("\"{}\"", s.value.replace("\"", "\\\"")),
+                        false => s.value.replace("\"", "\\\""),
+                    };
 
                     if let Some(descr) = &s.description {
                         // let mut str_line =
                         //     format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
 
-                        let mut str_line = format!(
-                            "# {}\n{}{}{}",
-                            descr,
-                            s.name,
-                            kv_separator,
-                            format!("\"{}\"", s.value.replace("\"", "\\\""))
-                        );
+                        let mut str_line = match is_multiline {
+                            true => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!(
+                                        "# {}\n{}{} {}",
+                                        descr, s.name, kv_separator, replaced_value
+                                    )
+                                } else {
+                                    let indented_value = replaced_value
+                                        .lines()
+                                        .map(|line| format!("  {}", line))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+
+                                    format!(
+                                        "# {}\n{}{} |\n{}",
+                                        descr, s.name, kv_separator, indented_value
+                                    )
+                                }
+                            }
+                            false => {
+                                format!(
+                                    "# {}\n{}{} {}",
+                                    descr, s.name, kv_separator, replaced_value
+                                )
+                            }
+                        };
+
+                        // let mut str_line = format!(
+                        //     "# {}\n{}{}{}",
+                        //     descr,
+                        //     s.name,
+                        //     kv_separator,
+                        //     format!("\"{}\"", s.value.replace("\"", "\\\""))
+                        // );
 
                         if is_last == false {
                             str_line = format!("{}\n", str_line);
@@ -133,14 +167,23 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
-                        // let mut str_line = format!("{}{}{}", s.name, kv_separator, s.value);
-
-                        let mut str_line = format!(
-                            "{}{}{}",
-                            s.name,
-                            kv_separator,
-                            format!("\"{}\"", s.value.replace("\"", "\\\""))
-                        );
+                        let mut str_line = match is_multiline {
+                            true => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!("{}{} {}", s.name, kv_separator, replaced_value)
+                                } else {
+                                    let indented_value = replaced_value
+                                        .lines()
+                                        .map(|line| format!("  {}", line))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    format!("{}{} |\n{}", s.name, kv_separator, indented_value)
+                                }
+                            }
+                            false => {
+                                format!("{}{} {}", s.name, kv_separator, replaced_value)
+                            }
+                        };
 
                         if prev_has_description || is_multiline || prev_is_multiline {
                             str_line = format!("\n{}", str_line);
