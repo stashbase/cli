@@ -441,9 +441,13 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
+        let leading_spaces = line.chars().take_while(|c| c.is_whitespace()).count();
 
         if trimmed.starts_with('#') {
-            last_comment = Some(trimmed.replace('#', "").trim().to_owned());
+            // Only consider comments that are not indented
+            if leading_spaces < 2 {
+                last_comment = Some(trimmed.replace('#', "").trim().to_owned());
+            }
             continue;
         }
 
