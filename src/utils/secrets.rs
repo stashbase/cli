@@ -444,12 +444,18 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
         if trimmed.starts_with('#') {
             last_comment = Some(trimmed.replace('#', "").trim().to_owned());
-        } else if !trimmed.is_empty() && trimmed.contains(':') {
+            continue;
+        }
+
+        if !trimmed.is_empty() && trimmed.contains(':') {
             if let Some(key) = trimmed.split(':').next() {
                 if let Some(comment) = last_comment.take() {
                     descriptions.insert(key.trim().to_uppercase(), comment);
                 }
             }
+        } else {
+            // Clear comment if next line is not a secret
+            last_comment = None;
         }
     }
 
