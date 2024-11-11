@@ -290,17 +290,16 @@ pub fn read_secrets_from_file(path: &Path, format: &SecretsFileFormat) -> Result
 pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
     let lines: Vec<&str> = content.trim().split('\n').collect();
     let mut secrets: Vec<Secret> = Vec::new();
-    let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
 
     let mut current_multiline_value: Vec<String> = Vec::new();
     let mut is_in_multiline = false;
-    let mut pending_secret: Option<(String, Option<String>)> = None; // (name, description)
+    let mut pending_secret: Option<(String, Option<String>)> = None;
 
     for (index, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
 
-        // Skip empty lines and comments
-        if trimmed.starts_with('#') {
+        // Skip comments only when not in multiline mode
+        if !is_in_multiline && trimmed.starts_with('#') {
             continue;
         }
 
@@ -309,36 +308,35 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
             current_multiline_value.push(line.to_string());
 
             if trimmed.ends_with("\"") {
-                is_in_multiline = false;
-                if let Some((name, description)) = pending_secret.take() {
-                    // Join all lines and handle the case where the quote is at the end of first line
-                    let full_value = current_multiline_value
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, line)| {
-                            if idx == 0 && line.trim() == "\"" {
-                                "\"".to_string() // Keep the opening quote if it's alone
-                            } else {
-                                line.to_string()
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                // Check if quote is escaped
+                let is_escaped = trimmed.ends_with("\\\"");
 
-                    // Remove surrounding quotes and handle escaping
-                    let clean_value = if full_value.starts_with("\"") && full_value.ends_with("\"")
-                    {
-                        full_value[1..full_value.len() - 1].to_string()
-                    } else {
-                        full_value
-                    };
+                if !is_escaped {
+                    is_in_multiline = false;
+                    if let Some((name, description)) = pending_secret.take() {
+                        let full_value = current_multiline_value
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, line)| {
+                                if idx == 0 && line.trim() == "\"" {
+                                    "\"".to_string()
+                                } else {
+                                    line.to_string()
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
 
-                    secrets.push(Secret {
-                        name,
-                        value: clean_value,
-                        description,
-                    });
-                    current_multiline_value.clear();
+                        let clean_value = clean_surrounding_quotes(&full_value);
+                        let unescaped_value = unescape_value_from_dotenv(&clean_value);
+
+                        secrets.push(Secret {
+                            name,
+                            value: unescaped_value,
+                            description,
+                        });
+                        current_multiline_value.clear();
+                    }
                 }
             }
             continue;
@@ -346,13 +344,13 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
         // Process new secrets only when not in multiline mode
         if !trimmed.is_empty() {
-            if let Some((name_part, value_part)) = line.split_once('=') {
-                let formatted_name = regex
-                    .replace_all(&name_part.to_uppercase(), "_")
-                    .trim()
-                    .to_owned();
+            if let Some(equal_sign_idx) = line.find('=') {
+                let (name_part, value_part) = line.split_at(equal_sign_idx);
+                let value_part = &value_part[1..]; // Skip the '=' character
 
-                // Get description from previous line if it's a comment
+                // No formatting of name, just trim
+                let name = name_part.trim().to_string();
+
                 let description = if index > 0 {
                     let prev_line = lines[index - 1].trim();
                     if prev_line.starts_with('#') {
@@ -365,29 +363,33 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 };
 
                 let trimmed_value = value_part.trim();
+                if trimmed_value.starts_with("\"") {
+                    let ends_with_quote = trimmed_value.ends_with("\"");
+                    let is_escaped = trimmed_value.ends_with("\\\"");
 
-                // Check if this starts a multiline value
-                if trimmed_value.starts_with("\"") && !trimmed_value.ends_with("\"") {
-                    is_in_multiline = true;
-                    current_multiline_value = vec![value_part.to_string()];
-                    pending_secret = Some((formatted_name, description));
-                } else if trimmed_value == "\"" {
-                    // Handle case where value is just a quote
-                    is_in_multiline = true;
-                    current_multiline_value = vec![value_part.to_string()];
-                    pending_secret = Some((formatted_name, description));
+                    if !ends_with_quote || is_escaped || trimmed_value == "\"" {
+                        is_in_multiline = true;
+                        current_multiline_value = vec![value_part.to_string()];
+                        pending_secret = Some((name, description));
+                    } else {
+                        // Single line value
+                        let cleaned_value = clean_surrounding_quotes(value_part);
+                        let unescaped_value = unescape_value_from_dotenv(&cleaned_value);
+
+                        secrets.push(Secret {
+                            name,
+                            value: unescaped_value,
+                            description,
+                        });
+                    }
                 } else {
-                    // Single line value
-                    let clean_value =
-                        if trimmed_value.starts_with("\"") && trimmed_value.ends_with("\"") {
-                            trimmed_value[1..trimmed_value.len() - 1].to_string()
-                        } else {
-                            trimmed_value.to_string()
-                        };
+                    // Single line value without quotes
+                    let cleaned_value = clean_surrounding_quotes(value_part);
+                    let unescaped_value = unescape_value_from_dotenv(&cleaned_value);
 
                     secrets.push(Secret {
-                        name: formatted_name,
-                        value: clean_value,
+                        name,
+                        value: unescaped_value,
                         description,
                     });
                 }
@@ -399,21 +401,36 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
     if is_in_multiline {
         if let Some((name, description)) = pending_secret {
             let full_value = current_multiline_value.join("\n");
-            let clean_value = if full_value.starts_with("\"") && full_value.ends_with("\"") {
-                full_value[1..full_value.len() - 1].to_string()
-            } else {
-                full_value
-            };
+            let clean_value = clean_surrounding_quotes(&full_value);
+            let unescaped_value = unescape_value_from_dotenv(&clean_value);
 
             secrets.push(Secret {
                 name,
-                value: clean_value,
+                value: unescaped_value,
                 description,
             });
         }
     }
 
     Ok(secrets)
+}
+
+// Helper functions
+fn clean_surrounding_quotes(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with("\"") && trimmed.ends_with("\"") {
+        trimmed[1..trimmed.len() - 1].to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn unescape_value_from_dotenv(value: &str) -> String {
+    value
+        .replace("\\\"", "\"")
+        .replace("\\n", "\n")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
 }
 
 pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
