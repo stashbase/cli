@@ -23,15 +23,17 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
             let mut text_to_print = String::new();
 
             for (i, p) in secrets.iter().enumerate() {
+                let is_multiline = p.value.contains("\n");
+
                 // is last
                 if i == secrets.len() - 1 {
-                    if p.description.is_some() {
+                    if p.description.is_some() || is_multiline {
                         text_to_print.push_str(&format!("\n{}", p))
                     } else {
                         text_to_print.push_str(&format!("{}", p))
                     }
                 } else {
-                    if i != 0 && p.description.is_some() {
+                    if i != 0 && (p.description.is_some() || is_multiline) {
                         text_to_print.push_str(&format!("\n{}\n", p))
                     } else {
                         text_to_print.push_str(&format!("{}\n", p))
