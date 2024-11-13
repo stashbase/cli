@@ -297,7 +297,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
     let mut pending_secret: Option<(String, Option<String>)> = None;
     let mut comment_lines: Vec<String> = Vec::new();
 
-    for (index, line) in lines.iter().enumerate() {
+    for line in lines.iter() {
         let trimmed = line.trim();
 
         // Handle comments when not in multiline mode
