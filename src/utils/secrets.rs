@@ -99,12 +99,17 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                         // let mut str_line =
                         //     format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
 
+                        let description_str = descr
+                            .split('\n')
+                            .map(|line| format!("# {}\n", line.trim()))
+                            .collect::<String>();
+
                         let mut str_line = match is_multiline {
                             true => {
                                 if SecretsOutputFormat::Dotenv == *format {
                                     format!(
-                                        "# {}\n{}{} {}",
-                                        descr, s.name, kv_separator, replaced_value
+                                        "{}{}{} {}",
+                                        description_str, s.name, kv_separator, replaced_value
                                     )
                                 } else {
                                     let indented_value = replaced_value
@@ -114,15 +119,15 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                                         .join("\n");
 
                                     format!(
-                                        "# {}\n{}{} |\n{}",
-                                        descr, s.name, kv_separator, indented_value
+                                        "{}{}{} |\n{}",
+                                        description_str, s.name, kv_separator, indented_value
                                     )
                                 }
                             }
                             false => {
                                 format!(
-                                    "# {}\n{}{} {}",
-                                    descr, s.name, kv_separator, replaced_value
+                                    "{}{}{} {}",
+                                    description_str, s.name, kv_separator, replaced_value
                                 )
                             }
                         };
