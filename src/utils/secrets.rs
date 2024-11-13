@@ -460,29 +460,64 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
     // First pass: collect comments/descriptions
     let lines: Vec<&str> = content.trim().split('\n').collect();
     let mut descriptions: HashMap<String, String> = HashMap::new();
-    let mut last_comment: Option<String> = None;
-
+    let mut comment_lines: Vec<String> = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         let leading_spaces = line.chars().take_while(|c| c.is_whitespace()).count();
 
         if trimmed.starts_with('#') {
+            // For comments, preserve indentation after the first space
+            let comment_content = if let Some(first_hash) = line.find('#') {
+                let after_hash = &line[first_hash + 1..];
+                if let Some(first_non_hash) = after_hash.find(|c| c != '#') {
+                    &after_hash[first_non_hash..]
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            };
+
             // Only consider comments that are not indented
             if leading_spaces < 2 {
-                last_comment = Some(trimmed.replace('#', "").trim().to_owned());
+                let trimmed_comment = comment_content.trim();
+                // Skip empty comments if they would be first or last
+                if !trimmed_comment.is_empty()
+                    || (!comment_lines.is_empty()
+                        && i + 1 < lines.len()
+                        && lines[i + 1].trim().starts_with('#'))
+                {
+                    comment_lines.push(comment_content.to_owned());
+                }
             }
             continue;
         }
 
         if !trimmed.is_empty() && trimmed.contains(':') {
             if let Some(key) = trimmed.split(':').next() {
-                if let Some(comment) = last_comment.take() {
-                    descriptions.insert(key.trim().to_uppercase(), comment);
+                if !comment_lines.is_empty() {
+                    // Trim empty comments from start and end
+                    let mut start = 0;
+                    let mut end = comment_lines.len();
+
+                    while start < end && comment_lines[start].trim().is_empty() {
+                        start += 1;
+                    }
+                    while end > start && comment_lines[end - 1].trim().is_empty() {
+                        end -= 1;
+                    }
+
+                    let filtered_comments = &comment_lines[start..end];
+                    if !filtered_comments.is_empty() {
+                        descriptions
+                            .insert(key.trim().to_uppercase(), filtered_comments.join("\n"));
+                    }
+                    comment_lines.clear();
                 }
             }
         } else {
-            // Clear comment if next line is not a secret
-            last_comment = None;
+            // Clear comment lines if we hit an empty line
+            comment_lines.clear();
         }
     }
 
