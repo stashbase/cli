@@ -93,15 +93,19 @@ impl Display for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // writeln!(f, "{} {}", "Key:".green(), self.key)?;
         // writeln!(f, "{} {}", "Value:".green(), self.value)?;
-        write!(f, "{} {}", format!("{}:", self.name).green(), self.value)?;
-
-        if self.description.is_some() {
-            writeln!(f, "")?;
-        }
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "- description:".blue(), description)?;
+            writeln!(f, "{}", description.blue())?;
+            writeln!(f, "{}", "-".repeat(self.name.len()).blue())?;
+
+            // writeln!(f, "{} {}", "- description:".blue(), description)?;
         }
+
+        write!(f, "{} {}", format!("{}:", self.name).green(), self.value)?;
+
+        // if self.description.is_some() {
+        //     writeln!(f, "")?;
+        // }
 
         Ok(())
     }
