@@ -25,6 +25,15 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
             for (i, p) in secrets.iter().enumerate() {
                 let is_multiline = p.value.contains("\n");
 
+                let prev_has_description = match i == 0 {
+                    true => false,
+                    false => secrets[i - 1].has_description(),
+                };
+
+                if prev_has_description {
+                    text_to_print.push_str(&format!("\n"))
+                }
+
                 // is last
                 if i == secrets.len() - 1 {
                     if p.description.is_some() || is_multiline {
