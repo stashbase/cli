@@ -302,37 +302,27 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
         // Handle comments when not in multiline mode
         if !is_in_multiline && trimmed.starts_with('#') {
-            let prev_line = match index {
-                0 => "",
-                _ => lines.get(index - 1).unwrap_or(&""),
-            };
-
-            let trimmed_prev_line = prev_line.trim();
-
-            if trimmed_prev_line.starts_with('#') {
-                // Remove the # and trim the line
-                let mut cleaned_line = prev_line[1..].to_string();
-
-                let first_char_is_whitespace = cleaned_line
-                    .chars()
-                    .next()
-                    .map_or(false, |c| c.is_whitespace());
-
-                if first_char_is_whitespace {
+            if trimmed == "#" {
+                comment_lines.push("".to_string());
+            } else {
+                let mut cleaned_line = line[1..].to_string();
+                if cleaned_line.starts_with(' ') {
                     cleaned_line = cleaned_line[1..].trim_end().to_string();
                 }
-
                 comment_lines.push(cleaned_line);
+            }
+            continue;
+        }
 
-                // // Push empty line if it's just a #, otherwise push cleaned line
-                // if prev_line.trim() == "#" {
-                //     // Preserve empty lines
-                //     comment_lines.push("".to_string());
-                // } else {
-                // }
-
-                // comment_lines.push(trimmed.replace('#', "").trim().to_owned());
-                continue;
+        // When we hit a non-comment line, trim empty lines from start and end
+        if !trimmed.starts_with('#') && !comment_lines.is_empty() {
+            // Trim empty lines from start
+            while comment_lines.first().map_or(false, |line| line.is_empty()) {
+                comment_lines.remove(0);
+            }
+            // Trim empty lines from end
+            while comment_lines.last().map_or(false, |line| line.is_empty()) {
+                comment_lines.pop();
             }
         }
 
