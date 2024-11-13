@@ -292,17 +292,48 @@ pub fn read_secrets_from_file(path: &Path, format: &SecretsFileFormat) -> Result
 pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
     let lines: Vec<&str> = content.trim().split('\n').collect();
     let mut secrets: Vec<Secret> = Vec::new();
-
     let mut current_multiline_value: Vec<String> = Vec::new();
     let mut is_in_multiline = false;
     let mut pending_secret: Option<(String, Option<String>)> = None;
+    let mut comment_lines: Vec<String> = Vec::new();
 
     for (index, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
 
-        // Skip comments only when not in multiline mode
+        // Handle comments when not in multiline mode
         if !is_in_multiline && trimmed.starts_with('#') {
-            continue;
+            let prev_line = match index {
+                0 => "",
+                _ => lines.get(index - 1).unwrap_or(&""),
+            };
+
+            let trimmed_prev_line = prev_line.trim();
+
+            if trimmed_prev_line.starts_with('#') {
+                // Remove the # and trim the line
+                let mut cleaned_line = prev_line[1..].to_string();
+
+                let first_char_is_whitespace = cleaned_line
+                    .chars()
+                    .next()
+                    .map_or(false, |c| c.is_whitespace());
+
+                if first_char_is_whitespace {
+                    cleaned_line = cleaned_line[1..].trim_end().to_string();
+                }
+
+                comment_lines.push(cleaned_line);
+
+                // // Push empty line if it's just a #, otherwise push cleaned line
+                // if prev_line.trim() == "#" {
+                //     // Preserve empty lines
+                //     comment_lines.push("".to_string());
+                // } else {
+                // }
+
+                // comment_lines.push(trimmed.replace('#', "").trim().to_owned());
+                continue;
+            }
         }
 
         // Handle multiline mode
@@ -350,16 +381,13 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 let (name_part, value_part) = line.split_at(equal_sign_idx);
                 let value_part = &value_part[1..]; // Skip the '=' character
 
-                // No formatting of name, just trim
                 let name = name_part.trim().to_string();
 
-                let description = if index > 0 {
-                    let prev_line = lines[index - 1].trim();
-                    if prev_line.starts_with('#') {
-                        Some(prev_line.replace('#', "").trim().to_owned())
-                    } else {
-                        None
-                    }
+                // Join multiline comments if they exist
+                let description = if !comment_lines.is_empty() {
+                    let desc = comment_lines.join("\n");
+                    comment_lines.clear();
+                    Some(desc)
                 } else {
                     None
                 };
@@ -396,6 +424,9 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                     });
                 }
             }
+        } else {
+            // Clear comment lines if we hit an empty line
+            comment_lines.clear();
         }
     }
 
