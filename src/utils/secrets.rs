@@ -23,15 +23,26 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
             let mut text_to_print = String::new();
 
             for (i, p) in secrets.iter().enumerate() {
+                let is_multiline = p.value.contains("\n");
+
+                let prev_has_description = match i == 0 {
+                    true => false,
+                    false => secrets[i - 1].has_description(),
+                };
+
+                if prev_has_description {
+                    text_to_print.push_str(&format!("\n"))
+                }
+
                 // is last
                 if i == secrets.len() - 1 {
-                    if p.description.is_some() {
+                    if !prev_has_description && (p.description.is_some() || is_multiline) {
                         text_to_print.push_str(&format!("\n{}", p))
                     } else {
                         text_to_print.push_str(&format!("{}", p))
                     }
                 } else {
-                    if i != 0 && p.description.is_some() {
+                    if i != 0 && (p.description.is_some() || is_multiline) {
                         text_to_print.push_str(&format!("\n{}\n", p))
                     } else {
                         text_to_print.push_str(&format!("{}\n", p))
@@ -76,7 +87,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
         _ => {
             let kv_separator = match format {
                 SecretsOutputFormat::Dotenv => "=",
-                SecretsOutputFormat::Yaml => ": ",
+                SecretsOutputFormat::Yaml => ":",
                 _ => unreachable!(),
             };
 
@@ -86,10 +97,57 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                 .enumerate()
                 .map(|(i, s)| {
                     let is_last = i == secrets.len() - 1;
+                    let is_multiline = s.value.contains("\n");
+
+                    let replaced_value = match SecretsOutputFormat::Dotenv == *format {
+                        true => format!("\"{}\"", s.value.replace("\"", "\\\"")),
+                        false => s.value.replace("\"", "\\\""),
+                    };
 
                     if let Some(descr) = &s.description {
-                        let mut str_line =
-                            format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
+                        // let mut str_line =
+                        //     format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
+
+                        let description_str = descr
+                            .split('\n')
+                            .map(|line| format!("# {}\n", line.trim()))
+                            .collect::<String>();
+
+                        let mut str_line = match is_multiline {
+                            true => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!(
+                                        "{}{}{} {}",
+                                        description_str, s.name, kv_separator, replaced_value
+                                    )
+                                } else {
+                                    let indented_value = replaced_value
+                                        .lines()
+                                        .map(|line| format!("  {}", line))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+
+                                    format!(
+                                        "{}{}{} |\n{}",
+                                        description_str, s.name, kv_separator, indented_value
+                                    )
+                                }
+                            }
+                            false => {
+                                format!(
+                                    "{}{}{} {}",
+                                    description_str, s.name, kv_separator, replaced_value
+                                )
+                            }
+                        };
+
+                        // let mut str_line = format!(
+                        //     "# {}\n{}{}{}",
+                        //     descr,
+                        //     s.name,
+                        //     kv_separator,
+                        //     format!("\"{}\"", s.value.replace("\"", "\\\""))
+                        // );
 
                         if is_last == false {
                             str_line = format!("{}\n", str_line);
@@ -112,10 +170,41 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
-                        let mut str_line = format!("{}{}{}", s.name, kv_separator, s.value);
+                        let is_multiline = s.value.contains("\n");
 
-                        if prev_has_description {
-                            str_line = format!("\n{}", str_line);
+                        let prev_is_multiline = match i == 0 {
+                            true => false,
+                            false => {
+                                let prev_line = secrets.get(i - 1);
+                                match prev_line {
+                                    Some(prev_line) => prev_line.value.contains("\n"),
+                                    None => false,
+                                }
+                            }
+                        };
+
+                        let mut str_line = match is_multiline {
+                            true => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!("{}{} {}", s.name, kv_separator, replaced_value)
+                                } else {
+                                    let indented_value = replaced_value
+                                        .lines()
+                                        .map(|line| format!("  {}", line))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    format!("{}{} |\n{}", s.name, kv_separator, indented_value)
+                                }
+                            }
+                            false => {
+                                format!("{}{} {}", s.name, kv_separator, replaced_value)
+                            }
+                        };
+
+                        if i != 0 {
+                            if prev_has_description || is_multiline || prev_is_multiline {
+                                str_line = format!("\n{}", str_line);
+                            }
                         }
 
                         if is_last == false {
@@ -205,14 +294,392 @@ pub fn read_secrets_from_file(path: &Path, format: &SecretsFileFormat) -> Result
     }
 
     match format {
-        SecretsFileFormat::Yaml => parse_secrets_from_str(&content, true),
-        SecretsFileFormat::Dotenv => parse_secrets_from_str(&content, false),
+        SecretsFileFormat::Yaml => parse_yaml_secrets_from_str(&content),
+        SecretsFileFormat::Dotenv => parse_dotenv_secrets_from_str(&content),
         SecretsFileFormat::Json => {
             let value = serde_json::from_str(&content)?;
             Ok(value)
         }
     }
 }
+
+pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
+    let lines: Vec<&str> = content.trim().split('\n').collect();
+    let mut secrets: Vec<Secret> = Vec::new();
+    let mut current_multiline_value: Vec<String> = Vec::new();
+    let mut is_in_multiline = false;
+    let mut pending_secret: Option<(String, Option<String>)> = None;
+    let mut comment_lines: Vec<String> = Vec::new();
+
+    for line in lines.iter() {
+        let trimmed = line.trim();
+
+        // Handle comments when not in multiline mode
+        if !is_in_multiline && trimmed.starts_with('#') {
+            if trimmed == "#" {
+                comment_lines.push("".to_string());
+            } else {
+                let mut cleaned_line = line[1..].to_string();
+                if cleaned_line.starts_with(' ') {
+                    cleaned_line = cleaned_line[1..].trim_end().to_string();
+                }
+                comment_lines.push(cleaned_line);
+            }
+            continue;
+        }
+
+        // When we hit a non-comment line, trim empty lines from start and end
+        if !trimmed.starts_with('#') && !comment_lines.is_empty() {
+            // Trim empty lines from start
+            while comment_lines.first().map_or(false, |line| line.is_empty()) {
+                comment_lines.remove(0);
+            }
+            // Trim empty lines from end
+            while comment_lines.last().map_or(false, |line| line.is_empty()) {
+                comment_lines.pop();
+            }
+        }
+
+        // Handle multiline mode
+        if is_in_multiline {
+            current_multiline_value.push(line.to_string());
+
+            if trimmed.ends_with("\"") {
+                // Check if quote is escaped
+                let is_escaped = trimmed.ends_with("\\\"");
+
+                if !is_escaped {
+                    is_in_multiline = false;
+                    if let Some((name, description)) = pending_secret.take() {
+                        let full_value = current_multiline_value
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, line)| {
+                                if idx == 0 && line.trim() == "\"" {
+                                    "\"".to_string()
+                                } else {
+                                    line.to_string()
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+
+                        let clean_value = clean_surrounding_quotes(&full_value);
+                        let unescaped_value = unescape_value_from_dotenv(&clean_value);
+
+                        secrets.push(Secret {
+                            name,
+                            value: unescaped_value,
+                            description,
+                        });
+                        current_multiline_value.clear();
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Process new secrets only when not in multiline mode
+        if !trimmed.is_empty() {
+            if let Some(equal_sign_idx) = line.find('=') {
+                let (name_part, value_part) = line.split_at(equal_sign_idx);
+                let value_part = &value_part[1..]; // Skip the '=' character
+
+                let name = name_part.trim().to_string();
+
+                // Join multiline comments if they exist
+                let description = if !comment_lines.is_empty() {
+                    let desc = comment_lines.join("\n");
+                    comment_lines.clear();
+                    Some(desc)
+                } else {
+                    None
+                };
+
+                let trimmed_value = value_part.trim();
+                if trimmed_value.starts_with("\"") {
+                    let ends_with_quote = trimmed_value.ends_with("\"");
+                    let is_escaped = trimmed_value.ends_with("\\\"");
+
+                    if !ends_with_quote || is_escaped || trimmed_value == "\"" {
+                        is_in_multiline = true;
+                        current_multiline_value = vec![value_part.to_string()];
+                        pending_secret = Some((name, description));
+                    } else {
+                        // Single line value
+                        let cleaned_value = clean_surrounding_quotes(value_part);
+                        let unescaped_value = unescape_value_from_dotenv(&cleaned_value);
+
+                        secrets.push(Secret {
+                            name,
+                            value: unescaped_value,
+                            description,
+                        });
+                    }
+                } else {
+                    // Single line value without quotes
+                    let cleaned_value = clean_surrounding_quotes(value_part);
+                    let unescaped_value = unescape_value_from_dotenv(&cleaned_value);
+
+                    secrets.push(Secret {
+                        name,
+                        value: unescaped_value,
+                        description,
+                    });
+                }
+            }
+        } else {
+            // Clear comment lines if we hit an empty line
+            comment_lines.clear();
+        }
+    }
+
+    // Handle any remaining multiline value
+    if is_in_multiline {
+        if let Some((name, description)) = pending_secret {
+            let full_value = current_multiline_value.join("\n");
+            let clean_value = clean_surrounding_quotes(&full_value);
+            let unescaped_value = unescape_value_from_dotenv(&clean_value);
+
+            secrets.push(Secret {
+                name,
+                value: unescaped_value,
+                description,
+            });
+        }
+    }
+
+    Ok(secrets)
+}
+
+// Helper functions
+fn clean_surrounding_quotes(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with("\"") && trimmed.ends_with("\"") {
+        trimmed[1..trimmed.len() - 1].to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn unescape_value_from_dotenv(value: &str) -> String {
+    value
+        .replace("\\\"", "\"")
+        .replace("\\n", "\n")
+        .replace("\\r", "\r")
+        .replace("\\t", "\t")
+}
+
+pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
+    // First pass: collect comments/descriptions
+    let lines: Vec<&str> = content.trim().split('\n').collect();
+    let mut descriptions: HashMap<String, String> = HashMap::new();
+    let mut comment_lines: Vec<String> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        let leading_spaces = line.chars().take_while(|c| c.is_whitespace()).count();
+
+        if trimmed.starts_with('#') {
+            // For comments, preserve indentation after the first space
+            let comment_content = if let Some(first_hash) = line.find('#') {
+                let after_hash = &line[first_hash + 1..];
+                if let Some(first_non_hash) = after_hash.find(|c| c != '#') {
+                    let mut cleaned_line = &after_hash[first_non_hash..];
+                    if cleaned_line.starts_with(' ') {
+                        cleaned_line = cleaned_line[1..].trim_end();
+                    }
+                    cleaned_line
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            };
+
+            // Only consider comments that are not indented
+            if leading_spaces < 2 {
+                // Skip empty comments if they would be first or last
+                if !comment_content.is_empty()
+                    || (!comment_lines.is_empty()
+                        && i + 1 < lines.len()
+                        && lines[i + 1].trim().starts_with('#'))
+                {
+                    comment_lines.push(comment_content.to_owned());
+                }
+            }
+            continue;
+        }
+
+        if !trimmed.is_empty() && trimmed.contains(':') {
+            if let Some(key) = trimmed.split(':').next() {
+                if !comment_lines.is_empty() {
+                    // Trim empty comments from start and end
+                    let mut start = 0;
+                    let mut end = comment_lines.len();
+
+                    while start < end && comment_lines[start].trim().is_empty() {
+                        start += 1;
+                    }
+                    while end > start && comment_lines[end - 1].trim().is_empty() {
+                        end -= 1;
+                    }
+
+                    let filtered_comments = &comment_lines[start..end];
+                    if !filtered_comments.is_empty() {
+                        descriptions
+                            .insert(key.trim().to_uppercase(), filtered_comments.join("\n"));
+                    }
+                    comment_lines.clear();
+                }
+            }
+        } else {
+            // Clear comment lines if we hit an empty line
+            comment_lines.clear();
+        }
+    }
+
+    // Second pass: parse YAML with serde_yaml
+    let yaml: serde_yaml::Value = serde_yaml::from_str(content)?;
+
+    match yaml {
+        serde_yaml::Value::Mapping(map) => {
+            let secrets = map
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    let key = k.as_str()?.to_string();
+                    let formatted_name = key
+                        .to_uppercase()
+                        .replace(|c: char| !c.is_alphanumeric(), "_");
+
+                    let value = match v {
+                        serde_yaml::Value::String(s) => Some(s),
+                        serde_yaml::Value::Null => Some(String::new()),
+                        serde_yaml::Value::Number(n) => Some(n.to_string()),
+                        serde_yaml::Value::Bool(b) => Some(b.to_string()),
+                        // Handle multiline strings (block style)
+                        serde_yaml::Value::Mapping(m)
+                            if m.contains_key(&serde_yaml::Value::String("|\n".to_string())) =>
+                        {
+                            m.get(&serde_yaml::Value::String("|\n".to_string()))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        }
+                        _ => None,
+                    }?;
+
+                    Some(Secret {
+                        name: formatted_name.clone(),
+                        value,
+                        description: descriptions.remove(&formatted_name),
+                    })
+                })
+                .collect::<Vec<Secret>>();
+
+            Ok(secrets)
+        }
+        _ => bail!("YAML content must be a mapping of key-value pairs"),
+    }
+}
+
+// pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
+//     let lines: Vec<&str> = content.trim().split('\n').collect();
+//     let mut secrets: Vec<Secret> = Vec::new();
+//     let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
+
+//     let mut current_multiline_value: Vec<String> = Vec::new();
+//     let mut is_in_multiline = false;
+//     let mut pending_secret: Option<(String, Option<String>)> = None;
+//     let mut last_indent: Option<usize> = None;
+
+//     for (index, line) in lines.iter().enumerate() {
+//         // Count leading spaces for indentation
+//         let leading_spaces = line.chars().take_while(|c| c.is_whitespace()).count();
+//         let trimmed = line.trim();
+
+//         // Skip empty lines and comments
+//         if trimmed.is_empty() || trimmed.starts_with('#') {
+//             continue;
+//         }
+
+//         if is_in_multiline {
+//             // Check if we're still in the indented block by comparing indentation
+//             if let Some(indent) = last_indent {
+//                 if leading_spaces >= indent {
+//                     // Still in multiline block, collect the line
+//                     current_multiline_value.push(trimmed.to_string());
+//                     continue;
+//                 } else {
+//                     // Indentation decreased, end of multiline block
+//                     is_in_multiline = false;
+//                     if let Some((name, description)) = pending_secret.take() {
+//                         secrets.push(Secret {
+//                             name,
+//                             value: current_multiline_value.join("\n"),
+//                             description,
+//                         });
+//                     }
+//                     current_multiline_value.clear();
+//                     last_indent = None;
+//                 }
+//             }
+//         }
+
+//         // Process new secret
+//         if let Some((name_part, value_part)) = line.split_once(':') {
+//             let formatted_name = regex
+//                 .replace_all(&name_part.trim().to_uppercase(), "_")
+//                 .trim()
+//                 .to_owned();
+
+//             // Get description from previous line if it's a comment
+//             let description = if index > 0 {
+//                 let prev_line = lines[index - 1].trim();
+//                 if prev_line.starts_with('#') {
+//                     Some(prev_line.replace('#', "").trim().to_owned())
+//                 } else {
+//                     None
+//                 }
+//             } else {
+//                 None
+//             };
+
+//             let trimmed_value = value_part.trim();
+
+//             // Check if this starts a multiline value
+//             if trimmed_value == "|" {
+//                 is_in_multiline = true;
+//                 current_multiline_value.clear();
+//                 pending_secret = Some((formatted_name, description));
+
+//                 // Store the indentation level for the multiline block
+//                 if index + 1 < lines.len() {
+//                     let next_line = lines[index + 1];
+//                     last_indent = Some(next_line.chars().take_while(|c| c.is_whitespace()).count());
+//                 }
+//             } else {
+//                 // Single line value
+//                 secrets.push(Secret {
+//                     name: formatted_name,
+//                     value: trimmed_value.to_owned(),
+//                     description,
+//                 });
+//             }
+//         }
+//     }
+
+//     // Handle any remaining multiline value at the end of file
+//     if is_in_multiline && !current_multiline_value.is_empty() {
+//         if let Some((name, description)) = pending_secret {
+//             secrets.push(Secret {
+//                 name,
+//                 value: current_multiline_value.join("\n"),
+//                 description,
+//             });
+//         }
+//     }
+
+//     Ok(secrets)
+// }
 
 // file must exist
 pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Secret>> {
