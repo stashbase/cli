@@ -36,7 +36,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 
                 // is last
                 if i == secrets.len() - 1 {
-                    if p.description.is_some() || is_multiline {
+                    if !prev_has_description && (p.description.is_some() || is_multiline) {
                         text_to_print.push_str(&format!("\n{}", p))
                     } else {
                         text_to_print.push_str(&format!("{}", p))
