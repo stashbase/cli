@@ -484,7 +484,11 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
             let comment_content = if let Some(first_hash) = line.find('#') {
                 let after_hash = &line[first_hash + 1..];
                 if let Some(first_non_hash) = after_hash.find(|c| c != '#') {
-                    &after_hash[first_non_hash..]
+                    let mut cleaned_line = &after_hash[first_non_hash..];
+                    if cleaned_line.starts_with(' ') {
+                        cleaned_line = cleaned_line[1..].trim_end();
+                    }
+                    cleaned_line
                 } else {
                     ""
                 }
@@ -494,9 +498,8 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
             // Only consider comments that are not indented
             if leading_spaces < 2 {
-                let trimmed_comment = comment_content.trim();
                 // Skip empty comments if they would be first or last
-                if !trimmed_comment.is_empty()
+                if !comment_content.is_empty()
                     || (!comment_lines.is_empty()
                         && i + 1 < lines.len()
                         && lines[i + 1].trim().starts_with('#'))
