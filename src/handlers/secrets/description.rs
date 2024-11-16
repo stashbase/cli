@@ -6,6 +6,7 @@ use crate::{
     api::secrets,
     models::{api_client::RequestApiOptionResponse, secrets::UpdateSecretDescriptionPayload},
     utils::{
+        secrets::format_secret_description,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_name},
     },
@@ -34,8 +35,15 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
         bail!(e);
     }
 
+    let formatted_description = match description.is_empty() {
+        true => "".to_string(),
+        false => format_secret_description(&description, true),
+    };
+
     // ok
-    let payload = UpdateSecretDescriptionPayload { description };
+    let payload = UpdateSecretDescriptionPayload {
+        description: formatted_description,
+    };
 
     let mut spinner = request_spinner();
 
