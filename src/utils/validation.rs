@@ -15,6 +15,9 @@ use crate::models::{
 
 use super::secrets;
 
+// 512 is max length for description after formatting
+pub const SECRET_DESCRIPTION_MAX_LENGTH: usize = 512;
+
 pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
 }
@@ -351,6 +354,15 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
             multiple: true,
         });
 
+        bail!(err)
+    }
+
+    Ok(())
+}
+
+pub fn validate_secret_description(formatted_description: &str) -> Result<()> {
+    if formatted_description.len() > SECRET_DESCRIPTION_MAX_LENGTH {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
         bail!(err)
     }
 
