@@ -367,15 +367,10 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                         let clean_value = clean_surrounding_quotes(&full_value);
                         let unescaped_value = unescape_value_from_dotenv(&clean_value);
 
-                        let formatted_description = match description {
-                            Some(d) => Some(format_secret_description(&d, false)),
-                            None => None,
-                        };
-
                         secrets.push(Secret {
                             name,
                             value: unescaped_value,
-                            description: formatted_description,
+                            description,
                         });
                         current_multiline_value.clear();
                     }
@@ -397,8 +392,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                     let desc = comment_lines.join("\n");
                     comment_lines.clear();
 
-                    let formatted_description = format_secret_description(&desc, false);
-                    Some(formatted_description)
+                    Some(desc)
                 } else {
                     None
                 };
@@ -448,15 +442,10 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
             let clean_value = clean_surrounding_quotes(&full_value);
             let unescaped_value = unescape_value_from_dotenv(&clean_value);
 
-            let formatted_description = match description {
-                Some(d) => Some(format_secret_description(&d, false)),
-                None => None,
-            };
-
             secrets.push(Secret {
                 name,
                 value: unescaped_value,
-                description: formatted_description,
+                description,
             });
         }
     }
@@ -579,15 +568,10 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                         _ => None,
                     }?;
 
-                    let formatted_description = match descriptions.remove(&formatted_name) {
-                        None => None,
-                        Some(d) => Some(format_secret_description(&d, false)),
-                    };
-
                     Some(Secret {
                         name: formatted_name.clone(),
                         value,
-                        description: formatted_description,
+                        description: descriptions.remove(&formatted_name),
                     })
                 })
                 .collect::<Vec<Secret>>();
