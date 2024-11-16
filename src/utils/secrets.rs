@@ -826,3 +826,15 @@ pub fn expand_secret_references(secrets: &mut Vec<Secret>) {
         }
     }
 }
+
+// Helper function to remove newlines from start and end of string
+pub fn remove_outer_newlines(s: &str) -> String {
+    s.trim_start_matches('\n')
+        .trim_end_matches('\n')
+        .to_string()
+}
+
+pub fn format_secret_description(description: &str) -> String {
+    let trimmed_lines: Vec<&str> = description.lines().map(str::trim_end).collect();
+    remove_outer_newlines(&trimmed_lines.join("\n"))
+}
