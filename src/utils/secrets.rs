@@ -367,10 +367,15 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                         let clean_value = clean_surrounding_quotes(&full_value);
                         let unescaped_value = unescape_value_from_dotenv(&clean_value);
 
+                        let formatted_description = match description {
+                            Some(d) => Some(format_secret_description(&d, false)),
+                            None => None,
+                        };
+
                         secrets.push(Secret {
                             name,
                             value: unescaped_value,
-                            description,
+                            description: formatted_description,
                         });
                         current_multiline_value.clear();
                     }
@@ -391,7 +396,9 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 let description = if !comment_lines.is_empty() {
                     let desc = comment_lines.join("\n");
                     comment_lines.clear();
-                    Some(desc)
+
+                    let formatted_description = format_secret_description(&desc, false);
+                    Some(formatted_description)
                 } else {
                     None
                 };
@@ -441,10 +448,15 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
             let clean_value = clean_surrounding_quotes(&full_value);
             let unescaped_value = unescape_value_from_dotenv(&clean_value);
 
+            let formatted_description = match description {
+                Some(d) => Some(format_secret_description(&d, false)),
+                None => None,
+            };
+
             secrets.push(Secret {
                 name,
                 value: unescaped_value,
-                description,
+                description: formatted_description,
             });
         }
     }
@@ -567,10 +579,15 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                         _ => None,
                     }?;
 
+                    let formatted_description = match descriptions.remove(&formatted_name) {
+                        None => None,
+                        Some(d) => Some(format_secret_description(&d, false)),
+                    };
+
                     Some(Secret {
                         name: formatted_name.clone(),
                         value,
-                        description: descriptions.remove(&formatted_name),
+                        description: formatted_description,
                     })
                 })
                 .collect::<Vec<Secret>>();
@@ -828,13 +845,22 @@ pub fn expand_secret_references(secrets: &mut Vec<Secret>) {
 }
 
 // Helper function to remove newlines from start and end of string
-pub fn remove_outer_newlines(s: &str) -> String {
-    s.trim_start_matches('\n')
-        .trim_end_matches('\n')
-        .to_string()
+pub fn remove_str_outer_newlines(s: &str) -> String {
+    // First unescape any escaped newlines
+    let unescaped = s.replace("\\n", "\n");
+    let processed = unescaped.trim_start_matches('\n').trim_end_matches('\n');
+    // Re-escape newlines in the result
+    processed.replace("\n", "\\n")
 }
 
-pub fn format_secret_description(description: &str) -> String {
-    let trimmed_lines: Vec<&str> = description.lines().map(str::trim_end).collect();
-    remove_outer_newlines(&trimmed_lines.join("\n"))
+pub fn format_secret_description(description: &str, remove_outer_newlines: bool) -> String {
+    // First unescape any escaped newlines
+    let unescaped = description.replace("\\n", "\n");
+    let trimmed_lines: Vec<&str> = unescaped.lines().map(str::trim_end).collect();
+    let joined = trimmed_lines.join("\n");
+
+    match remove_outer_newlines {
+        true => remove_str_outer_newlines(&joined),
+        false => joined,
+    }
 }
