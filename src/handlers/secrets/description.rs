@@ -8,7 +8,10 @@ use crate::{
     utils::{
         secrets::format_secret_description,
         spinner::request_spinner,
-        validation::{validate_environment_name, validate_project_name, validate_secret_name},
+        validation::{
+            validate_environment_name, validate_project_name, validate_secret_description,
+            validate_secret_name,
+        },
     },
 };
 
@@ -39,6 +42,12 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
         true => "".to_string(),
         false => format_secret_description(&description, true),
     };
+
+    let description_validation_res = validate_secret_description(&formatted_description);
+
+    if let Err(err) = description_validation_res {
+        bail!(err);
+    }
 
     // ok
     let payload = UpdateSecretDescriptionPayload {
