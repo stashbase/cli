@@ -11,7 +11,9 @@ use crate::{
     },
     utils::{
         duplicates::find_duplicates,
-        interaction, separator,
+        interaction,
+        secrets::format_secret_description,
+        separator,
         spinner::request_spinner,
         validation::{validate_secret_names, validate_secrets_references},
     },
@@ -93,11 +95,18 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
             let description = description_pairs.iter().find(|d| d.0 == x.0);
 
             match description {
-                Some((_, d_value)) => Secret {
-                    name: x.0,
-                    value: x.1,
-                    description: Some(d_value.to_string()),
-                },
+                Some((_, d_value)) => {
+                    let formatted_description = match d_value.is_empty() {
+                        true => "".to_string(),
+                        false => format_secret_description(&d_value.to_string(), true),
+                    };
+
+                    Secret {
+                        name: x.0,
+                        value: x.1,
+                        description: Some(formatted_description),
+                    }
+                }
                 None => Secret {
                     name: x.0,
                     value: x.1,
@@ -106,6 +115,9 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
             }
         })
         .collect::<_>();
+
+    debug!("{:#?}", payload);
+    panic!();
 
     let references_validation = validate_secrets_references(&payload);
 
