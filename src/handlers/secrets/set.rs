@@ -11,9 +11,13 @@ use crate::{
     },
     utils::{
         duplicates::find_duplicates,
-        interaction, separator,
+        interaction,
+        secrets::format_secret_description,
+        separator,
         spinner::request_spinner,
-        validation::{validate_secret_names, validate_secrets_references},
+        validation::{
+            validate_secret_description, validate_secret_names, validate_secrets_references,
+        },
     },
 };
 
@@ -87,25 +91,40 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     // OK
     let description_pairs = description_pairs.unwrap();
 
-    let payload = name_value_pairs
-        .into_iter()
-        .map(|x| {
-            let description = description_pairs.iter().find(|d| d.0 == x.0);
+    let mut payload = Vec::new();
 
-            match description {
-                Some((_, d_value)) => Secret {
+    for x in name_value_pairs {
+        let description = description_pairs.iter().find(|d| d.0 == x.0);
+
+        let secret = match description {
+            Some((_, d_value)) => {
+                let formatted_description = match d_value.is_empty() {
+                    true => "".to_string(),
+                    false => format_secret_description(&d_value.to_string(), true),
+                };
+
+                let description_validation_res =
+                    validate_secret_description(&formatted_description);
+
+                if let Err(err) = description_validation_res {
+                    bail!(err);
+                }
+
+                Secret {
                     name: x.0,
                     value: x.1,
-                    description: Some(d_value.to_string()),
-                },
-                None => Secret {
-                    name: x.0,
-                    value: x.1,
-                    description: None,
-                },
+                    description: Some(formatted_description),
+                }
             }
-        })
-        .collect::<_>();
+            None => Secret {
+                name: x.0,
+                value: x.1,
+                description: None,
+            },
+        };
+
+        payload.push(secret);
+    }
 
     let references_validation = validate_secrets_references(&payload);
 
