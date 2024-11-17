@@ -1,6 +1,8 @@
 use core::fmt;
 use owo_colors::OwoColorize;
 
+use crate::utils::validation::SECRET_DESCRIPTION_MAX_LENGTH;
+
 #[derive(Debug)]
 pub enum InputValidationError {
     CmdArgs(CmdArgInputValidationError),
@@ -68,6 +70,7 @@ pub enum SecretsInputValidationError {
     DuplicateNewNames(Vec<String>),
     SelfReferences(Vec<String>),
     ReadFile(anyhow::Error),
+    DescriptionTooLong,
     // for search command
     SearchBothNameAndValue,
     SearchMissingNameOrValue,
@@ -315,7 +318,19 @@ impl fmt::Display for SecretsInputValidationError {
                 msg = message;
                 hint = Some("maximum length for secret name is 255 characters");
             }
+            SecretsInputValidationError::DescriptionTooLong => {
+                let msg = "secret description is too long";
 
+                let hint_str = format!(
+                    "maximum length for description is {} characters (after formatting)",
+                    SECRET_DESCRIPTION_MAX_LENGTH
+                );
+
+                writeln!(f, "{}", format!("- message: {}", msg))?;
+                write!(f, "{}", format!("- hint: {}", hint_str))?;
+
+                return Ok(());
+            }
             SecretsInputValidationError::SearchFormat => {
                 msg = "argument search is invalid";
                 hint = Some(
