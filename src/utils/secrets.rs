@@ -391,6 +391,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 let description = if !comment_lines.is_empty() {
                     let desc = comment_lines.join("\n");
                     comment_lines.clear();
+
                     Some(desc)
                 } else {
                     None
@@ -824,5 +825,26 @@ pub fn expand_secret_references(secrets: &mut Vec<Secret>) {
                 }
             }
         }
+    }
+}
+
+// Helper function to remove newlines from start and end of string
+pub fn remove_str_outer_newlines(s: &str) -> String {
+    // First unescape any escaped newlines
+    let unescaped = s.replace("\\n", "\n");
+    let processed = unescaped.trim_start_matches('\n').trim_end_matches('\n');
+    // Re-escape newlines in the result
+    processed.replace("\n", "\\n")
+}
+
+pub fn format_secret_description(description: &str, remove_outer_newlines: bool) -> String {
+    // First unescape any escaped newlines
+    let unescaped = description.replace("\\n", "\n");
+    let trimmed_lines: Vec<&str> = unescaped.lines().map(str::trim_end).collect();
+    let joined = trimmed_lines.join("\n");
+
+    match remove_outer_newlines {
+        true => remove_str_outer_newlines(&joined),
+        false => joined,
     }
 }
