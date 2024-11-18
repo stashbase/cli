@@ -16,7 +16,8 @@ use crate::{
         separator,
         spinner::request_spinner,
         validation::{
-            validate_secret_description, validate_secret_names, validate_secrets_references,
+            validate_secret_description, validate_secret_names, validate_secret_values,
+            validate_secrets_references,
         },
     },
 };
@@ -77,6 +78,13 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
             duplicate_names,
         ));
 
+        bail!(err);
+    }
+
+    let values: Vec<_> = name_value_pairs.iter().map(|kv| kv.1.to_string()).collect();
+    let values_valid = validate_secret_values(&values);
+
+    if let Err(err) = values_valid {
         bail!(err);
     }
 
