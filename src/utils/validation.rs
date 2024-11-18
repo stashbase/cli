@@ -196,6 +196,22 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_secret_values(values: &Vec<String>) -> Result<()> {
+    let too_long_value_secret_names: Vec<_> = values
+        .iter()
+        .filter(|value| value.len() > SECRET_VALUE_MAX_LENGTH)
+        .map(|v| v.to_string())
+        .collect();
+
+    if too_long_value_secret_names.len() > 0 {
+        let error_message = SecretsInputValidationError::ValuesTooLong(too_long_value_secret_names);
+        let err = InputValidationError::Secrets(error_message);
+        bail!(err);
+    }
+
+    Ok(())
+}
+
 // for warning
 // name, invalid referencs
 pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
