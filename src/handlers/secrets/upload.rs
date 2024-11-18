@@ -15,7 +15,10 @@ use crate::{
         interaction,
         secrets::{find_duplicate_names, read_secrets_from_file},
         spinner::request_spinner,
-        validation::{validate_project_environment, validate_secrets_references_with_existence},
+        validation::{
+            validate_project_environment, validate_secret_values,
+            validate_secrets_references_with_existence,
+        },
     },
 };
 
@@ -86,6 +89,13 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         ));
 
         bail!("{}", err);
+    }
+
+    let values: Vec<_> = secrets.iter().map(|s| s.value.to_string()).collect();
+    let values_valid = validate_secret_values(&values);
+
+    if let Err(err) = values_valid {
+        bail!(err);
     }
 
     let refs_validation = validate_secrets_references_with_existence(&secrets);
