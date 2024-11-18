@@ -17,7 +17,8 @@ use crate::{
         self, interaction,
         secrets::{find_duplicate_names, read_secrets_from_file},
         validation::{
-            validate_project_environment_identifier, validate_secrets_references_with_existence,
+            validate_project_environment_identifier, validate_secret_values,
+            validate_secrets_references_with_existence,
         },
     },
 };
@@ -237,6 +238,13 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         ));
 
         bail!("{}", err);
+    }
+
+    let values: Vec<_> = secrets.iter().map(|s| s.value.to_string()).collect();
+    let values_valid = validate_secret_values(&values);
+
+    if let Err(err) = values_valid {
+        bail!(err);
     }
 
     let refs_validation = validate_secrets_references_with_existence(&secrets);

@@ -1,7 +1,7 @@
 use core::fmt;
 use owo_colors::OwoColorize;
 
-use crate::utils::validation::SECRET_DESCRIPTION_MAX_LENGTH;
+use crate::utils::validation::{SECRET_DESCRIPTION_MAX_LENGTH, SECRET_VALUE_MAX_LENGTH};
 
 #[derive(Debug)]
 pub enum InputValidationError {
@@ -71,6 +71,8 @@ pub enum SecretsInputValidationError {
     SelfReferences(Vec<String>),
     ReadFile(anyhow::Error),
     DescriptionTooLong,
+    // names vec
+    ValuesTooLong(Vec<String>),
     // for search command
     SearchBothNameAndValue,
     SearchMissingNameOrValue,
@@ -395,6 +397,24 @@ impl fmt::Display for SecretsInputValidationError {
             SecretsInputValidationError::SearchValueEmpty => {
                 msg = "option 'value' is empty";
                 hint = Some("provide non-empty string value");
+            }
+            SecretsInputValidationError::ValuesTooLong(secret_names) => {
+                let names_str = secret_names.join(", ");
+                let msg = format!(
+                    "secret values are too long (max {} characters)",
+                    SECRET_VALUE_MAX_LENGTH
+                );
+
+                // let hint_str = format!(
+                //     "maximum length for secret value is {} characters",
+                //     SECRET_VALUE_MAX_LENGTH
+                // );
+
+                // writeln!(f, "{}", format!("- hint: {}", hint_str))?;
+                writeln!(f, "{}", format!("- message: {}", msg))?;
+                write!(f, "{}", format!("- secrets: {}", names_str))?;
+
+                return Ok(());
             }
         }
 
