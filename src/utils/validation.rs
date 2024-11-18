@@ -18,7 +18,7 @@ use super::secrets;
 // 512 is max length for description after formatting
 pub const SECRET_DESCRIPTION_MAX_LENGTH: usize = 512;
 // 4096 is max length for value after formatting
-pub const SECRET_VALUE_MAX_LENGTH: usize = 12;
+pub const SECRET_VALUE_MAX_LENGTH: usize = 4096;
 
 pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
