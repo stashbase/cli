@@ -17,6 +17,8 @@ use super::secrets;
 
 // 512 is max length for description after formatting
 pub const SECRET_DESCRIPTION_MAX_LENGTH: usize = 512;
+// 4096 is max length for value after formatting
+pub const SECRET_VALUE_MAX_LENGTH: usize = 4096;
 
 pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
@@ -190,6 +192,22 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
     //
     //     bail!(err)
     // }
+
+    Ok(())
+}
+
+pub fn validate_secret_values(values: &Vec<String>) -> Result<()> {
+    let too_long_value_secret_names: Vec<_> = values
+        .iter()
+        .filter(|value| value.len() > SECRET_VALUE_MAX_LENGTH)
+        .map(|v| v.to_string())
+        .collect();
+
+    if too_long_value_secret_names.len() > 0 {
+        let error_message = SecretsInputValidationError::ValuesTooLong(too_long_value_secret_names);
+        let err = InputValidationError::Secrets(error_message);
+        bail!(err);
+    }
 
     Ok(())
 }
