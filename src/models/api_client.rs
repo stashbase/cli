@@ -363,6 +363,12 @@ pub enum SecretsError {
 
     #[serde(rename = "conflict.self_referencing_secrets")]
     SelfReferencingSecretsConflict,
+
+    #[serde(rename = "validation.secret_description_too_long")]
+    SecretDescriptionTooLong,
+
+    #[serde(rename = "validation.secret_values_too_long")]
+    SecretValuesTooLong,
 }
 
 #[derive(Debug, Deserialize)]
@@ -715,6 +721,29 @@ impl From<ApiError> for CustomError {
                     };
 
                     return error;
+                }
+
+                SecretsError::SecretDescriptionTooLong => {
+                    let hint = api_error.message;
+
+                    return CustomError {
+                        message: format!("secret description is too long"),
+                        hint,
+                    };
+                }
+
+                SecretsError::SecretValuesTooLong => {
+                    let secrets = api_error.get_secrets_names_details();
+
+                    let hint = match secrets {
+                        Some(s) => Some(s.join(",")),
+                        None => None,
+                    };
+
+                    CustomError {
+                        message: format!("secret values are too long"),
+                        hint,
+                    }
                 }
             },
             ApiErrorEntity::EnvChangelog(e) => match e {
