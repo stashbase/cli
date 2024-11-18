@@ -5,6 +5,8 @@ use owo_colors::OwoColorize;
 use reqwest::{header::HeaderValue, StatusCode};
 use serde::Deserialize;
 
+use crate::utils::validation::SECRET_VALUE_MAX_LENGTH;
+
 #[derive(Debug)]
 pub struct RequestArgs {
     pub api_key: String,
@@ -741,7 +743,10 @@ impl From<ApiError> for CustomError {
                     };
 
                     CustomError {
-                        message: format!("secret values are too long"),
+                        message: format!(
+                            "secret values are too long (max {} characters)",
+                            SECRET_VALUE_MAX_LENGTH
+                        ),
                         hint,
                     }
                 }

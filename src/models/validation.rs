@@ -400,15 +400,18 @@ impl fmt::Display for SecretsInputValidationError {
             }
             SecretsInputValidationError::ValuesTooLong(secret_names) => {
                 let names_str = secret_names.join(", ");
-                let msg = format!("secret values are too long",);
-
-                let hint_str = format!(
-                    "maximum length for secret value is {} characters",
+                let msg = format!(
+                    "secret values are too long (max {} characters)",
                     SECRET_VALUE_MAX_LENGTH
                 );
 
+                // let hint_str = format!(
+                //     "maximum length for secret value is {} characters",
+                //     SECRET_VALUE_MAX_LENGTH
+                // );
+
+                // writeln!(f, "{}", format!("- hint: {}", hint_str))?;
                 writeln!(f, "{}", format!("- message: {}", msg))?;
-                writeln!(f, "{}", format!("- hint: {}", hint_str))?;
                 write!(f, "{}", format!("- secrets: {}", names_str))?;
 
                 return Ok(());
