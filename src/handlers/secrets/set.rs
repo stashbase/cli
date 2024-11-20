@@ -6,19 +6,11 @@ use crate::{
     api::secrets,
     models::{
         api_client::RequestApiOptionResponse,
-        secrets::Secret,
-        validation::{InputValidationError, SecretsInputValidationError},
+        secrets::{Secret, ValidateSecrets},
     },
     utils::{
-        duplicates::find_duplicates,
-        interaction,
-        secrets::format_secret_description,
-        separator,
-        spinner::request_spinner,
-        validation::{
-            validate_secret_description, validate_secret_names, validate_secret_values,
-            validate_secrets_references,
-        },
+        interaction, secrets::format_secret_description, separator, spinner::request_spinner,
+        validation::validate_secret_description,
     },
 };
 
@@ -57,36 +49,6 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     }
 
     let name_value_pairs = name_value_pairs.unwrap();
-
-    // validate names
-    let names: Vec<_> = name_value_pairs
-        .iter()
-        .map(|kv| format!("{}", kv.0))
-        .collect();
-
-    let names_valid = validate_secret_names(&names);
-
-    if let Err(err) = names_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
-    }
-
-    let duplicate_names = find_duplicates(&names);
-
-    if !duplicate_names.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
-            duplicate_names,
-        ));
-
-        bail!(err);
-    }
-
-    let values: Vec<_> = name_value_pairs.iter().map(|kv| kv.1.to_string()).collect();
-    let values_valid = validate_secret_values(&values);
-
-    if let Err(err) = values_valid {
-        bail!(err);
-    }
 
     let description_pairs = separator::key_value(description);
     debug!("{:#?}", description_pairs);
@@ -134,25 +96,14 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         payload.push(secret);
     }
 
-    let references_validation = validate_secrets_references(&payload);
-
-    if !references_validation.self_referenced_secrets.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-            references_validation.self_referenced_secrets,
-        ));
+    if let Err(err) = payload.validate() {
         bail!(err);
-    } else if !references_validation.invalid_format_references.is_empty() {
-        let hint_str = references_validation
-            .invalid_format_references
-            .iter()
-            .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-            .collect::<Vec<_>>()
-            .join(", ");
+    }
 
-        eprintln!("{}", format!("{}", "Input warning").yellow());
+    let reference_warnings = payload.get_reference_warnings();
 
-        eprintln!("- message: invalid secret references format");
-        eprintln!("- secrets: {} \n", hint_str);
+    if !reference_warnings.is_empty() {
+        eprint!("{}", reference_warnings);
 
         let confirm = interaction::confirm_opt("Are you sure you want to continue?");
 
