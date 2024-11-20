@@ -5,7 +5,7 @@ use std::fmt::Display;
 use owo_colors::OwoColorize;
 use tabled::Tabled;
 
-use crate::cmd::config::SecretsOutputFormat;
+use crate::{cmd::config::SecretsOutputFormat, utils::validation::validate_secrets};
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
@@ -108,6 +108,16 @@ impl Display for Secret {
         // }
 
         Ok(())
+    }
+}
+
+pub trait ValidateSecrets {
+    fn validate(&self) -> anyhow::Result<()>;
+}
+
+impl ValidateSecrets for Vec<Secret> {
+    fn validate(&self) -> anyhow::Result<()> {
+        validate_secrets(self)
     }
 }
 
