@@ -183,13 +183,13 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 let mapped_err = match validation_err {
                     InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
                         multiple: _,
-                    }) => LoadEnvironmentInputValidationError::OnlyNameFormat,
+                    }) => LoadEnvironmentInputValidationError::OnlySecretNameFormat,
                     InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
                         multiple: _,
-                    }) => LoadEnvironmentInputValidationError::OnlyNameTooShort,
+                    }) => LoadEnvironmentInputValidationError::OnlySecretNameTooShort,
                     InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
                         multiple: _,
-                    }) => LoadEnvironmentInputValidationError::OnlyNameTooLong,
+                    }) => LoadEnvironmentInputValidationError::OnlySecretNameTooLong,
                     _ => unreachable!(),
                 };
 
@@ -207,13 +207,13 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 let mapped_err = match validation_err {
                     InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
                         multiple: _,
-                    }) => LoadEnvironmentInputValidationError::ExcludeNameFormat,
+                    }) => LoadEnvironmentInputValidationError::ExcludeSecretNameFormat,
                     InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
                         multiple: _,
-                    }) => LoadEnvironmentInputValidationError::ExcludeNameTooShort,
+                    }) => LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort,
                     InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
                         multiple: _,
-                    }) => LoadEnvironmentInputValidationError::ExcludeNameTooLong,
+                    }) => LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong,
                     _ => unreachable!(),
                 };
 

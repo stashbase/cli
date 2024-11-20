@@ -131,16 +131,16 @@ pub enum LoadEnvironmentInputValidationError {
     MissingProjectArg,
     MissingEnvArg,
     UseOfBothExcludeAndOnly,
-    OnlyNameFormat,
-    OnlyNameTooShort,
-    OnlyNameTooLong,
-    ExcludeNameFormat,
-    ExcludeNameTooShort,
-    ExcludeNameTooLong,
-    SetNameValueSeparator,
-    SetNameValueFormat,
-    SetNameTooShort,
-    SetNameTooLong,
+    OnlySecretNameFormat,
+    OnlySecretNameTooShort,
+    OnlySecretNameTooLong,
+    ExcludeSecretNameFormat,
+    ExcludeSecretNameTooShort,
+    ExcludeSecretNameTooLong,
+    SetSecretNameValueSeparator,
+    SetSecretNameValueFormat,
+    SetSecretNameTooShort,
+    SetSecretNameTooLong,
 }
 
 #[derive(Debug)]
@@ -587,27 +587,27 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "use of both --exclude and --only flag";
                 hint = Some("use only one of them");
             }
-            LoadEnvironmentInputValidationError::OnlyNameFormat => {
+            LoadEnvironmentInputValidationError::OnlySecretNameFormat => {
                 msg = "invalid only secret name";
                 hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
             }
-            LoadEnvironmentInputValidationError::OnlyNameTooShort => {
+            LoadEnvironmentInputValidationError::OnlySecretNameTooShort => {
                 msg = "only argument secret name his too short";
                 hint = Some("minimum length for secret name is 2 characters");
             }
-            LoadEnvironmentInputValidationError::OnlyNameTooLong => {
+            LoadEnvironmentInputValidationError::OnlySecretNameTooLong => {
                 msg = "only argument secret name is too long";
                 hint = Some("maximum length for secret name is 255 characters");
             }
-            LoadEnvironmentInputValidationError::ExcludeNameFormat => {
+            LoadEnvironmentInputValidationError::ExcludeSecretNameFormat => {
                 msg = "invalid exclude secret name";
                 hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
             }
-            LoadEnvironmentInputValidationError::ExcludeNameTooShort => {
+            LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort => {
                 msg = "exclude secret name is too short";
                 hint = Some("minimum length for secret name is 2 characters");
             }
-            LoadEnvironmentInputValidationError::ExcludeNameTooLong => {
+            LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong => {
                 msg = "exclude secret name is too long";
                 hint = Some("maximum length for secret name is 255 characters");
             }
@@ -623,21 +623,21 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "cannot use '--file' flag and '-p' or '-e' flag at the same time";
                 hint = None;
             }
-            LoadEnvironmentInputValidationError::SetNameValueSeparator => {
+            LoadEnvironmentInputValidationError::SetSecretNameValueSeparator => {
                 msg = "invalid set argument";
                 hint = Some("expected a name-value pair (separated by '=')");
             }
-            LoadEnvironmentInputValidationError::SetNameValueFormat => {
+            LoadEnvironmentInputValidationError::SetSecretNameValueFormat => {
                 msg = "invalid set secret name";
                 hint = Some(
                     "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
             }
-            LoadEnvironmentInputValidationError::SetNameTooShort => {
+            LoadEnvironmentInputValidationError::SetSecretNameTooShort => {
                 msg = "set secret name is too short";
                 hint = Some("minimum length for secret name is 2 characters");
             }
-            LoadEnvironmentInputValidationError::SetNameTooLong => {
+            LoadEnvironmentInputValidationError::SetSecretNameTooLong => {
                 msg = "set secret name is too long";
                 hint = Some("maximum length for secret name is 255 characters");
             }
