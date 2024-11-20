@@ -580,7 +580,7 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                             _ => unreachable!(),
                         };
 
-                        bail!(mapped_err);
+                        bail!(InputValidationError::LoadEnvironment(mapped_err));
                     } else {
                         // unreachable
                         bail!(err)
