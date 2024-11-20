@@ -22,6 +22,7 @@ use crate::{
         separator,
         tables::build::build_table,
         validation::{
+            map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
             map_secret_to_load_set_secrets_error, validate_project_environment,
             validate_project_environment_identifier, validate_secret_names,
         },
@@ -190,32 +191,29 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     if !only.is_empty() {
         let name_validation_res = validate_secret_names(&only);
 
-        if let Err(_) = name_validation_res {
-            let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::OnlySecretNameFormat,
-            );
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
 
-            if is_from_file {
-                eprintln!();
+                if is_from_file {
+                    eprintln!();
+                }
+
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
-
-            bail!(err);
         }
     }
 
     if !exclude.is_empty() {
         let name_validation_res = validate_secret_names(&exclude);
 
-        if let Err(_) = name_validation_res {
-            let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::ExcludeSecretNameFormat,
-            );
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
 
-            if is_from_file {
                 eprintln!();
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
-
-            bail!(err);
         }
     }
 
