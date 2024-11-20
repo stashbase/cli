@@ -1,13 +1,13 @@
-use owo_colors::OwoColorize;
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Result};
-use log::debug;
 use regex::Regex;
 use short_uuid::ShortUuid;
 
 use crate::models::{
-    secrets::Secret,
+    secrets::{
+        ReferencesValidation, ReferencesValidationWithExistence, Secret, SecretReferenceWarnings,
+    },
     validation::{
         EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
         ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
@@ -213,37 +213,6 @@ pub fn validate_secret_values(values: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
-// for warning
-// name, invalid referencs
-pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
-
-#[derive(Debug)]
-pub struct ReferencesValidation {
-    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
-    pub invalid_format_references: InvalidFormatReferences,
-}
-
-impl ReferencesValidation {
-    pub fn new(
-        self_referenced_secrets: Option<HashSet<String>>,
-        invalid_format_references: Option<InvalidFormatReferences>,
-    ) -> Self {
-        Self {
-            self_referenced_secrets: match self_referenced_secrets {
-                None => Vec::new(),
-                Some(r) => r.into_iter().collect(),
-            },
-            invalid_format_references: match invalid_format_references {
-                None => HashMap::new(),
-                Some(r) => r,
-            },
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.invalid_format_references.len() == 0 && self.self_referenced_secrets.len() == 0
-    }
-}
-
 // self reference = fatal error, invalid format = warning
 pub fn validate_secrets_references(
     // secrets: &Vec<(String, String)>,
@@ -282,32 +251,6 @@ pub fn validate_secrets_references(
     let validation_obj =
         ReferencesValidation::new(Some(self_referenced_secrets), Some(invalid_format_secrets));
     validation_obj
-}
-
-pub type NotFoundReferences = InvalidFormatReferences;
-
-#[derive(Debug)]
-pub struct ReferencesValidationWithExistence {
-    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
-    pub invalid_format: InvalidFormatReferences,
-    // NOTE: refering secrets that do not exist (within input)
-    // (names, reference)
-    pub not_found: NotFoundReferences,
-}
-
-impl ReferencesValidationWithExistence {
-    pub fn new() -> Self {
-        Self {
-            self_referenced_secrets: Vec::new(),
-            invalid_format: HashMap::new(),
-            not_found: NotFoundReferences::new(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.invalid_format.len() == 0
-            && self.self_referenced_secrets.len() == 0
-            && self.not_found.len() == 0
-    }
 }
 
 // self reference = fatal error, invalid format = warning
@@ -359,63 +302,6 @@ pub fn validate_secrets_references_with_existence(
     }
 
     validation_obj
-}
-
-pub struct SecretReferenceWarnings {
-    pub invalid_format: InvalidFormatReferences,
-    // NOTE: refering secrets that do not exist (within input)
-    // (names, reference)
-    pub not_found: NotFoundReferences,
-}
-
-impl SecretReferenceWarnings {
-    pub fn new() -> Self {
-        Self {
-            invalid_format: HashMap::new(),
-            not_found: NotFoundReferences::new(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.invalid_format.len() == 0 && self.not_found.len() == 0
-    }
-}
-
-impl std::fmt::Display for SecretReferenceWarnings {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if !self.invalid_format.is_empty() {
-            let hint_str = self
-                .invalid_format
-                .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
-
-            writeln!(f, "- message: invalid secret references format")?;
-            writeln!(f, "- secrets: {} \n", hint_str)?;
-        }
-
-        if !self.not_found.is_empty() {
-            let hint_str = self
-                .not_found
-                .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
-
-            writeln!(
-                f,
-                "- message: references to non-existent secrets (within input)"
-            )?;
-            writeln!(f, "- secrets: {} \n", hint_str)?;
-        }
-
-        Ok(())
-    }
 }
 
 pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceWarnings {
