@@ -195,7 +195,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     if only_set.is_empty() == false {
         // filter unwanted secrets
-        let names_vec = exclude_set.iter().cloned().collect::<Vec<_>>();
+        let names_vec = only_set.iter().cloned().collect::<Vec<_>>();
         let name_validation_res = validate_secret_names(&names_vec);
 
         if let Err(err) = name_validation_res {
