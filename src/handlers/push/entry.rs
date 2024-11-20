@@ -14,8 +14,12 @@ use crate::{
         },
     },
     utils::{
-        self, interaction, secrets::read_secrets_from_file,
-        validation::validate_project_environment_identifier,
+        self, interaction,
+        secrets::read_secrets_from_file,
+        validation::{
+            map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
+            validate_project_environment_identifier, validate_secret_names,
+        },
     },
 };
 use anyhow::{bail, Result};
@@ -191,11 +195,34 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     if only_set.is_empty() == false {
         // filter unwanted secrets
+        let names_vec = exclude_set.iter().cloned().collect::<Vec<_>>();
+        let name_validation_res = validate_secret_names(&names_vec);
+
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
+
+                eprintln!();
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
+            }
+        }
+
         secrets = secrets
             .into_iter()
             .filter(|secret| only_set.contains(&secret.name))
-            .collect();
-    } else if exclude_set.is_empty() == false {
+            .collect::<Vec<_>>();
+    } else if !exclude_set.is_empty() {
+        let names_vec = exclude_set.iter().cloned().collect::<Vec<_>>();
+        let name_validation_res = validate_secret_names(&names_vec);
+
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
+                eprintln!();
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
+            }
+        }
+
         secrets = secrets
             .into_iter()
             .filter(|secret| !exclude_set.contains(&secret.name))
