@@ -192,7 +192,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
         if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::OnlyNameFormat,
+                LoadEnvironmentInputValidationError::OnlySecretNameFormat,
             );
 
             if is_from_file {
@@ -208,7 +208,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
         if let Err(_) = name_validation_res {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::ExcludeNameFormat,
+                LoadEnvironmentInputValidationError::ExcludeSecretNameFormat,
             );
 
             if is_from_file {
@@ -570,19 +570,13 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                         let mapped_err = match validation_err {
                             InputValidationError::Secrets(
                                 SecretsInputValidationError::NameFormat { multiple: _ },
-                            ) => InputValidationError::LoadEnvironment(
-                                LoadEnvironmentInputValidationError::SetNameValueFormat,
-                            ),
+                            ) => LoadEnvironmentInputValidationError::SetSecretNameValueFormat,
                             InputValidationError::Secrets(
                                 SecretsInputValidationError::NameTooShort { multiple: _ },
-                            ) => InputValidationError::LoadEnvironment(
-                                LoadEnvironmentInputValidationError::SetNameTooShort,
-                            ),
+                            ) => LoadEnvironmentInputValidationError::SetSecretNameTooShort,
                             InputValidationError::Secrets(
                                 SecretsInputValidationError::NameTooLong { multiple: _ },
-                            ) => InputValidationError::LoadEnvironment(
-                                LoadEnvironmentInputValidationError::SetNameTooLong,
-                            ),
+                            ) => LoadEnvironmentInputValidationError::SetSecretNameTooLong,
                             _ => unreachable!(),
                         };
 
@@ -596,7 +590,7 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
         }
         Err(_) => {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::SetNameValueSeparator,
+                LoadEnvironmentInputValidationError::SetSecretNameValueSeparator,
             );
 
             bail!(err);
