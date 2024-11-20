@@ -20,13 +20,16 @@ use crate::{
         secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
-            PushPullInputValidationError, SecretsInputValidationError, YamlEnvConfigError,
+            PushPullInputValidationError,  YamlEnvConfigError,
         },
     },
     utils::{
         interaction::{self, select},
         secrets::format_secrets,
-        validation::{validate_project_environment_identifier, validate_secret_names},
+        validation::{
+            map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
+            validate_project_environment_identifier, validate_secret_names,
+        },
     },
 };
 
@@ -180,18 +183,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Err(err) = name_validation_res {
             if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = match validation_err {
-                    InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
-                        multiple: _,
-                    }) => LoadEnvironmentInputValidationError::OnlySecretNameFormat,
-                    InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
-                        multiple: _,
-                    }) => LoadEnvironmentInputValidationError::OnlySecretNameTooShort,
-                    InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
-                        multiple: _,
-                    }) => LoadEnvironmentInputValidationError::OnlySecretNameTooLong,
-                    _ => unreachable!(),
-                };
+                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
 
                 eprintln!();
                 bail!(InputValidationError::LoadEnvironment(mapped_err));
@@ -204,18 +196,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Err(err) = name_validation_res {
             if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = match validation_err {
-                    InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
-                        multiple: _,
-                    }) => LoadEnvironmentInputValidationError::ExcludeSecretNameFormat,
-                    InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
-                        multiple: _,
-                    }) => LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort,
-                    InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
-                        multiple: _,
-                    }) => LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong,
-                    _ => unreachable!(),
-                };
+                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
 
                 eprintln!();
                 bail!(InputValidationError::LoadEnvironment(mapped_err));
