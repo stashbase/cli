@@ -1,17 +1,14 @@
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
 use owo_colors::OwoColorize;
 use tabled::Tabled;
 
-use crate::{
-    cmd::config::SecretsOutputFormat,
-    utils::{
-        self,
-        validation::{validate_secrets, SecretReferenceWarnings},
-    },
-};
+use crate::{cmd::config::SecretsOutputFormat, utils};
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
@@ -459,5 +456,116 @@ impl From<WorkspaceSecretSearchedByValue> for WorkspaceSecretSearchedByValueTabl
             project: project_str,
             environments: environments_str,
         }
+    }
+}
+
+pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
+pub type NotFoundReferences = InvalidFormatReferences;
+
+pub struct SecretReferenceWarnings {
+    pub invalid_format: InvalidFormatReferences,
+    // NOTE: refering secrets that do not exist (within input)
+    // (names, reference)
+    pub not_found: NotFoundReferences,
+}
+
+impl SecretReferenceWarnings {
+    pub fn new() -> Self {
+        Self {
+            invalid_format: HashMap::new(),
+            not_found: NotFoundReferences::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format.len() == 0 && self.not_found.len() == 0
+    }
+}
+
+impl std::fmt::Display for SecretReferenceWarnings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.invalid_format.is_empty() {
+            let hint_str = self
+                .invalid_format
+                .iter()
+                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+
+            writeln!(f, "- message: invalid secret references format")?;
+            writeln!(f, "- secrets: {} \n", hint_str)?;
+        }
+
+        if !self.not_found.is_empty() {
+            let hint_str = self
+                .not_found
+                .iter()
+                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+
+            writeln!(
+                f,
+                "- message: references to non-existent secrets (within input)"
+            )?;
+            writeln!(f, "- secrets: {} \n", hint_str)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct ReferencesValidation {
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
+    pub invalid_format_references: InvalidFormatReferences,
+}
+
+impl ReferencesValidation {
+    pub fn new(
+        self_referenced_secrets: Option<HashSet<String>>,
+        invalid_format_references: Option<InvalidFormatReferences>,
+    ) -> Self {
+        Self {
+            self_referenced_secrets: match self_referenced_secrets {
+                None => Vec::new(),
+                Some(r) => r.into_iter().collect(),
+            },
+            invalid_format_references: match invalid_format_references {
+                None => HashMap::new(),
+                Some(r) => r,
+            },
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format_references.len() == 0 && self.self_referenced_secrets.len() == 0
+    }
+}
+
+#[derive(Debug)]
+pub struct ReferencesValidationWithExistence {
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
+    pub invalid_format: InvalidFormatReferences,
+    // NOTE: refering secrets that do not exist (within input)
+    // (names, reference)
+    pub not_found: NotFoundReferences,
+}
+
+impl ReferencesValidationWithExistence {
+    pub fn new() -> Self {
+        Self {
+            self_referenced_secrets: Vec::new(),
+            invalid_format: HashMap::new(),
+            not_found: NotFoundReferences::new(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format.len() == 0
+            && self.self_referenced_secrets.len() == 0
+            && self.not_found.len() == 0
     }
 }
