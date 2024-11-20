@@ -14,7 +14,7 @@ use crate::{
         secrets::SecretWithoutDescription,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
-            YamlEnvConfigError,
+            SecretsInputValidationError, YamlEnvConfigError,
         },
     },
     utils::{
@@ -565,12 +565,32 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                 Ok(_) => {
                     return Ok(name_value_pairs);
                 }
-                Err(_) => {
-                    let err = InputValidationError::LoadEnvironment(
-                        LoadEnvironmentInputValidationError::SetNameValueFormat,
-                    );
+                Err(err) => {
+                    if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                        let mapped_err = match validation_err {
+                            InputValidationError::Secrets(
+                                SecretsInputValidationError::NameFormat { multiple: _ },
+                            ) => InputValidationError::LoadEnvironment(
+                                LoadEnvironmentInputValidationError::SetNameValueFormat,
+                            ),
+                            InputValidationError::Secrets(
+                                SecretsInputValidationError::NameTooShort { multiple: _ },
+                            ) => InputValidationError::LoadEnvironment(
+                                LoadEnvironmentInputValidationError::SetNameTooShort,
+                            ),
+                            InputValidationError::Secrets(
+                                SecretsInputValidationError::NameTooLong { multiple: _ },
+                            ) => InputValidationError::LoadEnvironment(
+                                LoadEnvironmentInputValidationError::SetNameTooLong,
+                            ),
+                            _ => unreachable!(),
+                        };
 
-                    bail!(err);
+                        bail!(mapped_err);
+                    } else {
+                        // unreachable
+                        bail!(err)
+                    }
                 }
             }
         }
