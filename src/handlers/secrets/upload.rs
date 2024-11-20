@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 use anyhow::{bail, Result};
 use log::debug;
@@ -9,17 +9,10 @@ use crate::{
     cmd::secrets::SecretsFileFormat,
     models::{
         api_client::RequestApiOptionResponse,
+        secrets::{FormatSecrets, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{
-        interaction,
-        secrets::{find_duplicate_names, read_secrets_from_file},
-        spinner::request_spinner,
-        validation::{
-            validate_project_environment, validate_secret_values,
-            validate_secrets_references_with_existence,
-        },
-    },
+    utils::{interaction, secrets::read_secrets_from_file, spinner::request_spinner},
 };
 
 pub struct HandleUploadSecretsArgs {
@@ -72,7 +65,10 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         bail!(err);
     }
 
-    let secrets = secrets_res.unwrap();
+    let mut secrets = secrets_res.unwrap();
+
+    // format secrets for input
+    secrets.format();
 
     if secrets.is_empty() {
         let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found");
@@ -81,87 +77,15 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         return Ok(());
     }
 
-    let duplicate_names = find_duplicate_names(&secrets);
-
-    if !duplicate_names.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
-            duplicate_names,
-        ));
-
-        bail!("{}", err);
-    }
-
-    let values: Vec<_> = secrets.iter().map(|s| s.value.to_string()).collect();
-    let values_valid = validate_secret_values(&values);
-
-    if let Err(err) = values_valid {
+    // validate secrets
+    if let Err(err) = secrets.validate() {
         bail!(err);
     }
 
-    let refs_validation = validate_secrets_references_with_existence(&secrets);
+    let reference_warnings = secrets.get_reference_warnings();
 
-    if !refs_validation.self_referenced_secrets.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-            refs_validation.self_referenced_secrets,
-        ));
-        bail!(err);
-    } else if !refs_validation.invalid_format.is_empty() || !refs_validation.not_found.is_empty() {
-        let mut print_str = String::new();
-
-        if !refs_validation.invalid_format.is_empty() {
-            let hint_str = refs_validation
-                .invalid_format
-                .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            print_str.push_str(&format!("- message: invalid secret references format\n"));
-            print_str.push_str(&format!("- secrets: {} \n", hint_str));
-        }
-
-        if !refs_validation.not_found.is_empty() {
-            let hint_str = refs_validation
-                .not_found
-                .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            if !print_str.is_empty() {
-                print_str.push_str(&format!("\n"));
-            }
-
-            print_str.push_str(&format!(
-                "- message: referenced secrets not found within the file\n"
-            ));
-            print_str.push_str(&format!("- secret: {} \n", hint_str));
-        }
-
-        if !refs_validation.invalid_format.is_empty() && !refs_validation.not_found.is_empty() {
-            eprintln!("{}", format!("{}", "Input warnings").yellow());
-        } else {
-            eprintln!("{}", format!("{}", "Input warning").yellow());
-        }
-        eprintln!("{}\n", print_str);
-
-        // let hint_str = references_validation
-        //     .invalid_format_references
-        //     .iter()
-        //     .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-        //     .collect::<Vec<_>>()
-        //     .join(", ");
-        //
-        // eprintln!("{}", format!("{}", "Input warning").yellow());
-        //
-        // eprintln!("- message: invalid secret references");
-        // eprintln!("- secret: {} \n", hint_str);
-        //
-        // let confirm = interaction::confirm_opt("Are you sure you want to continue?");
-        //
-        // if confirm.is_none() || (confirm.unwrap() == false) {
-        //     return Ok(());
-        // }
+    if !reference_warnings.is_empty() {
+        eprint!("{}", reference_warnings);
     }
 
     let info = format!("Number of screts to upload: {}", secrets.len());
@@ -172,6 +96,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     if confirm.is_none() || (confirm.unwrap() == false) {
         return Ok(());
     }
+
     eprintln!();
 
     let mut spinner = request_spinner();
