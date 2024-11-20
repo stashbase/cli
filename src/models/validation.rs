@@ -138,7 +138,7 @@ pub enum LoadEnvironmentInputValidationError {
     ExcludeSecretNameTooShort,
     ExcludeSecretNameTooLong,
     SetSecretNameValueSeparator,
-    SetSecretNameValueFormat,
+    SetSecretNameFormat,
     SetSecretNameTooShort,
     SetSecretNameTooLong,
 }
@@ -627,7 +627,7 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "invalid set argument";
                 hint = Some("expected a name-value pair (separated by '=')");
             }
-            LoadEnvironmentInputValidationError::SetSecretNameValueFormat => {
+            LoadEnvironmentInputValidationError::SetSecretNameFormat => {
                 msg = "invalid set secret name";
                 hint = Some(
                     "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
