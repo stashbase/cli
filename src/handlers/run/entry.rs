@@ -22,8 +22,8 @@ use crate::{
         separator,
         tables::build::build_table,
         validation::{
-            validate_project_environment, validate_project_environment_identifier,
-            validate_secret_names,
+            map_secret_to_load_set_secrets_error, validate_project_environment,
+            validate_project_environment_identifier, validate_secret_names,
         },
     },
     SUBPROCESS_RUNNING,
@@ -567,19 +567,7 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                 }
                 Err(err) => {
                     if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                        let mapped_err = match validation_err {
-                            InputValidationError::Secrets(
-                                SecretsInputValidationError::NameFormat { multiple: _ },
-                            ) => LoadEnvironmentInputValidationError::SetSecretNameValueFormat,
-                            InputValidationError::Secrets(
-                                SecretsInputValidationError::NameTooShort { multiple: _ },
-                            ) => LoadEnvironmentInputValidationError::SetSecretNameTooShort,
-                            InputValidationError::Secrets(
-                                SecretsInputValidationError::NameTooLong { multiple: _ },
-                            ) => LoadEnvironmentInputValidationError::SetSecretNameTooLong,
-                            _ => unreachable!(),
-                        };
-
+                        let mapped_err = map_secret_to_load_set_secrets_error(validation_err);
                         bail!(InputValidationError::LoadEnvironment(mapped_err));
                     } else {
                         // unreachable
