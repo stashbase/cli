@@ -20,7 +20,7 @@ use crate::{
         secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
-            PushPullInputValidationError, YamlEnvConfigError,
+            PushPullInputValidationError, SecretsInputValidationError, YamlEnvConfigError,
         },
     },
     utils::{
@@ -178,26 +178,48 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     if !only.is_empty() {
         let name_validation_res = validate_secret_names(&only);
 
-        if let Err(_) = name_validation_res {
-            let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::OnlyNameFormat,
-            );
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = match validation_err {
+                    InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
+                        multiple: _,
+                    }) => LoadEnvironmentInputValidationError::OnlyNameFormat,
+                    InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
+                        multiple: _,
+                    }) => LoadEnvironmentInputValidationError::OnlyNameTooShort,
+                    InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
+                        multiple: _,
+                    }) => LoadEnvironmentInputValidationError::OnlyNameTooLong,
+                    _ => unreachable!(),
+                };
 
-            eprintln!();
-            bail!(err);
+                eprintln!();
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
+            }
         }
     }
 
     if !exclude.is_empty() {
         let name_validation_res = validate_secret_names(&exclude);
 
-        if let Err(_) = name_validation_res {
-            let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::ExcludeNameFormat,
-            );
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = match validation_err {
+                    InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
+                        multiple: _,
+                    }) => LoadEnvironmentInputValidationError::ExcludeNameFormat,
+                    InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
+                        multiple: _,
+                    }) => LoadEnvironmentInputValidationError::ExcludeNameTooShort,
+                    InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
+                        multiple: _,
+                    }) => LoadEnvironmentInputValidationError::ExcludeNameTooLong,
+                    _ => unreachable!(),
+                };
 
-            eprintln!();
-            bail!(err);
+                eprintln!();
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
+            }
         }
     }
 
