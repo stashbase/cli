@@ -10,7 +10,8 @@ use crate::models::{
     },
     validation::{
         EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
-        ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
+        LoadEnvironmentInputValidationError, ProjectInputValidationError,
+        SecretsInputValidationError, WebhookInputValidationError,
     },
 };
 
@@ -697,4 +698,85 @@ pub fn validate_webhook_description(description: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+// Maps secret validation errors to load environment exclude secrets errors.
+///
+/// # Arguments
+/// * `err` - The input validation error to map
+///
+/// # Panics
+/// Panics if the error is not a secret validation error or is an unexpected secret error type.
+pub fn map_secret_to_load_exclude_secrets_error(
+    err: &InputValidationError,
+) -> LoadEnvironmentInputValidationError {
+    match err {
+        InputValidationError::Secrets(secret_err) => match secret_err {
+            SecretsInputValidationError::NameFormat { .. } => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNameFormat
+            }
+            SecretsInputValidationError::NameTooShort { .. } => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort
+            }
+            SecretsInputValidationError::NameTooLong { .. } => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong
+            }
+            other => unreachable!("Unexpected secret validation error: {:?}", other),
+        },
+        other => unreachable!("Expected Secrets validation error, got: {:?}", other),
+    }
+}
+
+// Maps secret validation errors to load environment only secrets errors.
+///
+/// # Arguments
+/// * `err` - The input validation error to map
+///
+/// # Panics
+/// Panics if the error is not a secret validation error or is an unexpected secret error type.
+pub fn map_secret_to_load_only_secrets_error(
+    err: &InputValidationError,
+) -> LoadEnvironmentInputValidationError {
+    match err {
+        InputValidationError::Secrets(secret_err) => match secret_err {
+            SecretsInputValidationError::NameFormat { .. } => {
+                LoadEnvironmentInputValidationError::OnlySecretNameFormat
+            }
+            SecretsInputValidationError::NameTooShort { .. } => {
+                LoadEnvironmentInputValidationError::OnlySecretNameTooShort
+            }
+            SecretsInputValidationError::NameTooLong { .. } => {
+                LoadEnvironmentInputValidationError::OnlySecretNameTooLong
+            }
+            other => unreachable!("Unexpected secret validation error: {:?}", other),
+        },
+        other => unreachable!("Expected Secrets validation error, got: {:?}", other),
+    }
+}
+
+// Maps secret validation errors to load environment set secrets errors.
+///
+/// # Arguments
+/// * `err` - The input validation error to map
+///
+/// # Panics
+/// Panics if the error is not a secret validation error or is an unexpected secret error type.
+pub fn map_secret_to_load_set_secrets_error(
+    err: &InputValidationError,
+) -> LoadEnvironmentInputValidationError {
+    match err {
+        InputValidationError::Secrets(secret_err) => match secret_err {
+            SecretsInputValidationError::NameFormat { .. } => {
+                LoadEnvironmentInputValidationError::SetSecretNameFormat
+            }
+            SecretsInputValidationError::NameTooShort { .. } => {
+                LoadEnvironmentInputValidationError::SetSecretNameTooShort
+            }
+            SecretsInputValidationError::NameTooLong { .. } => {
+                LoadEnvironmentInputValidationError::SetSecretNameTooLong
+            }
+            other => unreachable!("Unexpected secret validation error: {:?}", other),
+        },
+        other => unreachable!("Expected Secrets validation error, got: {:?}", other),
+    }
 }
