@@ -14,7 +14,7 @@ use crate::models::{
     },
 };
 
-use super::secrets;
+use super::secrets::{self, format_secret_description};
 
 // 512 is max length for description after formatting
 pub const SECRET_DESCRIPTION_MAX_LENGTH: usize = 512;
@@ -470,6 +470,19 @@ pub fn validate_secret_description(formatted_description: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+// takes mutable reference of secrets
+pub fn format_secrets_input(secrets: &mut Vec<Secret>) {
+    for secret in secrets.iter_mut() {
+        if let Some(ref d) = secret.description {
+            secret.description = Some(if d.trim().is_empty() {
+                String::new()
+            } else {
+                format_secret_description(&d, true)
+            });
+        }
+    }
 }
 
 pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
