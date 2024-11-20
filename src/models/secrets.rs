@@ -122,6 +122,10 @@ pub trait ValidateSecrets {
     fn get_reference_warnings(&self) -> SecretReferenceWarnings;
 }
 
+pub trait FormatSecrets {
+    fn format(&mut self);
+}
+
 impl ValidateSecrets for Vec<Secret> {
     fn validate(&self) -> anyhow::Result<()> {
         utils::validation::validate_secrets(self)
@@ -129,6 +133,12 @@ impl ValidateSecrets for Vec<Secret> {
 
     fn get_reference_warnings(&self) -> SecretReferenceWarnings {
         utils::validation::get_secrets_reference_warnings(self)
+    }
+}
+
+impl FormatSecrets for Vec<Secret> {
+    fn format(&mut self) {
+        utils::validation::format_secrets_input(self);
     }
 }
 
