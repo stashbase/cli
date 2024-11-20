@@ -387,6 +387,90 @@ pub fn validate_secret_description(formatted_description: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
+    let mut invalid_names = Vec::new();
+    let mut self_references = Vec::new();
+    let mut description_too_long_secrets_names = Vec::new();
+    let mut value_too_long_secret_names = Vec::new();
+    let mut name_counts = HashMap::new();
+
+    // First pass: collect references to invalid secrets
+    for secret in secrets {
+        let name = &secret.name;
+
+        // Validate name format
+        if validate_secret_name(name).is_err() {
+            invalid_names.push(name);
+        }
+
+        // Check for self references
+        if secret.value.contains(&format!("${{{}}}", name)) {
+            self_references.push(name);
+        }
+
+        // Track name occurrences for duplicates
+        *name_counts.entry(name).or_insert(0) += 1;
+
+        // Check value length
+        if secret.value.len() > SECRET_VALUE_MAX_LENGTH {
+            value_too_long_secret_names.push(name);
+        }
+
+        // Check description length if present
+        if let Some(desc) = &secret.description {
+            if desc.len() > SECRET_DESCRIPTION_MAX_LENGTH {
+                description_too_long_secrets_names.push(name);
+            }
+        }
+    }
+
+    // Only clone strings when constructing the final error
+    if !invalid_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
+            multiple: invalid_names.len() > 1,
+        });
+        bail!(err);
+    }
+
+    // Find duplicates
+    let duplicate_names: Vec<_> = name_counts
+        .iter()
+        .filter(|(_, &count)| count > 1)
+        .map(|(name, _)| (*name).to_string())
+        .collect();
+
+    if !duplicate_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
+            duplicate_names,
+        ));
+        bail!(err);
+    }
+
+    if !value_too_long_secret_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::ValuesTooLong(
+            value_too_long_secret_names
+                .iter()
+                .map(|&s| s.to_string())
+                .collect(),
+        ));
+        bail!(err);
+    }
+
+    if !description_too_long_secrets_names.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
+        bail!(err);
+    }
+
+    if !self_references.is_empty() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
+            self_references.iter().map(|&s| s.to_string()).collect(),
+        ));
+        bail!(err);
+    }
+
+    Ok(())
+}
+
 pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
 
