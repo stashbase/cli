@@ -123,7 +123,7 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
     let starts_with_digit = value.chars().nth(0).unwrap_or(' ').is_ascii_digit();
 
     if !regex.is_match(value) || starts_with_digit {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(vec![
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesFormat(vec![
             value.to_string(),
         ]));
 
@@ -131,7 +131,7 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
     }
 
     if value.len() < SECRET_NAME_MIN_LENGTH {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort(vec![
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesTooShort(vec![
             value.to_string(),
         ]));
 
@@ -139,7 +139,7 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
     }
 
     if value.len() > SECRET_NAME_MAX_LENGTH {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong(vec![
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesTooLong(vec![
             value.to_string(),
         ]));
 
@@ -172,7 +172,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
 
     if invalid_format_names.len() > 0 {
         let invalid_format_names_vec = invalid_format_names.into_iter().collect();
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesFormat(
             invalid_format_names_vec,
         ));
 
@@ -181,7 +181,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
 
     if too_short_names.len() > 0 {
         let too_short_names_vec = too_short_names.into_iter().collect();
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesTooShort(
             too_short_names_vec,
         ));
 
@@ -190,7 +190,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
 
     if too_long_names.len() > 0 {
         let too_long_names_vec = too_long_names.into_iter().collect();
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesTooLong(
             too_long_names_vec,
         ));
 
@@ -360,7 +360,7 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
 
     if let Some((name, new_name)) = invalid {
         let vec = vec![name.clone(), new_name.clone()];
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(vec));
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesFormat(vec));
 
         bail!(err)
     }
@@ -425,7 +425,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
     // Only clone strings when constructing the final error
     if !invalid_names.is_empty() {
         let invalid_names_vec = invalid_names.into_iter().map(|s| s.to_string()).collect();
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NamesFormat(
             invalid_names_vec,
         ));
 
@@ -465,7 +465,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
             .map(|s| s.to_string())
             .collect();
 
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong(
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionsTooLong(
             description_too_long_secrets_names_vec,
         ));
         bail!(err);
@@ -739,14 +739,16 @@ pub fn map_secret_to_load_exclude_secrets_error(
 ) -> LoadEnvironmentInputValidationError {
     match err {
         InputValidationError::Secrets(secret_err) => match secret_err {
-            SecretsInputValidationError::NameFormat(secret_names) => {
-                LoadEnvironmentInputValidationError::ExcludeSecretNameFormat(secret_names.clone())
+            SecretsInputValidationError::NamesFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNamesFormat(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooShort(secret_names) => {
-                LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort(secret_names.clone())
+            SecretsInputValidationError::NamesTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNamesTooShort(
+                    secret_names.clone(),
+                )
             }
-            SecretsInputValidationError::NameTooLong(secret_names) => {
-                LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong(secret_names.clone())
+            SecretsInputValidationError::NamesTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNamesTooLong(secret_names.clone())
             }
             other => unreachable!("Unexpected secret validation error: {:?}", other),
         },
@@ -766,14 +768,14 @@ pub fn map_secret_to_load_only_secrets_error(
 ) -> LoadEnvironmentInputValidationError {
     match err {
         InputValidationError::Secrets(secret_err) => match secret_err {
-            SecretsInputValidationError::NameFormat(secret_names) => {
-                LoadEnvironmentInputValidationError::OnlySecretNameFormat(secret_names.clone())
+            SecretsInputValidationError::NamesFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNamesFormat(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooShort(secret_names) => {
-                LoadEnvironmentInputValidationError::OnlySecretNameTooShort(secret_names.clone())
+            SecretsInputValidationError::NamesTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNamesTooShort(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooLong(secret_names) => {
-                LoadEnvironmentInputValidationError::OnlySecretNameTooLong(secret_names.clone())
+            SecretsInputValidationError::NamesTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNamesTooLong(secret_names.clone())
             }
             other => unreachable!("Unexpected secret validation error: {:?}", other),
         },
@@ -793,14 +795,14 @@ pub fn map_secret_to_load_set_secrets_error(
 ) -> LoadEnvironmentInputValidationError {
     match err {
         InputValidationError::Secrets(secret_err) => match secret_err {
-            SecretsInputValidationError::NameFormat(secret_names) => {
-                LoadEnvironmentInputValidationError::SetSecretNameFormat(secret_names.clone())
+            SecretsInputValidationError::NamesFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNamesFormat(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooShort(secret_names) => {
-                LoadEnvironmentInputValidationError::SetSecretNameTooShort(secret_names.clone())
+            SecretsInputValidationError::NamesTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNamesTooShort(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooLong(secret_names) => {
-                LoadEnvironmentInputValidationError::SetSecretNameTooLong(secret_names.clone())
+            SecretsInputValidationError::NamesTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNamesTooLong(secret_names.clone())
             }
             other => unreachable!("Unexpected secret validation error: {:?}", other),
         },
