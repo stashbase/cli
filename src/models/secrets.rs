@@ -467,6 +467,8 @@ pub struct SecretReferenceWarnings {
     // NOTE: refering secrets that do not exist (within input)
     // (names, reference)
     pub not_found: NotFoundReferences,
+    // name of secrets that have empty references to other secrets (counts also whitespace)
+    pub empty_value: Vec<String>,
 }
 
 impl SecretReferenceWarnings {
@@ -474,11 +476,12 @@ impl SecretReferenceWarnings {
         Self {
             invalid_format: HashMap::new(),
             not_found: NotFoundReferences::new(),
+            empty_value: Vec::new(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.invalid_format.len() == 0 && self.not_found.len() == 0
+        self.invalid_format.len() == 0 && self.not_found.len() == 0 && self.empty_value.len() == 0
     }
 }
 
@@ -512,6 +515,20 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 f,
                 "- message: references to non-existent secrets (within input)"
             )?;
+            writeln!(f, "- secrets: {} \n", hint_str)?;
+        }
+
+        if !self.empty_value.is_empty() {
+            let hint_str = self
+                .empty_value
+                .iter()
+                .map(|s| format!("{}", s))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+
+            writeln!(f, "- message: empty references to other secrets")?;
             writeln!(f, "- secrets: {} \n", hint_str)?;
         }
 
