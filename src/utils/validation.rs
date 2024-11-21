@@ -156,7 +156,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
         values.into_iter().fold(
             (0, 0, 0),
             |(mut invalid_format_count, mut too_short_count, mut too_long_count), x| {
-                if !regex.is_match(x) || x.chars().nth(0).unwrap().is_ascii_digit() {
+                if !regex.is_match(x) || x.chars().nth(0).unwrap_or(' ').is_ascii_digit() {
                     invalid_format_count = invalid_format_count + 1;
                 } else if x.len() < SECRET_NAME_MIN_LENGTH {
                     too_short_count = too_short_count + 1;
