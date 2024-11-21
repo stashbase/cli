@@ -114,7 +114,7 @@ pub fn resource_name_has_id_format(resource: IdentifierResource, input: &str) ->
 // name of secret
 pub fn validate_secret_name(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
-    let starts_with_digit = value.chars().nth(0).unwrap().is_ascii_digit();
+    let starts_with_digit = value.chars().nth(0).unwrap_or(' ').is_ascii_digit();
 
     if !regex.is_match(value) || starts_with_digit {
         let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
