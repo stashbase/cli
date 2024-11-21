@@ -132,16 +132,16 @@ pub enum LoadEnvironmentInputValidationError {
     MissingProjectArg,
     MissingEnvArg,
     UseOfBothExcludeAndOnly,
-    OnlySecretNameFormat,
-    OnlySecretNameTooShort,
-    OnlySecretNameTooLong,
-    ExcludeSecretNameFormat,
-    ExcludeSecretNameTooShort,
-    ExcludeSecretNameTooLong,
+    OnlySecretNameFormat(Vec<String>),
+    OnlySecretNameTooShort(Vec<String>),
+    OnlySecretNameTooLong(Vec<String>),
+    ExcludeSecretNameFormat(Vec<String>),
+    ExcludeSecretNameTooShort(Vec<String>),
+    ExcludeSecretNameTooLong(Vec<String>),
     SetSecretNameValueSeparator,
-    SetSecretNameFormat,
-    SetSecretNameTooShort,
-    SetSecretNameTooLong,
+    SetSecretNameFormat(Vec<String>),
+    SetSecretNameTooShort(Vec<String>),
+    SetSecretNameTooLong(Vec<String>),
 }
 
 #[derive(Debug)]
@@ -573,35 +573,42 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg: &str;
         let hint: Option<&str>;
+        let mut secrets_names: Option<&Vec<String>> = None;
 
         match self {
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly => {
                 msg = "use of both --exclude and --only flag";
                 hint = Some("use only one of them");
             }
-            LoadEnvironmentInputValidationError::OnlySecretNameFormat => {
-                msg = "invalid only secret name";
+            LoadEnvironmentInputValidationError::OnlySecretNameFormat(names) => {
+                msg = "invalid only secret names";
                 hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
+                secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::OnlySecretNameTooShort => {
-                msg = "only argument secret name his too short";
+            LoadEnvironmentInputValidationError::OnlySecretNameTooShort(names) => {
+                msg = "only argument secret names are too short";
                 hint = Some("minimum length for secret name is 2 characters");
+                secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::OnlySecretNameTooLong => {
-                msg = "only argument secret name is too long";
+            LoadEnvironmentInputValidationError::OnlySecretNameTooLong(names) => {
+                msg = "only argument secret names are too long";
                 hint = Some("maximum length for secret name is 255 characters");
+                secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::ExcludeSecretNameFormat => {
-                msg = "invalid exclude secret name";
+            LoadEnvironmentInputValidationError::ExcludeSecretNameFormat(names) => {
+                msg = "invalid exclude secret names";
                 hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
+                secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort => {
-                msg = "exclude secret name is too short";
+            LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort(names) => {
+                msg = "exclude secret names are too short";
                 hint = Some("minimum length for secret name is 2 characters");
+                secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong => {
-                msg = "exclude secret name is too long";
+            LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong(names) => {
+                msg = "exclude secret names are too long";
                 hint = Some("maximum length for secret name is 255 characters");
+                secrets_names = Some(names);
             }
             LoadEnvironmentInputValidationError::MissingProjectArg => {
                 msg = "missing project argument";
@@ -619,27 +626,39 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "invalid set argument";
                 hint = Some("expected a name-value pair (separated by '=')");
             }
-            LoadEnvironmentInputValidationError::SetSecretNameFormat => {
-                msg = "invalid set secret name";
-                hint = Some(
-                    "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
-                );
+            LoadEnvironmentInputValidationError::SetSecretNameFormat(names) => {
+                msg = "invalid set secret names";
+                hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
+                secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::SetSecretNameTooShort => {
-                msg = "set secret name is too short";
+            LoadEnvironmentInputValidationError::SetSecretNameTooShort(names) => {
+                msg = "set secret names are too short";
                 hint = Some("minimum length for secret name is 2 characters");
+                secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::SetSecretNameTooLong => {
-                msg = "set secret name is too long";
+            LoadEnvironmentInputValidationError::SetSecretNameTooLong(names) => {
+                msg = "set secret names are too long";
                 hint = Some("maximum length for secret name is 255 characters");
+                secrets_names = Some(names);
             }
         }
 
+        writeln!(f, "{}", format!("- message: {}", msg))?;
+
         if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
-            write!(f, "{}", format!("- hint: {}", hint),)?;
-        } else {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            writeln!(f, "{}", format!("- hint: {}", hint))?;
+        }
+
+        if let Some(secrets_names) = secrets_names {
+            if !secrets_names.is_empty() {
+                let formatted_secrets = secrets_names
+                    .iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                write!(f, "- secrets: {}", formatted_secrets)?;
+            }
         }
 
         Ok(())
