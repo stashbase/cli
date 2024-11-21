@@ -368,14 +368,8 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
     Ok(())
 }
 
-pub fn validate_secret_description(formatted_description: &str) -> Result<()> {
-    if formatted_description.len() > SECRET_DESCRIPTION_MAX_LENGTH {
-        todo!();
-        // let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
-        // bail!(err)
-    }
-
-    Ok(())
+pub fn is_valid_secret_description(formatted_description: &str) -> bool {
+    formatted_description.len() <= SECRET_DESCRIPTION_MAX_LENGTH
 }
 
 // takes mutable reference of secrets
