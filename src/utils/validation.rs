@@ -314,7 +314,9 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
 
         for ref_ in all_unique_refs {
             if ref_.trim().is_empty() {
-                validation_obj.empty_value.push(secret.name.clone());
+                validation_obj
+                    .empty_value
+                    .insert_if_absent(secret.name.clone());
                 continue;
             }
 
@@ -332,11 +334,6 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
                     .push(ref_);
             }
         }
-    }
-
-    // remove duplicates from empty_value references
-    if !validation_obj.empty_value.is_empty() {
-        validation_obj.empty_value.dedup();
     }
 
     validation_obj

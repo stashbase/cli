@@ -1,4 +1,5 @@
 use clap::ValueEnum;
+use linked_hash_set::LinkedHashSet;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -468,7 +469,7 @@ pub struct SecretReferenceWarnings {
     // (names, reference)
     pub not_found: NotFoundReferences,
     // name of secrets that have empty references to other secrets (counts also whitespace)
-    pub empty_value: Vec<String>,
+    pub empty_value: LinkedHashSet<String>,
 }
 
 impl SecretReferenceWarnings {
@@ -476,7 +477,7 @@ impl SecretReferenceWarnings {
         Self {
             invalid_format: HashMap::new(),
             not_found: NotFoundReferences::new(),
-            empty_value: Vec::new(),
+            empty_value: LinkedHashSet::new(),
         }
     }
 
