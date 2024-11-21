@@ -302,26 +302,11 @@ impl fmt::Display for SecretsInputValidationError {
 
         match self {
             SecretsInputValidationError::NameFormat(names) => {
-                let msg = "invalid secret names";
-                let hint = Some(
+                msg = "invalid secret names";
+                hint = Some(
                     "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
-
-                writeln!(f, "{}", format!("- message: {}", msg),)?;
-
-                if let Some(hint) = hint {
-                    writeln!(f, "{}", format!("- hint: {}", hint),)?;
-                }
-
-                let formatted_secrets = names
-                    .iter()
-                    .map(|s| format!("\"{}\"", s))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                write!(f, "- values: {}", formatted_secrets)?;
-
-                return Ok(());
+                secrets_names = Some(names);
             }
             SecretsInputValidationError::NameTooShort(names) => {
                 msg = "secret names are too short";
@@ -357,16 +342,13 @@ impl fmt::Display for SecretsInputValidationError {
                 hint = Some("separate names of secrets to return with spaces");
             }
             SecretsInputValidationError::DuplicateNames(names) => {
-                let names_str = names.join(", ");
-
-                writeln!(f, "{}", format!("- message: {}", "found duplicate names"))?;
-                write!(f, "{}", format!("- duplicates: {}", names_str))?;
-
-                return Ok(());
+                msg = "found duplicate secret names";
+                hint = Some("secret names cannot be used more than once");
+                secrets_names = Some(names);
             }
             SecretsInputValidationError::DuplicateNewNames(names) => {
                 msg = "found duplicate new names";
-                hint = Some("use different new names");
+                hint = Some("new names cannot be used more than once");
                 secrets_names = Some(names);
             }
             SecretsInputValidationError::SelfReferences(names) => {
