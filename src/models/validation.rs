@@ -1,8 +1,6 @@
 use core::fmt;
 use owo_colors::OwoColorize;
 
-use crate::utils::validation::{SECRET_DESCRIPTION_MAX_LENGTH, SECRET_VALUE_MAX_LENGTH};
-
 #[derive(Debug)]
 pub enum InputValidationError {
     CmdArgs(CmdArgInputValidationError),
