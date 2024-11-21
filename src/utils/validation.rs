@@ -739,14 +739,14 @@ pub fn map_secret_to_load_exclude_secrets_error(
 ) -> LoadEnvironmentInputValidationError {
     match err {
         InputValidationError::Secrets(secret_err) => match secret_err {
-            SecretsInputValidationError::NameFormat { .. } => {
-                LoadEnvironmentInputValidationError::ExcludeSecretNameFormat
+            SecretsInputValidationError::NameFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNameFormat(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooShort { .. } => {
-                LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort
+            SecretsInputValidationError::NameTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooLong { .. } => {
-                LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong
+            SecretsInputValidationError::NameTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong(secret_names.clone())
             }
             other => unreachable!("Unexpected secret validation error: {:?}", other),
         },
@@ -766,14 +766,14 @@ pub fn map_secret_to_load_only_secrets_error(
 ) -> LoadEnvironmentInputValidationError {
     match err {
         InputValidationError::Secrets(secret_err) => match secret_err {
-            SecretsInputValidationError::NameFormat { .. } => {
-                LoadEnvironmentInputValidationError::OnlySecretNameFormat
+            SecretsInputValidationError::NameFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNameFormat(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooShort { .. } => {
-                LoadEnvironmentInputValidationError::OnlySecretNameTooShort
+            SecretsInputValidationError::NameTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNameTooShort(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooLong { .. } => {
-                LoadEnvironmentInputValidationError::OnlySecretNameTooLong
+            SecretsInputValidationError::NameTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNameTooLong(secret_names.clone())
             }
             other => unreachable!("Unexpected secret validation error: {:?}", other),
         },
@@ -793,14 +793,14 @@ pub fn map_secret_to_load_set_secrets_error(
 ) -> LoadEnvironmentInputValidationError {
     match err {
         InputValidationError::Secrets(secret_err) => match secret_err {
-            SecretsInputValidationError::NameFormat { .. } => {
-                LoadEnvironmentInputValidationError::SetSecretNameFormat
+            SecretsInputValidationError::NameFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNameFormat(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooShort { .. } => {
-                LoadEnvironmentInputValidationError::SetSecretNameTooShort
+            SecretsInputValidationError::NameTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNameTooShort(secret_names.clone())
             }
-            SecretsInputValidationError::NameTooLong { .. } => {
-                LoadEnvironmentInputValidationError::SetSecretNameTooLong
+            SecretsInputValidationError::NameTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNameTooLong(secret_names.clone())
             }
             other => unreachable!("Unexpected secret validation error: {:?}", other),
         },
