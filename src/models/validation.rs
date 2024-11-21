@@ -61,14 +61,14 @@ pub enum WebhookInputValidationError {
 #[derive(Debug)]
 pub enum SecretsInputValidationError {
     NoNames,
-    NameFormat(Vec<String>),
-    NameTooShort(Vec<String>),
-    NameTooLong(Vec<String>),
+    NamesFormat(Vec<String>),
+    NamesTooShort(Vec<String>),
+    NamesTooLong(Vec<String>),
     DuplicateNames(Vec<String>),
     DuplicateNewNames(Vec<String>),
     SelfReferences(Vec<String>),
     ReadFile(anyhow::Error),
-    DescriptionTooLong(Vec<String>),
+    DescriptionsTooLong(Vec<String>),
     SingleDescriptionTooLong,
     // names vec
     ValuesTooLong(Vec<String>),
@@ -130,16 +130,16 @@ pub enum LoadEnvironmentInputValidationError {
     MissingProjectArg,
     MissingEnvArg,
     UseOfBothExcludeAndOnly,
-    OnlySecretNameFormat(Vec<String>),
-    OnlySecretNameTooShort(Vec<String>),
-    OnlySecretNameTooLong(Vec<String>),
-    ExcludeSecretNameFormat(Vec<String>),
-    ExcludeSecretNameTooShort(Vec<String>),
-    ExcludeSecretNameTooLong(Vec<String>),
+    OnlySecretNamesFormat(Vec<String>),
+    OnlySecretNamesTooShort(Vec<String>),
+    OnlySecretNamesTooLong(Vec<String>),
+    ExcludeSecretNamesFormat(Vec<String>),
+    ExcludeSecretNamesTooShort(Vec<String>),
+    ExcludeSecretNamesTooLong(Vec<String>),
     SetSecretNameValueSeparator,
-    SetSecretNameFormat(Vec<String>),
-    SetSecretNameTooShort(Vec<String>),
-    SetSecretNameTooLong(Vec<String>),
+    SetSecretNamesFormat(Vec<String>),
+    SetSecretNamesTooShort(Vec<String>),
+    SetSecretNamesTooLong(Vec<String>),
 }
 
 #[derive(Debug)]
@@ -299,24 +299,24 @@ impl fmt::Display for SecretsInputValidationError {
         let mut secrets_names: Option<&Vec<String>> = None;
 
         match self {
-            SecretsInputValidationError::NameFormat(names) => {
+            SecretsInputValidationError::NamesFormat(names) => {
                 msg = "invalid secret names";
                 hint = Some(
                     "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
                 secrets_names = Some(names);
             }
-            SecretsInputValidationError::NameTooShort(names) => {
+            SecretsInputValidationError::NamesTooShort(names) => {
                 msg = "secret names are too short";
                 hint = Some("minimum length for secret name is 2 characters");
                 secrets_names = Some(names);
             }
-            SecretsInputValidationError::NameTooLong(names) => {
+            SecretsInputValidationError::NamesTooLong(names) => {
                 msg = "secret names are too long";
                 hint = Some("maximum length for secret name is 255 characters");
                 secrets_names = Some(names);
             }
-            SecretsInputValidationError::DescriptionTooLong(names) => {
+            SecretsInputValidationError::DescriptionsTooLong(names) => {
                 msg = "secret descriptions are too long";
                 hint = Some("maximum length for description is 512 characters (after formatting)");
                 secrets_names = Some(names);
@@ -560,32 +560,32 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "use of both --exclude and --only flag";
                 hint = Some("use only one of them");
             }
-            LoadEnvironmentInputValidationError::OnlySecretNameFormat(names) => {
+            LoadEnvironmentInputValidationError::OnlySecretNamesFormat(names) => {
                 msg = "invalid only secret names";
                 hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
                 secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::OnlySecretNameTooShort(names) => {
+            LoadEnvironmentInputValidationError::OnlySecretNamesTooShort(names) => {
                 msg = "only argument secret names are too short";
                 hint = Some("minimum length for secret name is 2 characters");
                 secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::OnlySecretNameTooLong(names) => {
+            LoadEnvironmentInputValidationError::OnlySecretNamesTooLong(names) => {
                 msg = "only argument secret names are too long";
                 hint = Some("maximum length for secret name is 255 characters");
                 secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::ExcludeSecretNameFormat(names) => {
+            LoadEnvironmentInputValidationError::ExcludeSecretNamesFormat(names) => {
                 msg = "invalid exclude secret names";
                 hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
                 secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::ExcludeSecretNameTooShort(names) => {
+            LoadEnvironmentInputValidationError::ExcludeSecretNamesTooShort(names) => {
                 msg = "exclude secret names are too short";
                 hint = Some("minimum length for secret name is 2 characters");
                 secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::ExcludeSecretNameTooLong(names) => {
+            LoadEnvironmentInputValidationError::ExcludeSecretNamesTooLong(names) => {
                 msg = "exclude secret names are too long";
                 hint = Some("maximum length for secret name is 255 characters");
                 secrets_names = Some(names);
@@ -606,17 +606,17 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                 msg = "invalid set argument";
                 hint = Some("expected a name-value pair (separated by '=')");
             }
-            LoadEnvironmentInputValidationError::SetSecretNameFormat(names) => {
+            LoadEnvironmentInputValidationError::SetSecretNamesFormat(names) => {
                 msg = "invalid set secret names";
                 hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
                 secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::SetSecretNameTooShort(names) => {
+            LoadEnvironmentInputValidationError::SetSecretNamesTooShort(names) => {
                 msg = "set secret names are too short";
                 hint = Some("minimum length for secret name is 2 characters");
                 secrets_names = Some(names);
             }
-            LoadEnvironmentInputValidationError::SetSecretNameTooLong(names) => {
+            LoadEnvironmentInputValidationError::SetSecretNamesTooLong(names) => {
                 msg = "set secret names are too long";
                 hint = Some("maximum length for secret name is 255 characters");
                 secrets_names = Some(names);
