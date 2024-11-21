@@ -4,12 +4,16 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
-    models::{api_client::RequestApiOptionResponse, secrets::UpdateSecretDescriptionPayload},
+    models::{
+        api_client::RequestApiOptionResponse,
+        secrets::UpdateSecretDescriptionPayload,
+        validation::{InputValidationError, SecretsInputValidationError},
+    },
     utils::{
         secrets::format_secret_description,
         spinner::request_spinner,
         validation::{
-            validate_environment_name, validate_project_name, validate_secret_description,
+            is_valid_secret_description, validate_environment_name, validate_project_name,
             validate_secret_name,
         },
     },
@@ -43,10 +47,13 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
         false => format_secret_description(&description, true),
     };
 
-    let description_validation_res = validate_secret_description(&formatted_description);
+    let is_valid = is_valid_secret_description(&formatted_description);
 
-    if let Err(err) = description_validation_res {
-        bail!(err);
+    if !is_valid {
+        let err =
+            InputValidationError::Secrets(SecretsInputValidationError::SingleDescriptionTooLong);
+
+        bail!(err)
     }
 
     // ok
