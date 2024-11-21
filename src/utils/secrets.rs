@@ -524,8 +524,7 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
                     let filtered_comments = &comment_lines[start..end];
                     if !filtered_comments.is_empty() {
-                        descriptions
-                            .insert(key.trim().to_uppercase(), filtered_comments.join("\n"));
+                        descriptions.insert(key.to_string(), filtered_comments.join("\n"));
                     }
                     comment_lines.clear();
                 }
@@ -545,9 +544,11 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let key = k.as_str()?.to_string();
-                    let formatted_name = key
-                        .to_uppercase()
-                        .replace(|c: char| !c.is_alphanumeric(), "_");
+                    let name = key;
+
+                    // let formatted_name = key
+                    //     .to_uppercase()
+                    //     .replace(|c: char| !c.is_alphanumeric(), "_");
 
                     let value = match v {
                         serde_yaml::Value::String(s) => Some(s),
@@ -566,9 +567,9 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                     }?;
 
                     Some(Secret {
-                        name: formatted_name.clone(),
+                        name: name.clone(),
                         value,
-                        description: descriptions.remove(&formatted_name),
+                        description: descriptions.remove(&name),
                     })
                 })
                 .collect::<Vec<Secret>>();
