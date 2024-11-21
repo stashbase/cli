@@ -413,6 +413,7 @@ dependencies = [
  "directories",
  "duct",
  "env_logger",
+ "linked-hash-map",
  "linked_hash_set",
  "log",
  "once_cell",
