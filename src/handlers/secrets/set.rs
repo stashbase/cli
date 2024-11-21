@@ -8,10 +8,7 @@ use crate::{
         api_client::RequestApiOptionResponse,
         secrets::{Secret, ValidateSecrets},
     },
-    utils::{
-        interaction, secrets::format_secret_description, separator, spinner::request_spinner,
-        validation::validate_secret_description,
-    },
+    utils::{interaction, secrets::format_secret_description, separator, spinner::request_spinner},
 };
 
 pub struct HandleSetSecretsArgs {
@@ -72,13 +69,6 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
                     true => "".to_string(),
                     false => format_secret_description(&d_value.to_string(), true),
                 };
-
-                let description_validation_res =
-                    validate_secret_description(&formatted_description);
-
-                if let Err(err) = description_validation_res {
-                    bail!(err);
-                }
 
                 Secret {
                     name: x.0,
