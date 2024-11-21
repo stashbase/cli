@@ -137,14 +137,14 @@ pub struct GetApiResponseOk {
 #[derive(Debug)]
 pub enum GetRequestApiResponse {
     Ok(GetApiResponseOk),
-    Err(CustomError),
+    Err(OutputError),
 }
 
 // NOTE: POST, PATCH, PUT
 #[derive(Debug)]
 pub enum RequestApiOptionResponse {
     Ok(OptionResponseOk),
-    Err(CustomError),
+    Err(OutputError),
 }
 
 #[derive(Debug)]
@@ -157,7 +157,7 @@ pub struct OptionResponseOk {
 #[derive(Debug)]
 pub enum DeleteRequestApiResponse {
     Ok(DeleteApiResponseOk),
-    Err(CustomError),
+    Err(OutputError),
 }
 
 pub type DeleteApiResponseOk = OptionResponseOk;
@@ -398,36 +398,62 @@ pub enum WebhookError {
 }
 
 #[derive(Debug)]
-pub struct CustomError {
+pub struct GenericOutputError {
     pub message: String,
     pub hint: Option<String>,
 }
 
-impl CustomError {
-    pub fn cannot_connect() -> CustomError {
-        Self {
+#[derive(Debug)]
+pub struct SecretsOutputError {
+    pub message: String,
+    pub hint: Option<String>,
+    pub secrets: Option<Vec<String>>,
+}
+
+#[derive(Debug)]
+pub enum OutputError {
+    Generic(GenericOutputError),
+    Secrets(SecretsOutputError),
+}
+
+impl OutputError {
+    pub fn cannot_connect() -> OutputError {
+        OutputError::Generic(GenericOutputError {
             message: "could not connect to the API".to_string(),
             hint: Some("please try again later".to_string()),
+        })
+    }
+
+    pub fn get_message(&self) -> &str {
+        match self {
+            OutputError::Generic(e) => &e.message,
+            OutputError::Secrets(e) => &e.message,
+        }
+    }
+
+    pub fn get_hint(&self) -> Option<&str> {
+        match self {
+            OutputError::Generic(e) => e.hint.as_deref(),
+            OutputError::Secrets(e) => e.hint.as_deref(),
         }
     }
 }
 
-impl From<ApiError> for CustomError {
+impl From<ApiError> for OutputError {
     fn from(api_error: ApiError) -> Self {
         match &api_error.code {
             ApiErrorEntity::Generic(e) => match e {
-                GenericError::InternalServerError => CustomError {
+                GenericError::InternalServerError => OutputError::Generic(GenericOutputError {
                     message: format!("internal server error"),
                     hint: Some(format!("please try again later")),
-                },
-                GenericError::Unauthorized => CustomError {
+                }),
+                GenericError::Unauthorized => OutputError::Generic(GenericOutputError {
                     message: format!("you are not authorized"),
                     hint: Some(format!("provide a valid api key")),
-                },
+                }),
                 GenericError::ExpiredApiKey => {
                     let expired_at = if let Some(d) = api_error.details {
                         let details = serde_json::from_value::<ExpiredApiKeyErrorDetails>(d);
-
                         match details {
                             Ok(details) => Some(details.expired_at),
                             Err(_) => None,
@@ -441,15 +467,14 @@ impl From<ApiError> for CustomError {
                         None => format!("current api key is expired"),
                     };
 
-                    CustomError {
+                    OutputError::Generic(GenericOutputError {
                         message,
                         hint: Some(format!("provide new api key and try again")),
-                    }
+                    })
                 }
                 GenericError::UnsupportedApiKey => {
                     let hint = if let Some(d) = api_error.details {
                         let details = serde_json::from_value::<UnsupportedApiKeyErrorDetails>(d);
-
                         match details {
                             Ok(details) => Some(format!(
                                 "supported api key types for this action: {}",
@@ -461,63 +486,54 @@ impl From<ApiError> for CustomError {
                         None
                     };
 
-                    CustomError {
+                    OutputError::Generic(GenericOutputError {
                         message: format!("current api key is not supported"),
                         hint,
-                    }
+                    })
                 }
                 GenericError::MissingPermission => {
                     let hint = if let Some(d) = api_error.details {
                         let details = serde_json::from_value::<MissingPermissionErrorDetails>(d);
-
                         match details {
                             Ok(details) => {
                                 if let Some(permissions) = details.required_permissions {
-                                    let msg = format!(
+                                    Some(format!(
                                         "required api key permissions to perform this action: {}",
                                         permissions.join(", ")
-                                    );
-                                    Some(msg)
+                                    ))
                                 } else if let Some(r) = details.user_workspace_role {
-                                    let msg = format!(
-                                            "allowed user workspace role to perform this action: {}, current role: {}",
-                                            r.allowed.join(", "), r.current
-                                        );
-                                    Some(msg)
+                                    Some(format!(
+                                        "allowed user workspace role to perform this action: {}, current role: {}",
+                                        r.allowed.join(", "), r.current
+                                    ))
                                 } else if let Some(r) = details.user_project_role {
-                                    let msg = format!(
-                                            "allowed project role to perform this action: {}, current role: {}",
-                                            r.allowed.join(", "), r.current
-                                        );
-                                    Some(msg)
+                                    Some(format!(
+                                        "allowed project role to perform this action: {}, current role: {}",
+                                        r.allowed.join(", "), r.current
+                                    ))
                                 } else {
                                     None
                                 }
                             }
-                            Err(e) => None,
+                            Err(_) => None,
                         }
                     } else {
                         None
                     };
 
-                    CustomError {
+                    OutputError::Generic(GenericOutputError {
                         message: format!("missing permission"),
-                        hint: match hint {
-                            Some(h) => Some(h),
-                            None => Some(format!(
-                                "current api key does not have permission to perform this action"
-                            )),
-                        },
-                    }
+                        hint: hint.or(Some(format!(
+                            "current api key does not have permission to perform this action"
+                        ))),
+                    })
                 }
                 GenericError::TooManyRequests => {
                     let hint = if let Some(d) = api_error.details {
                         let details = serde_json::from_value::<TooManyRequestsErrorDetails>(d);
-
                         match details {
                             Ok(d) => {
                                 let minutes = (d.retry_after.seconds as f64 / 60.0).ceil() as u32;
-
                                 match minutes == 1 {
                                     true => Some(format!("try again in {} minute", minutes)),
                                     false => Some(format!("try again in {} minutes", minutes)),
@@ -529,290 +545,88 @@ impl From<ApiError> for CustomError {
                         None
                     };
 
-                    CustomError {
+                    OutputError::Generic(GenericOutputError {
                         message: format!("too many requests"),
                         hint,
-                    }
+                    })
                 }
-            },
-            ApiErrorEntity::Project(e) => {
-                match e {
-                    ProjectError::InvalidName => CustomError {
-                        message: format!("Invalid name"),
-                        hint: None,
-                    },
-
-                    ProjectError::ProjectNotFound => CustomError {
-                        message: format!("project not found"),
-                        hint: None,
-                    },
-
-                    ProjectError::ProjectLimitReached => CustomError {
-                        message: format!("project limit reached"),
-                        hint: Some(format!(
-                            "workspace reached the maximum number of projects allowed"
-                        )),
-                    },
-                    ProjectError::ProjectAlreadyExists => CustomError {
-                        message: format!("project already exists"),
-                        hint: Some(format!("use a different name")),
-                    },
-                    // ProjectError::MissingPermission => CustomError {
-                    //     message: format!("missing permission"),
-                    //     hint: Some(format!("you do not have permission to perform this action")),
-                    // },
-                    ProjectError::MissingPermission => {
-                        let hint = if let Some(d) = api_error.details {
-                            let details =
-                                serde_json::from_value::<MissingPermissionErrorDetails>(d);
-
-                            match details {
-                                Ok(details) => {
-                                    if let Some(permissions) = details.required_permissions {
-                                        let msg = format!("required api key permissions to perform this action: {}", permissions.join(", "));
-                                        Some(msg)
-                                    } else if let Some(r) = details.user_workspace_role {
-                                        let msg = format!(
-                                            "allowed user workspace role to perform this action: {}, current role: {}",
-                                            r.allowed.join(", "), r.current
-                                        );
-                                        Some(msg)
-                                    } else if let Some(r) = details.user_project_role {
-                                        let msg = format!(
-                                            "allowed project role to perform this action: {}, current role: {}",
-                                            r.allowed.join(", "), r.current
-                                        );
-                                        Some(msg)
-                                    } else {
-                                        None
-                                    }
-                                }
-                                Err(e) => None,
-                            }
-                        } else {
-                            None
-                        };
-
-                        CustomError {
-                            message: format!("missing permission"),
-                            hint: match hint {
-                                Some(h) => Some(h),
-                                None => Some(format!(
-                                    "you do not have permission to perform this action"
-                                )),
-                            },
-                        }
-                    }
-                    ProjectError::NewNameEqualsOriginal => CustomError {
-                        message: format!("new project name equals original"),
-                        hint: Some(format!("use a different new name")),
-                    },
-                }
-            }
-            ApiErrorEntity::Environment(e) => match e {
-                EnvironmentError::EnvironmentLimitReached => CustomError {
-                    message: format!("environment limit reached"),
-                    hint: Some(format!(
-                        "project reached the maximum number of environments allowed"
-                    )),
-                },
-                EnvironmentError::ProjectNotFound => CustomError {
-                    message: format!("project not found"),
-                    hint: None,
-                },
-                EnvironmentError::EnvironmentNotFound => CustomError {
-                    message: format!("environment not found"),
-                    hint: None,
-                },
-
-                EnvironmentError::CompareToEnvironmentNotFound => CustomError {
-                    message: format!("environment not found (second environment)"),
-                    hint: None,
-                },
-                EnvironmentError::EnvironmentAlreadyExists => CustomError {
-                    message: format!("environment already exists"),
-                    hint: Some(format!("use a different name")),
-                },
-                EnvironmentError::EnvironmentAlreadyLocked => CustomError {
-                    message: format!("environment already locked"),
-                    hint: None,
-                },
-                EnvironmentError::EnvironmentAlreadyUnlocked => CustomError {
-                    message: format!("environment already unlocked"),
-                    hint: None,
-                },
-                EnvironmentError::CurrentEnvironmentType => CustomError {
-                    message: format!("current environment type"),
-                    hint: Some(format!("cannot update to same type")),
-                },
-                EnvironmentError::EnvironmentLocked => CustomError {
-                    message: format!("this environment is locked"),
-                    hint: Some(format!("unlock environment to perform this action")),
-                },
-                EnvironmentError::SelfComparison => CustomError {
-                    message: "environment comapring with itself".to_string(),
-                    hint: Some(format!("use different environment for comparison")),
-                },
-                EnvironmentError::NewNameEqualsOriginal => CustomError {
-                    message: format!("new environment name equals original"),
-                    hint: Some(format!("use a different new name")),
-                },
             },
             ApiErrorEntity::Secret(e) => match e {
-                SecretsError::SecretNotFound => CustomError {
+                SecretsError::SecretNotFound => OutputError::Secrets(SecretsOutputError {
                     message: format!("secret not found"),
                     hint: None,
-                },
-
-                SecretsError::DuplicateNewNames => CustomError {
+                    secrets: None,
+                }),
+                SecretsError::DuplicateNewNames => OutputError::Secrets(SecretsOutputError {
                     message: format!("duplicate new names"),
                     hint: Some(format!("cannot change multiple secrets to the same name")),
-                },
-
+                    secrets: None,
+                }),
                 SecretsError::SecretsAlreadyExist => {
                     let secrets = api_error.get_secrets_names_details();
-
-                    let hint = match secrets {
-                        Some(s) => Some(s.join(",")),
-                        None => None,
-                    };
-
-                    CustomError {
+                    OutputError::Secrets(SecretsOutputError {
                         message: format!("cannot rename secrets to already existing secrets"),
-                        hint,
-                    }
+                        hint: None,
+                        secrets,
+                    })
                 }
                 SecretsError::SelfReferencingSecrets => {
                     let secrets = api_error.get_secrets_names_details();
-
-                    let hint = match secrets {
-                        Some(s) => Some(s.join(",")),
-                        None => None,
-                    };
-
-                    return CustomError {
+                    OutputError::Secrets(SecretsOutputError {
                         message: format!("found self-referencing secrets"),
-                        hint,
-                    };
+                        hint: None,
+                        secrets,
+                    })
                 }
-
                 SecretsError::SelfReferencingSecretsConflict => {
                     let secrets = api_error.get_secrets_names_details();
-
-                    let error = match secrets {
-                        Some(s) => match s.len() == 1 {
-                            true => {
-                                 CustomError{
-                                        message:format!("updating this secret would result in self-reference, which is not allowed"),
-                                        hint: None
-                                    }
-                            }
-                            false => {
-                                 CustomError{
-                                        message:format!("updating one or more secrets would result in self-reference, which is not allowed"),
-                                        hint: Some(s.join(","))
-                                    }
-                            }
-                        },
-                        None => {
-                             CustomError{
-                                        message:format!("updating this secret would result in self-reference, which is not allowed"),
-                                        hint: None
-                                    }
-                        }
-                    };
-
-                    return error;
+                    match secrets {
+                        Some(s) if s.len() == 1 => OutputError::Secrets(SecretsOutputError {
+                            message: format!("updating this secret would result in self-reference, which is not allowed"),
+                            hint: None,
+                            secrets: None,
+                        }),
+                        Some(s) => OutputError::Secrets(SecretsOutputError {
+                            message: format!("updating secrets would result in self-reference, which is not allowed"),
+                            hint: None,
+                            secrets: Some(s),
+                        }),
+                        None => OutputError::Secrets(SecretsOutputError {
+                            message: format!("updating secret would result in self-reference, which is not allowed"),
+                            hint: None,
+                            secrets: None,
+                        }),
+                    }
                 }
-
                 SecretsError::SecretDescriptionTooLong => {
-                    let hint = api_error.message;
-
-                    return CustomError {
+                    OutputError::Secrets(SecretsOutputError {
                         message: format!("secret description is too long"),
-                        hint,
-                    };
+                        hint: api_error.message,
+                        secrets: None,
+                    })
                 }
-
                 SecretsError::SecretValuesTooLong => {
                     let secrets = api_error.get_secrets_names_details();
-
-                    let hint = match secrets {
-                        Some(s) => Some(s.join(",")),
-                        None => None,
-                    };
-
-                    CustomError {
+                    OutputError::Secrets(SecretsOutputError {
                         message: format!(
                             "secret values are too long (max {} characters)",
                             SECRET_VALUE_MAX_LENGTH
                         ),
-                        hint,
-                    }
+                        hint: None,
+                        secrets,
+                    })
                 }
             },
-            ApiErrorEntity::EnvChangelog(e) => match e {
-                // EnvChangelogError::PageNotFound => CustomError {
-                //     message: format!("page not found"),
-                //     hint: match api_error.message {
-                //         Some(m) => Some(m.to_lowercase()),
-                //         None => None,
-                //     },
-                // },
-                EnvChangelogError::PageNotFound => {
-                    let hint_str = match api_error.details {
-                        Some(d) => {
-                            let details =
-                                serde_json::from_value::<ChangelogPageNotFoundErrorDetails>(d);
-
-                            match details {
-                                Ok(details) => match details.pages_available {
-                                    1 => Some("only 1 page is available".to_string()),
-                                    _ => Some(format!(
-                                        "only {} pages are available",
-                                        details.pages_available
-                                    )),
-                                },
-                                Err(_) => None,
-                            }
-                        }
-                        None => None,
-                    };
-
-                    CustomError {
-                        message: format!("page not found"),
-                        hint: hint_str,
-                    }
-                }
-                EnvChangelogError::ChangeNotFound => CustomError {
-                    message: format!("change record not found"),
-                    hint: Some(format!("make sure that the id is correct")),
-                },
-
-                EnvChangelogError::RevertIsCurrentState => CustomError {
-                    message: format!("nothing to revert, this is current state of of the secrets"),
-                    hint: None,
-                },
-            },
-            ApiErrorEntity::Webhook(e) => match e {
-                WebhookError::WebhookNotFound => CustomError {
-                    message: format!("webhook not found"),
-                    hint: None,
-                },
-                WebhookError::WebhookAlreadyEnabled => CustomError {
-                    message: format!("webhook already enabled"),
-                    hint: None,
-                },
-                WebhookError::WebhookAlreadyDisabled => CustomError {
-                    message: format!("webhook already disabled"),
-                    hint: None,
-                },
-            },
+            // For other error types, convert them to Generic errors
+            _ => OutputError::Generic(GenericOutputError {
+                message: format!("unexpected error"),
+                hint: None,
+            }),
         }
     }
 }
 
-impl fmt::Display for CustomError {
+impl fmt::Display for OutputError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // writeln!(
         //     f,
@@ -821,11 +635,19 @@ impl fmt::Display for CustomError {
         // )?;
         writeln!(f, "{}", "Error".red().bold())?;
 
-        if let Some(hint) = &self.hint {
-            writeln!(f, "- message: {}", self.message)?;
+        let message = self.get_message();
+        let hint = self.get_hint();
+
+        writeln!(f, "- message: {}", message)?;
+
+        if let Some(hint) = hint {
             write!(f, "- hint: {}", hint)?;
-        } else {
-            write!(f, "- message: {}", self.message)?;
+        }
+
+        if let OutputError::Secrets(e) = self {
+            if let Some(secrets) = e.secrets.as_ref() {
+                writeln!(f, "- secrets: {}", secrets.join(", "))?;
+            }
         }
 
         Ok(())
