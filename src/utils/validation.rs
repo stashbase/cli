@@ -123,25 +123,25 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
     let starts_with_digit = value.chars().nth(0).unwrap_or(' ').is_ascii_digit();
 
     if !regex.is_match(value) || starts_with_digit {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
-            multiple: false,
-        });
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(vec![
+            value.to_string(),
+        ]));
 
         bail!(err)
     }
 
     if value.len() < SECRET_NAME_MIN_LENGTH {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
-            multiple: false,
-        });
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort(vec![
+            value.to_string(),
+        ]));
 
         bail!(err)
     }
 
     if value.len() > SECRET_NAME_MAX_LENGTH {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
-            multiple: false,
-        });
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong(vec![
+            value.to_string(),
+        ]));
 
         bail!(err)
     }
@@ -152,41 +152,47 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
 pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
-    let (invalid_format_count, too_short_count, too_long_count): (usize, usize, usize) =
-        values.into_iter().fold(
-            (0, 0, 0),
-            |(mut invalid_format_count, mut too_short_count, mut too_long_count), x| {
-                if !regex.is_match(x) || x.chars().nth(0).unwrap_or(' ').is_ascii_digit() {
-                    invalid_format_count = invalid_format_count + 1;
-                } else if x.len() < SECRET_NAME_MIN_LENGTH {
-                    too_short_count = too_short_count + 1;
-                } else if x.len() > SECRET_NAME_MAX_LENGTH {
-                    too_long_count = too_long_count + 1;
-                }
-                (invalid_format_count, too_short_count, too_long_count)
-            },
-        );
+    let (invalid_format_names, too_short_names, too_long_names): (
+        HashSet<String>,
+        HashSet<String>,
+        HashSet<String>,
+    ) = values.into_iter().fold(
+        (HashSet::new(), HashSet::new(), HashSet::new()),
+        |(mut invalid_format_names, mut too_short_names, mut too_long_names), x| {
+            if !regex.is_match(&x) || x.chars().nth(0).unwrap_or(' ').is_ascii_digit() {
+                invalid_format_names.insert(x.clone());
+            } else if x.len() < SECRET_NAME_MIN_LENGTH {
+                too_short_names.insert(x.clone());
+            } else if x.len() > SECRET_NAME_MAX_LENGTH {
+                too_long_names.insert(x.clone());
+            }
+            (invalid_format_names, too_short_names, too_long_names)
+        },
+    );
 
-    if invalid_format_count > 0 {
-        let multiple = invalid_format_count > 1;
-        let err =
-            InputValidationError::Secrets(SecretsInputValidationError::NameFormat { multiple });
-
-        bail!(err)
-    }
-
-    if too_short_count > 0 {
-        let multiple = too_short_count > 1;
-        let err =
-            InputValidationError::Secrets(SecretsInputValidationError::NameTooShort { multiple });
+    if invalid_format_names.len() > 0 {
+        let invalid_format_names_vec = invalid_format_names.into_iter().collect();
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(
+            invalid_format_names_vec,
+        ));
 
         bail!(err)
     }
 
-    if too_long_count > 0 {
-        let multiple = too_long_count > 1;
-        let err =
-            InputValidationError::Secrets(SecretsInputValidationError::NameTooLong { multiple });
+    if too_short_names.len() > 0 {
+        let too_short_names_vec = too_short_names.into_iter().collect();
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort(
+            too_short_names_vec,
+        ));
+
+        bail!(err)
+    }
+
+    if too_long_names.len() > 0 {
+        let too_long_names_vec = too_long_names.into_iter().collect();
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong(
+            too_long_names_vec,
+        ));
 
         bail!(err)
     }
@@ -352,10 +358,9 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
         .into_iter()
         .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
 
-    if invalid.is_some() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
-            multiple: true,
-        });
+    if let Some((name, new_name)) = invalid {
+        let vec = vec![name.clone(), new_name.clone()];
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(vec));
 
         bail!(err)
     }
@@ -365,8 +370,9 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
 
 pub fn validate_secret_description(formatted_description: &str) -> Result<()> {
     if formatted_description.len() > SECRET_DESCRIPTION_MAX_LENGTH {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
-        bail!(err)
+        todo!();
+        // let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
+        // bail!(err)
     }
 
     Ok(())
@@ -424,9 +430,11 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
 
     // Only clone strings when constructing the final error
     if !invalid_names.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
-            multiple: invalid_names.len() > 1,
-        });
+        let invalid_names_vec = invalid_names.into_iter().map(|s| s.to_string()).collect();
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat(
+            invalid_names_vec,
+        ));
+
         bail!(err);
     }
 
@@ -438,30 +446,42 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
         .collect();
 
     if !duplicate_names.is_empty() {
+        let duplicate_names_vec = duplicate_names.into_iter().map(|s| s.to_string()).collect();
         let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
-            duplicate_names,
+            duplicate_names_vec,
         ));
         bail!(err);
     }
 
     if !value_too_long_secret_names.is_empty() {
+        let value_too_long_secret_names_vec = value_too_long_secret_names
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
         let err = InputValidationError::Secrets(SecretsInputValidationError::ValuesTooLong(
-            value_too_long_secret_names
-                .iter()
-                .map(|&s| s.to_string())
-                .collect(),
+            value_too_long_secret_names_vec,
         ));
         bail!(err);
     }
 
     if !description_too_long_secrets_names.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
+        let description_too_long_secrets_names_vec = description_too_long_secrets_names
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong(
+            description_too_long_secrets_names_vec,
+        ));
         bail!(err);
     }
 
     if !self_references.is_empty() {
+        let self_references_vec = self_references.into_iter().map(|s| s.to_string()).collect();
+
         let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-            self_references.iter().map(|&s| s.to_string()).collect(),
+            self_references_vec,
         ));
         bail!(err);
     }
