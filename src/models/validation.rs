@@ -71,6 +71,7 @@ pub enum SecretsInputValidationError {
     SelfReferences(Vec<String>),
     ReadFile(anyhow::Error),
     DescriptionTooLong(Vec<String>),
+    SingleDescriptionTooLong,
     // names vec
     ValuesTooLong(Vec<String>),
     // for search command
@@ -338,6 +339,10 @@ impl fmt::Display for SecretsInputValidationError {
                 msg = "secret descriptions are too long";
                 hint = Some("maximum length for description is 512 characters (after formatting)");
                 secrets_names = Some(names);
+            }
+            SecretsInputValidationError::SingleDescriptionTooLong => {
+                msg = "secret description is too long";
+                hint = Some("maximum length for description is 512 characters (after formatting)");
             }
             SecretsInputValidationError::SearchFormat => {
                 msg = "argument search is invalid";
