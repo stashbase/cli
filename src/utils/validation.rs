@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Result};
+use linked_hash_map::LinkedHashMap;
+use linked_hash_set::LinkedHashSet;
 use regex::Regex;
 use short_uuid::ShortUuid;
 
@@ -220,7 +222,7 @@ pub fn validate_secrets_references(
     secrets: &Vec<Secret>,
 ) -> ReferencesValidation {
     let mut self_referenced_secrets: HashSet<_> = HashSet::new();
-    let mut invalid_format_secrets: HashMap<String, Vec<String>> = HashMap::new();
+    let mut invalid_format_secrets: LinkedHashMap<String, Vec<String>> = LinkedHashMap::new();
 
     for Secret {
         name,
