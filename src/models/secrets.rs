@@ -1,4 +1,5 @@
 use clap::ValueEnum;
+use linked_hash_map::LinkedHashMap;
 use linked_hash_set::LinkedHashSet;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -460,7 +461,7 @@ impl From<WorkspaceSecretSearchedByValue> for WorkspaceSecretSearchedByValueTabl
     }
 }
 
-pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
+pub type InvalidFormatReferences = LinkedHashMap<String, Vec<String>>;
 pub type NotFoundReferences = InvalidFormatReferences;
 
 pub struct SecretReferenceWarnings {
@@ -475,7 +476,7 @@ pub struct SecretReferenceWarnings {
 impl SecretReferenceWarnings {
     pub fn new() -> Self {
         Self {
-            invalid_format: HashMap::new(),
+            invalid_format: LinkedHashMap::new(),
             not_found: NotFoundReferences::new(),
             empty_value: LinkedHashSet::new(),
         }
@@ -554,7 +555,7 @@ impl ReferencesValidation {
                 Some(r) => r.into_iter().collect(),
             },
             invalid_format_references: match invalid_format_references {
-                None => HashMap::new(),
+                None => LinkedHashMap::new(),
                 Some(r) => r,
             },
         }
@@ -577,7 +578,7 @@ impl ReferencesValidationWithExistence {
     pub fn new() -> Self {
         Self {
             self_referenced_secrets: Vec::new(),
-            invalid_format: HashMap::new(),
+            invalid_format: LinkedHashMap::new(),
             not_found: NotFoundReferences::new(),
         }
     }
