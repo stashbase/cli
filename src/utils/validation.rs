@@ -23,6 +23,10 @@ use super::secrets::{self, format_secret_description};
 pub const SECRET_DESCRIPTION_MAX_LENGTH: usize = 512;
 // 4096 is max length for value after formatting
 pub const SECRET_VALUE_MAX_LENGTH: usize = 4096;
+// 2 is min length for secret name
+pub const SECRET_NAME_MIN_LENGTH: usize = 2;
+// 255 is max length for secret name
+pub const SECRET_NAME_MAX_LENGTH: usize = 255;
 
 pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
@@ -126,7 +130,7 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
         bail!(err)
     }
 
-    if value.len() < 2 {
+    if value.len() < SECRET_NAME_MIN_LENGTH {
         let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
             multiple: false,
         });
@@ -134,7 +138,7 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
         bail!(err)
     }
 
-    if value.len() > 255 {
+    if value.len() > SECRET_NAME_MAX_LENGTH {
         let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
             multiple: false,
         });
@@ -154,9 +158,9 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
             |(mut invalid_format_count, mut too_short_count, mut too_long_count), x| {
                 if !regex.is_match(x) || x.chars().nth(0).unwrap().is_ascii_digit() {
                     invalid_format_count = invalid_format_count + 1;
-                } else if x.len() < 2 {
+                } else if x.len() < SECRET_NAME_MIN_LENGTH {
                     too_short_count = too_short_count + 1;
-                } else if x.len() > 255 {
+                } else if x.len() > SECRET_NAME_MAX_LENGTH {
                     too_long_count = too_long_count + 1;
                 }
                 (invalid_format_count, too_short_count, too_long_count)
