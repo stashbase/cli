@@ -63,14 +63,14 @@ pub enum WebhookInputValidationError {
 #[derive(Debug)]
 pub enum SecretsInputValidationError {
     NoNames,
-    NameFormat { multiple: bool },
-    NameTooShort { multiple: bool },
-    NameTooLong { multiple: bool },
+    NameFormat(Vec<String>),
+    NameTooShort(Vec<String>),
+    NameTooLong(Vec<String>),
     DuplicateNames(Vec<String>),
     DuplicateNewNames(Vec<String>),
     SelfReferences(Vec<String>),
     ReadFile(anyhow::Error),
-    DescriptionTooLong,
+    DescriptionTooLong(Vec<String>),
     // names vec
     ValuesTooLong(Vec<String>),
     // for search command
@@ -297,47 +297,47 @@ impl fmt::Display for SecretsInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg: &str;
         let hint: Option<&str>;
+        let mut secrets_names: Option<&Vec<String>> = None;
 
         match self {
-            SecretsInputValidationError::NameFormat { multiple } => {
-                let message = match multiple {
-                    true => "invalid secret names",
-                    false => "invalid secret name",
-                };
-                msg = message;
-                hint = Some(
+            SecretsInputValidationError::NameFormat(names) => {
+                let msg = "invalid secret names";
+                let hint = Some(
                     "cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
                 );
-            }
-            SecretsInputValidationError::NameTooShort { multiple } => {
-                let message = match multiple {
-                    true => "secret names are too short",
-                    false => "secret name is too short",
-                };
-                msg = message;
-                hint = Some("mimimal length for secret name is 2 characters");
-            }
 
-            SecretsInputValidationError::NameTooLong { multiple } => {
-                let message = match multiple {
-                    true => "secret names are too long",
-                    false => "secret name is too long",
-                };
-                msg = message;
-                hint = Some("maximum length for secret name is 255 characters");
-            }
-            SecretsInputValidationError::DescriptionTooLong => {
-                let msg = "secret description is too long";
+                writeln!(f, "{}", format!("- message: {}", msg),)?;
 
-                let hint_str = format!(
-                    "maximum length for description is {} characters (after formatting)",
-                    SECRET_DESCRIPTION_MAX_LENGTH
-                );
+                if let Some(hint) = hint {
+                    write!(f, "{}", format!("- hint: {}", hint),)?;
+                }
 
-                writeln!(f, "{}", format!("- message: {}", msg))?;
-                write!(f, "{}", format!("- hint: {}", hint_str))?;
+                if let Some(secrets_names) = secrets_names {
+                    let formatted_secrets = secrets_names
+                        .iter()
+                        .map(|s| format!("\"{}\"", s))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+
+                    write!(f, "- values: {}", formatted_secrets)?;
+                }
 
                 return Ok(());
+            }
+            SecretsInputValidationError::NameTooShort(names) => {
+                msg = "secret names are too short";
+                hint = Some("minimum length for secret name is 2 characters");
+                secrets_names = Some(names);
+            }
+            SecretsInputValidationError::NameTooLong(names) => {
+                msg = "secret names are too long";
+                hint = Some("maximum length for secret name is 255 characters");
+                secrets_names = Some(names);
+            }
+            SecretsInputValidationError::DescriptionTooLong(names) => {
+                msg = "secret descriptions are too long";
+                hint = Some("maximum length for description is 512 characters (after formatting)");
+                secrets_names = Some(names);
             }
             SecretsInputValidationError::SearchFormat => {
                 msg = "argument search is invalid";
@@ -362,23 +362,14 @@ impl fmt::Display for SecretsInputValidationError {
                 return Ok(());
             }
             SecretsInputValidationError::DuplicateNewNames(names) => {
-                let names_str = names.join(", ");
-
-                let msg = "found duplicate new names";
-
-                writeln!(f, "- message: {}", msg)?;
-                write!(f, "{}", format!("- duplicates: {}", names_str))?;
-
-                return Ok(());
+                msg = "found duplicate new names";
+                hint = Some("use different new names");
+                secrets_names = Some(names);
             }
             SecretsInputValidationError::SelfReferences(names) => {
-                let names_str = names.join(", ");
-                let msg = "found self-referencing secrets";
-
-                writeln!(f, "{}", format!("- message: {}", msg))?;
-                write!(f, "{}", format!("- secrets: {}", names_str))?;
-
-                return Ok(());
+                msg = "found self-referencing secrets";
+                hint = Some("secrets cannot reference themselves");
+                secrets_names = Some(names);
             }
             SecretsInputValidationError::ReadFile(error) => {
                 let msg = "error reading file";
@@ -405,30 +396,28 @@ impl fmt::Display for SecretsInputValidationError {
                 hint = Some("provide non-empty string value");
             }
             SecretsInputValidationError::ValuesTooLong(secret_names) => {
-                let names_str = secret_names.join(", ");
-                let msg = format!(
-                    "secret values are too long (max {} characters)",
-                    SECRET_VALUE_MAX_LENGTH
-                );
-
-                // let hint_str = format!(
-                //     "maximum length for secret value is {} characters",
-                //     SECRET_VALUE_MAX_LENGTH
-                // );
-
-                // writeln!(f, "{}", format!("- hint: {}", hint_str))?;
-                writeln!(f, "{}", format!("- message: {}", msg))?;
-                write!(f, "{}", format!("- secrets: {}", names_str))?;
-
-                return Ok(());
+                msg = "secret values are too long";
+                hint = Some("maximum length is 4096 characters");
+                secrets_names = Some(secret_names);
             }
         }
 
+        writeln!(f, "{}", format!("- message: {}", msg))?;
+
         if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
-            write!(f, "{}", format!("- hint: {}", hint),)?;
-        } else {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
+            writeln!(f, "{}", format!("- hint: {}", hint))?;
+        }
+
+        if let Some(secrets_names) = secrets_names {
+            if !secrets_names.is_empty() {
+                let formatted_secrets = secrets_names
+                    .iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                write!(f, "- secrets: {}", formatted_secrets)?;
+            }
         }
 
         Ok(())
