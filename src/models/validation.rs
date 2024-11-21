@@ -310,18 +310,16 @@ impl fmt::Display for SecretsInputValidationError {
                 writeln!(f, "{}", format!("- message: {}", msg),)?;
 
                 if let Some(hint) = hint {
-                    write!(f, "{}", format!("- hint: {}", hint),)?;
+                    writeln!(f, "{}", format!("- hint: {}", hint),)?;
                 }
 
-                if let Some(secrets_names) = secrets_names {
-                    let formatted_secrets = secrets_names
-                        .iter()
-                        .map(|s| format!("\"{}\"", s))
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                let formatted_secrets = names
+                    .iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
 
-                    write!(f, "- values: {}", formatted_secrets)?;
-                }
+                write!(f, "- values: {}", formatted_secrets)?;
 
                 return Ok(());
             }
