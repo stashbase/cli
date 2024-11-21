@@ -313,6 +313,11 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
         let all_unique_refs = secrets::extract_unique_references_from_secret(&secret.value);
 
         for ref_ in all_unique_refs {
+            if ref_.trim().is_empty() {
+                validation_obj.empty_value.push(secret.name.clone());
+                continue;
+            }
+
             if !validate_secret_name(&ref_).is_ok() {
                 validation_obj
                     .invalid_format
@@ -327,6 +332,11 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
                     .push(ref_);
             }
         }
+    }
+
+    // remove duplicates from empty_value references
+    if !validation_obj.empty_value.is_empty() {
+        validation_obj.empty_value.dedup();
     }
 
     validation_obj
