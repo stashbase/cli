@@ -382,7 +382,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 let (name_part, value_part) = line.split_at(equal_sign_idx);
                 let value_part = &value_part[1..]; // Skip the '=' character
 
-                let name = name_part.trim().to_string();
+                let name = name_part.to_string();
 
                 // Join multiline comments if they exist
                 let description = if !comment_lines.is_empty() {
