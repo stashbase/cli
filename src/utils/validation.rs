@@ -229,7 +229,7 @@ pub fn validate_secrets_references(
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(name).is_some();
+        let has_self_reference = all_unique_refs.contains(name);
 
         if has_self_reference {
             self_referenced_secrets.insert(name.clone());
@@ -273,7 +273,7 @@ pub fn validate_secrets_references_with_existence(
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(name).is_some();
+        let has_self_reference = all_unique_refs.contains(name);
 
         if has_self_reference {
             validation_obj.self_referenced_secrets.push(name.clone());
