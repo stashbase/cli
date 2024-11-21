@@ -382,10 +382,10 @@ pub fn format_secrets_input(secrets: &mut Vec<Secret>) {
 }
 
 pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
-    let mut invalid_names = Vec::new();
-    let mut self_references = Vec::new();
-    let mut description_too_long_secrets_names = Vec::new();
-    let mut value_too_long_secret_names = Vec::new();
+    let mut invalid_names = LinkedHashSet::new();
+    let mut self_references = LinkedHashSet::new();
+    let mut description_too_long_secrets_names = LinkedHashSet::new();
+    let mut value_too_long_secret_names = LinkedHashSet::new();
     let mut name_counts = HashMap::new();
 
     // First pass: collect references to invalid secrets
@@ -394,12 +394,12 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
 
         // Validate name format
         if validate_secret_name(name).is_err() {
-            invalid_names.push(name);
+            invalid_names.insert_if_absent(name);
         }
 
         // Check for self references
         if secret.value.contains(&format!("${{{}}}", name)) {
-            self_references.push(name);
+            self_references.insert_if_absent(name);
         }
 
         // Track name occurrences for duplicates
@@ -407,13 +407,13 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
 
         // Check value length
         if secret.value.len() > SECRET_VALUE_MAX_LENGTH {
-            value_too_long_secret_names.push(name);
+            value_too_long_secret_names.insert_if_absent(name);
         }
 
         // Check description length if present
         if let Some(desc) = &secret.description {
             if desc.len() > SECRET_DESCRIPTION_MAX_LENGTH {
-                description_too_long_secrets_names.push(name);
+                description_too_long_secrets_names.insert_if_absent(name);
             }
         }
     }
