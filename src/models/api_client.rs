@@ -551,6 +551,202 @@ impl From<ApiError> for OutputError {
                     })
                 }
             },
+
+            ApiErrorEntity::Project(e) => match e {
+                ProjectError::InvalidName => OutputError::Generic(GenericOutputError {
+                    message: format!("invalid project name"),
+                    hint: None,
+                }),
+
+                ProjectError::ProjectNotFound => OutputError::Generic(GenericOutputError {
+                    message: format!("project not found"),
+                    hint: None,
+                }),
+
+                ProjectError::ProjectLimitReached => OutputError::Generic(GenericOutputError {
+                    message: format!("project limit reached"),
+                    hint: Some(format!(
+                        "workspace reached the maximum number of projects allowed"
+                    )),
+                }),
+
+                ProjectError::ProjectAlreadyExists => OutputError::Generic(GenericOutputError {
+                    message: format!("project already exists"),
+                    hint: Some(format!("use a different name")),
+                }),
+
+                ProjectError::MissingPermission => {
+                    let hint = if let Some(d) = api_error.details {
+                        let details = serde_json::from_value::<MissingPermissionErrorDetails>(d);
+
+                        match details {
+                            Ok(details) => {
+                                if let Some(permissions) = details.required_permissions {
+                                    let msg = format!(
+                                        "required api key permissions to perform this action: {}",
+                                        permissions.join(", ")
+                                    );
+                                    Some(msg)
+                                } else if let Some(r) = details.user_workspace_role {
+                                    let msg = format!(
+                                            "allowed user workspace role to perform this action: {}, current role: {}",
+                                            r.allowed.join(", "), r.current
+                                        );
+                                    Some(msg)
+                                } else if let Some(r) = details.user_project_role {
+                                    let msg = format!(
+                                            "allowed project role to perform this action: {}, current role: {}",
+                                            r.allowed.join(", "), r.current
+                                        );
+                                    Some(msg)
+                                } else {
+                                    None
+                                }
+                            }
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("missing permission"),
+                        hint: match hint {
+                            Some(h) => Some(h),
+                            None => {
+                                Some(format!("you do not have permission to perform this action"))
+                            }
+                        },
+                    })
+                }
+                ProjectError::NewNameEqualsOriginal => OutputError::Generic(GenericOutputError {
+                    message: format!("new project name equals original"),
+                    hint: Some(format!("use a different new name")),
+                }),
+            },
+            ApiErrorEntity::Environment(e) => match e {
+                EnvironmentError::EnvironmentLimitReached => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("environment limit reached"),
+                        hint: Some(format!(
+                            "project reached the maximum number of environments allowed"
+                        )),
+                    })
+                }
+                EnvironmentError::ProjectNotFound => OutputError::Generic(GenericOutputError {
+                    message: format!("project not found"),
+                    hint: None,
+                }),
+                EnvironmentError::EnvironmentNotFound => OutputError::Generic(GenericOutputError {
+                    message: format!("environment not found"),
+                    hint: None,
+                }),
+                EnvironmentError::CompareToEnvironmentNotFound => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("environment not found (second environment)"),
+                        hint: None,
+                    })
+                }
+                EnvironmentError::EnvironmentAlreadyExists => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("environment already exists"),
+                        hint: Some(format!("use a different name")),
+                    })
+                }
+                EnvironmentError::EnvironmentAlreadyLocked => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("environment already locked"),
+                        hint: None,
+                    })
+                }
+                EnvironmentError::EnvironmentAlreadyUnlocked => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("environment already unlocked"),
+                        hint: None,
+                    })
+                }
+                EnvironmentError::CurrentEnvironmentType => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("current environment type"),
+                        hint: Some(format!("cannot update to same type")),
+                    })
+                }
+                EnvironmentError::EnvironmentLocked => OutputError::Generic(GenericOutputError {
+                    message: format!("this environment is locked"),
+                    hint: Some(format!("unlock environment to perform this action")),
+                }),
+                EnvironmentError::SelfComparison => OutputError::Generic(GenericOutputError {
+                    message: "environment comapring with itself".to_string(),
+                    hint: Some(format!("use different environment for comparison")),
+                }),
+                EnvironmentError::NewNameEqualsOriginal => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("new environment name equals original"),
+                        hint: Some(format!("use a different new name")),
+                    })
+                }
+            },
+
+            ApiErrorEntity::EnvChangelog(e) => match e {
+                // EnvChangelogError::PageNotFound => CustomError {
+                //     message: format!("page not found"),
+                //     hint: match api_error.message {
+                //         Some(m) => Some(m.to_lowercase()),
+                //         None => None,
+                //     },
+                // },
+                EnvChangelogError::PageNotFound => {
+                    let hint_str = match api_error.details {
+                        Some(d) => {
+                            let details =
+                                serde_json::from_value::<ChangelogPageNotFoundErrorDetails>(d);
+
+                            match details {
+                                Ok(details) => match details.pages_available {
+                                    1 => Some("only 1 page is available".to_string()),
+                                    _ => Some(format!(
+                                        "only {} pages are available",
+                                        details.pages_available
+                                    )),
+                                },
+                                Err(_) => None,
+                            }
+                        }
+                        None => None,
+                    };
+
+                    OutputError::Generic(GenericOutputError {
+                        message: format!("page not found"),
+                        hint: hint_str,
+                    })
+                }
+                EnvChangelogError::ChangeNotFound => OutputError::Generic(GenericOutputError {
+                    message: format!("change record not found"),
+                    hint: Some(format!("make sure that the id is correct")),
+                }),
+                EnvChangelogError::RevertIsCurrentState => {
+                    OutputError::Generic(GenericOutputError {
+                        message: format!(
+                            "nothing to revert, this is current state of of the secrets"
+                        ),
+                        hint: None,
+                    })
+                }
+            },
+            ApiErrorEntity::Webhook(e) => match e {
+                WebhookError::WebhookNotFound => OutputError::Generic(GenericOutputError {
+                    message: format!("webhook not found"),
+                    hint: None,
+                }),
+                WebhookError::WebhookAlreadyEnabled => OutputError::Generic(GenericOutputError {
+                    message: format!("webhook already enabled"),
+                    hint: None,
+                }),
+                WebhookError::WebhookAlreadyDisabled => OutputError::Generic(GenericOutputError {
+                    message: format!("webhook already disabled"),
+                    hint: None,
+                }),
+            },
             ApiErrorEntity::Secret(e) => match e {
                 SecretsError::SecretNotFound => OutputError::Secrets(SecretsOutputError {
                     message: format!("secret not found"),
@@ -617,11 +813,6 @@ impl From<ApiError> for OutputError {
                     })
                 }
             },
-            // For other error types, convert them to Generic errors
-            _ => OutputError::Generic(GenericOutputError {
-                message: format!("unexpected error"),
-                hint: None,
-            }),
         }
     }
 }
