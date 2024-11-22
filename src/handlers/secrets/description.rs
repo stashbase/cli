@@ -50,8 +50,7 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
     let is_valid = is_valid_secret_description(&formatted_description);
 
     if !is_valid {
-        let err =
-            InputValidationError::Secrets(SecretsInputValidationError::SingleDescriptionTooLong);
+        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
 
         bail!(err)
     }
