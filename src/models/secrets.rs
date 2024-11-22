@@ -487,24 +487,24 @@ impl SecretReferenceWarnings {
 impl std::fmt::Display for SecretReferenceWarnings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.invalid_format.is_empty() {
-            let hint_str = self
+            let secrets_str = self
                 .invalid_format
                 .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                .map(|(k, v)| format!("\"{}\" (\"{}\")", k, v.join(", ")))
                 .collect::<Vec<_>>()
                 .join(", ");
 
             writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
 
             writeln!(f, "- message: invalid secret references format")?;
-            writeln!(f, "- secrets: {} \n", hint_str)?;
+            writeln!(f, "- secrets: {} \n", secrets_str)?;
         }
 
         if !self.not_found.is_empty() {
-            let hint_str = self
+            let secrets_str = self
                 .not_found
                 .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
+                .map(|(k, v)| format!("\"{}\" (\"{}\")", k, v.join(", ")))
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -514,21 +514,21 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 f,
                 "- message: references to non-existent secrets (within input)"
             )?;
-            writeln!(f, "- secrets: {} \n", hint_str)?;
+            writeln!(f, "- secrets: {} \n", secrets_str)?;
         }
 
         if !self.empty_value.is_empty() {
-            let hint_str = self
+            let secrets_str = self
                 .empty_value
                 .iter()
-                .map(|s| format!("{}", s))
+                .map(|s| format!("\"{}\"", s))
                 .collect::<Vec<_>>()
                 .join(", ");
 
             writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
 
             writeln!(f, "- message: empty references to other secrets")?;
-            writeln!(f, "- secrets: {} \n", hint_str)?;
+            writeln!(f, "- secrets: {} \n", secrets_str)?;
         }
 
         Ok(())
