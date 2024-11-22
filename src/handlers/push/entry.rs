@@ -3,11 +3,11 @@ use std::{collections::HashSet, path::Path};
 use crate::{
     api::secrets,
     cmd::{pull::PullFormat, push::PushFormat, secrets::SecretsFileFormat},
-    handlers::{pull::entry::load_from_file, run::entry::get_set_name_value_pairs},
+    handlers::run::entry::get_set_name_value_pairs,
     models::{
         api_client::RequestApiOptionResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
-        secrets::Secret,
+        secrets::{FormatSecrets, Secret, ValidateSecrets},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
             PushPullInputValidationError, SecretsInputValidationError,
@@ -15,10 +15,10 @@ use crate::{
     },
     utils::{
         self, interaction,
-        secrets::{find_duplicate_names, read_secrets_from_file},
+        secrets::read_secrets_from_file,
         validation::{
-            validate_project_environment_identifier, validate_secret_values,
-            validate_secrets_references_with_existence,
+            map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
+            validate_project_environment_identifier, validate_secret_names,
         },
     },
 };
@@ -170,6 +170,18 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         bail!(err);
     }
 
+    // validate project and environment
+    let project = project.unwrap();
+    let environment = environment.unwrap();
+
+    let validation_res =
+        validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
+
+    if let Err(e) = validation_res {
+        bail!(e);
+    }
+
+    //  process, format and validate secrets
     let mut secrets = secrets_res.unwrap();
 
     if !only_set.is_empty() && !exclude_set.is_empty() {
@@ -183,11 +195,34 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     if only_set.is_empty() == false {
         // filter unwanted secrets
+        let names_vec = only_set.iter().cloned().collect::<Vec<_>>();
+        let name_validation_res = validate_secret_names(&names_vec);
+
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
+
+                eprintln!();
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
+            }
+        }
+
         secrets = secrets
             .into_iter()
             .filter(|secret| only_set.contains(&secret.name))
-            .collect();
-    } else if exclude_set.is_empty() == false {
+            .collect::<Vec<_>>();
+    } else if !exclude_set.is_empty() {
+        let names_vec = exclude_set.iter().cloned().collect::<Vec<_>>();
+        let name_validation_res = validate_secret_names(&names_vec);
+
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
+                eprintln!();
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
+            }
+        }
+
         secrets = secrets
             .into_iter()
             .filter(|secret| !exclude_set.contains(&secret.name))
@@ -230,94 +265,18 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         }
     }
 
-    let duplicate_names = find_duplicate_names(&secrets);
+    // format secrets for input
+    secrets.format();
 
-    if !duplicate_names.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DuplicateNames(
-            duplicate_names,
-        ));
-
-        bail!("{}", err);
-    }
-
-    let values: Vec<_> = secrets.iter().map(|s| s.value.to_string()).collect();
-    let values_valid = validate_secret_values(&values);
-
-    if let Err(err) = values_valid {
+    // validate secrets
+    if let Err(err) = secrets.validate() {
         bail!(err);
     }
 
-    let refs_validation = validate_secrets_references_with_existence(&secrets);
+    let reference_warnings = secrets.get_reference_warnings();
 
-    if !refs_validation.self_referenced_secrets.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-            refs_validation.self_referenced_secrets,
-        ));
-        bail!(err);
-    } else if !refs_validation.invalid_format.is_empty() || !refs_validation.not_found.is_empty() {
-        let mut print_str = String::new();
-
-        if !refs_validation.invalid_format.is_empty() {
-            let hint_str = refs_validation
-                .invalid_format
-                .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            print_str.push_str(&format!("- message: invalid secret references format\n"));
-            print_str.push_str(&format!("- secrets: {} \n", hint_str));
-        }
-
-        if !refs_validation.not_found.is_empty() {
-            let hint_str = refs_validation
-                .not_found
-                .iter()
-                .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            if !print_str.is_empty() {
-                print_str.push_str(&format!("\n"));
-            }
-
-            print_str.push_str(&format!(
-                "- message: referenced secrets not found within the file\n"
-            ));
-            print_str.push_str(&format!("- secret: {} \n", hint_str));
-        }
-
-        if !refs_validation.invalid_format.is_empty() && !refs_validation.not_found.is_empty() {
-            eprintln!("{}", format!("{}", "Input warnings").yellow());
-        } else {
-            eprintln!("{}", format!("{}", "Input warning").yellow());
-        }
-        eprintln!("{}\n", print_str);
-
-        // let hint_str = references_validation
-        //     .invalid_format_references
-        //     .iter()
-        //     .map(|(k, v)| format!("{} ({})", k, v.join(", ")))
-        //     .collect::<Vec<_>>()
-        //     .join(", ");
-        //
-        // eprintln!("{}", format!("{}", "Input warning").yellow());
-        //
-        // eprintln!("- message: invalid secret references");
-        // eprintln!("- secret: {} \n", hint_str);
-        //
-        // let confirm = interaction::confirm_opt("Are you sure you want to continue?");
-        //
-        // if confirm.is_none() || (confirm.unwrap() == false) {
-        //     return Ok(());
-        // }
-    }
-
-    let has_input_warning =
-        !refs_validation.invalid_format.is_empty() || !refs_validation.not_found.is_empty();
-
-    if has_input_warning {
-        eprintln!();
+    if !reference_warnings.is_empty() {
+        eprint!("{}", reference_warnings);
     }
 
     let info = format!("Number of screts to push: {}", secrets.len());
@@ -329,16 +288,6 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         return Ok(());
     }
     eprintln!();
-
-    let project = project.unwrap();
-    let environment = environment.unwrap();
-
-    let validation_res =
-        validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
-
-    if let Err(e) = validation_res {
-        bail!(e);
-    }
 
     if let Some(expand_refs) = expand_refs {
         if expand_refs == true {

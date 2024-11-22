@@ -72,7 +72,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
 
     if let Some(name) = &name {
         if name.is_empty() {
-            let search_error = SecretsInputValidationError::NameTooShort { multiple: false };
+            let search_error = SecretsInputValidationError::SearchTooShort;
             let err = InputValidationError::Secrets(search_error);
 
             bail!(err);

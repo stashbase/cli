@@ -1,24 +1,32 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Result};
-use log::debug;
+use linked_hash_map::LinkedHashMap;
+use linked_hash_set::LinkedHashSet;
 use regex::Regex;
 use short_uuid::ShortUuid;
 
 use crate::models::{
-    secrets::Secret,
+    secrets::{
+        ReferencesValidation, ReferencesValidationWithExistence, Secret, SecretReferenceWarnings,
+    },
     validation::{
         EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
-        ProjectInputValidationError, SecretsInputValidationError, WebhookInputValidationError,
+        LoadEnvironmentInputValidationError, ProjectInputValidationError,
+        SecretsInputValidationError, WebhookInputValidationError,
     },
 };
 
-use super::secrets;
+use super::secrets::{self, format_secret_description};
 
 // 512 is max length for description after formatting
 pub const SECRET_DESCRIPTION_MAX_LENGTH: usize = 512;
 // 4096 is max length for value after formatting
 pub const SECRET_VALUE_MAX_LENGTH: usize = 4096;
+// 2 is min length for secret name
+pub const SECRET_NAME_MIN_LENGTH: usize = 2;
+// 255 is max length for secret name
+pub const SECRET_NAME_MAX_LENGTH: usize = 255;
 
 pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
@@ -112,30 +120,27 @@ pub fn resource_name_has_id_format(resource: IdentifierResource, input: &str) ->
 // name of secret
 pub fn validate_secret_name(value: &str) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
-    let starts_with_digit = value.chars().nth(0).unwrap().is_ascii_digit();
+    let starts_with_digit = value.chars().nth(0).unwrap_or(' ').is_ascii_digit();
 
     if !regex.is_match(value) || starts_with_digit {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
-            multiple: false,
-        });
+        let secrets_error = SecretsInputValidationError::NamesFormat(vec![value.to_string()]);
+        let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(err)
+        bail!(input_err)
     }
 
-    if value.len() < 2 {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooShort {
-            multiple: false,
-        });
+    if value.len() < SECRET_NAME_MIN_LENGTH {
+        let secrets_error = SecretsInputValidationError::NamesTooShort(vec![value.to_string()]);
+        let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(err)
+        bail!(input_err)
     }
 
-    if value.len() > 255 {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameTooLong {
-            multiple: false,
-        });
+    if value.len() > SECRET_NAME_MAX_LENGTH {
+        let secrets_error = SecretsInputValidationError::NamesTooLong(vec![value.to_string()]);
+        let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(err)
+        bail!(input_err)
     }
 
     Ok(())
@@ -144,43 +149,50 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
 pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
-    let (invalid_format_count, too_short_count, too_long_count): (usize, usize, usize) =
-        values.into_iter().fold(
-            (0, 0, 0),
-            |(mut invalid_format_count, mut too_short_count, mut too_long_count), x| {
-                if !regex.is_match(x) || x.chars().nth(0).unwrap().is_ascii_digit() {
-                    invalid_format_count = invalid_format_count + 1;
-                } else if x.len() < 2 {
-                    too_short_count = too_short_count + 1;
-                } else if x.len() > 255 {
-                    too_long_count = too_long_count + 1;
-                }
-                (invalid_format_count, too_short_count, too_long_count)
-            },
-        );
+    let (invalid_format_names, too_short_names, too_long_names): (
+        LinkedHashSet<String>,
+        LinkedHashSet<String>,
+        LinkedHashSet<String>,
+    ) = values.into_iter().fold(
+        (
+            LinkedHashSet::new(),
+            LinkedHashSet::new(),
+            LinkedHashSet::new(),
+        ),
+        |(mut invalid_format_names, mut too_short_names, mut too_long_names), x| {
+            if !regex.is_match(&x) || x.chars().nth(0).unwrap_or(' ').is_ascii_digit() {
+                invalid_format_names.insert_if_absent(x.clone());
+            } else if x.len() < SECRET_NAME_MIN_LENGTH {
+                too_short_names.insert_if_absent(x.clone());
+            } else if x.len() > SECRET_NAME_MAX_LENGTH {
+                too_long_names.insert_if_absent(x.clone());
+            }
+            (invalid_format_names, too_short_names, too_long_names)
+        },
+    );
 
-    if invalid_format_count > 0 {
-        let multiple = invalid_format_count > 1;
-        let err =
-            InputValidationError::Secrets(SecretsInputValidationError::NameFormat { multiple });
+    if invalid_format_names.len() > 0 {
+        let invalid_format_names_vec = invalid_format_names.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::NamesFormat(invalid_format_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(err)
+        bail!(input_err)
     }
 
-    if too_short_count > 0 {
-        let multiple = too_short_count > 1;
-        let err =
-            InputValidationError::Secrets(SecretsInputValidationError::NameTooShort { multiple });
+    if too_short_names.len() > 0 {
+        let too_short_names_vec = too_short_names.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::NamesTooShort(too_short_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(err)
+        bail!(input_err)
     }
 
-    if too_long_count > 0 {
-        let multiple = too_long_count > 1;
-        let err =
-            InputValidationError::Secrets(SecretsInputValidationError::NameTooLong { multiple });
+    if too_long_names.len() > 0 {
+        let too_long_names_vec = too_long_names.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::NamesTooLong(too_long_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(err)
+        bail!(input_err)
     }
 
     // let invalid = values.into_iter().find(|v| !regex.is_match(*v));
@@ -212,44 +224,13 @@ pub fn validate_secret_values(values: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
-// for warning
-// name, invalid referencs
-pub type InvalidFormatReferences = HashMap<String, Vec<String>>;
-
-#[derive(Debug)]
-pub struct ReferencesValidation {
-    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
-    pub invalid_format_references: InvalidFormatReferences,
-}
-
-impl ReferencesValidation {
-    pub fn new(
-        self_referenced_secrets: Option<HashSet<String>>,
-        invalid_format_references: Option<InvalidFormatReferences>,
-    ) -> Self {
-        Self {
-            self_referenced_secrets: match self_referenced_secrets {
-                None => Vec::new(),
-                Some(r) => r.into_iter().collect(),
-            },
-            invalid_format_references: match invalid_format_references {
-                None => HashMap::new(),
-                Some(r) => r,
-            },
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.invalid_format_references.len() == 0 && self.self_referenced_secrets.len() == 0
-    }
-}
-
 // self reference = fatal error, invalid format = warning
 pub fn validate_secrets_references(
     // secrets: &Vec<(String, String)>,
     secrets: &Vec<Secret>,
 ) -> ReferencesValidation {
     let mut self_referenced_secrets: HashSet<_> = HashSet::new();
-    let mut invalid_format_secrets: HashMap<String, Vec<String>> = HashMap::new();
+    let mut invalid_format_secrets: LinkedHashMap<String, Vec<String>> = LinkedHashMap::new();
 
     for Secret {
         name,
@@ -258,7 +239,7 @@ pub fn validate_secrets_references(
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(name).is_some();
+        let has_self_reference = all_unique_refs.contains(name);
 
         if has_self_reference {
             self_referenced_secrets.insert(name.clone());
@@ -283,32 +264,6 @@ pub fn validate_secrets_references(
     validation_obj
 }
 
-pub type NotFoundReferences = InvalidFormatReferences;
-
-#[derive(Debug)]
-pub struct ReferencesValidationWithExistence {
-    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
-    pub invalid_format: InvalidFormatReferences,
-    // NOTE: refering secrets that do not exist (within input)
-    // (names, reference)
-    pub not_found: NotFoundReferences,
-}
-
-impl ReferencesValidationWithExistence {
-    pub fn new() -> Self {
-        Self {
-            self_referenced_secrets: Vec::new(),
-            invalid_format: HashMap::new(),
-            not_found: NotFoundReferences::new(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.invalid_format.len() == 0
-            && self.self_referenced_secrets.len() == 0
-            && self.not_found.len() == 0
-    }
-}
-
 // self reference = fatal error, invalid format = warning
 pub fn validate_secrets_references_with_existence(
     secrets: &Vec<Secret>,
@@ -328,7 +283,7 @@ pub fn validate_secrets_references_with_existence(
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
-        let has_self_reference = all_unique_refs.get(name).is_some();
+        let has_self_reference = all_unique_refs.contains(name);
 
         if has_self_reference {
             validation_obj.self_referenced_secrets.push(name.clone());
@@ -360,6 +315,40 @@ pub fn validate_secrets_references_with_existence(
     validation_obj
 }
 
+pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceWarnings {
+    let mut validation_obj = SecretReferenceWarnings::new();
+    let secret_names: HashSet<_> = secrets.iter().map(|s| &s.name).collect();
+
+    for secret in secrets {
+        let all_unique_refs = secrets::extract_unique_references_from_secret(&secret.value);
+
+        for ref_ in all_unique_refs {
+            if ref_.trim().is_empty() {
+                validation_obj
+                    .empty_value
+                    .insert_if_absent(secret.name.clone());
+                continue;
+            }
+
+            if !validate_secret_name(&ref_).is_ok() {
+                validation_obj
+                    .invalid_format
+                    .entry(secret.name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(ref_);
+            } else if !secret_names.contains(&ref_) {
+                validation_obj
+                    .not_found
+                    .entry(secret.name.clone())
+                    .or_insert_with(Vec::new)
+                    .push(ref_);
+            }
+        }
+    }
+
+    validation_obj
+}
+
 pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
@@ -367,21 +356,129 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
         .into_iter()
         .find(|k| !regex.is_match(&k.0) || !regex.is_match(&k.1));
 
-    if invalid.is_some() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::NameFormat {
-            multiple: true,
-        });
+    if let Some((name, new_name)) = invalid {
+        let vec = vec![name.clone(), new_name.clone()];
+        let secrets_error = SecretsInputValidationError::NamesFormat(vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(err)
+        bail!(input_err)
     }
 
     Ok(())
 }
 
-pub fn validate_secret_description(formatted_description: &str) -> Result<()> {
-    if formatted_description.len() > SECRET_DESCRIPTION_MAX_LENGTH {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
-        bail!(err)
+pub fn is_valid_secret_description(formatted_description: &str) -> bool {
+    formatted_description.len() <= SECRET_DESCRIPTION_MAX_LENGTH
+}
+
+// takes mutable reference of secrets
+pub fn format_secrets_input(secrets: &mut Vec<Secret>) {
+    for secret in secrets.iter_mut() {
+        if let Some(ref d) = secret.description {
+            secret.description = Some(if d.trim().is_empty() {
+                String::new()
+            } else {
+                format_secret_description(&d, true)
+            });
+        }
+    }
+}
+
+pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
+    let mut invalid_names = LinkedHashSet::new();
+    let mut self_references = LinkedHashSet::new();
+    let mut description_too_long_secrets_names = LinkedHashSet::new();
+    let mut value_too_long_secret_names = LinkedHashSet::new();
+    let mut name_counts = HashMap::new();
+
+    // First pass: collect references to invalid secrets
+    for secret in secrets {
+        let name = &secret.name;
+
+        // Validate name format
+        if validate_secret_name(name).is_err() {
+            invalid_names.insert_if_absent(name);
+        }
+
+        // Check for self references
+        if secret.value.contains(&format!("${{{}}}", name)) {
+            self_references.insert_if_absent(name);
+        }
+
+        // Track name occurrences for duplicates
+        *name_counts.entry(name).or_insert(0) += 1;
+
+        // Check value length
+        if secret.value.len() > SECRET_VALUE_MAX_LENGTH {
+            value_too_long_secret_names.insert_if_absent(name);
+        }
+
+        // Check description length if present
+        if let Some(desc) = &secret.description {
+            if desc.len() > SECRET_DESCRIPTION_MAX_LENGTH {
+                description_too_long_secrets_names.insert_if_absent(name);
+            }
+        }
+    }
+
+    // Only clone strings when constructing the final error
+    if !invalid_names.is_empty() {
+        let invalid_names_vec = invalid_names.into_iter().map(|s| s.to_string()).collect();
+        let secrets_error = SecretsInputValidationError::NamesFormat(invalid_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    // Find duplicates
+    let duplicate_names: Vec<_> = name_counts
+        .iter()
+        .filter(|(_, &count)| count > 1)
+        .map(|(name, _)| (*name).to_string())
+        .collect();
+
+    if !duplicate_names.is_empty() {
+        let duplicate_names_vec = duplicate_names.into_iter().map(|s| s.to_string()).collect();
+        let secrets_error = SecretsInputValidationError::DuplicateNames(duplicate_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !value_too_long_secret_names.is_empty() {
+        let value_too_long_secret_names_vec = value_too_long_secret_names
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let secrets_error =
+            SecretsInputValidationError::ValuesTooLong(value_too_long_secret_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !description_too_long_secrets_names.is_empty() {
+        let description_too_long_secrets_names_vec = description_too_long_secrets_names
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let secrets_error = SecretsInputValidationError::DescriptionsTooLong(
+            description_too_long_secrets_names_vec,
+        );
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !self_references.is_empty() {
+        let self_references_vec = self_references.into_iter().map(|s| s.to_string()).collect();
+
+        let secrets_error = SecretsInputValidationError::SelfReferences(self_references_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
     }
 
     Ok(())
@@ -629,4 +726,87 @@ pub fn validate_webhook_description(description: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+// Maps secret validation errors to load environment exclude secrets errors.
+///
+/// # Arguments
+/// * `err` - The input validation error to map
+///
+/// # Panics
+/// Panics if the error is not a secret validation error or is an unexpected secret error type.
+pub fn map_secret_to_load_exclude_secrets_error(
+    err: &InputValidationError,
+) -> LoadEnvironmentInputValidationError {
+    match err {
+        InputValidationError::Secrets(secret_err) => match secret_err {
+            SecretsInputValidationError::NamesFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNamesFormat(secret_names.clone())
+            }
+            SecretsInputValidationError::NamesTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNamesTooShort(
+                    secret_names.clone(),
+                )
+            }
+            SecretsInputValidationError::NamesTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::ExcludeSecretNamesTooLong(secret_names.clone())
+            }
+            other => unreachable!("Unexpected secret validation error: {:?}", other),
+        },
+        other => unreachable!("Expected Secrets validation error, got: {:?}", other),
+    }
+}
+
+// Maps secret validation errors to load environment only secrets errors.
+///
+/// # Arguments
+/// * `err` - The input validation error to map
+///
+/// # Panics
+/// Panics if the error is not a secret validation error or is an unexpected secret error type.
+pub fn map_secret_to_load_only_secrets_error(
+    err: &InputValidationError,
+) -> LoadEnvironmentInputValidationError {
+    match err {
+        InputValidationError::Secrets(secret_err) => match secret_err {
+            SecretsInputValidationError::NamesFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNamesFormat(secret_names.clone())
+            }
+            SecretsInputValidationError::NamesTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNamesTooShort(secret_names.clone())
+            }
+            SecretsInputValidationError::NamesTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::OnlySecretNamesTooLong(secret_names.clone())
+            }
+            other => unreachable!("Unexpected secret validation error: {:?}", other),
+        },
+        other => unreachable!("Expected Secrets validation error, got: {:?}", other),
+    }
+}
+
+// Maps secret validation errors to load environment set secrets errors.
+///
+/// # Arguments
+/// * `err` - The input validation error to map
+///
+/// # Panics
+/// Panics if the error is not a secret validation error or is an unexpected secret error type.
+pub fn map_secret_to_load_set_secrets_error(
+    err: &InputValidationError,
+) -> LoadEnvironmentInputValidationError {
+    match err {
+        InputValidationError::Secrets(secret_err) => match secret_err {
+            SecretsInputValidationError::NamesFormat(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNamesFormat(secret_names.clone())
+            }
+            SecretsInputValidationError::NamesTooShort(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNamesTooShort(secret_names.clone())
+            }
+            SecretsInputValidationError::NamesTooLong(secret_names) => {
+                LoadEnvironmentInputValidationError::SetSecretNamesTooLong(secret_names.clone())
+            }
+            other => unreachable!("Unexpected secret validation error: {:?}", other),
+        },
+        other => unreachable!("Expected Secrets validation error, got: {:?}", other),
+    }
 }
