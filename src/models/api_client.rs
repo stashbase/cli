@@ -829,15 +829,15 @@ impl fmt::Display for OutputError {
         let message = self.get_message();
         let hint = self.get_hint();
 
-        writeln!(f, "- message: {}", message)?;
+        write!(f, "- message: {}", message)?;
 
         if let Some(hint) = hint {
-            writeln!(f, "- hint: {}", hint)?;
+            write!(f, "\n- hint: {}", hint)?;
         }
 
         if let OutputError::Secrets(e) = self {
             if let Some(secrets) = e.secrets.as_ref() {
-                writeln!(f, "- secrets: {}", secrets.join(", "))?;
+                write!(f, "\n- secrets: {}", secrets.join(", "))?;
             }
         }
 
