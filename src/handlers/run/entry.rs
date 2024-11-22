@@ -210,7 +210,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
                 let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
 
-                eprintln!();
+                if is_from_file {
+                    eprintln!();
+                }
+
                 bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
         }
@@ -226,6 +229,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 }
             }
             Err(e) => {
+                if is_from_file {
+                    eprintln!();
+                }
+
                 bail!(e);
             }
         }
