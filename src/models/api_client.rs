@@ -641,7 +641,7 @@ impl fmt::Display for OutputError {
         writeln!(f, "- message: {}", message)?;
 
         if let Some(hint) = hint {
-            write!(f, "- hint: {}", hint)?;
+            writeln!(f, "- hint: {}", hint)?;
         }
 
         if let OutputError::Secrets(e) = self {
