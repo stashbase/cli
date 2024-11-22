@@ -2,10 +2,7 @@ use clap::ValueEnum;
 use linked_hash_map::LinkedHashMap;
 use linked_hash_set::LinkedHashSet;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-};
+use std::{collections::HashSet, fmt::Display};
 
 use owo_colors::OwoColorize;
 use tabled::Tabled;
