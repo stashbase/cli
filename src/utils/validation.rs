@@ -150,18 +150,22 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
     let (invalid_format_names, too_short_names, too_long_names): (
-        HashSet<String>,
-        HashSet<String>,
-        HashSet<String>,
+        LinkedHashSet<String>,
+        LinkedHashSet<String>,
+        LinkedHashSet<String>,
     ) = values.into_iter().fold(
-        (HashSet::new(), HashSet::new(), HashSet::new()),
+        (
+            LinkedHashSet::new(),
+            LinkedHashSet::new(),
+            LinkedHashSet::new(),
+        ),
         |(mut invalid_format_names, mut too_short_names, mut too_long_names), x| {
             if !regex.is_match(&x) || x.chars().nth(0).unwrap_or(' ').is_ascii_digit() {
-                invalid_format_names.insert(x.clone());
+                invalid_format_names.insert_if_absent(x.clone());
             } else if x.len() < SECRET_NAME_MIN_LENGTH {
-                too_short_names.insert(x.clone());
+                too_short_names.insert_if_absent(x.clone());
             } else if x.len() > SECRET_NAME_MAX_LENGTH {
-                too_long_names.insert(x.clone());
+                too_long_names.insert_if_absent(x.clone());
             }
             (invalid_format_names, too_short_names, too_long_names)
         },
