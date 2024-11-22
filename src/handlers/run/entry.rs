@@ -1,30 +1,29 @@
-use std::{collections::HashMap, env};
+use std::collections::HashMap;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use log::debug;
 use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
-    api::{environments, secrets},
-    handlers::{pull::entry::load_from_file, run::subprocess},
+    api::secrets,
+    handlers::run::subprocess,
     models::{
         api_client::GetRequestApiResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::SecretWithoutDescription,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
-            SecretsInputValidationError, YamlEnvConfigError,
         },
     },
     utils::{
-        interaction::{self, select},
+        interaction::{self},
         separator,
         tables::build::build_table,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
-            map_secret_to_load_set_secrets_error, validate_project_environment,
-            validate_project_environment_identifier, validate_secret_names,
+            map_secret_to_load_set_secrets_error, validate_project_environment_identifier,
+            validate_secret_names,
         },
     },
     SUBPROCESS_RUNNING,
