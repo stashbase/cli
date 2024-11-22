@@ -1,11 +1,13 @@
 use clap::ValueEnum;
+use linked_hash_map::LinkedHashMap;
+use linked_hash_set::LinkedHashSet;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::{collections::HashSet, fmt::Display};
 
 use owo_colors::OwoColorize;
 use tabled::Tabled;
 
-use crate::cmd::config::SecretsOutputFormat;
+use crate::{cmd::config::SecretsOutputFormat, utils};
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
@@ -108,6 +110,31 @@ impl Display for Secret {
         // }
 
         Ok(())
+    }
+}
+
+pub trait ValidateSecrets {
+    fn validate(&self) -> anyhow::Result<()>;
+    fn get_reference_warnings(&self) -> SecretReferenceWarnings;
+}
+
+pub trait FormatSecrets {
+    fn format(&mut self);
+}
+
+impl ValidateSecrets for Vec<Secret> {
+    fn validate(&self) -> anyhow::Result<()> {
+        utils::validation::validate_secrets(self)
+    }
+
+    fn get_reference_warnings(&self) -> SecretReferenceWarnings {
+        utils::validation::get_secrets_reference_warnings(self)
+    }
+}
+
+impl FormatSecrets for Vec<Secret> {
+    fn format(&mut self) {
+        utils::validation::format_secrets_input(self);
     }
 }
 
@@ -428,5 +455,133 @@ impl From<WorkspaceSecretSearchedByValue> for WorkspaceSecretSearchedByValueTabl
             project: project_str,
             environments: environments_str,
         }
+    }
+}
+
+pub type InvalidFormatReferences = LinkedHashMap<String, Vec<String>>;
+pub type NotFoundReferences = InvalidFormatReferences;
+
+pub struct SecretReferenceWarnings {
+    pub invalid_format: InvalidFormatReferences,
+    // NOTE: refering secrets that do not exist (within input)
+    // (names, reference)
+    pub not_found: NotFoundReferences,
+    // name of secrets that have empty references to other secrets (counts also whitespace)
+    pub empty_value: LinkedHashSet<String>,
+}
+
+impl SecretReferenceWarnings {
+    pub fn new() -> Self {
+        Self {
+            invalid_format: LinkedHashMap::new(),
+            not_found: NotFoundReferences::new(),
+            empty_value: LinkedHashSet::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format.len() == 0 && self.not_found.len() == 0 && self.empty_value.len() == 0
+    }
+}
+
+impl std::fmt::Display for SecretReferenceWarnings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.invalid_format.is_empty() {
+            let secrets_str = self
+                .invalid_format
+                .iter()
+                .map(|(k, v)| format!("\"{}\" (\"{}\")", k, v.join(", ")))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+
+            writeln!(f, "- message: invalid secret references format")?;
+            writeln!(f, "- secrets: {} \n", secrets_str)?;
+        }
+
+        if !self.not_found.is_empty() {
+            let secrets_str = self
+                .not_found
+                .iter()
+                .map(|(k, v)| format!("\"{}\" (\"{}\")", k, v.join(", ")))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+
+            writeln!(
+                f,
+                "- message: references to non-existent secrets (within input)"
+            )?;
+            writeln!(f, "- secrets: {} \n", secrets_str)?;
+        }
+
+        if !self.empty_value.is_empty() {
+            let secrets_str = self
+                .empty_value
+                .iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+
+            writeln!(f, "- message: empty references to other secrets")?;
+            writeln!(f, "- secrets: {} \n", secrets_str)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct ReferencesValidation {
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
+    pub invalid_format_references: InvalidFormatReferences,
+}
+
+impl ReferencesValidation {
+    pub fn new(
+        self_referenced_secrets: Option<HashSet<String>>,
+        invalid_format_references: Option<InvalidFormatReferences>,
+    ) -> Self {
+        Self {
+            self_referenced_secrets: match self_referenced_secrets {
+                None => Vec::new(),
+                Some(r) => r.into_iter().collect(),
+            },
+            invalid_format_references: match invalid_format_references {
+                None => LinkedHashMap::new(),
+                Some(r) => r,
+            },
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format_references.len() == 0 && self.self_referenced_secrets.len() == 0
+    }
+}
+
+#[derive(Debug)]
+pub struct ReferencesValidationWithExistence {
+    pub self_referenced_secrets: Vec<String>, // vec of secrets (names)
+    pub invalid_format: InvalidFormatReferences,
+    // NOTE: refering secrets that do not exist (within input)
+    // (names, reference)
+    pub not_found: NotFoundReferences,
+}
+
+impl ReferencesValidationWithExistence {
+    pub fn new() -> Self {
+        Self {
+            self_referenced_secrets: Vec::new(),
+            invalid_format: LinkedHashMap::new(),
+            not_found: NotFoundReferences::new(),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.invalid_format.len() == 0
+            && self.self_referenced_secrets.len() == 0
+            && self.not_found.len() == 0
     }
 }

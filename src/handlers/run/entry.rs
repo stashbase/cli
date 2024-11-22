@@ -1,28 +1,28 @@
-use std::{collections::HashMap, env};
+use std::collections::HashMap;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use log::debug;
 use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
-    api::{environments, secrets},
-    handlers::{pull::entry::load_from_file, run::subprocess},
+    api::secrets,
+    handlers::run::subprocess,
     models::{
         api_client::GetRequestApiResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::SecretWithoutDescription,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
-            YamlEnvConfigError,
         },
     },
     utils::{
-        interaction::{self, select},
+        interaction::{self},
         separator,
         tables::build::build_table,
         validation::{
-            validate_project_environment, validate_project_environment_identifier,
+            map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
+            map_secret_to_load_set_secrets_error, validate_project_environment_identifier,
             validate_secret_names,
         },
     },
@@ -190,32 +190,32 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
     if !only.is_empty() {
         let name_validation_res = validate_secret_names(&only);
 
-        if let Err(_) = name_validation_res {
-            let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::OnlyNameFormat,
-            );
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
 
-            if is_from_file {
-                eprintln!();
+                if is_from_file {
+                    eprintln!();
+                }
+
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
-
-            bail!(err);
         }
     }
 
     if !exclude.is_empty() {
         let name_validation_res = validate_secret_names(&exclude);
 
-        if let Err(_) = name_validation_res {
-            let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::ExcludeNameFormat,
-            );
+        if let Err(err) = name_validation_res {
+            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
 
-            if is_from_file {
-                eprintln!();
+                if is_from_file {
+                    eprintln!();
+                }
+
+                bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
-
-            bail!(err);
         }
     }
 
@@ -229,6 +229,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 }
             }
             Err(e) => {
+                if is_from_file {
+                    eprintln!();
+                }
+
                 bail!(e);
             }
         }
@@ -565,18 +569,20 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                 Ok(_) => {
                     return Ok(name_value_pairs);
                 }
-                Err(_) => {
-                    let err = InputValidationError::LoadEnvironment(
-                        LoadEnvironmentInputValidationError::SetNameValueFormat,
-                    );
-
-                    bail!(err);
+                Err(err) => {
+                    if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
+                        let mapped_err = map_secret_to_load_set_secrets_error(validation_err);
+                        bail!(InputValidationError::LoadEnvironment(mapped_err));
+                    } else {
+                        // unreachable
+                        bail!(err)
+                    }
                 }
             }
         }
         Err(_) => {
             let err = InputValidationError::LoadEnvironment(
-                LoadEnvironmentInputValidationError::SetNameValueSeparator,
+                LoadEnvironmentInputValidationError::SetSecretNameValueSeparator,
             );
 
             bail!(err);

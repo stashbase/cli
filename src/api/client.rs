@@ -10,8 +10,8 @@ use reqwest_retry::{
 };
 
 use crate::models::api_client::{
-    ApiErrorResponse, CustomError, DeleteApiResponseOk, DeleteRequestApiResponse, GetApiResponseOk,
-    GetRequestApiResponse, OptionResponseOk, RequestApiOptionResponse, RequestArgs,
+    ApiErrorResponse, DeleteApiResponseOk, DeleteRequestApiResponse, GetApiResponseOk,
+    GetRequestApiResponse, OptionResponseOk, OutputError, RequestApiOptionResponse, RequestArgs,
 };
 
 struct RetryReqPolicy;
@@ -81,7 +81,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
         .await;
 
     if let Err(_) = &res {
-        let err = CustomError::cannot_connect();
+        let err = OutputError::cannot_connect();
         bail!(err)
     }
 
@@ -100,7 +100,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
             .context("Failed to deserialize API error response")?;
 
         // Convert the API error into your custom error type
-        let custom_error: CustomError = error_response.error.into();
+        let custom_error: OutputError = error_response.error.into();
         Ok(GetRequestApiResponse::Err(custom_error))
     }
 }
@@ -118,7 +118,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
         .await;
 
     if let Err(_) = &res {
-        let err = CustomError::cannot_connect();
+        let err = OutputError::cannot_connect();
         bail!(err)
     }
 
@@ -154,7 +154,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
             .context("Failed to deserialize API error response")?;
 
         // Convert the API error into your custom error type
-        let custom_error: CustomError = error_response.error.into();
+        let custom_error: OutputError = error_response.error.into();
         Ok(DeleteRequestApiResponse::Err(custom_error))
     }
 }
@@ -220,7 +220,7 @@ async fn post_patch_put<T: serde::Serialize>(
     };
 
     if let Err(_) = &res {
-        let err = CustomError::cannot_connect();
+        let err = OutputError::cannot_connect();
         bail!(err)
     }
 
@@ -255,7 +255,7 @@ async fn post_patch_put<T: serde::Serialize>(
             .context("Failed to deserialize API error response")?;
 
         // Convert the API error into your custom error type
-        let custom_error: CustomError = error_response.error.into();
+        let custom_error: OutputError = error_response.error.into();
         Ok(RequestApiOptionResponse::Err(custom_error))
     }
 }

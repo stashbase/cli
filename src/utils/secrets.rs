@@ -1,11 +1,8 @@
 use anyhow::{bail, Context, Result};
+use linked_hash_set::LinkedHashSet;
 use log::debug;
 use regex::Regex;
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    path::Path,
-};
+use std::{collections::HashMap, fs, path::Path};
 
 use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
@@ -385,7 +382,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 let (name_part, value_part) = line.split_at(equal_sign_idx);
                 let value_part = &value_part[1..]; // Skip the '=' character
 
-                let name = name_part.trim().to_string();
+                let name = name_part.to_string();
 
                 // Join multiline comments if they exist
                 let description = if !comment_lines.is_empty() {
@@ -527,8 +524,7 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
                     let filtered_comments = &comment_lines[start..end];
                     if !filtered_comments.is_empty() {
-                        descriptions
-                            .insert(key.trim().to_uppercase(), filtered_comments.join("\n"));
+                        descriptions.insert(key.to_string(), filtered_comments.join("\n"));
                     }
                     comment_lines.clear();
                 }
@@ -548,9 +544,11 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let key = k.as_str()?.to_string();
-                    let formatted_name = key
-                        .to_uppercase()
-                        .replace(|c: char| !c.is_alphanumeric(), "_");
+                    let name = key;
+
+                    // let formatted_name = key
+                    //     .to_uppercase()
+                    //     .replace(|c: char| !c.is_alphanumeric(), "_");
 
                     let value = match v {
                         serde_yaml::Value::String(s) => Some(s),
@@ -569,9 +567,9 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                     }?;
 
                     Some(Secret {
-                        name: formatted_name.clone(),
+                        name: name.clone(),
                         value,
-                        description: descriptions.remove(&formatted_name),
+                        description: descriptions.remove(&name),
                     })
                 })
                 .collect::<Vec<Secret>>();
@@ -789,16 +787,16 @@ pub fn find_duplicate_names(array: &[Secret]) -> Vec<String> {
         .collect()
 }
 
-pub fn extract_unique_references_from_secret(secret_value: &str) -> HashSet<String> {
+pub fn extract_unique_references_from_secret(secret_value: &str) -> LinkedHashSet<String> {
     // Define the regular expression to match ${...}
     let regex = Regex::new(r"\$\{(.*?)\}").unwrap();
     // Create a HashSet to store unique references
-    let mut refs = HashSet::new();
+    let mut refs = LinkedHashSet::new();
 
     // Iterate over all matches
     for cap in regex.captures_iter(secret_value) {
         // cap[1] contains the captured group inside ${}
-        refs.insert(cap[1].to_string());
+        refs.insert_if_absent(cap[1].to_string());
     }
 
     return refs;
