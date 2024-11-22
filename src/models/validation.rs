@@ -385,10 +385,10 @@ impl fmt::Display for SecretsInputValidationError {
             }
         }
 
-        writeln!(f, "{}", format!("- message: {}", msg))?;
+        write!(f, "- message: {}", msg)?;
 
         if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- hint: {}", hint))?;
+            write!(f, "\n- hint: {}", hint)?;
         }
 
         if let Some(secrets_names) = secrets_names {
@@ -399,7 +399,7 @@ impl fmt::Display for SecretsInputValidationError {
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                write!(f, "- secrets: {}", formatted_secrets)?;
+                write!(f, "\n- secrets: {}", formatted_secrets)?;
             }
         }
 
@@ -623,10 +623,10 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             }
         }
 
-        writeln!(f, "{}", format!("- message: {}", msg))?;
+        write!(f, "- message: {}", msg)?;
 
         if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- hint: {}", hint))?;
+            write!(f, "\n- hint: {}", hint)?;
         }
 
         if let Some(secrets_names) = secrets_names {
@@ -637,7 +637,7 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                write!(f, "- secrets: {}", formatted_secrets)?;
+                write!(f, "\n- secrets: {}", formatted_secrets)?;
             }
         }
 
