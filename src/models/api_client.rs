@@ -284,6 +284,9 @@ pub enum GenericError {
     #[serde(rename = "auth.expired_api_key")]
     ExpiredApiKey,
 
+    #[serde(rename = "access.ip_address_not_allowed")]
+    IpAddressNotAllowed,
+
     #[serde(rename = "access.unsupported_api_key")]
     UnsupportedApiKey,
 
@@ -491,6 +494,12 @@ impl From<ApiError> for OutputError {
                         hint,
                     })
                 }
+                GenericError::IpAddressNotAllowed => OutputError::Generic(GenericOutputError {
+                    message: format!("IP address not allowed"),
+                    hint: Some(format!(
+                        "access denied, the IP of the request is not allowed to access the API"
+                    )),
+                }),
                 GenericError::MissingPermission => {
                     let hint = if let Some(d) = api_error.details {
                         let details = serde_json::from_value::<MissingPermissionErrorDetails>(d);
