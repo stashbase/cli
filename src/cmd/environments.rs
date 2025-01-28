@@ -175,7 +175,6 @@ impl EnvironmentSubcommand {
             EnvironmentSubcommand::Get(g) => g.shared_args.project.as_ref(),
             EnvironmentSubcommand::Create(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Update(u) => u.shared_args.project.as_ref(),
-            EnvironmentSubcommand::Duplicate(d) => d.shared_args.project.as_ref(),
             EnvironmentSubcommand::Compare(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Lock(l) => l.shared_args.project.as_ref(),
             EnvironmentSubcommand::Unlock(u) => u.shared_args.project.as_ref(),
@@ -203,10 +202,6 @@ pub enum EnvironmentSubcommand {
     /// Update environment
     #[clap(alias = "u")]
     Update(UpdateEnvironment),
-
-    /// Duplicate environment
-    // #[clap(alias = "d")]
-    Duplicate(DuplicateEnvironment),
 
     /// Compare secrets of two environments
     Compare(CompareEnvironment),
