@@ -15,7 +15,6 @@ use crate::{
             compare::{handle_compare_environments, HandleCompareEnvironmentsArgs},
             create::{handle_create_environment, HandleCreateEnvironmentArgs},
             delete::handle_delete_environment,
-            duplicate::handle_duplicate_environment,
             get::handle_get_environment,
             list::{handle_list_environments, HandleListEnvironmentsArgs},
             open::handle_open_environment,
@@ -151,11 +150,6 @@ pub async fn handle_environment_commands(
                 )
                 .await?
             }
-            EnvironmentSubcommand::Duplicate(args) => {
-                handle_duplicate_environment(api_key, project, args.identifier, args.new_name)
-                    .await?;
-            }
-
             EnvironmentSubcommand::Compare(args) => {
                 let json_format = is_json_output(raw_output, default_output_format);
 

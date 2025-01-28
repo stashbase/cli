@@ -8,9 +8,7 @@ use crate::{
             ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
             RequestArgs,
         },
-        environments::{
-            CreatEnvironmentPayload, DuplicateEnvironmentPayload, UpdateEnvironmentPayload,
-        },
+        environments::{CreatEnvironmentPayload, UpdateEnvironmentPayload},
     },
 };
 
@@ -149,26 +147,6 @@ pub async fn update(
     };
 
     client::patch_request(args, Some(data)).await
-}
-
-pub async fn duplicate(
-    api_key: String,
-    project: String,
-    environment: String,
-    data: &DuplicateEnvironmentPayload,
-) -> Result<RequestApiOptionResponse> {
-    let path = format!("{}/duplicate", environment);
-
-    let args = RequestArgs {
-        path: ApiPath::Environments {
-            project,
-            path: Some(path),
-        },
-        query: None,
-        api_key,
-    };
-
-    client::post_request(args, Some(data)).await
 }
 
 pub async fn set_lock(
