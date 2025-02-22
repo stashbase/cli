@@ -7,7 +7,6 @@ pub enum InputValidationError {
     Projects(ProjectInputValidationError),
     Secrets(SecretsInputValidationError),
     Environments(EnvironmentsInputValidationError),
-    EnvChangelog(EnvChangelogInputValidationError),
     YamlConfigFile(YamlEnvConfigError),
     Run(RunInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
@@ -105,15 +104,6 @@ pub enum EnvironmentsInputValidationError {
     NewNameTooLong,
     //
     SelfComparison,
-}
-
-#[derive(Debug)]
-pub enum EnvChangelogInputValidationError {
-    // InvalidIdFormat,
-    // InvalidIdLength,
-    InvalidId,
-    InvalidLimit,
-    InvalidPage,
 }
 
 // geenral for stashbase.yaml file, shared between load, push and pull commands
@@ -507,48 +497,6 @@ impl fmt::Display for EnvironmentsInputValidationError {
     }
 }
 
-impl fmt::Display for EnvChangelogInputValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
-
-        match self {
-            //     EnvChangelogInputValidationError::InvalidIdFormat => {
-            //         msg = "invalid id";
-            //         hint = Some("is must be alphanumeric");
-            //     }
-            //     EnvChangelogInputValidationError::InvalidIdLength => {
-            //         msg = "invalid id";
-            //         hint = Some("id must be 22 characters long");
-            //     }
-            EnvChangelogInputValidationError::InvalidId => {
-                let hint_str =
-                    "Id must start with the prefix 'chng_' followed by 22 alphanumeric characters.";
-
-                msg = "invalid changelog id";
-                hint = Some(&hint_str);
-            }
-            EnvChangelogInputValidationError::InvalidLimit => {
-                msg = "limit option value is invalid";
-                hint = Some("limit can range from 2 to 30");
-            }
-            EnvChangelogInputValidationError::InvalidPage => {
-                msg = "page option value is invalid";
-                hint = Some("page can range from 1 to 1000");
-            }
-        }
-
-        if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
-            write!(f, "{}", format!("- hint: {}", hint),)?;
-        } else {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
-        }
-
-        Ok(())
-    }
-}
-
 impl fmt::Display for LoadEnvironmentInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let msg: &str;
@@ -802,7 +750,6 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Projects(inner) => write!(f, "{}", inner),
             InputValidationError::Secrets(inner) => write!(f, "{}", inner),
             InputValidationError::Environments(inner) => write!(f, "{}", inner),
-            InputValidationError::EnvChangelog(inner) => write!(f, "{}", inner),
             InputValidationError::LoadEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::PushPullEnvironment(inner) => write!(f, "{}", inner),
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),

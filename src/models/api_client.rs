@@ -22,12 +22,6 @@ pub enum ApiPath {
         path: Option<String>,
     },
 
-    EnvChangelog {
-        project: String,
-        environment: String,
-        path: Option<String>,
-    },
-
     Webhooks {
         project: String,
         environment: String,
@@ -72,26 +66,6 @@ impl fmt::Display for ApiPath {
                     "v1/projects/{}/environments/{}/secrets",
                     project, environment,
                 ),
-            },
-            ApiPath::EnvChangelog {
-                project,
-                environment,
-                path,
-            } => match path {
-                Some(p) => {
-                    write!(
-                        f,
-                        "v1/projects/{}/environments/{}/changelog/{}",
-                        project, environment, p
-                    )
-                }
-                None => {
-                    write!(
-                        f,
-                        "v1/projects/{}/environments/{}/changelog",
-                        project, environment
-                    )
-                }
             },
             ApiPath::Workspace { path } => match path {
                 Some(p) => {
@@ -204,12 +178,6 @@ pub struct SecretApiErrorDetails {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChangelogPageNotFoundErrorDetails {
-    pub pages_available: usize,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MissingPermissionErrorDetails {
     // for env/project api keys
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -265,7 +233,6 @@ pub enum ApiErrorEntity {
     Project(ProjectError),
     Environment(EnvironmentError),
     Secret(SecretsError),
-    EnvChangelog(EnvChangelogError),
     Webhook(WebhookError),
 }
 
@@ -374,18 +341,6 @@ pub enum SecretsError {
 
     #[serde(rename = "validation.secret_values_too_long")]
     SecretValuesTooLong,
-}
-
-#[derive(Debug, Deserialize)]
-pub enum EnvChangelogError {
-    #[serde(rename = "resource.page_not_found")]
-    PageNotFound,
-
-    #[serde(rename = "resource.change_not_found")]
-    ChangeNotFound,
-
-    #[serde(rename = "conflict.is_current_state")]
-    RevertIsCurrentState,
 }
 
 #[derive(Debug, Deserialize)]
@@ -696,52 +651,6 @@ impl From<ApiError> for OutputError {
                 }
             },
 
-            ApiErrorEntity::EnvChangelog(e) => match e {
-                // EnvChangelogError::PageNotFound => CustomError {
-                //     message: format!("page not found"),
-                //     hint: match api_error.message {
-                //         Some(m) => Some(m.to_lowercase()),
-                //         None => None,
-                //     },
-                // },
-                EnvChangelogError::PageNotFound => {
-                    let hint_str = match api_error.details {
-                        Some(d) => {
-                            let details =
-                                serde_json::from_value::<ChangelogPageNotFoundErrorDetails>(d);
-
-                            match details {
-                                Ok(details) => match details.pages_available {
-                                    1 => Some("only 1 page is available".to_string()),
-                                    _ => Some(format!(
-                                        "only {} pages are available",
-                                        details.pages_available
-                                    )),
-                                },
-                                Err(_) => None,
-                            }
-                        }
-                        None => None,
-                    };
-
-                    OutputError::Generic(GenericOutputError {
-                        message: format!("page not found"),
-                        hint: hint_str,
-                    })
-                }
-                EnvChangelogError::ChangeNotFound => OutputError::Generic(GenericOutputError {
-                    message: format!("change record not found"),
-                    hint: Some(format!("make sure that the id is correct")),
-                }),
-                EnvChangelogError::RevertIsCurrentState => {
-                    OutputError::Generic(GenericOutputError {
-                        message: format!(
-                            "nothing to revert, this is current state of of the secrets"
-                        ),
-                        hint: None,
-                    })
-                }
-            },
             ApiErrorEntity::Webhook(e) => match e {
                 WebhookError::WebhookNotFound => OutputError::Generic(GenericOutputError {
                     message: format!("webhook not found"),

@@ -3,24 +3,17 @@ use anyhow::Result;
 use crate::{
     cmd::{
         config::OutputFormat,
-        environments::{EnvChangelogSubcommand, EnvironmentCommands, EnvironmentSubcommand},
+        environments::{EnvironmentCommands, EnvironmentSubcommand},
     },
-    handlers::{
-        env_changelog::{
-            get::{handle_get_changelog_item, HandleGetEnvChangelogItemArgs},
-            list::{handle_list_changelog, HandleEnvChangelogListArgs},
-            revert::{handle_revert_changelog_change, HandleRevertEnvChangelogChange},
-        },
-        environments::{
-            compare::{handle_compare_environments, HandleCompareEnvironmentsArgs},
-            create::{handle_create_environment, HandleCreateEnvironmentArgs},
-            delete::handle_delete_environment,
-            get::handle_get_environment,
-            list::{handle_list_environments, HandleListEnvironmentsArgs},
-            open::handle_open_environment,
-            set_lock::handle_set_env_lock,
-            update::handle_update_environment,
-        },
+    handlers::environments::{
+        compare::{handle_compare_environments, HandleCompareEnvironmentsArgs},
+        create::{handle_create_environment, HandleCreateEnvironmentArgs},
+        delete::handle_delete_environment,
+        get::handle_get_environment,
+        list::{handle_list_environments, HandleListEnvironmentsArgs},
+        open::handle_open_environment,
+        set_lock::handle_set_env_lock,
+        update::handle_update_environment,
     },
     utils::output::get_output_format,
 };
@@ -41,134 +34,84 @@ pub async fn handle_environment_commands(
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
-    if let EnvironmentSubcommand::Changelog(c) = &cmd.subcommand {
-        let (project, environment) = cmd.try_get_project_environment()?;
+    let project = cmd.try_get_project()?;
 
-        match &c.subcommand {
-            EnvChangelogSubcommand::List(args) => {
-                let json_output = is_json_output(raw_output, default_output_format);
+    match cmd.subcommand {
+        EnvironmentSubcommand::List(args) => {
+            let format = get_output_format(raw_output, default_output_format, args.format);
 
-                let args = HandleEnvChangelogListArgs {
-                    api_key,
-                    project,
-                    environment,
-                    show_values: args.show_values,
-                    page: args.page,
-                    limit: args.limit,
-                    raw: json_output,
-                };
+            let args = HandleListEnvironmentsArgs {
+                api_key,
+                project,
+                search: args.search,
+                sort_by: args.sort_by,
+                descending: args.descending,
+                types: args.types,
+                locked: args.locked,
+                unlocked: args.unlocked,
+                format,
+            };
 
-                handle_list_changelog(args).await?;
-            }
-            EnvChangelogSubcommand::Revert(args) => {
-                let args = HandleRevertEnvChangelogChange {
-                    api_key,
-                    project,
-                    environment,
-                    change_id: args.id.to_owned(),
-                };
-
-                handle_revert_changelog_change(args).await?;
-            }
-            EnvChangelogSubcommand::Get(args) => {
-                let json_output = is_json_output(raw_output, default_output_format);
-
-                let args = HandleGetEnvChangelogItemArgs {
-                    api_key,
-                    project,
-                    environment,
-                    raw: json_output,
-                    change_id: args.id.to_owned(),
-                };
-
-                handle_get_changelog_item(args).await?;
-            }
+            handle_list_environments(args).await?;
         }
 
-        Ok(())
-    } else {
-        let project = cmd.try_get_project()?;
+        EnvironmentSubcommand::Get(args) => {
+            let format = get_output_format(raw_output, default_output_format, args.format);
+            handle_get_environment(api_key, format, project, args.identifier).await?;
+        }
+        EnvironmentSubcommand::Open(args) => {
+            handle_open_environment(api_key, project, args.identifier).await?;
+        }
+        EnvironmentSubcommand::Create(args) => {
+            let args = HandleCreateEnvironmentArgs {
+                api_key,
+                project,
+                name: args.name,
+                description: args.description,
+                env_type: args.env_type,
+                open: args.open,
+                format: args.file_format,
+                file_path: args.file_path,
+            };
 
-        match cmd.subcommand {
-            EnvironmentSubcommand::List(args) => {
-                let format = get_output_format(raw_output, default_output_format, args.format);
-
-                let args = HandleListEnvironmentsArgs {
-                    api_key,
-                    project,
-                    search: args.search,
-                    sort_by: args.sort_by,
-                    descending: args.descending,
-                    types: args.types,
-                    locked: args.locked,
-                    unlocked: args.unlocked,
-                    format,
-                };
-
-                handle_list_environments(args).await?;
-            }
-
-            EnvironmentSubcommand::Get(args) => {
-                let format = get_output_format(raw_output, default_output_format, args.format);
-                handle_get_environment(api_key, format, project, args.identifier).await?;
-            }
-            EnvironmentSubcommand::Open(args) => {
-                handle_open_environment(api_key, project, args.identifier).await?;
-            }
-            EnvironmentSubcommand::Create(args) => {
-                let args = HandleCreateEnvironmentArgs {
-                    api_key,
-                    project,
-                    name: args.name,
-                    description: args.description,
-                    env_type: args.env_type,
-                    open: args.open,
-                    format: args.file_format,
-                    file_path: args.file_path,
-                };
-
-                handle_create_environment(args).await?;
-            }
-
-            EnvironmentSubcommand::Lock(args) => {
-                handle_set_env_lock(api_key, project, args.identifier, true).await?;
-            }
-            EnvironmentSubcommand::Unlock(args) => {
-                handle_set_env_lock(api_key, project, args.identifier, false).await?;
-            }
-            EnvironmentSubcommand::Delete(args) => {
-                handle_delete_environment(api_key, project, args.identifier).await?;
-            }
-            EnvironmentSubcommand::Update(args) => {
-                handle_update_environment(
-                    api_key,
-                    project,
-                    args.identifier,
-                    args.new_name,
-                    args.description,
-                    args.env_type,
-                )
-                .await?
-            }
-            EnvironmentSubcommand::Compare(args) => {
-                let json_format = is_json_output(raw_output, default_output_format);
-
-                let handler_args = HandleCompareEnvironmentsArgs {
-                    api_key,
-                    project,
-                    environment_1: args.identifier_1,
-                    environment_2: args.identifier_2,
-                    only_names: args.only_names,
-                    json_format,
-                };
-
-                handle_compare_environments(handler_args).await?;
-            }
-            EnvironmentSubcommand::Changelog(_) => {
-                unreachable!()
-            }
+            handle_create_environment(args).await?;
         }
 
-        Ok(())
+        EnvironmentSubcommand::Lock(args) => {
+            handle_set_env_lock(api_key, project, args.identifier, true).await?;
+        }
+        EnvironmentSubcommand::Unlock(args) => {
+            handle_set_env_lock(api_key, project, args.identifier, false).await?;
+        }
+        EnvironmentSubcommand::Delete(args) => {
+            handle_delete_environment(api_key, project, args.identifier).await?;
+        }
+        EnvironmentSubcommand::Update(args) => {
+            handle_update_environment(
+                api_key,
+                project,
+                args.identifier,
+                args.new_name,
+                args.description,
+                args.env_type,
+            )
+            .await?
+        }
+        EnvironmentSubcommand::Compare(args) => {
+            let json_format = is_json_output(raw_output, default_output_format);
+
+            let handler_args = HandleCompareEnvironmentsArgs {
+                api_key,
+                project,
+                environment_1: args.identifier_1,
+                environment_2: args.identifier_2,
+                only_names: args.only_names,
+                json_format,
+            };
+
+            handle_compare_environments(handler_args).await?;
+        }
     }
+
+    Ok(())
 }
