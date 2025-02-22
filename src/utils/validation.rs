@@ -11,7 +11,7 @@ use crate::models::{
         ReferencesValidation, ReferencesValidationWithExistence, Secret, SecretReferenceWarnings,
     },
     validation::{
-        EnvChangelogInputValidationError, EnvironmentsInputValidationError, InputValidationError,
+        EnvironmentsInputValidationError, InputValidationError,
         LoadEnvironmentInputValidationError, ProjectInputValidationError,
         SecretsInputValidationError, WebhookInputValidationError,
     },
@@ -652,39 +652,6 @@ pub fn validate_secret_search(value: &str) -> Result<()> {
         let err = InputValidationError::Secrets(SecretsInputValidationError::SearchFormat);
         bail!(err)
     }
-
-    Ok(())
-}
-
-pub fn validate_env_changelog_id(value: &str) -> Result<()> {
-    let prefix = "chng_";
-
-    if (value.starts_with(prefix)) == false {
-        let input_err = EnvChangelogInputValidationError::InvalidId;
-        bail!(InputValidationError::EnvChangelog(input_err));
-    }
-
-    let id_without_prefix = &value[prefix.len()..];
-
-    let parsed = ShortUuid::parse_str(id_without_prefix);
-
-    if let Err(_) = parsed {
-        let input_err = EnvChangelogInputValidationError::InvalidId;
-        bail!(InputValidationError::EnvChangelog(input_err));
-    }
-
-    // let regex = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
-    //
-    // if value.len() != 22 {
-    //     let err =
-    //         InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidIdLength);
-    //
-    //     bail!(err)
-    // } else {
-    //     if !regex.is_match(value) {
-    //         InputValidationError::EnvChangelog(EnvChangelogInputValidationError::InvalidIdFormat);
-    //     }
-    // }
 
     Ok(())
 }

@@ -83,89 +83,6 @@ impl EnvironmentCommands {
             None => Ok(root_project.unwrap().to_string()),
         }
     }
-
-    // for changelog
-    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
-        if let EnvironmentSubcommand::Changelog(c) = &self.subcommand {
-            let root_project = self.project.as_deref();
-            let subcommand_project = self.subcommand.get_project();
-
-            let nested_subcommand_project = match &c.subcommand {
-                EnvChangelogSubcommand::List(l) => l.shared_args.project.as_deref(),
-                EnvChangelogSubcommand::Get(g) => g.shared_args.project.as_deref(),
-                EnvChangelogSubcommand::Revert(r) => r.shared_args.project.as_deref(),
-            };
-
-            let mut project_arg_count = 0;
-
-            if root_project.is_some() {
-                project_arg_count += 1
-            }
-
-            if subcommand_project.is_some() {
-                project_arg_count += 1
-            }
-            if nested_subcommand_project.is_some() {
-                project_arg_count += 1
-            }
-
-            // environment
-            let subcommand_environment = c.shared_args.environment.as_deref();
-            let nested_subcommand_environment = match &c.subcommand {
-                EnvChangelogSubcommand::List(l) => l.shared_args.environment.as_deref(),
-                EnvChangelogSubcommand::Get(g) => g.shared_args.environment.as_deref(),
-                EnvChangelogSubcommand::Revert(r) => r.shared_args.environment.as_deref(),
-            };
-
-            // checks
-            if project_arg_count > 1 {
-                bail!(InputValidationError::CmdArgs(
-                    CmdArgInputValidationError::DuplicateProject
-                ))
-            }
-
-            if subcommand_environment.is_some() && nested_subcommand_environment.is_some() {
-                bail!(InputValidationError::CmdArgs(
-                    CmdArgInputValidationError::DuplicateEnvironment
-                ))
-            }
-
-            if project_arg_count == 0 {
-                if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
-                    bail!(InputValidationError::CmdArgs(
-                        CmdArgInputValidationError::MissingProjectEnvironment
-                    ))
-                }
-
-                bail!(InputValidationError::CmdArgs(
-                    CmdArgInputValidationError::MissingProject
-                ))
-            }
-
-            if subcommand_environment.is_none() && nested_subcommand_environment.is_none() {
-                bail!(InputValidationError::CmdArgs(
-                    CmdArgInputValidationError::MissingEnvironment
-                ))
-            }
-
-            let project = match nested_subcommand_project {
-                Some(p) => p.to_string(),
-                None => match subcommand_project {
-                    Some(p) => p.to_string(),
-                    None => root_project.unwrap().to_string(),
-                },
-            };
-
-            let environment = match nested_subcommand_environment {
-                Some(e) => e.to_string(),
-                None => subcommand_environment.unwrap().to_string(),
-            };
-
-            return Ok((project, environment));
-        } else {
-            bail!("Changelog subcommand is only supported for changelog command")
-        }
-    }
 }
 
 impl EnvironmentSubcommand {
@@ -179,7 +96,6 @@ impl EnvironmentSubcommand {
             EnvironmentSubcommand::Lock(l) => l.shared_args.project.as_ref(),
             EnvironmentSubcommand::Unlock(u) => u.shared_args.project.as_ref(),
             EnvironmentSubcommand::Delete(d) => d.shared_args.project.as_ref(),
-            EnvironmentSubcommand::Changelog(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Open(o) => o.shared_args.project.as_ref(),
         }
     }
@@ -215,9 +131,6 @@ pub enum EnvironmentSubcommand {
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
     Delete(DeleteEnvironment),
-
-    /// Environment changelog
-    Changelog(EnvChangelog),
 
     /// Open environment in browser
     #[clap(alias = "o")]
@@ -424,82 +337,4 @@ pub struct CreateEnvironment {
     /// Open environment in browser
     #[arg(value_enum, long = "open")]
     pub open: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct EnvChangelog {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectEnvArgs,
-
-    #[clap(subcommand)]
-    pub subcommand: EnvChangelogSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-#[command(
-    override_usage = "environments changelog <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
-pub enum EnvChangelogSubcommand {
-    /// List changelog records
-    #[clap(alias = "l")]
-    List(ListChangelog),
-
-    /// List changelog record
-    #[clap(alias = "g")]
-    Get(GetChangelogItem),
-
-    /// List changelog records
-    #[clap(alias = "r")]
-    Revert(RevertChangelog),
-}
-
-#[derive(Debug, Args)]
-#[command(override_usage = "environments changelog list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
-pub struct ListChangelog {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectEnvArgs,
-
-    /// Show secret values
-    #[arg(value_enum, long = "show-values")]
-    pub show_values: bool,
-
-    /// Page (selected page)
-    #[arg(value_enum, long = "page")]
-    pub page: Option<usize>,
-
-    /// Take (number of) items per page
-    #[arg(value_enum, long = "limit")]
-    pub limit: Option<usize>,
-}
-
-#[derive(Debug, Args)]
-#[command(
-    override_usage = "environments changelog get <CHANGE_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
-pub struct GetChangelogItem {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectEnvArgs,
-
-    // /// Environment name
-    // pub name: String,
-    //
-    /// Change id
-    #[arg(name = "change_id")]
-    pub id: String,
-}
-
-#[derive(Debug, Args)]
-#[command(
-    override_usage = "environments changelog revert <CHANGE_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
-pub struct RevertChangelog {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectEnvArgs,
-
-    // /// Environment name
-    // pub name: String,
-    //
-    /// Change id
-    #[arg(name = "change_id")]
-    pub id: String,
 }
