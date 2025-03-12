@@ -3,38 +3,9 @@ use std::default::Default;
 
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use serde::{Deserialize, Serialize};
 
 use super::{config::OutputFormat, secrets::SecretsFileFormat, shared::SharedProjectEnvArgs};
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
-
-#[derive(Debug, ValueEnum, Clone, Serialize, Deserialize)]
-pub enum EnvironmentType {
-    #[clap(alias = "dev")]
-    Development,
-
-    #[clap(alias = "test")]
-    Testing,
-
-    #[clap(alias = "stg")]
-    Staging,
-
-    #[clap(alias = "prod")]
-    Production,
-}
-
-impl fmt::Display for EnvironmentType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            EnvironmentType::Development => write!(f, "development"),
-            EnvironmentType::Testing => write!(f, "testing"),
-            EnvironmentType::Staging => write!(f, "staging"),
-            EnvironmentType::Production => write!(f, "production"),
-        }?;
-
-        Ok(())
-    }
-}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "environments <COMMAND> -p <PROJECT> [OPTIONS]")]
@@ -148,9 +119,14 @@ pub struct ListEnvironments {
     #[arg(value_enum, long = "search")]
     pub search: Option<String>,
 
-    /// Filter environment types
-    #[arg(value_enum, name = "types", short = 't', long = "types", num_args = 1..)]
-    pub types: Vec<EnvironmentType>,
+    /// Filter by production status
+    #[arg(
+        value_enum,
+        name = "production",
+        long = "production",
+        help = "Filter environments by production status (true/false)"
+    )]
+    pub is_production: Option<bool>,
 
     /// Filter locked
     #[arg(value_enum, long = "locked")]
@@ -269,9 +245,9 @@ pub struct UpdateEnvironment {
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
 
-    // #[arg(name = "type")]
-    #[arg(value_enum, name = "type", short = 't', long = "type")]
-    pub env_type: Option<EnvironmentType>,
+    /// Whether the environment is production or not, defaults to false
+    #[arg(value_enum, name = "production", long = "production")]
+    pub is_production: Option<bool>,
 }
 
 #[derive(Debug, Args)]
@@ -318,9 +294,9 @@ pub struct CreateEnvironment {
     /// Environment name
     pub name: String,
 
-    /// Environment type
-    #[arg(value_enum, name = "type", short = 't', long = "type")]
-    pub env_type: EnvironmentType,
+    /// Whether the environment is production or not, defaults to false
+    #[arg(value_enum, name = "production", long = "production")]
+    pub is_production: Option<bool>,
 
     /// Environment description
     #[arg(value_enum, short = 'd', long = "description")]
