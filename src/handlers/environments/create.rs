@@ -6,11 +6,11 @@ use owo_colors::OwoColorize;
 
 use crate::{
     api::environments,
-    cmd::{environments::EnvironmentType, secrets::SecretsFileFormat},
+    cmd::secrets::SecretsFileFormat,
     handlers::environments::open::GetEnvUrlResponse,
     models::{
         api_client::RequestApiOptionResponse,
-        environments::{CreatEnvironmentPayload, CreateEnvironmentResponse, EnvType},
+        environments::{CreatEnvironmentPayload, CreateEnvironmentResponse},
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -30,7 +30,7 @@ pub struct HandleCreateEnvironmentArgs {
     pub api_key: String,
     pub project: String,
     pub name: String,
-    pub env_type: EnvironmentType,
+    pub is_production: Option<bool>,
     pub description: Option<String>,
     pub open: bool,
     pub file_path: Option<String>,
@@ -42,7 +42,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         api_key,
         project,
         name,
-        env_type,
+        is_production,
         description,
         file_path,
         format,
@@ -125,12 +125,10 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
     debug!("creating project...:");
 
-    let environment_type: EnvType = env_type.into();
-
     let data = CreatEnvironmentPayload {
         name,
         description,
-        env_type: environment_type,
+        is_production,
         secrets,
     };
 

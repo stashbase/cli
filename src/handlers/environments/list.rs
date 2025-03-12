@@ -4,10 +4,7 @@ use log::debug;
 
 use crate::{
     api::environments::{self, ListEnvsRequestArgs},
-    cmd::{
-        config::OutputFormat,
-        environments::{EnvSortBy, EnvironmentType},
-    },
+    cmd::{config::OutputFormat, environments::EnvSortBy},
     models::{
         api_client::GetRequestApiResponse,
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
@@ -25,7 +22,7 @@ pub struct HandleListEnvironmentsArgs {
     pub search: Option<String>,
     pub sort_by: Option<EnvSortBy>,
     pub descending: bool,
-    pub types: Vec<EnvironmentType>,
+    pub is_production: Option<bool>,
     pub locked: bool,
     pub unlocked: bool,
     pub format: OutputFormat,
@@ -38,13 +35,13 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         search,
         sort_by: sort,
         descending,
-        types,
+        is_production,
         locked,
         unlocked,
         format,
     } = args;
 
-    debug!("{:#?}", types);
+    debug!("{:#?}", is_production);
 
     let project_identifier_vlidation_result = validate_project_identifier(&project, false);
 
@@ -68,7 +65,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let args = ListEnvsRequestArgs {
         api_key,
         project,
-        types,
+        is_production,
         locked,
         unlocked,
         search,
