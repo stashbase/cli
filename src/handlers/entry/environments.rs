@@ -46,7 +46,7 @@ pub async fn handle_environment_commands(
                 search: args.search,
                 sort_by: args.sort_by,
                 descending: args.descending,
-                types: args.types,
+                is_production: args.is_production,
                 locked: args.locked,
                 unlocked: args.unlocked,
                 format,
@@ -68,7 +68,7 @@ pub async fn handle_environment_commands(
                 project,
                 name: args.name,
                 description: args.description,
-                env_type: args.env_type,
+                is_production: args.is_production,
                 open: args.open,
                 format: args.file_format,
                 file_path: args.file_path,
@@ -93,7 +93,7 @@ pub async fn handle_environment_commands(
                 args.identifier,
                 args.new_name,
                 args.description,
-                args.env_type,
+                args.is_production,
             )
             .await?
         }
