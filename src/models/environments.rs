@@ -4,43 +4,9 @@ use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::{cmd::environments::EnvironmentType, utils::human_datetime::get_human_datetime};
+use crate::utils::human_datetime::get_human_datetime;
 
 use super::secrets::Secret;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum EnvType {
-    DEVELOPMENT,
-    TESTING,
-    STAGING,
-    PRODUCTION,
-}
-
-impl Display for EnvType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            // EnvType::DEVELOPMENT => write!(f, "Development"),
-            // EnvType::TESTING => write!(f, "Testing"),
-            // EnvType::STAGING => write!(f, "Staging"),
-            // EnvType::PRODUCTION => write!(f, "Production"),
-            EnvType::DEVELOPMENT => write!(f, "{}", "Development".blue()),
-            EnvType::TESTING => write!(f, "{}", "Testing".cyan()),
-            EnvType::STAGING => write!(f, "{}", "Staging".green()),
-            EnvType::PRODUCTION => write!(f, "{}", "Production".red()),
-        }
-    }
-}
-
-impl From<EnvironmentType> for EnvType {
-    fn from(e: EnvironmentType) -> Self {
-        match e {
-            EnvironmentType::Development => EnvType::DEVELOPMENT,
-            EnvironmentType::Testing => EnvType::TESTING,
-            EnvironmentType::Staging => EnvType::STAGING,
-            EnvironmentType::Production => EnvType::PRODUCTION,
-        }
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,10 +21,7 @@ pub struct Environment {
     pub description: Option<String>,
 
     pub locked: bool,
-
-    #[serde(rename = "type")]
-    pub env_type: EnvType,
-
+    pub is_production: bool,
     pub secret_count: usize,
 }
 
@@ -83,9 +46,8 @@ pub struct TableEnvironment {
     #[tabled(rename = "Locked", order = 4)]
     pub locked: bool,
 
-    #[serde(rename = "type")]
-    #[tabled(rename = "Type", order = 3)]
-    pub env_type: String,
+    #[tabled(rename = "Production", order = 3)]
+    pub is_production: bool,
 
     #[tabled(rename = "Secrets", order = 5)]
     pub secret_count: usize,
@@ -107,9 +69,8 @@ pub struct TableEnvironmentWithoutDescription {
     #[tabled(rename = "Locked", order = 4)]
     pub locked: bool,
 
-    #[serde(rename = "type")]
-    #[tabled(rename = "Type", order = 3)]
-    pub env_type: String,
+    #[tabled(rename = "Production", order = 3)]
+    pub is_production: bool,
 
     #[tabled(rename = "Secrets", order = 5)]
     pub secret_count: usize,
@@ -126,12 +87,7 @@ impl From<Environment> for TableEnvironment {
             name: env.name,
             description: env.description,
             locked: env.locked,
-            env_type: match env.env_type {
-                EnvType::DEVELOPMENT => "Development".to_string(),
-                EnvType::TESTING => "Testing".to_string(),
-                EnvType::STAGING => "Staging".to_string(),
-                EnvType::PRODUCTION => "Production".to_string(),
-            },
+            is_production: env.is_production,
             secret_count: env.secret_count,
         }
     }
@@ -147,12 +103,7 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
             created_at,
             name: env.name,
             locked: env.locked,
-            env_type: match env.env_type {
-                EnvType::DEVELOPMENT => "Development".to_string(),
-                EnvType::TESTING => "Testing".to_string(),
-                EnvType::STAGING => "Staging".to_string(),
-                EnvType::PRODUCTION => "Production".to_string(),
-            },
+            is_production: env.is_production,
             secret_count: env.secret_count,
         }
     }
@@ -173,8 +124,8 @@ impl Display for Environment {
 
         writeln!(f, "{} {}", "Id:".green(), self.id)?;
         writeln!(f, "{} {}", "Name:".green(), self.name)?;
-        writeln!(f, "{} {}", "Type:".green(), self.env_type)?;
         writeln!(f, "{} {}", "Locked:".green(), self.locked)?;
+        writeln!(f, "{} {}", "Production:".green(), self.is_production)?;
 
         if let Some(description) = &self.description {
             writeln!(f, "{} {}", "Description:".green(), description)?;
@@ -189,12 +140,11 @@ impl Display for Environment {
 // requests
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreatEnvironmentPayload {
     pub name: String,
     pub description: Option<String>,
-
-    #[serde(rename = "type")]
-    pub env_type: EnvType,
+    pub is_production: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<Secret>>,
@@ -218,8 +168,7 @@ pub struct UpdateEnvironmentPayload {
     pub description: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "type")]
-    pub env_type: Option<EnvType>,
+    pub is_production: Option<bool>,
 }
 
 // load
