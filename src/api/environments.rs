@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use super::client;
 use crate::{
-    cmd::environments::{EnvSortBy, EnvironmentType},
+    cmd::environments::EnvSortBy,
     models::{
         api_client::{
             ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
@@ -16,7 +16,7 @@ pub struct ListEnvsRequestArgs {
     pub api_key: String,
     pub project: String,
     pub search: Option<String>,
-    pub types: Vec<EnvironmentType>,
+    pub is_production: Option<bool>,
     pub locked: bool,
     pub unlocked: bool,
     pub sort_by: EnvSortBy,
@@ -28,7 +28,7 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
         api_key,
         project,
         search,
-        types,
+        is_production,
         locked,
         unlocked,
         sort_by: sort,
@@ -45,11 +45,8 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
         query.push(("search".to_string(), search));
     }
 
-    if !types.is_empty() {
-        let strings: Vec<_> = types.into_iter().map(|t| t.to_string()).collect();
-        let joined = strings.join(",");
-
-        query.push(("types".to_string(), joined));
+    if let Some(is_production) = is_production {
+        query.push(("is-production".to_string(), is_production.to_string()));
     }
 
     if locked && !unlocked {
