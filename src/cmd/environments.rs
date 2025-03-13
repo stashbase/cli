@@ -124,6 +124,7 @@ pub struct ListEnvironments {
         value_enum,
         name = "production",
         long = "production",
+        alias = "prod",
         help = "Filter environments by production status (true/false)"
     )]
     pub is_production: Option<bool>,
@@ -246,7 +247,7 @@ pub struct UpdateEnvironment {
     pub description: Option<String>,
 
     /// Whether the environment is production or not, defaults to false
-    #[arg(value_enum, name = "production", long = "production")]
+    #[arg(value_enum, name = "production", alias = "prod", long = "production")]
     pub is_production: Option<bool>,
 }
 
@@ -295,7 +296,7 @@ pub struct CreateEnvironment {
     pub name: String,
 
     /// Whether the environment is production or not, defaults to false
-    #[arg(value_enum, name = "production", long = "production")]
+    #[arg(value_enum, name = "production", alias = "prod", long = "production")]
     pub is_production: Option<bool>,
 
     /// Environment description
