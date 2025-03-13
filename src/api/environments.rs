@@ -50,11 +50,11 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
     }
 
     if locked && !unlocked {
-        query.push(("status".to_string(), "locked".to_string()));
+        query.push(("locked".to_string(), "true".to_string()));
     }
 
     if !locked && unlocked {
-        query.push(("status".to_string(), "unlocked".to_string()));
+        query.push(("locked".to_string(), "false".to_string()));
     }
 
     let args = RequestArgs {
