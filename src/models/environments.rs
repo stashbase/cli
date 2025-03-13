@@ -160,6 +160,7 @@ pub struct CreateEnvironmentResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateEnvironmentPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
