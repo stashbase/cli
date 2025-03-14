@@ -176,26 +176,9 @@ pub struct UpdateWebhookStatusPayload {
     pub enabled: bool,
 }
 
-// test
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum TestWebhookResponse {
-    Ok(TestWebhookOk),
-    Err(TestWebhookError),
-}
-
-// OK response without checking status
-// status must be 200 or 204
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TestWebhookOk {
-    pub url: String,
-    pub status: u16,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TestWebhookError {
+pub struct TestWebhookResponse {
     pub url: String,
 
     pub status: Option<u16>,
@@ -216,17 +199,6 @@ pub enum TestWebhookErrorCode {
     EPROTO,
 }
 
-impl Display for TestWebhookResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TestWebhookResponse::Err(err_res) => write!(f, "{}", err_res),
-            TestWebhookResponse::Ok(ok_res) => write!(f, "{}", ok_res),
-        }?;
-
-        Ok(())
-    }
-}
-
 impl TestWebhookErrorCode {
     pub fn get_message(&self) -> String {
         match self {
@@ -242,49 +214,41 @@ impl TestWebhookErrorCode {
     }
 }
 
-impl Display for TestWebhookOk {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // writeln!(f, "Webhook URL: {}", self.url)?;
-
-        if self.status == 200 || self.status == 204 {
-            writeln!(f, "Status: {}", "success".green())?;
+impl TestWebhookResponse {
+    pub fn is_success(&self) -> bool {
+        if let Some(status) = &self.status {
+            *status == 200 || *status == 204
         } else {
-            writeln!(f, "Status: {}", "failure".red())?;
+            false
         }
-
-        writeln!(f, "HTTP status code: {}", self.status)?;
-
-        if self.status == 200 || self.status == 204 {
-            writeln!(f, "Response message: Wehbook event delivered")?;
-        } else {
-            writeln!(f, "Response message: Failed with status code")?;
-        }
-
-        writeln!(f, "Webhook URL: {}", self.url)?;
-
-        Ok(())
     }
 }
 
-impl Display for TestWebhookError {
+impl Display for TestWebhookResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // writeln!(f, "Webhook URL: {}", self.url)?;
-        writeln!(f, "Status: {}", "failure".red())?;
-
-        if let Some(status) = &self.status {
-            writeln!(f, "HTTP status code: {}", status)?;
-            writeln!(f, "Response message: Failed with status code")?;
+        if self.is_success() {
+            writeln!(f, "Status: {}", "success".green())?;
+            writeln!(f, "HTTP status code: {}", self.status.unwrap())?;
+            writeln!(f, "Response message: Wehbook event delivered")?;
+            writeln!(f, "Webhook URL: {}", self.url)?;
         } else {
-            writeln!(f, "HTTP status code: N/A")?;
+            writeln!(f, "Status: {}", "failure".red())?;
+
+            if let Some(status) = &self.status {
+                writeln!(f, "HTTP status code: {}", status)?;
+                writeln!(f, "Response message: Failed with status code")?;
+            } else {
+                writeln!(f, "HTTP status code: N/A")?;
+            }
 
             if let Some(error) = &self.error {
                 writeln!(f, "Response message: {}", error.get_message())?;
             } else {
                 writeln!(f, "Response message: Unknown error")?;
             }
-        }
 
-        writeln!(f, "Webhook URL: {}", self.url)?;
+            writeln!(f, "Webhook URL: {}", self.url)?;
+        }
 
         Ok(())
     }
