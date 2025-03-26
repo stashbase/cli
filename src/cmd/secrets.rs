@@ -83,7 +83,7 @@ pub enum SecretSubcommand {
     Get(GetSecrets),
 
     /// Set secrets
-    #[clap(alias = "s")]
+    #[clap(alias = "upsert")]
     Set(SetSecrets),
 
     /// Upload secrets
