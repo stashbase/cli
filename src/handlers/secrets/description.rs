@@ -6,33 +6,33 @@ use crate::{
     api::secrets,
     models::{
         api_client::RequestApiOptionResponse,
-        secrets::UpdateSecretDescriptionPayload,
+        secrets::UpdateSecretCommentPayload,
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        secrets::format_secret_description,
+        secrets::format_secret_comment,
         spinner::request_spinner,
         validation::{
-            is_valid_secret_description, validate_environment_name, validate_project_name,
+            is_valid_secret_comment, validate_environment_name, validate_project_name,
             validate_secret_name,
         },
     },
 };
 
-pub struct HandleDescriptionArgs {
+pub struct HandleCommentArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
     pub name: String,
-    pub description: String,
+    pub comment: String,
 }
 
-pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()> {
-    let HandleDescriptionArgs {
+pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
+    let HandleCommentArgs {
         api_key,
         project,
         environment,
-        description,
+        comment,
         name,
     } = args;
 
@@ -42,27 +42,27 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
         bail!(e);
     }
 
-    let formatted_description = match description.is_empty() {
+    let formatted_comment = match comment.is_empty() {
         true => "".to_string(),
-        false => format_secret_description(&description, true),
+        false => format_secret_comment(&comment, true),
     };
 
-    let is_valid = is_valid_secret_description(&formatted_description);
+    let is_valid = is_valid_secret_comment(&formatted_comment);
 
     if !is_valid {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::DescriptionTooLong);
+        let err = InputValidationError::Secrets(SecretsInputValidationError::CommentTooLong);
 
         bail!(err)
     }
 
     // ok
-    let payload = UpdateSecretDescriptionPayload {
-        description: formatted_description,
+    let payload = UpdateSecretCommentPayload {
+        comment: formatted_comment,
     };
 
     let mut spinner = request_spinner();
 
-    let res = secrets::update_description(api_key, project, environment, name, &payload).await;
+    let res = secrets::update_comment(api_key, project, environment, name, &payload).await;
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
@@ -74,11 +74,7 @@ pub async fn handle_update_description(args: HandleDescriptionArgs) -> Result<()
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message(&format!(
-                "{} {}",
-                "✓".green(),
-                "Description has been updated!"
-            ));
+            spinner.stop_with_message(&format!("{} {}", "✓".green(), "Comment has been updated!"));
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
