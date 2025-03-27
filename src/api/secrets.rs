@@ -6,7 +6,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
         RequestArgs,
     },
-    secrets::{RenameSecretsPayload, Secret, UpdateSecretDescriptionPayload},
+    secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload},
 };
 
 pub async fn list(
@@ -95,7 +95,7 @@ pub async fn update_description(
     project: String,
     environment: String,
     name: String,
-    data: &UpdateSecretDescriptionPayload,
+    data: &UpdateSecretCommentPayload,
 ) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
