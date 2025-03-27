@@ -1,5 +1,5 @@
+pub mod comment;
 pub mod delete;
-pub mod description;
 pub mod get;
 pub mod list;
 pub mod rename;
