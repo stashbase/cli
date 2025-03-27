@@ -17,10 +17,10 @@ use crate::models::{
     },
 };
 
-use super::secrets::{self, format_secret_description};
+use super::secrets::{self, format_secret_comment};
 
-// 512 is max length for description after formatting
-pub const SECRET_DESCRIPTION_MAX_LENGTH: usize = 512;
+// 512 is max length for comment after formatting
+pub const SECRET_COMMENT_MAX_LENGTH: usize = 512;
 // 4096 is max length for value after formatting
 pub const SECRET_VALUE_MAX_LENGTH: usize = 4096;
 // 2 is min length for secret name
@@ -235,7 +235,7 @@ pub fn validate_secrets_references(
     for Secret {
         name,
         value,
-        description: _,
+        comment: _,
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
@@ -279,7 +279,7 @@ pub fn validate_secrets_references_with_existence(
     for Secret {
         name,
         value,
-        description: _,
+        comment: _,
     } in secrets
     {
         let all_unique_refs = secrets::extract_unique_references_from_secret(&value);
@@ -367,18 +367,18 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
     Ok(())
 }
 
-pub fn is_valid_secret_description(formatted_description: &str) -> bool {
-    formatted_description.len() <= SECRET_DESCRIPTION_MAX_LENGTH
+pub fn is_valid_secret_comment(formatted_comment: &str) -> bool {
+    formatted_comment.len() <= SECRET_COMMENT_MAX_LENGTH
 }
 
 // takes mutable reference of secrets
 pub fn format_secrets_input(secrets: &mut Vec<Secret>) {
     for secret in secrets.iter_mut() {
-        if let Some(ref d) = secret.description {
-            secret.description = Some(if d.trim().is_empty() {
+        if let Some(ref c) = secret.comment {
+            secret.comment = Some(if c.trim().is_empty() {
                 String::new()
             } else {
-                format_secret_description(&d, true)
+                format_secret_comment(&c, true)
             });
         }
     }
@@ -387,7 +387,7 @@ pub fn format_secrets_input(secrets: &mut Vec<Secret>) {
 pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
     let mut invalid_names = LinkedHashSet::new();
     let mut self_references = LinkedHashSet::new();
-    let mut description_too_long_secrets_names = LinkedHashSet::new();
+    let mut comment_too_long_secrets_names = LinkedHashSet::new();
     let mut value_too_long_secret_names = LinkedHashSet::new();
     let mut name_counts = HashMap::new();
 
@@ -413,10 +413,10 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
             value_too_long_secret_names.insert_if_absent(name);
         }
 
-        // Check description length if present
-        if let Some(desc) = &secret.description {
-            if desc.len() > SECRET_DESCRIPTION_MAX_LENGTH {
-                description_too_long_secrets_names.insert_if_absent(name);
+        // Check comment length if present
+        if let Some(comment) = &secret.comment {
+            if comment.len() > SECRET_COMMENT_MAX_LENGTH {
+                comment_too_long_secrets_names.insert_if_absent(name);
             }
         }
     }
@@ -458,15 +458,14 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
         bail!(input_err);
     }
 
-    if !description_too_long_secrets_names.is_empty() {
-        let description_too_long_secrets_names_vec = description_too_long_secrets_names
+    if !comment_too_long_secrets_names.is_empty() {
+        let comment_too_long_secrets_names_vec = comment_too_long_secrets_names
             .into_iter()
             .map(|s| s.to_string())
             .collect();
 
-        let secrets_error = SecretsInputValidationError::DescriptionsTooLong(
-            description_too_long_secrets_names_vec,
-        );
+        let secrets_error =
+            SecretsInputValidationError::DescriptionsTooLong(comment_too_long_secrets_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
         bail!(input_err);
