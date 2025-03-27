@@ -59,9 +59,9 @@ impl SecretSubcommand {
                 r.shared_args.project.as_deref(),
                 r.shared_args.environment.as_deref(),
             ),
-            SecretSubcommand::Description(d) => (
-                d.shared_args.project.as_deref(),
-                d.shared_args.environment.as_deref(),
+            SecretSubcommand::Comment(c) => (
+                c.shared_args.project.as_deref(),
+                c.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Delete(d) => (
                 d.shared_args.project.as_deref(),
@@ -94,9 +94,9 @@ pub enum SecretSubcommand {
     #[clap(alias = "r")]
     Rename(RenameSecrets),
 
-    /// Set description of existing secret
-    #[clap(alias = "des")]
-    Description(SetDescription),
+    /// Set comment of existing secret
+    #[clap(alias = "com")]
+    Comment(SetComment),
 
     /// Delete one or multiple secrets
     #[clap(aliases = &[ "del"])]
@@ -112,7 +112,7 @@ pub struct ListSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    /// Project description
+    /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
 
@@ -168,10 +168,9 @@ pub struct SetSecrets {
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
 
-    /// Descriptions to set: NAME_1=NOTE_1 NAME_2=NOTE_2
-    // #[clap(value_parser, long="description", short='d', num_args = 1.., value_delimiter = ' ')]
-    #[clap(value_parser, long="description", short='d', num_args = 1..)]
-    pub descriptions: Vec<String>,
+    /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
+    #[clap(value_parser, long="comment", short='c', num_args = 1..)]
+    pub comments: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -209,17 +208,17 @@ impl Display for SecretsFileFormat {
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "secrets description <NAME> <DESCRIPTION> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+    override_usage = "secrets comment <NAME> <COMMENT> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
 )]
-pub struct SetDescription {
+pub struct SetComment {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
     /// Secret name
     pub name: String,
 
-    /// Description
-    pub description: String,
+    /// Comment
+    pub comment: String,
 }
 
 #[derive(Debug, Args)]
