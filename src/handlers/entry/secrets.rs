@@ -7,7 +7,7 @@ use crate::{
     },
     handlers::secrets::{
         delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
-        description::{handle_update_description, HandleDescriptionArgs},
+        description::{handle_update_comment, HandleCommentArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
         rename::{handle_rename_secrets, HandleRenameSecretsArgs},
@@ -123,21 +123,21 @@ pub async fn handle_secrets_commands(
                 project,
                 environment,
                 values: args.secrets,
-                description: args.descriptions,
+                comment: args.comments,
             };
 
             handle_set_secrets(args).await?;
         }
-        SecretSubcommand::Description(args) => {
-            let args = HandleDescriptionArgs {
+        SecretSubcommand::Comment(args) => {
+            let args = HandleCommentArgs {
                 api_key,
                 project,
                 environment,
-                description: args.description,
+                comment: args.comment,
                 name: args.name,
             };
 
-            handle_update_description(args).await?;
+            handle_update_comment(args).await?;
         }
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
