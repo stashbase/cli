@@ -11,7 +11,7 @@ use crate::{cmd::config::SecretsOutputFormat, utils};
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
-pub struct SecretWithoutDescription {
+pub struct SecretWithoutComment {
     #[tabled(rename = "Name")]
     pub name: String,
 
@@ -32,7 +32,7 @@ pub struct Secret {
     pub value: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,26 +44,26 @@ pub struct SecretOptional {
     pub value: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
+    pub comment: Option<String>,
 }
 
 impl Secret {
-    pub fn has_description(&self) -> bool {
-        self.description.is_some()
+    pub fn has_comment(&self) -> bool {
+        self.comment.is_some()
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
-pub struct SecretWithDescription {
+pub struct SecretWithComment {
     #[tabled(rename = "Name")]
     pub name: String,
 
     #[tabled(rename = "Value")]
     pub value: String,
 
-    #[tabled(rename = "Description")]
-    pub description: String,
+    #[tabled(rename = "Comment")]
+    pub comment: String,
 }
 
 impl From<String> for SecretOnlyName {
@@ -72,17 +72,17 @@ impl From<String> for SecretOnlyName {
     }
 }
 
-impl From<Secret> for SecretWithDescription {
+impl From<Secret> for SecretWithComment {
     fn from(secret: Secret) -> Self {
         Self {
             name: secret.name,
             value: secret.value,
-            description: secret.description.unwrap_or("".to_string()),
+            comment: secret.comment.unwrap_or("".to_string()),
         }
     }
 }
 
-impl From<Secret> for SecretWithoutDescription {
+impl From<Secret> for SecretWithoutComment {
     fn from(secret: Secret) -> Self {
         Self {
             name: secret.name,
@@ -96,16 +96,16 @@ impl Display for Secret {
         // writeln!(f, "{} {}", "Key:".green(), self.key)?;
         // writeln!(f, "{} {}", "Value:".green(), self.value)?;
 
-        if let Some(description) = &self.description {
-            writeln!(f, "{}", description.blue())?;
+        if let Some(comment) = &self.comment {
+            writeln!(f, "{}", comment.blue())?;
             writeln!(f, "{}", "-".repeat(self.name.len()).blue())?;
 
-            // writeln!(f, "{} {}", "- description:".blue(), description)?;
+            // writeln!(f, "{} {}", "- comment:".blue(), comment)?;
         }
 
         write!(f, "{} {}", format!("{}:", self.name).green(), self.value)?;
 
-        // if self.description.is_some() {
+        // if self.comment.is_some() {
         //     writeln!(f, "")?;
         // }
 
@@ -139,8 +139,8 @@ impl FormatSecrets for Vec<Secret> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct UpdateSecretDescriptionPayload {
-    pub description: String,
+pub struct UpdateSecretCommentPayload {
+    pub comment: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
