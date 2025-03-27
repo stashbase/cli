@@ -6,8 +6,8 @@ use crate::{
         secrets::{SecretArgs, SecretSubcommand},
     },
     handlers::secrets::{
+        comment::{handle_update_comment, HandleCommentArgs},
         delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
-        description::{handle_update_comment, HandleCommentArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
         rename::{handle_rename_secrets, HandleRenameSecretsArgs},
