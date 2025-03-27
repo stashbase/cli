@@ -465,7 +465,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
             .collect();
 
         let secrets_error =
-            SecretsInputValidationError::DescriptionsTooLong(comment_too_long_secrets_names_vec);
+            SecretsInputValidationError::CommentsTooLong(comment_too_long_secrets_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
         bail!(input_err);
