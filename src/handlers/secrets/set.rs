@@ -8,7 +8,7 @@ use crate::{
         api_client::RequestApiOptionResponse,
         secrets::{Secret, ValidateSecrets},
     },
-    utils::{interaction, secrets::format_secret_description, separator, spinner::request_spinner},
+    utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
 };
 
 pub struct HandleSetSecretsArgs {
@@ -16,7 +16,7 @@ pub struct HandleSetSecretsArgs {
     pub project: String,
     pub environment: String,
     pub values: Vec<String>,
-    pub description: Vec<String>,
+    pub comment: Vec<String>,
 }
 
 // NOTE: for now must have at least one value -> validate length
@@ -26,7 +26,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         project,
         environment,
         values,
-        description,
+        comment,
     } = args;
 
     if values.is_empty() {
@@ -35,7 +35,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         bail!("{}", msg);
     }
 
-    debug!("{:#?}", description);
+    debug!("{:#?}", comment);
 
     let name_value_pairs = separator::key_value(values);
 
@@ -47,39 +47,39 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     let name_value_pairs = name_value_pairs.unwrap();
 
-    let description_pairs = separator::key_value(description);
-    debug!("{:#?}", description_pairs);
+    let comment_pairs = separator::key_value(comment);
+    debug!("{:#?}", comment_pairs);
 
-    if let Err(err) = description_pairs {
+    if let Err(err) = comment_pairs {
         // TODO: error
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
     // OK
-    let description_pairs = description_pairs.unwrap();
+    let comment_pairs = comment_pairs.unwrap();
 
     let mut payload = Vec::new();
 
     for x in name_value_pairs {
-        let description = description_pairs.iter().find(|d| d.0 == x.0);
+        let comment = comment_pairs.iter().find(|d| d.0 == x.0);
 
-        let secret = match description {
-            Some((_, d_value)) => {
-                let formatted_description = match d_value.is_empty() {
+        let secret = match comment {
+            Some((_, c_value)) => {
+                let formatted_comment = match c_value.is_empty() {
                     true => "".to_string(),
-                    false => format_secret_description(&d_value.to_string(), true),
+                    false => format_secret_comment(&c_value.to_string(), true),
                 };
 
                 Secret {
                     name: x.0,
                     value: x.1,
-                    description: Some(formatted_description),
+                    comment: Some(formatted_comment),
                 }
             }
             None => Secret {
                 name: x.0,
                 value: x.1,
-                description: None,
+                comment: None,
             },
         };
 
