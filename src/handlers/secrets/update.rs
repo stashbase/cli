@@ -126,10 +126,8 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         }
     }
 
-    // TODO: validate input
-
     // Convert inputs into UpdateSecretsPayload
-    let payload: Vec<UpdatedSecret> = secret_updates
+    let payload: UpdateSecretsPayload = secret_updates
         .into_iter()
         .map(|(name, properties)| UpdatedSecret {
             name,
