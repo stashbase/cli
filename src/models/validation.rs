@@ -81,6 +81,10 @@ pub enum SecretsInputValidationError {
     SearchFormat,
     // update
     // SameNewKey,
+    NoData,
+    NewNamesFormat(Vec<String>),
+    MissingPropertiesToUpdate(Vec<String>),
+    NewNameSameAsName(Vec<String>),
 }
 
 // TODO: check if is used as value (env cmd) or as arg (secrets cmd)
@@ -372,6 +376,25 @@ impl fmt::Display for SecretsInputValidationError {
                 msg = "secret values are too long";
                 hint = Some("maximum length is 4096 characters");
                 secrets_names = Some(secret_names);
+            }
+            SecretsInputValidationError::NoData => {
+                msg = "no data provided";
+                hint = Some("provide valid secret data");
+            }
+            SecretsInputValidationError::NewNamesFormat(names) => {
+                msg = "invalid new secret names";
+                hint = Some("cannot start with a digit, only uppercase alphanumeric characters and underscores allowed");
+                secrets_names = Some(names);
+            }
+            SecretsInputValidationError::MissingPropertiesToUpdate(names) => {
+                msg = "missing properties to update";
+                hint = Some("provide valid secret data");
+                secrets_names = Some(names);
+            }
+            SecretsInputValidationError::NewNameSameAsName(names) => {
+                msg = "new name equals to original name";
+                hint = Some("use different new name");
+                secrets_names = Some(names);
             }
         }
 
