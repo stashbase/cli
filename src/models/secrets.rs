@@ -139,6 +139,27 @@ impl FormatSecrets for Vec<Secret> {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedSecret {
+    // The name of the secret to update
+    pub name: String,
+
+    // The new name of the secret
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+
+    // The new value of the secret
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+
+    // The new comment of the secret
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+pub type UpdateSecretsPayload = Vec<UpdatedSecret>;
+
+#[derive(Debug, Serialize)]
 pub struct UpdateSecretCommentPayload {
     pub comment: String,
 }
