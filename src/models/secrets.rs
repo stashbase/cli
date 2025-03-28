@@ -196,6 +196,13 @@ pub struct CreateSecretsResponse {
     pub duplicate_secrets: Vec<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSecretsResponse {
+    pub updated_count: usize,
+    pub not_found_secrets: Vec<String>,
+}
+
 // response
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
