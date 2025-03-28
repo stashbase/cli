@@ -187,7 +187,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                         "{} {} {}",
                                         "Secrets".green(),
                                         "updated".green(),
-                                        format!("({}): ", updated_count).green(),
+                                        format!("({}):", updated_count).green(),
                                     ),
                                     secrets_updated
                                         .iter()
@@ -209,7 +209,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                         "{} {} {}",
                                         "Secrets".red(),
                                         "not found".red(),
-                                        format!("({}): ", not_found_secrets.len()).red(),
+                                        format!("({}):", not_found_secrets.len()).red(),
                                     ),
                                     not_found_secrets.join(", ")
                                 );
