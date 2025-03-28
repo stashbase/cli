@@ -159,6 +159,16 @@ impl RenamedSecret {
 pub type RenameSecretsPayload = Vec<RenamedSecret>;
 
 // response
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSecretsResponse {
+    // The number of secrets successfully created
+    pub created_count: usize,
+    // An array of secret names that already exist and were not created
+    pub duplicate_secrets: Vec<String>,
+}
+
+// response
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSecretsResponse {
