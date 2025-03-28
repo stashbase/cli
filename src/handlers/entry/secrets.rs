@@ -7,6 +7,7 @@ use crate::{
     },
     handlers::secrets::{
         comment::{handle_update_comment, HandleCommentArgs},
+        create::{handle_create_secrets, HandleCreateSecretsArgs},
         delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
@@ -138,6 +139,23 @@ pub async fn handle_secrets_commands(
             };
 
             handle_update_comment(args).await?;
+        }
+        SecretSubcommand::Create(args) => {
+            let json_format = match raw_output {
+                true => true,
+                false => default_output_format.unwrap_or_default() == SecretsOutputFormat::Json,
+            };
+
+            let args = HandleCreateSecretsArgs {
+                api_key,
+                project,
+                environment,
+                values: args.secrets,
+                comments: args.comments,
+                json_format,
+            };
+
+            handle_create_secrets(args).await?;
         }
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
