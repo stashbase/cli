@@ -55,6 +55,10 @@ impl SecretSubcommand {
                 c.shared_args.project.as_deref(),
                 c.shared_args.environment.as_deref(),
             ),
+            SecretSubcommand::Update(u) => (
+                u.shared_args.project.as_deref(),
+                u.shared_args.environment.as_deref(),
+            ),
             SecretSubcommand::Upload(u) => (
                 u.shared_args.project.as_deref(),
                 u.shared_args.environment.as_deref(),
@@ -93,6 +97,9 @@ pub enum SecretSubcommand {
     /// Create secrets
     #[clap(alias = "c")]
     Create(CreateSecrets),
+
+    /// Update secrets
+    Update(UpdateSecrets),
 
     /// Upload secrets
     #[clap(alias = "upl")]
@@ -209,6 +216,25 @@ pub struct UploadSecrets {
     /// Upload format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsFileFormat>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "secrets update -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+pub struct UpdateSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    /// Values to update (format: NAME=NEW_VALUE). Use original name even if also renaming
+    #[clap(value_parser, long = "value", short = 'v', num_args = 1..)]
+    pub values: Option<Vec<String>>,
+
+    /// Names to update (format: OLD_NAME=NEW_NAME). Use original name even if updating value
+    #[clap(value_parser, long = "rename", short = 'r', num_args = 1..)]
+    pub renames: Option<Vec<String>>,
+
+    /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
+    #[clap(value_parser, long = "comment", short = 'c', num_args = 1..)]
+    pub comments: Option<Vec<String>>,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
