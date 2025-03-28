@@ -6,7 +6,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
         RequestArgs,
     },
-    secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload},
+    secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload, UpdateSecretsPayload},
 };
 
 pub async fn list(
@@ -183,6 +183,25 @@ pub async fn set_sercrets(
     };
 
     client::put_request(args, Some(data)).await
+}
+
+pub async fn update_secrets(
+    api_key: String,
+    project: String,
+    environment: String,
+    data: &UpdateSecretsPayload,
+) -> Result<RequestApiOptionResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Secrets {
+            project,
+            environment,
+            path: None,
+        },
+        query: None,
+        api_key,
+    };
+
+    client::patch_request(args, Some(data)).await
 }
 
 pub async fn rename_secrets(
