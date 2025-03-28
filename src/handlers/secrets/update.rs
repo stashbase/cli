@@ -11,7 +11,7 @@ use crate::{
         api_client::RequestApiOptionResponse,
         secrets::{
             Secret, SecretPropertiesToUpdate, UpdateSecretsPayload, UpdateSecretsResponse,
-            UpdatedSecret, ValidateSecrets,
+            UpdatedSecret, ValidateSecrets, ValidateUpdateSecrets,
         },
     },
     utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
@@ -138,6 +138,10 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
             comment: properties.comment,
         })
         .collect();
+
+    if let Err(err) = payload.validate() {
+        bail!(err);
+    }
 
     let mut spinner = request_spinner();
     let res = secrets::update_secrets(api_key, project, environment, &payload).await;
