@@ -6,4 +6,5 @@ pub mod list;
 pub mod rename;
 pub mod search;
 pub mod set;
+pub mod update;
 pub mod upload;
