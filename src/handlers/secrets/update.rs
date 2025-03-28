@@ -10,11 +10,11 @@ use crate::{
     models::{
         api_client::RequestApiOptionResponse,
         secrets::{
-            Secret, SecretPropertiesToUpdate, UpdateSecretsPayload, UpdateSecretsResponse,
-            UpdatedSecret, ValidateSecrets, ValidateUpdateSecrets,
+            SecretPropertiesToUpdate, UpdateSecretsPayload, UpdateSecretsResponse, UpdatedSecret,
+            ValidateUpdateSecrets,
         },
     },
-    utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
+    utils::{separator, spinner::request_spinner},
 };
 
 pub struct HandleUpdateSecretsArgs {
