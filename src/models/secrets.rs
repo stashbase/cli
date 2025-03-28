@@ -160,6 +160,13 @@ pub struct UpdatedSecret {
 pub type UpdateSecretsPayload = Vec<UpdatedSecret>;
 
 #[derive(Debug, Serialize)]
+pub struct SecretPropertiesToUpdate {
+    pub new_name: Option<String>,
+    pub value: Option<String>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct UpdateSecretCommentPayload {
     pub comment: String,
 }
