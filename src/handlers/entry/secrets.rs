@@ -14,6 +14,7 @@ use crate::{
         rename::{handle_rename_secrets, HandleRenameSecretsArgs},
         search::{handle_search_secrets, HandleSearchSecretsArgs},
         set::{handle_set_secrets, HandleSetSecretsArgs},
+        update::{handle_update_secrets, HandleUpdateSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
     models::secrets::SecretsSearchOutputFormat,
@@ -156,6 +157,24 @@ pub async fn handle_secrets_commands(
             };
 
             handle_create_secrets(args).await?;
+        }
+        SecretSubcommand::Update(args) => {
+            let json_format = match raw_output {
+                true => true,
+                false => default_output_format.unwrap_or_default() == SecretsOutputFormat::Json,
+            };
+
+            let args = HandleUpdateSecretsArgs {
+                api_key,
+                project,
+                environment,
+                renames: args.renames,
+                values: args.values,
+                comment: args.comments,
+                json_format,
+            };
+
+            handle_update_secrets(args).await?;
         }
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
