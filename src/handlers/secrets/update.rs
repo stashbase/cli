@@ -171,9 +171,8 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                             let updated_count = data.updated_count;
                             let not_found_secrets = data.not_found_secrets;
 
-                            spinner.stop_and_persist("", "");
-
                             if updated_count > 0 {
+                                spinner.stop_and_persist("", "");
                                 let secrets_updated: Vec<_> = payload
                                     .into_iter()
                                     .filter(|k| {
@@ -198,8 +197,12 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
                                 println!("{}", msg);
                             } else {
-                                let msg = format!("No secrets updated (no changes)");
-                                println!("{}", msg);
+                                if updated_count == 0 {
+                                    spinner.stop_and_persist("No secrets updated (no changes)", "");
+                                } else {
+                                    let msg = format!("No secrets updated (no changes)");
+                                    println!("{}", msg);
+                                }
                             }
 
                             if not_found_secrets.len() > 0 {
