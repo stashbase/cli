@@ -173,38 +173,38 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                             let updated_count = data.updated_count;
                             let not_found_secrets = data.not_found_secrets;
 
+                            spinner.stop_and_persist("", "");
+
+                            if updated_count > 0 {
+                                let secrets_updated: Vec<_> = payload
+                                    .into_iter()
+                                    .filter(|k| {
+                                        not_found_secrets.iter().find(|s| *s == &k.name).is_none()
+                                    })
+                                    .collect();
+
+                                let msg = format!(
+                                    "{} {}",
+                                    format!(
+                                        "{} {} {}",
+                                        "Secrets".green(),
+                                        "updated".green(),
+                                        format!("({}): ", updated_count).green(),
+                                    ),
+                                    secrets_updated
+                                        .iter()
+                                        .map(|s| s.name.clone())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                );
+
+                                println!("{}", msg);
+                            } else {
+                                let msg = format!("No secrets updated (no changes)");
+                                println!("{}", msg);
+                            }
+
                             if not_found_secrets.len() > 0 {
-                                spinner.stop_and_persist("", "");
-
-                                if updated_count > 0 {
-                                    let secrets_updated: Vec<_> = payload
-                                        .into_iter()
-                                        .filter(|k| {
-                                            not_found_secrets
-                                                .iter()
-                                                .find(|s| *s == &k.name)
-                                                .is_none()
-                                        })
-                                        .collect();
-
-                                    let msg = format!(
-                                        "{} {}",
-                                        format!(
-                                            "{} {} {}",
-                                            "Secrets".green(),
-                                            "updated".green(),
-                                            format!("({}): ", updated_count).green(),
-                                        ),
-                                        secrets_updated
-                                            .iter()
-                                            .map(|s| s.name.clone())
-                                            .collect::<Vec<_>>()
-                                            .join(", ")
-                                    );
-
-                                    println!("{}", msg);
-                                }
-
                                 let info_msg = format!(
                                     "{} {}",
                                     format!(
@@ -217,13 +217,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                 );
 
                                 //
-                                eprintln!("{}", info_msg);
-                            } else {
-                                spinner.stop_with_message(&format!(
-                                    "{} {}",
-                                    "✓".green(),
-                                    "Secrets have been updated!"
-                                ));
+                                println!("{}", info_msg);
                             }
                         }
                     }
