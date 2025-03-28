@@ -147,6 +147,25 @@ pub async fn delete_all(
     client::post_request::<()>(args, None).await
 }
 
+pub async fn create_secrets(
+    api_key: String,
+    project: String,
+    environment: String,
+    data: &Vec<Secret>,
+) -> Result<RequestApiOptionResponse> {
+    let args = RequestArgs {
+        path: ApiPath::Secrets {
+            project,
+            environment,
+            path: None,
+        },
+        query: None,
+        api_key,
+    };
+
+    client::post_request(args, Some(data)).await
+}
+
 pub async fn set_sercrets(
     api_key: String,
     project: String,
