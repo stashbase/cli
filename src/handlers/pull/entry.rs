@@ -20,7 +20,7 @@ use crate::{
         secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
-            PushPullInputValidationError,  YamlEnvConfigError,
+            PushPullInputValidationError, YamlEnvConfigError,
         },
     },
     utils::{
@@ -310,7 +310,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     let secret = Secret {
                                         name,
                                         value,
-                                        description: None,
+                                        comment: None,
                                     };
 
                                     secrets.push(secret);
@@ -386,7 +386,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                 let secret = Secret {
                                     name,
                                     value,
-                                    description: None,
+                                    comment: None,
                                 };
 
                                 secrets.push(secret);

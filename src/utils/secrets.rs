@@ -9,7 +9,7 @@ use owo_colors::OwoColorize;
 
 use crate::{
     cmd::{config::SecretsOutputFormat, secrets::SecretsFileFormat},
-    models::secrets::{Secret, SecretOnlyName, SecretWithDescription, SecretWithoutDescription},
+    models::secrets::{Secret, SecretOnlyName, SecretWithComment, SecretWithoutComment},
 };
 
 use super::tables::build::build_table;
@@ -22,24 +22,24 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
             for (i, p) in secrets.iter().enumerate() {
                 let is_multiline = p.value.contains("\n");
 
-                let prev_has_description = match i == 0 {
+                let prev_has_comment = match i == 0 {
                     true => false,
-                    false => secrets[i - 1].has_description(),
+                    false => secrets[i - 1].has_comment(),
                 };
 
-                if prev_has_description {
+                if prev_has_comment {
                     text_to_print.push_str(&format!("\n"))
                 }
 
                 // is last
                 if i == secrets.len() - 1 {
-                    if !prev_has_description && (p.description.is_some() || is_multiline) {
+                    if !prev_has_comment && (p.comment.is_some() || is_multiline) {
                         text_to_print.push_str(&format!("\n{}", p))
                     } else {
                         text_to_print.push_str(&format!("{}", p))
                     }
                 } else {
-                    if i != 0 && (p.description.is_some() || is_multiline) {
+                    if i != 0 && (p.comment.is_some() || is_multiline) {
                         text_to_print.push_str(&format!("\n{}\n", p))
                     } else {
                         text_to_print.push_str(&format!("{}\n", p))
@@ -56,14 +56,14 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
             pretty
         }
         SecretsOutputFormat::Table => {
-            // TODO: cehck no have description -> dont show descr col
-            let has_some_description = secrets.iter().any(|s| s.has_description());
+            // TODO: cehck no have comment -> dont show comment col
+            let has_some_comment = secrets.iter().any(|s| s.has_comment());
 
-            if has_some_description {
+            if has_some_comment {
                 let table_secrets = secrets
                     .into_iter()
                     .map(|s| {
-                        let secret: SecretWithDescription = s.into();
+                        let secret: SecretWithComment = s.into();
                         secret
                     })
                     .collect::<Vec<_>>();
@@ -73,7 +73,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                 let table_secrets = secrets
                     .into_iter()
                     .map(|s| {
-                        let secret: SecretWithoutDescription = s.into();
+                        let secret: SecretWithoutComment = s.into();
                         secret
                     })
                     .collect::<Vec<_>>();
@@ -101,11 +101,11 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                         false => s.value.replace("\"", "\\\""),
                     };
 
-                    if let Some(descr) = &s.description {
+                    if let Some(comment) = &s.comment {
                         // let mut str_line =
                         //     format!("# {}\n{}{}{}", descr, s.name, kv_separator, s.value);
 
-                        let description_str = descr
+                        let comment_str = comment
                             .split('\n')
                             .map(|line| format!("# {}\n", line.trim()))
                             .collect::<String>();
@@ -115,7 +115,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                                 if SecretsOutputFormat::Dotenv == *format {
                                     format!(
                                         "{}{}{} {}",
-                                        description_str, s.name, kv_separator, replaced_value
+                                        comment_str, s.name, kv_separator, replaced_value
                                     )
                                 } else {
                                     let indented_value = replaced_value
@@ -126,14 +126,14 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 
                                     format!(
                                         "{}{}{} |\n{}",
-                                        description_str, s.name, kv_separator, indented_value
+                                        comment_str, s.name, kv_separator, indented_value
                                     )
                                 }
                             }
                             false => {
                                 format!(
                                     "{}{}{} {}",
-                                    description_str, s.name, kv_separator, replaced_value
+                                    comment_str, s.name, kv_separator, replaced_value
                                 )
                             }
                         };
@@ -156,12 +156,12 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 
                         return str_line;
                     } else {
-                        let prev_has_description = match i == 0 {
+                        let prev_has_comment = match i == 0 {
                             true => false,
                             false => {
                                 let prev_line = secrets.get(i - 1);
                                 match prev_line {
-                                    Some(prev_line) => prev_line.description.is_some(),
+                                    Some(prev_line) => prev_line.comment.is_some(),
                                     None => false,
                                 }
                             }
@@ -199,7 +199,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                         };
 
                         if i != 0 {
-                            if prev_has_description || is_multiline || prev_is_multiline {
+                            if prev_has_comment || is_multiline || prev_is_multiline {
                                 str_line = format!("\n{}", str_line);
                             }
                         }
@@ -347,7 +347,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
                 if !is_escaped {
                     is_in_multiline = false;
-                    if let Some((name, description)) = pending_secret.take() {
+                    if let Some((name, comment)) = pending_secret.take() {
                         let full_value = current_multiline_value
                             .iter()
                             .enumerate()
@@ -367,7 +367,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                         secrets.push(Secret {
                             name,
                             value: unescaped_value,
-                            description,
+                            comment,
                         });
                         current_multiline_value.clear();
                     }
@@ -385,7 +385,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 let name = name_part.to_string();
 
                 // Join multiline comments if they exist
-                let description = if !comment_lines.is_empty() {
+                let comment = if !comment_lines.is_empty() {
                     let desc = comment_lines.join("\n");
                     comment_lines.clear();
 
@@ -402,7 +402,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                     if !ends_with_quote || is_escaped || trimmed_value == "\"" {
                         is_in_multiline = true;
                         current_multiline_value = vec![value_part.to_string()];
-                        pending_secret = Some((name, description));
+                        pending_secret = Some((name, comment));
                     } else {
                         // Single line value
                         let cleaned_value = clean_surrounding_quotes(value_part);
@@ -411,7 +411,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                         secrets.push(Secret {
                             name,
                             value: unescaped_value,
-                            description,
+                            comment,
                         });
                     }
                 } else {
@@ -422,7 +422,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                     secrets.push(Secret {
                         name,
                         value: unescaped_value,
-                        description,
+                        comment,
                     });
                 }
             }
@@ -434,7 +434,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
     // Handle any remaining multiline value
     if is_in_multiline {
-        if let Some((name, description)) = pending_secret {
+        if let Some((name, comment)) = pending_secret {
             let full_value = current_multiline_value.join("\n");
             let clean_value = clean_surrounding_quotes(&full_value);
             let unescaped_value = unescape_value_from_dotenv(&clean_value);
@@ -442,7 +442,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
             secrets.push(Secret {
                 name,
                 value: unescaped_value,
-                description,
+                comment,
             });
         }
     }
@@ -469,9 +469,9 @@ fn unescape_value_from_dotenv(value: &str) -> String {
 }
 
 pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
-    // First pass: collect comments/descriptions
+    // First pass: collect comments/comments
     let lines: Vec<&str> = content.trim().split('\n').collect();
-    let mut descriptions: HashMap<String, String> = HashMap::new();
+    let mut comments: HashMap<String, String> = HashMap::new();
     let mut comment_lines: Vec<String> = Vec::new();
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
@@ -524,7 +524,7 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
                     let filtered_comments = &comment_lines[start..end];
                     if !filtered_comments.is_empty() {
-                        descriptions.insert(key.to_string(), filtered_comments.join("\n"));
+                        comments.insert(key.to_string(), filtered_comments.join("\n"));
                     }
                     comment_lines.clear();
                 }
@@ -569,7 +569,7 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                     Some(Secret {
                         name: name.clone(),
                         value,
-                        description: descriptions.remove(&name),
+                        comment: comments.remove(&name),
                     })
                 })
                 .collect::<Vec<Secret>>();
@@ -715,7 +715,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
                     let formatted_name = regex.replace_all(&uppercase_name, "_").trim().to_owned();
                     let formatted_value = value.trim().to_owned();
 
-                    let description = match index == 0 {
+                    let comment = match index == 0 {
                         true => None,
                         false => {
                             let prev_line = splitted.get(index - 1);
@@ -734,7 +734,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
                     };
 
                     let secret = Secret {
-                        description,
+                        comment,
                         name: format!("{}", formatted_name),
                         value: format!("{}", formatted_value),
                     };
@@ -745,7 +745,7 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
                     // NOTE: do nothing
 
                     // let secret = Secret {
-                    //     description,
+                    //     comment,
                     //     key: format!("{}", trimmed),
                     //     value: format!(""),
                     // };
@@ -835,9 +835,9 @@ pub fn remove_str_outer_newlines(s: &str) -> String {
     processed.replace("\n", "\\n")
 }
 
-pub fn format_secret_description(description: &str, remove_outer_newlines: bool) -> String {
+pub fn format_secret_comment(comment: &str, remove_outer_newlines: bool) -> String {
     // First unescape any escaped newlines
-    let unescaped = description.replace("\\n", "\n");
+    let unescaped = comment.replace("\\n", "\n");
     let trimmed_lines: Vec<&str> = unescaped.lines().map(str::trim_end).collect();
     let joined = trimmed_lines.join("\n");
 
