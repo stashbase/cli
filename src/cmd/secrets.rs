@@ -51,6 +51,10 @@ impl SecretSubcommand {
                 s.shared_args.project.as_deref(),
                 s.shared_args.environment.as_deref(),
             ),
+            SecretSubcommand::Create(c) => (
+                c.shared_args.project.as_deref(),
+                c.shared_args.environment.as_deref(),
+            ),
             SecretSubcommand::Upload(u) => (
                 u.shared_args.project.as_deref(),
                 u.shared_args.environment.as_deref(),
@@ -85,6 +89,10 @@ pub enum SecretSubcommand {
     /// Set secrets
     #[clap(alias = "upsert")]
     Set(SetSecrets),
+
+    /// Create secrets
+    #[clap(alias = "c")]
+    Create(CreateSecrets),
 
     /// Upload secrets
     #[clap(alias = "upl")]
@@ -165,6 +173,21 @@ pub struct SetSecrets {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets to set: NAME_1=VAL_1 NAME_2=VAL_2
+    #[clap(value_parser, num_args = 1..)]
+    pub secrets: Vec<String>,
+
+    /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
+    #[clap(value_parser, long="comment", short='c', num_args = 1..)]
+    pub comments: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "secrets CREATE [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+pub struct CreateSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    /// Secrets to create: NAME_1=VAL_1 NAME_2=VAL_2
     #[clap(value_parser, num_args = 1..)]
     pub secrets: Vec<String>,
 
