@@ -226,15 +226,15 @@ pub struct UpdateSecrets {
 
     /// Values to update (format: NAME=NEW_VALUE). Use original name even if also renaming
     #[clap(value_parser, long = "value", short = 'v', num_args = 1..)]
-    pub values: Option<Vec<String>>,
+    pub values: Vec<String>,
 
     /// Names to update (format: OLD_NAME=NEW_NAME). Use original name even if updating value
     #[clap(value_parser, long = "rename", short = 'r', num_args = 1..)]
-    pub renames: Option<Vec<String>>,
+    pub renames: Vec<String>,
 
     /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
     #[clap(value_parser, long = "comment", short = 'c', num_args = 1..)]
-    pub comments: Option<Vec<String>>,
+    pub comments: Vec<String>,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
