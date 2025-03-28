@@ -252,7 +252,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                         let new_secret = Secret {
                             name,
                             value,
-                            description: None,
+                            comment: None,
                         };
 
                         secrets.push(new_secret);

@@ -11,7 +11,7 @@ use crate::{
     models::{
         api_client::GetRequestApiResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
-        secrets::SecretWithoutDescription,
+        secrets::SecretWithoutComment,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
         },
@@ -363,7 +363,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         GetRequestApiResponse::Ok(data) => {
             // handle_ok_response(&mut spinner, command, only_len, print_secrets, data).await?;
 
-            let secrets = serde_json::from_str::<Vec<SecretWithoutDescription>>(&data.text);
+            let secrets = serde_json::from_str::<Vec<SecretWithoutComment>>(&data.text);
 
             if let Ok(mut secrets) = secrets {
                 if secrets.is_empty() && setted_secrets.is_empty() {
@@ -409,7 +409,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                         if !setted_secrets.is_empty() {
                             for (name, value) in setted_secrets {
                                 // secrets.push(SecretWithoutDescription { key, value })
-                                secrets.push(SecretWithoutDescription { name, value });
+                                secrets.push(SecretWithoutComment { name, value });
                             }
                         }
 
@@ -426,7 +426,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 } else {
                     if !setted_secrets.is_empty() {
                         for (name, value) in setted_secrets {
-                            secrets.push(SecretWithoutDescription { name, value });
+                            secrets.push(SecretWithoutComment { name, value });
                         }
                     }
 
@@ -461,7 +461,7 @@ async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
     print_secrets: bool,
-    secrets: Vec<SecretWithoutDescription>,
+    secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
 ) -> Result<()> {
     let mut success_msg = format!(
@@ -537,7 +537,7 @@ async fn handle_run(
     Ok(())
 }
 
-fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, String> {
+fn create_env_vars(secrets: Vec<SecretWithoutComment>) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
 
     for secret in secrets {
@@ -547,7 +547,7 @@ fn create_env_vars(secrets: Vec<SecretWithoutDescription>) -> HashMap<String, St
     map
 }
 
-fn print_table(secrets: &Vec<SecretWithoutDescription>) {
+fn print_table(secrets: &Vec<SecretWithoutComment>) {
     let table = build_table(secrets);
     println!("{}\n", table);
 }
