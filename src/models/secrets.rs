@@ -159,6 +159,16 @@ pub struct UpdatedSecret {
 
 pub type UpdateSecretsPayload = Vec<UpdatedSecret>;
 
+pub trait ValidateUpdateSecrets {
+    fn validate(&self) -> anyhow::Result<()>;
+}
+
+impl ValidateUpdateSecrets for Vec<UpdatedSecret> {
+    fn validate(&self) -> anyhow::Result<()> {
+        utils::validation::validate_update_secrets(self)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct SecretPropertiesToUpdate {
     pub new_name: Option<String>,
