@@ -117,6 +117,8 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
+                        spinner.stop_and_persist("", "");
+
                         if json_format {
                             let value = serde_json::to_value(data).unwrap();
                             let pretty = to_colored_json_auto(&value).unwrap();
@@ -182,11 +184,13 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                         }
                     }
                     Err(e) => {
+                        spinner.stop_with_message(&format!("{}", e));
                         bail!("{}", e);
                     }
                 }
             }
             None => {
+                spinner.stop_and_persist("", "");
                 bail!("Something went wrong");
             }
         },
