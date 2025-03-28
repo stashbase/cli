@@ -6,7 +6,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
         RequestArgs,
     },
-    secrets::{RenameSecretsPayload, Secret, UpdateSecretDescriptionPayload},
+    secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload},
 };
 
 pub async fn list(
@@ -20,7 +20,7 @@ pub async fn list(
     let mut query_str = vec![];
 
     if only_names {
-        query_str.push(("omit".to_string(), "value,description".to_string()));
+        query_str.push(("omit".to_string(), "value,comment".to_string()));
     } else {
         query_str.push(("expand-refs".to_string(), expand_refs.to_string()));
     }
@@ -51,7 +51,7 @@ pub async fn pull(
     environment: String,
     only: Vec<String>,
     exclude: Vec<String>,
-    with_description: bool,
+    with_comment: bool,
     expand_refs: bool,
 ) -> Result<GetRequestApiResponse> {
     let mut query = match !only.is_empty() || !exclude.is_empty() {
@@ -73,8 +73,8 @@ pub async fn pull(
 
     query.push(("expand-refs".to_string(), expand_refs.to_string()));
 
-    if with_description == false {
-        query.push(("omit".to_string(), "description".to_string()));
+    if with_comment == false {
+        query.push(("omit".to_string(), "comment".to_string()));
     }
 
     let args = RequestArgs {
@@ -90,12 +90,12 @@ pub async fn pull(
     client::get_request(args).await
 }
 
-pub async fn update_description(
+pub async fn update_comment(
     api_key: String,
     project: String,
     environment: String,
     name: String,
-    data: &UpdateSecretDescriptionPayload,
+    data: &UpdateSecretCommentPayload,
 ) -> Result<RequestApiOptionResponse> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
