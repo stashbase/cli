@@ -197,9 +197,10 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
                                 println!("{}", msg);
                             } else {
-                                if updated_count == 0 {
+                                if updated_count == 0 && not_found_secrets.len() == 0 {
                                     spinner.stop_and_persist("No secrets updated (no changes)", "");
                                 } else {
+                                    spinner.stop_and_persist("", "");
                                     let msg = format!("No secrets updated (no changes)");
                                     println!("{}", msg);
                                 }
