@@ -130,17 +130,6 @@ pub async fn handle_secrets_commands(
 
             handle_set_secrets(args).await?;
         }
-        SecretSubcommand::Comment(args) => {
-            let args = HandleCommentArgs {
-                api_key,
-                project,
-                environment,
-                comment: args.comment,
-                name: args.name,
-            };
-
-            handle_update_comment(args).await?;
-        }
         SecretSubcommand::Create(args) => {
             // let json_format = match raw_output {
             //     true => true,
@@ -179,16 +168,6 @@ pub async fn handle_secrets_commands(
             };
 
             handle_upload_secrets(args).await?;
-        }
-        SecretSubcommand::Rename(args) => {
-            let args = HandleRenameSecretsArgs {
-                api_key,
-                project,
-                environment,
-                secrets: args.secrets,
-            };
-
-            handle_rename_secrets(args).await?;
         }
         _ => unreachable!(),
     }
