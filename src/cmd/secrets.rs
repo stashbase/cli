@@ -199,7 +199,7 @@ pub struct CreateSecrets {
     pub secrets: Vec<String>,
 
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
-    #[clap(value_parser, long="comment", short='c', num_args = 1..)]
+    #[clap(value_parser, long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
 }
 
@@ -225,15 +225,15 @@ pub struct UpdateSecrets {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Values to update (format: NAME=NEW_VALUE). Use original name even if also renaming
-    #[clap(value_parser, long = "value", short = 'v', num_args = 1..)]
+    #[clap(value_parser, long = "values", short = 'v', num_args = 1..)]
     pub values: Vec<String>,
 
     /// Names to update (format: OLD_NAME=NEW_NAME). Use original name even if updating value
-    #[clap(value_parser, long = "name", short = 'n', num_args = 1..)]
+    #[clap(value_parser, long = "names", short = 'n', num_args = 1..)]
     pub new_names: Vec<String>,
 
     /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
-    #[clap(value_parser, long = "comment", short = 'c', num_args = 1..)]
+    #[clap(value_parser, long = "comments", short = 'c', num_args = 1..)]
     pub comments: Vec<String>,
 }
 
