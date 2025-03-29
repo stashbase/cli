@@ -22,7 +22,7 @@ pub struct HandleUpdateSecretsArgs {
     pub api_key: String,
     pub project: String,
     pub environment: String,
-    pub renames: Vec<String>,
+    pub new_names: Vec<String>,
     pub values: Vec<String>,
     pub comment: Vec<String>,
 }
@@ -32,13 +32,13 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         api_key,
         project,
         environment,
-        renames,
+        new_names,
         comment,
         values,
         json_format,
     } = args;
 
-    if values.is_empty() && renames.is_empty() && comment.is_empty() {
+    if values.is_empty() && new_names.is_empty() && comment.is_empty() {
         let msg = format!(
             "{} {}",
             "Input error:".red(),
@@ -76,9 +76,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         }
     }
 
-    // process renames
-    if !renames.is_empty() {
-        let name_value_pairs = separator::key_value(renames);
+    // process new names (renamed secrets)
+    if !new_names.is_empty() {
+        let name_value_pairs = separator::key_value(new_names);
 
         if let Err(err) = name_value_pairs {
             bail!("{} {}", format!("Input error:").red(), err);
