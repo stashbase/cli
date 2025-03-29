@@ -229,8 +229,8 @@ pub struct UpdateSecrets {
     pub values: Vec<String>,
 
     /// Names to update (format: OLD_NAME=NEW_NAME). Use original name even if updating value
-    #[clap(value_parser, long = "rename", short = 'r', num_args = 1..)]
-    pub renames: Vec<String>,
+    #[clap(value_parser, long = "name", short = 'n', num_args = 1..)]
+    pub new_names: Vec<String>,
 
     /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
     #[clap(value_parser, long = "comment", short = 'c', num_args = 1..)]

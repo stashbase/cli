@@ -168,7 +168,7 @@ pub async fn handle_secrets_commands(
                 api_key,
                 project,
                 environment,
-                renames: args.renames,
+                new_names: args.new_names,
                 values: args.values,
                 comment: args.comments,
                 json_format,
