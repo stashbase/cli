@@ -63,14 +63,14 @@ impl SecretSubcommand {
                 u.shared_args.project.as_deref(),
                 u.shared_args.environment.as_deref(),
             ),
-            SecretSubcommand::Rename(r) => (
-                r.shared_args.project.as_deref(),
-                r.shared_args.environment.as_deref(),
-            ),
-            SecretSubcommand::Comment(c) => (
-                c.shared_args.project.as_deref(),
-                c.shared_args.environment.as_deref(),
-            ),
+            // SecretSubcommand::Rename(r) => (
+            //     r.shared_args.project.as_deref(),
+            //     r.shared_args.environment.as_deref(),
+            // ),
+            // SecretSubcommand::Comment(c) => (
+            //     c.shared_args.project.as_deref(),
+            //     c.shared_args.environment.as_deref(),
+            // ),
             SecretSubcommand::Delete(d) => (
                 d.shared_args.project.as_deref(),
                 d.shared_args.environment.as_deref(),
@@ -105,14 +105,13 @@ pub enum SecretSubcommand {
     #[clap(alias = "upl")]
     Upload(UploadSecrets),
 
-    /// Rename secrets
-    #[clap(alias = "r")]
-    Rename(RenameSecrets),
+    // /// Rename secrets
+    // #[clap(alias = "r")]
+    // Rename(RenameSecrets),
 
-    /// Set comment of existing secret
-    #[clap(alias = "com")]
-    Comment(SetComment),
-
+    // /// Set comment of existing secret
+    // #[clap(alias = "com")]
+    // Comment(SetComment),
     /// Delete one or multiple secrets
     #[clap(aliases = &[ "del"])]
     Delete(DeleteSecrets),
