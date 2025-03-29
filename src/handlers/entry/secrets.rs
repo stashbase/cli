@@ -142,10 +142,10 @@ pub async fn handle_secrets_commands(
             handle_update_comment(args).await?;
         }
         SecretSubcommand::Create(args) => {
-            let json_format = match raw_output {
-                true => true,
-                false => default_output_format.unwrap_or_default() == SecretsOutputFormat::Json,
-            };
+            // let json_format = match raw_output {
+            //     true => true,
+            //     false => default_output_format.unwrap_or_default() == SecretsOutputFormat::Json,
+            // };
 
             let args = HandleCreateSecretsArgs {
                 api_key,
@@ -153,17 +153,11 @@ pub async fn handle_secrets_commands(
                 environment,
                 values: args.secrets,
                 comments: args.comments,
-                json_format,
             };
 
             handle_create_secrets(args).await?;
         }
         SecretSubcommand::Update(args) => {
-            let json_format = match raw_output {
-                true => true,
-                false => default_output_format.unwrap_or_default() == SecretsOutputFormat::Json,
-            };
-
             let args = HandleUpdateSecretsArgs {
                 api_key,
                 project,
@@ -171,7 +165,6 @@ pub async fn handle_secrets_commands(
                 new_names: args.new_names,
                 values: args.values,
                 comment: args.comments,
-                json_format,
             };
 
             handle_update_secrets(args).await?;
