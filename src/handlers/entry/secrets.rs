@@ -7,12 +7,14 @@ use crate::{
     },
     handlers::secrets::{
         comment::{handle_update_comment, HandleCommentArgs},
+        create::{handle_create_secrets, HandleCreateSecretsArgs},
         delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
         rename::{handle_rename_secrets, HandleRenameSecretsArgs},
         search::{handle_search_secrets, HandleSearchSecretsArgs},
         set::{handle_set_secrets, HandleSetSecretsArgs},
+        update::{handle_update_secrets, HandleUpdateSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
     models::secrets::SecretsSearchOutputFormat,
@@ -138,6 +140,34 @@ pub async fn handle_secrets_commands(
             };
 
             handle_update_comment(args).await?;
+        }
+        SecretSubcommand::Create(args) => {
+            // let json_format = match raw_output {
+            //     true => true,
+            //     false => default_output_format.unwrap_or_default() == SecretsOutputFormat::Json,
+            // };
+
+            let args = HandleCreateSecretsArgs {
+                api_key,
+                project,
+                environment,
+                values: args.secrets,
+                comments: args.comments,
+            };
+
+            handle_create_secrets(args).await?;
+        }
+        SecretSubcommand::Update(args) => {
+            let args = HandleUpdateSecretsArgs {
+                api_key,
+                project,
+                environment,
+                new_names: args.new_names,
+                values: args.values,
+                comment: args.comments,
+            };
+
+            handle_update_secrets(args).await?;
         }
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
