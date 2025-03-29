@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 use owo_colors::OwoColorize;
 
@@ -18,7 +17,6 @@ use crate::{
 };
 
 pub struct HandleUpdateSecretsArgs {
-    pub json_format: bool,
     pub api_key: String,
     pub project: String,
     pub environment: String,
@@ -35,7 +33,6 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         new_names,
         comment,
         values,
-        json_format,
     } = args;
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
@@ -160,67 +157,58 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
-                        if json_format {
+                        let updated_count = data.updated_count;
+                        let not_found_secrets = data.not_found_secrets;
+
+                        if updated_count > 0 {
                             spinner.stop_and_persist("", "");
+                            let secrets_updated: Vec<_> = payload
+                                .into_iter()
+                                .filter(|k| {
+                                    not_found_secrets.iter().find(|s| *s == &k.name).is_none()
+                                })
+                                .collect();
 
-                            let value = serde_json::to_value(data).unwrap();
-                            let pretty = to_colored_json_auto(&value).unwrap();
+                            let msg = format!(
+                                "{} {}",
+                                format!(
+                                    "{} {} {}",
+                                    "Secrets".green(),
+                                    "updated".green(),
+                                    format!("({}):", updated_count).green(),
+                                ),
+                                secrets_updated
+                                    .iter()
+                                    .map(|s| s.name.clone())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            );
 
-                            println!("{}", pretty);
+                            println!("{}", msg);
                         } else {
-                            let updated_count = data.updated_count;
-                            let not_found_secrets = data.not_found_secrets;
-
-                            if updated_count > 0 {
-                                spinner.stop_and_persist("", "");
-                                let secrets_updated: Vec<_> = payload
-                                    .into_iter()
-                                    .filter(|k| {
-                                        not_found_secrets.iter().find(|s| *s == &k.name).is_none()
-                                    })
-                                    .collect();
-
-                                let msg = format!(
-                                    "{} {}",
-                                    format!(
-                                        "{} {} {}",
-                                        "Secrets".green(),
-                                        "updated".green(),
-                                        format!("({}):", updated_count).green(),
-                                    ),
-                                    secrets_updated
-                                        .iter()
-                                        .map(|s| s.name.clone())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                );
-
-                                println!("{}", msg);
+                            if updated_count == 0 && not_found_secrets.len() == 0 {
+                                spinner.stop_and_persist("No secrets updated (no changes)", "");
                             } else {
-                                if updated_count == 0 && not_found_secrets.len() == 0 {
-                                    spinner.stop_and_persist("No secrets updated (no changes)", "");
-                                } else {
-                                    spinner.stop_and_persist("", "");
-                                    let msg = format!("No secrets updated (no changes)");
-                                    println!("{}", msg);
-                                }
+                                spinner.stop_and_persist("", "");
+                                let msg = format!("No secrets updated (no changes)");
+                                println!("{}", msg);
                             }
+                        }
 
-                            if not_found_secrets.len() > 0 {
-                                let info_msg = format!(
-                                    "{} {}",
-                                    format!(
-                                        "{} {} {}",
-                                        "Secrets".red(),
-                                        "not found".red(),
-                                        format!("({}):", not_found_secrets.len()).red(),
-                                    ),
-                                    not_found_secrets.join(", ")
-                                );
+                        if not_found_secrets.len() > 0 {
+                            let info_msg = format!(
+                                "{} {}",
+                                format!(
+                                    "{} {} {}",
+                                    "Secrets".red(),
+                                    "not found".red(),
+                                    format!("({}):", not_found_secrets.len()).red(),
+                                ),
+                                not_found_secrets.join(", ")
+                            );
 
-                                //
-                                println!("{}", info_msg);
-                            }
+                            //
+                            println!("{}", info_msg);
                         }
                     }
                     Err(err) => {
