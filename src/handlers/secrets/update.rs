@@ -45,7 +45,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         bail!("{}", msg);
     }
 
-    // name -> ({new_name, value, comment})
+    // name -> {new_name, value, comment}
     let mut secret_updates: HashMap<String, SecretPropertiesToUpdate> = HashMap::new();
 
     // process new values
