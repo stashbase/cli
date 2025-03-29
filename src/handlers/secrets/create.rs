@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 use owo_colors::OwoColorize;
 
@@ -18,7 +17,6 @@ pub struct HandleCreateSecretsArgs {
     pub environment: String,
     pub values: Vec<String>,
     pub comments: Vec<String>,
-    pub json_format: bool,
 }
 
 pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> {
@@ -28,7 +26,6 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
         environment,
         values,
         comments,
-        json_format,
     } = args;
 
     if values.is_empty() {
@@ -119,68 +116,58 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                     Ok(data) => {
                         spinner.stop_and_persist("", "");
 
-                        if json_format {
-                            let value = serde_json::to_value(data).unwrap();
-                            let pretty = to_colored_json_auto(&value).unwrap();
+                        let created_count = data.created_count;
+                        let duplicate_secrets = data.duplicate_secrets;
 
-                            println!("{}", pretty);
-                        } else {
-                            let created_count = data.created_count;
-                            let duplicate_secrets = data.duplicate_secrets;
+                        if duplicate_secrets.len() > 0 {
+                            spinner.stop_and_persist("", "");
 
-                            if duplicate_secrets.len() > 0 {
-                                spinner.stop_and_persist("", "");
+                            if created_count > 0 {
+                                let secrets_created: Vec<_> = payload
+                                    .into_iter()
+                                    .filter(|k| {
+                                        duplicate_secrets.iter().find(|s| *s == &k.name).is_none()
+                                    })
+                                    .collect();
 
-                                if created_count > 0 {
-                                    let secrets_created: Vec<_> = payload
-                                        .into_iter()
-                                        .filter(|k| {
-                                            duplicate_secrets
-                                                .iter()
-                                                .find(|s| *s == &k.name)
-                                                .is_none()
-                                        })
-                                        .collect();
-
-                                    let msg = format!(
-                                        "{} {}",
-                                        format!(
-                                            "{} {} {}",
-                                            "Secrets".green(),
-                                            "created".green(),
-                                            format!("({}): ", created_count).green(),
-                                        ),
-                                        secrets_created
-                                            .iter()
-                                            .map(|s| s.name.clone())
-                                            .collect::<Vec<_>>()
-                                            .join(", ")
-                                    );
-
-                                    println!("{}", msg);
-                                }
-
-                                let info_msg = format!(
+                                let msg = format!(
                                     "{} {}",
                                     format!(
                                         "{} {} {}",
-                                        "Secrets".red(),
-                                        "already exists".red(),
-                                        format!("({}): ", duplicate_secrets.len()).red(),
+                                        "Secrets".green(),
+                                        "created".green(),
+                                        format!("({}): ", created_count).green(),
                                     ),
-                                    duplicate_secrets.join(", ")
+                                    secrets_created
+                                        .iter()
+                                        .map(|s| s.name.clone())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
                                 );
 
-                                //
-                                eprintln!("{}", info_msg);
-                            } else {
-                                // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
-                                spinner.stop_with_message(&format!(
-                                    "{} {}",
-                                    "✓".green(),
-                                    "Secrets have been created!"
-                                ));
+                                println!("{}", msg);
                             }
+
+                            let info_msg = format!(
+                                "{} {}",
+                                format!(
+                                    "{} {} {}",
+                                    "Secrets".red(),
+                                    "already exists".red(),
+                                    format!("({}): ", duplicate_secrets.len()).red(),
+                                ),
+                                duplicate_secrets.join(", ")
+                            );
+
+                            //
+                            eprintln!("{}", info_msg);
+                        } else {
+                            // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
+                            spinner.stop_with_message(&format!(
+                                "{} {}",
+                                "✓".green(),
+                                "Secrets have been created!"
+                            ));
                         }
                     }
                     Err(e) => {
