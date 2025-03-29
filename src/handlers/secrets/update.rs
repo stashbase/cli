@@ -36,13 +36,10 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     } = args;
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
-        let msg = format!(
-            "{} {}",
-            "Input error:".red(),
-            "no values, renames or comments to update provided"
+        bail!(
+            "{} No updates provided. Please specify at least one of: --values, --names, or --comments",
+            "Input error:".red()
         );
-
-        bail!("{}", msg);
     }
 
     // name -> {new_name, value, comment}
@@ -50,13 +47,15 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
     // process new values
     if !values.is_empty() {
-        let name_value_pairs = separator::key_value(values);
+        let name_value_pairs = separator::key_value(values).map_err(|err| {
+            anyhow::anyhow!(
+                "{} Invalid input format: {}. Expected format: NAME=VALUE",
+                "Input error:".red(),
+                err
+            )
+        })?;
 
-        if let Err(err) = name_value_pairs {
-            bail!("{} {}", format!("Input error:").red(), err);
-        }
-
-        for (name, value) in name_value_pairs.unwrap() {
+        for (name, value) in name_value_pairs {
             let existing_secret = secret_updates.get_mut(&name);
 
             if let Some(secret) = existing_secret {
