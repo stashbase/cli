@@ -51,6 +51,14 @@ impl SecretSubcommand {
                 s.shared_args.project.as_deref(),
                 s.shared_args.environment.as_deref(),
             ),
+            SecretSubcommand::Create(c) => (
+                c.shared_args.project.as_deref(),
+                c.shared_args.environment.as_deref(),
+            ),
+            SecretSubcommand::Update(u) => (
+                u.shared_args.project.as_deref(),
+                u.shared_args.environment.as_deref(),
+            ),
             SecretSubcommand::Upload(u) => (
                 u.shared_args.project.as_deref(),
                 u.shared_args.environment.as_deref(),
@@ -85,6 +93,13 @@ pub enum SecretSubcommand {
     /// Set secrets
     #[clap(alias = "upsert")]
     Set(SetSecrets),
+
+    /// Create secrets
+    #[clap(alias = "c")]
+    Create(CreateSecrets),
+
+    /// Update secrets
+    Update(UpdateSecrets),
 
     /// Upload secrets
     #[clap(alias = "upl")]
@@ -174,6 +189,21 @@ pub struct SetSecrets {
 }
 
 #[derive(Debug, Args)]
+#[command(override_usage = "secrets CREATE [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+pub struct CreateSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    /// Secrets to create: NAME_1=VAL_1 NAME_2=VAL_2
+    #[clap(value_parser, num_args = 1..)]
+    pub secrets: Vec<String>,
+
+    /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
+    #[clap(value_parser, long="comments", short='c', num_args = 1..)]
+    pub comments: Vec<String>,
+}
+
+#[derive(Debug, Args)]
 #[command(override_usage = "secrets upload <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct UploadSecrets {
     #[clap(flatten)]
@@ -186,6 +216,25 @@ pub struct UploadSecrets {
     /// Upload format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsFileFormat>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "secrets update -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+pub struct UpdateSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    /// Values to update (format: NAME=NEW_VALUE). Use original name even if also renaming
+    #[clap(value_parser, long = "values", short = 'v', num_args = 1..)]
+    pub values: Vec<String>,
+
+    /// Names to update (format: OLD_NAME=NEW_NAME). Use original name even if updating value
+    #[clap(value_parser, long = "names", short = 'n', num_args = 1..)]
+    pub new_names: Vec<String>,
+
+    /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
+    #[clap(value_parser, long = "comments", short = 'c', num_args = 1..)]
+    pub comments: Vec<String>,
 }
 
 #[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
