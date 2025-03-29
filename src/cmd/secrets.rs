@@ -184,7 +184,7 @@ pub struct SetSecrets {
     pub secrets: Vec<String>,
 
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
-    #[clap(value_parser, long="comment", short='c', num_args = 1..)]
+    #[clap(value_parser, long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
 }
 
