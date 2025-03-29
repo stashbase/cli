@@ -114,15 +114,13 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
-                        spinner.stop_and_persist("", "");
-
                         let created_count = data.created_count;
                         let duplicate_secrets = data.duplicate_secrets;
 
                         if duplicate_secrets.len() > 0 {
-                            spinner.stop_and_persist("", "");
-
                             if created_count > 0 {
+                                spinner.stop_and_persist("", "");
+
                                 let secrets_created: Vec<_> = payload
                                     .into_iter()
                                     .filter(|k| {
@@ -136,7 +134,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                         "{} {} {}",
                                         "Secrets".green(),
                                         "created".green(),
-                                        format!("({}): ", created_count).green(),
+                                        format!("({}):", created_count).green(),
                                     ),
                                     secrets_created
                                         .iter()
@@ -146,6 +144,14 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                 );
 
                                 println!("{}", msg);
+                            } else {
+                                if created_count == 0 && duplicate_secrets.len() == 0 {
+                                    spinner.stop_and_persist("No secrets created", "");
+                                } else {
+                                    spinner.stop_and_persist("", "");
+                                    let msg = format!("No secrets created");
+                                    println!("{}", msg);
+                                }
                             }
 
                             let info_msg = format!(
@@ -153,8 +159,8 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                 format!(
                                     "{} {} {}",
                                     "Secrets".red(),
-                                    "already exists".red(),
-                                    format!("({}): ", duplicate_secrets.len()).red(),
+                                    "already exist".red(),
+                                    format!("({}):", duplicate_secrets.len()).red(),
                                 ),
                                 duplicate_secrets.join(", ")
                             );
