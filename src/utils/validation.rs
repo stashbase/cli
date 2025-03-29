@@ -9,6 +9,7 @@ use short_uuid::ShortUuid;
 use crate::models::{
     secrets::{
         ReferencesValidation, ReferencesValidationWithExistence, Secret, SecretReferenceWarnings,
+        UpdatedSecret,
     },
     validation::{
         EnvironmentsInputValidationError, InputValidationError,
@@ -475,6 +476,163 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
         let self_references_vec = self_references.into_iter().map(|s| s.to_string()).collect();
 
         let secrets_error = SecretsInputValidationError::SelfReferences(self_references_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    Ok(())
+}
+
+pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
+    if secrets.is_empty() {
+        bail!(InputValidationError::Secrets(
+            SecretsInputValidationError::NoData
+        ));
+    }
+
+    let mut name_counts = HashMap::new();
+    let mut new_name_counts = HashMap::new();
+    let mut invalid_names = LinkedHashSet::new();
+    let mut invalid_new_names = LinkedHashSet::new();
+    let mut new_name_same_as_name = LinkedHashSet::new();
+    let mut missing_properties_names = LinkedHashSet::new();
+    let mut comment_too_long_names = LinkedHashSet::new();
+    let mut value_too_long_names = LinkedHashSet::new();
+    let mut self_references = LinkedHashSet::new();
+
+    // First pass: collect all validation issues
+    for secret in secrets {
+        // Check if any properties to update are provided
+        if secret.new_name.is_none() && secret.value.is_none() && secret.comment.is_none() {
+            missing_properties_names.insert_if_absent(secret.name.clone());
+        }
+
+        // Validate original name format
+        if validate_secret_name(&secret.name).is_err() {
+            invalid_names.insert_if_absent(secret.name.clone());
+        }
+
+        // Track name occurrences for duplicates
+        *name_counts.entry(&secret.name).or_insert(0) += 1;
+
+        // Validate new name if provided
+        if let Some(new_name) = &secret.new_name {
+            if validate_secret_name(new_name).is_err() {
+                invalid_new_names.insert_if_absent(new_name.clone());
+            }
+
+            // Track new name occurrences for duplicates
+            *new_name_counts.entry(new_name).or_insert(0) += 1;
+
+            // Check if new name is same as original name
+            if &secret.name == new_name {
+                new_name_same_as_name.insert_if_absent(secret.name.clone());
+            }
+        }
+
+        // Check for self references in value
+        if let Some(value) = &secret.value {
+            let reference_name = secret.new_name.as_ref().unwrap_or(&secret.name);
+            if value.contains(&format!("${{{}}}", reference_name)) {
+                self_references.insert_if_absent(secret.name.clone());
+            }
+
+            // Check value length
+            if value.len() > SECRET_VALUE_MAX_LENGTH {
+                value_too_long_names.insert_if_absent(secret.name.clone());
+            }
+        }
+
+        // Check comment length if present
+        if let Some(comment) = &secret.comment {
+            if comment.len() > SECRET_COMMENT_MAX_LENGTH {
+                comment_too_long_names.insert_if_absent(secret.name.clone());
+            }
+        }
+    }
+
+    // Return errors in order of precedence
+    if !invalid_names.is_empty() {
+        let invalid_names_vec = invalid_names.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::NamesFormat(invalid_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !invalid_new_names.is_empty() {
+        let invalid_new_names_vec = invalid_new_names.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::NewNamesFormat(invalid_new_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !missing_properties_names.is_empty() {
+        let missing_properties_vec = missing_properties_names.into_iter().collect();
+        let secrets_error =
+            SecretsInputValidationError::MissingPropertiesToUpdate(missing_properties_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    // Check for duplicate original names
+    let duplicate_names: Vec<_> = name_counts
+        .iter()
+        .filter(|(_, &count)| count > 1)
+        .map(|(name, _)| (*name).to_string())
+        .collect();
+
+    if !duplicate_names.is_empty() {
+        let secrets_error = SecretsInputValidationError::DuplicateNames(duplicate_names);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    // Check for duplicate new names
+    let duplicate_new_names: Vec<_> = new_name_counts
+        .iter()
+        .filter(|(_, &count)| count > 1)
+        .map(|(name, _)| (*name).to_string())
+        .collect();
+
+    if !duplicate_new_names.is_empty() {
+        let secrets_error = SecretsInputValidationError::DuplicateNewNames(duplicate_new_names);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !new_name_same_as_name.is_empty() {
+        let same_names_vec = new_name_same_as_name.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::NewNameSameAsName(same_names_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !value_too_long_names.is_empty() {
+        let value_too_long_vec = value_too_long_names.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::ValuesTooLong(value_too_long_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !self_references.is_empty() {
+        let self_references_vec = self_references.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::SelfReferences(self_references_vec);
+        let input_err = InputValidationError::Secrets(secrets_error);
+
+        bail!(input_err);
+    }
+
+    if !comment_too_long_names.is_empty() {
+        let comment_too_long_vec = comment_too_long_names.into_iter().collect();
+        let secrets_error = SecretsInputValidationError::CommentsTooLong(comment_too_long_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
         bail!(input_err);

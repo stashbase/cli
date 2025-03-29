@@ -139,6 +139,44 @@ impl FormatSecrets for Vec<Secret> {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedSecret {
+    // The name of the secret to update
+    pub name: String,
+
+    // The new name of the secret
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+
+    // The new value of the secret
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+
+    // The new comment of the secret
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+pub type UpdateSecretsPayload = Vec<UpdatedSecret>;
+
+pub trait ValidateUpdateSecrets {
+    fn validate(&self) -> anyhow::Result<()>;
+}
+
+impl ValidateUpdateSecrets for Vec<UpdatedSecret> {
+    fn validate(&self) -> anyhow::Result<()> {
+        utils::validation::validate_update_secrets(self)
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SecretPropertiesToUpdate {
+    pub new_name: Option<String>,
+    pub value: Option<String>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct UpdateSecretCommentPayload {
     pub comment: String,
 }
@@ -157,6 +195,23 @@ impl RenamedSecret {
 }
 
 pub type RenameSecretsPayload = Vec<RenamedSecret>;
+
+// response
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSecretsResponse {
+    // The number of secrets successfully created
+    pub created_count: usize,
+    // An array of secret names that already exist and were not created
+    pub duplicate_secrets: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSecretsResponse {
+    pub updated_count: usize,
+    pub not_found_secrets: Vec<String>,
+}
 
 // response
 #[derive(Debug, Deserialize)]
