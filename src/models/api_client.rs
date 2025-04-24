@@ -312,6 +312,9 @@ pub enum ProjectError {
     #[serde(rename = "access.missing_permission")]
     MissingPermission,
 
+    #[serde(rename = "access.missing_full_project_access")]
+    MissingFullProjectAccess,
+
     #[serde(rename = "quota.project_limit_reached")]
     ProjectLimitReached,
 
@@ -583,6 +586,11 @@ impl From<ApiError> for OutputError {
                         },
                     })
                 }
+                ProjectError::MissingFullProjectAccess => OutputError::Generic(GenericOutputError {
+                    message: format!("missing full project access"),
+                    hint: Some(format!("full project access is required to perform this action (project creator or workspace admin/owner)")),
+                }),
+
                 ProjectError::NewNameEqualsOriginal => OutputError::Generic(GenericOutputError {
                     message: format!("new project name equals original"),
                     hint: Some(format!("use a different new name")),
