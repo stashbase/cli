@@ -189,7 +189,7 @@ pub struct MissingPermissionErrorDetails {
 
     // for personal api key
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_project_role: Option<PermissionErrorDetails>,
+    pub user_environment_role: Option<PermissionErrorDetails>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -470,9 +470,9 @@ impl From<ApiError> for OutputError {
                                         "allowed user workspace role to perform this action: {}, current role: {}",
                                         r.allowed.join(", "), r.current
                                     ))
-                                } else if let Some(r) = details.user_project_role {
+                                } else if let Some(r) = details.user_environment_role {
                                     Some(format!(
-                                        "allowed project role to perform this action: {}, current role: {}",
+                                        "allowed environment role to perform this action: {}, current role: {}",
                                         r.allowed.join(", "), r.current
                                     ))
                                 } else {
@@ -557,9 +557,9 @@ impl From<ApiError> for OutputError {
                                             r.allowed.join(", "), r.current
                                         );
                                     Some(msg)
-                                } else if let Some(r) = details.user_project_role {
+                                } else if let Some(r) = details.user_environment_role {
                                     let msg = format!(
-                                            "allowed project role to perform this action: {}, current role: {}",
+                                            "allowed environment role to perform this action: {}, current role: {}",
                                             r.allowed.join(", "), r.current
                                         );
                                     Some(msg)
