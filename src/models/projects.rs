@@ -190,7 +190,7 @@ pub struct ProjectWithCountNoDescriptionTable {
 fn display_option(d: &Option<String>) -> String {
     match d {
         Some(s) => format!("{}", s),
-        None => format!(""),
+        None => format!("---"),
     }
 }
 
