@@ -101,8 +101,9 @@ pub struct SingleProjectTable {
     pub created_at: String,
 
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "User role", order = 3)]
-    pub user_role: Option<String>,
+    #[tabled(rename = "Full access", order = 3)]
+    // only for personal auth (api key)
+    pub full_access: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
@@ -128,7 +129,8 @@ pub struct SingleProject {
     pub environment_count: usize,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_role: Option<ProjectUserRole>,
+    // only for personal auth (api key)
+    pub full_access: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -145,8 +147,9 @@ pub struct SingleProjectWithCountNoDescriptionTable {
     pub created_at: String,
 
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "User role", order = 3)]
-    pub user_role: Option<String>,
+    #[tabled(rename = "Full access", order = 3)]
+    // only for personal auth (api key)
+    pub full_access: Option<String>,
 
     #[tabled(rename = "Environments", order = 4)]
     pub environment_count: usize,
@@ -259,8 +262,8 @@ impl Display for SingleProject {
         writeln!(f, "{} {}", "Id:".green(), self.id)?;
         writeln!(f, "{} {}", "Name:".green(), self.name)?;
 
-        if let Some(user_role) = &self.user_role {
-            writeln!(f, "{} {}", "User role:".green(), user_role)?;
+        if let Some(full_access) = &self.full_access {
+            writeln!(f, "{} {}", "Full access:".green(), full_access)?;
         }
 
         if let Some(description) = &self.description {
@@ -279,42 +282,42 @@ impl Display for SingleProject {
 }
 
 impl From<SingleProject> for SingleProjectTable {
-    fn from(env: SingleProject) -> Self {
-        let (formatted, relative) = get_human_datetime(&env.created_at);
+    fn from(project: SingleProject) -> Self {
+        let (formatted, relative) = get_human_datetime(&project.created_at);
         let created_at = format!("{} ({})", formatted, relative);
 
-        let user_role = match env.user_role {
-            Some(role) => Some(format!("{}", role)),
+        let full_access = match project.full_access {
+            Some(access) => Some(format!("{}", access)),
             None => None,
         };
 
         Self {
-            id: env.id,
             created_at,
-            name: env.name,
-            user_role,
-            description: env.description,
-            environment_count: env.environment_count,
+            id: project.id,
+            name: project.name,
+            full_access,
+            description: project.description,
+            environment_count: project.environment_count,
         }
     }
 }
 
 impl From<SingleProject> for SingleProjectWithCountNoDescriptionTable {
-    fn from(env: SingleProject) -> Self {
-        let (formatted, relative) = get_human_datetime(&env.created_at);
+    fn from(project: SingleProject) -> Self {
+        let (formatted, relative) = get_human_datetime(&project.created_at);
         let created_at = format!("{} ({})", formatted, relative);
 
-        let user_role = match env.user_role {
-            Some(role) => Some(format!("{}", role)),
-            None => None,
+        let full_access = match project.full_access {
+            Some(access) => Some(format!("{}", access)),
+            None => Some("false".to_string()),
         };
 
         Self {
-            id: env.id,
             created_at,
-            user_role,
-            name: env.name,
-            environment_count: env.environment_count,
+            id: project.id,
+            name: project.name,
+            full_access,
+            environment_count: project.environment_count,
         }
     }
 }
