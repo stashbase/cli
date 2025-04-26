@@ -9,6 +9,20 @@ use crate::utils::human_datetime::get_human_datetime;
 use super::secrets::Secret;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum EnvironmentUserRole {
+    Viewer,
+    Editor,
+    Admin,
+}
+
+impl Display for EnvironmentUserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Environment {
     pub id: String,
@@ -23,6 +37,10 @@ pub struct Environment {
     pub locked: bool,
     pub is_production: bool,
     pub secret_count: usize,
+
+    // only for personal auth (api key)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_role: Option<EnvironmentUserRole>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -38,18 +56,22 @@ pub struct TableEnvironment {
     #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
+    // only for personal auth (api key)
+    #[tabled(rename = "User role", order = 3)]
+    pub user_role: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 6)]
+    #[tabled(rename = "Description", order = 7)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Locked", order = 4)]
+    #[tabled(rename = "Locked", order = 5)]
     pub locked: bool,
 
-    #[tabled(rename = "Production", order = 3)]
+    #[tabled(rename = "Production", order = 4)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 5)]
+    #[tabled(rename = "Secrets", order = 6)]
     pub secret_count: usize,
 }
 
@@ -66,13 +88,17 @@ pub struct TableEnvironmentWithoutDescription {
     #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
-    #[tabled(rename = "Locked", order = 4)]
+    // only for personal auth (api key)
+    #[tabled(rename = "User role", order = 3)]
+    pub user_role: String,
+
+    #[tabled(rename = "Locked", order = 5)]
     pub locked: bool,
 
-    #[tabled(rename = "Production", order = 3)]
+    #[tabled(rename = "Production", order = 4)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 5)]
+    #[tabled(rename = "Secrets", order = 6)]
     pub secret_count: usize,
 }
 
@@ -81,12 +107,18 @@ impl From<Environment> for TableEnvironment {
         let (formatted, relative) = get_human_datetime(&env.created_at);
         let created_at = format!("{} ({})", formatted, relative);
 
+        let user_role = match env.user_role {
+            Some(role) => role.to_string(),
+            None => "---".to_string(),
+        };
+
         Self {
             id: env.id,
             created_at,
             name: env.name,
             description: env.description,
             locked: env.locked,
+            user_role,
             is_production: env.is_production,
             secret_count: env.secret_count,
         }
@@ -98,11 +130,17 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
         let (formatted, relative) = get_human_datetime(&env.created_at);
         let created_at = format!("{} ({})", formatted, relative);
 
+        let user_role = match env.user_role {
+            Some(role) => role.to_string(),
+            None => "---".to_string(),
+        };
+
         Self {
             id: env.id,
             created_at,
             name: env.name,
             locked: env.locked,
+            user_role,
             is_production: env.is_production,
             secret_count: env.secret_count,
         }
