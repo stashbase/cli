@@ -18,7 +18,13 @@ pub enum EnvironmentUserRole {
 
 impl Display for EnvironmentUserRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        let s = match self {
+            EnvironmentUserRole::Viewer => "Viewer".to_string(),
+            EnvironmentUserRole::Editor => "Editor".to_string(),
+            EnvironmentUserRole::Admin => "Admin".to_string(),
+        };
+
+        write!(f, "{}", s)
     }
 }
 
