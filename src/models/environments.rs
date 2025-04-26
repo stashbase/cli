@@ -165,6 +165,10 @@ impl Display for Environment {
         writeln!(f, "{} {}", "Locked:".green(), self.locked)?;
         writeln!(f, "{} {}", "Production:".green(), self.is_production)?;
 
+        if let Some(user_role) = &self.user_role {
+            writeln!(f, "{} {}", "User role:".green(), user_role)?;
+        }
+
         if let Some(description) = &self.description {
             writeln!(f, "{} {}", "Description:".green(), description)?;
         }
