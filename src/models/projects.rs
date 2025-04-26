@@ -55,12 +55,17 @@ pub struct SingleListProject {
     #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
+    // only for personal auth (api key)
+    #[tabled(display_with = "display_bool_option")]
+    #[tabled(rename = "Full access", order = 3)]
+    pub full_access: Option<bool>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 4)]
+    #[tabled(rename = "Description", order = 5)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Environments", order = 3)]
+    #[tabled(rename = "Environments", order = 4)]
     pub environment_count: usize,
 }
 
@@ -77,7 +82,12 @@ pub struct SingleListProjectWithoutDescription {
     #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
-    #[tabled(rename = "Environments", order = 3)]
+    // only for personal auth (api key)
+    #[tabled(display_with = "display_bool_option")]
+    #[tabled(rename = "Full access", order = 3)]
+    pub full_access: Option<bool>,
+
+    #[tabled(rename = "Environments", order = 4)]
     pub environment_count: usize,
 }
 
@@ -184,21 +194,21 @@ fn display_option(d: &Option<String>) -> String {
     }
 }
 
-// impl From<ProjectWithCount> for ProjectWithCountNoDescriptionTable {
-//     fn from(project: ProjectWithCount) -> Self {
-//         Self {
-//             name: project.name,
-//             created_at: project.created_at,
-//             environment_count: project.environment_count,
-//         }
-//     }
-// }
+fn display_bool_option(b: &Option<bool>) -> String {
+    match b {
+        Some(true) => "true".to_string(),
+        Some(false) => "false".to_string(),
+        None => "---".to_string(),
+    }
+}
+
 impl From<SingleListProject> for SingleListProjectWithoutDescription {
     fn from(project: SingleListProject) -> Self {
         Self {
             id: project.id,
             name: project.name,
             created_at: project.created_at,
+            full_access: project.full_access,
             environment_count: project.environment_count,
         }
     }
