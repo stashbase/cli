@@ -5,17 +5,9 @@ use super::client;
 use crate::models::api_client::{ApiPath, GetRequestApiResponse, RequestArgs};
 
 // for whoami command
-pub struct GetCurrentAuthDetailsRequestArgs {
-    pub api_key: String,
-}
-
-pub async fn get_current_auth_details(
-    args: GetCurrentAuthDetailsRequestArgs,
-) -> Result<GetRequestApiResponse> {
-    let args = args;
-
+pub async fn get_current_auth_details(api_key: String) -> Result<GetRequestApiResponse> {
     let response = client::get_request(RequestArgs {
-        api_key: args.api_key,
+        api_key,
         path: ApiPath::Whoami,
         query: None,
     })
