@@ -149,3 +149,50 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
         Ok(())
     }
 }
+
+impl std::fmt::Display for AuthedServiceAccountData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Authenticated as Service Account:")?;
+        writeln!(f, "  ID: {}", self.id)?;
+        writeln!(f, "  Name: {}", self.name)?;
+        writeln!(f, "  Workspace:")?;
+        writeln!(f, "    ID: {}", self.workspace.id)?;
+        writeln!(f, "    Name: {}", self.workspace.name)?;
+        writeln!(f, "    Slug: {}", self.workspace.slug)?;
+
+        if let Some(access) = &self.access {
+            writeln!(f, "  Access:")?;
+            writeln!(f, "    Project Count: {}", access.project_count)?;
+
+            if let Some(workspace) = &access.workspace {
+                writeln!(f, "    Workspace Permissions:")?;
+
+                if let Some(permissions) = &workspace.permissions {
+                    for (key, value) in permissions {
+                        writeln!(f, "      {}: {}", key, value.join(", "))?;
+                    }
+                } else {
+                    writeln!(f, "      None")?;
+                }
+
+                if let Some(created_project_permissions) = &workspace.created_project_permissions {
+                    writeln!(f, "    Created Project Permissions:")?;
+                    for (key, value) in created_project_permissions {
+                        writeln!(f, "      {}: {}", key, value.join(", "))?;
+                    }
+                }
+
+                if let Some(created_environment_permissions) =
+                    &workspace.created_environment_permissions
+                {
+                    writeln!(f, "    Created Environment Permissions:")?;
+                    for (key, value) in created_environment_permissions {
+                        writeln!(f, "      {}: {}", key, value.join(", "))?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
