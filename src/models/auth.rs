@@ -1,3 +1,4 @@
+use crate::utils::output::write_indented;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -137,7 +138,6 @@ impl std::fmt::Display for AuthedUserData {
 
 impl std::fmt::Display for AuthedEnvironmentAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use crate::utils::output::write_indented;
         writeln!(f, "Authenticated as Environment Account:")?;
         write_indented(f, 2, &format!("ID: {}", self.id))?;
         write_indented(f, 2, &format!("Name: {}", self.name))?;
@@ -158,8 +158,6 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
         Ok(())
     }
 }
-
-use crate::utils::output::write_indented;
 
 impl std::fmt::Display for AuthedServiceAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
