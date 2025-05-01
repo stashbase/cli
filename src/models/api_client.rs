@@ -98,7 +98,7 @@ impl fmt::Display for ApiPath {
                 Some(p) => write!(f, "v1/projects/{}/secrets-search", p),
                 None => write!(f, "v1/secrets-search"),
             },
-            ApiPath::Whoami => write!(f, "v1/auth/whoami"),
+            ApiPath::Whoami => write!(f, "v1/whoami"),
         }
     }
 }
