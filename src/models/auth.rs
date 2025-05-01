@@ -161,7 +161,7 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
 
 impl std::fmt::Display for AuthedServiceAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Authenticated as Service Account:")?;
+        writeln!(f, "Authenticated as Service Account:\n")?;
         write_indented(f, 2, &format!("ID: {}", self.id))?;
         write_indented(f, 2, &format!("Name: {}", self.name))?;
         write_indented(f, 2, "Workspace:")?;
