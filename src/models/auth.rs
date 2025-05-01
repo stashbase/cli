@@ -15,6 +15,16 @@ pub enum WorkspaceUserRole {
     OWNER,
 }
 
+impl std::fmt::Display for WorkspaceUserRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WorkspaceUserRole::MEMBER => write!(f, "Member"),
+            WorkspaceUserRole::ADMIN => write!(f, "Admin"),
+            WorkspaceUserRole::OWNER => write!(f, "Owner"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthedUserData {
@@ -97,4 +107,21 @@ pub enum CurrentAuthResponse {
     User { data: AuthedUserData },
     EnvironmentAccount { data: AuthedEnvironmentAccountData },
     ServiceAccount { data: AuthedServiceAccountData },
+}
+
+impl std::fmt::Display for CurrentAuthResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let CurrentAuthResponse::User { data } = self {
+            writeln!(f, "Authenticated as User:")?;
+            writeln!(f, "  ID: {}", data.id)?;
+            writeln!(f, "  Email: {}", data.email)?;
+            writeln!(f, "  Name: {}", data.name)?;
+            writeln!(f, "  Workspace:")?;
+            writeln!(f, "    ID: {}", data.workspace.id)?;
+            writeln!(f, "    Name: {}", data.workspace.name)?;
+            writeln!(f, "    Slug: {}", data.workspace.slug)?;
+            writeln!(f, "  Workspace User Role: {}", data.workspace_user_role)?;
+        }
+        Ok(())
+    }
 }
