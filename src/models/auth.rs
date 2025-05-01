@@ -125,3 +125,27 @@ impl std::fmt::Display for CurrentAuthResponse {
         Ok(())
     }
 }
+
+impl std::fmt::Display for AuthedEnvironmentAccountData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Authenticated as Environment Account:")?;
+        writeln!(f, "  ID: {}", self.id)?;
+        writeln!(f, "  Name: {}", self.name)?;
+        writeln!(f, "  Environment:")?;
+        writeln!(f, "    ID: {}", self.environment.id)?;
+        writeln!(f, "    Name: {}", self.environment.name)?;
+        writeln!(f, "  Project:")?;
+        writeln!(f, "    ID: {}", self.project.id)?;
+        writeln!(f, "    Name: {}", self.project.name)?;
+        writeln!(f, "  Workspace:")?;
+        writeln!(f, "    ID: {}", self.workspace.id)?;
+        writeln!(f, "    Name: {}", self.workspace.name)?;
+        writeln!(f, "    Slug: {}", self.workspace.slug)?;
+        writeln!(f, "  Permissions:")?;
+
+        for (key, value) in &self.permissions {
+            writeln!(f, "    {}: {}", key, value.join(", "))?;
+        }
+        Ok(())
+    }
+}
