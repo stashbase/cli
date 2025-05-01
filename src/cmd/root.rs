@@ -80,4 +80,7 @@ pub enum EntityType {
 
     /// Open web dashboard
     Open,
+
+    /// Show details of currently authenticated entity
+    Whoami,
 }
