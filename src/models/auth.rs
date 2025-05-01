@@ -111,16 +111,21 @@ pub enum CurrentAuthResponse {
 
 impl std::fmt::Display for CurrentAuthResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::utils::output::write_indented;
         if let CurrentAuthResponse::User { data } = self {
             writeln!(f, "Authenticated as User:")?;
-            writeln!(f, "  ID: {}", data.id)?;
-            writeln!(f, "  Email: {}", data.email)?;
-            writeln!(f, "  Name: {}", data.name)?;
-            writeln!(f, "  Workspace:")?;
-            writeln!(f, "    ID: {}", data.workspace.id)?;
-            writeln!(f, "    Name: {}", data.workspace.name)?;
-            writeln!(f, "    Slug: {}", data.workspace.slug)?;
-            writeln!(f, "  Workspace User Role: {}", data.workspace_user_role)?;
+            write_indented(f, 2, &format!("ID: {}", data.id))?;
+            write_indented(f, 2, &format!("Email: {}", data.email))?;
+            write_indented(f, 2, &format!("Name: {}", data.name))?;
+            write_indented(f, 2, "Workspace:")?;
+            write_indented(f, 4, &format!("ID: {}", data.workspace.id))?;
+            write_indented(f, 4, &format!("Name: {}", data.workspace.name))?;
+            write_indented(f, 4, &format!("Slug: {}", data.workspace.slug))?;
+            write_indented(
+                f,
+                2,
+                &format!("Workspace User Role: {}", data.workspace_user_role),
+            )?;
         }
         Ok(())
     }
@@ -128,67 +133,69 @@ impl std::fmt::Display for CurrentAuthResponse {
 
 impl std::fmt::Display for AuthedEnvironmentAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::utils::output::write_indented;
         writeln!(f, "Authenticated as Environment Account:")?;
-        writeln!(f, "  ID: {}", self.id)?;
-        writeln!(f, "  Name: {}", self.name)?;
-        writeln!(f, "  Environment:")?;
-        writeln!(f, "    ID: {}", self.environment.id)?;
-        writeln!(f, "    Name: {}", self.environment.name)?;
-        writeln!(f, "  Project:")?;
-        writeln!(f, "    ID: {}", self.project.id)?;
-        writeln!(f, "    Name: {}", self.project.name)?;
-        writeln!(f, "  Workspace:")?;
-        writeln!(f, "    ID: {}", self.workspace.id)?;
-        writeln!(f, "    Name: {}", self.workspace.name)?;
-        writeln!(f, "    Slug: {}", self.workspace.slug)?;
-        writeln!(f, "  Permissions:")?;
-
+        write_indented(f, 2, &format!("ID: {}", self.id))?;
+        write_indented(f, 2, &format!("Name: {}", self.name))?;
+        write_indented(f, 2, "Environment:")?;
+        write_indented(f, 4, &format!("ID: {}", self.environment.id))?;
+        write_indented(f, 4, &format!("Name: {}", self.environment.name))?;
+        write_indented(f, 2, "Project:")?;
+        write_indented(f, 4, &format!("ID: {}", self.project.id))?;
+        write_indented(f, 4, &format!("Name: {}", self.project.name))?;
+        write_indented(f, 2, "Workspace:")?;
+        write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
+        write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
+        write_indented(f, 4, &format!("Slug: {}", self.workspace.slug))?;
+        write_indented(f, 2, "Permissions:")?;
         for (key, value) in &self.permissions {
-            writeln!(f, "    {}: {}", key, value.join(", "))?;
+            write_indented(f, 4, &format!("{}: {}", key, value.join(", ")))?;
         }
         Ok(())
     }
 }
 
+use crate::utils::output::write_indented;
+
 impl std::fmt::Display for AuthedServiceAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Authenticated as Service Account:")?;
-        writeln!(f, "  ID: {}", self.id)?;
-        writeln!(f, "  Name: {}", self.name)?;
-        writeln!(f, "  Workspace:")?;
-        writeln!(f, "    ID: {}", self.workspace.id)?;
-        writeln!(f, "    Name: {}", self.workspace.name)?;
-        writeln!(f, "    Slug: {}", self.workspace.slug)?;
+        write_indented(f, 2, &format!("ID: {}", self.id))?;
+        write_indented(f, 2, &format!("Name: {}", self.name))?;
+        write_indented(f, 2, "Workspace:")?;
+        write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
+        write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
+        write_indented(f, 4, &format!("Slug: {}", self.workspace.slug))?;
 
         if let Some(access) = &self.access {
-            writeln!(f, "  Access:")?;
-            writeln!(f, "    Project Count: {}", access.project_count)?;
+            write_indented(f, 2, "Access:")?;
+            write_indented(f, 4, &format!("Project Count: {}", access.project_count))?;
 
             if let Some(workspace) = &access.workspace {
-                writeln!(f, "    Workspace:")?;
-                writeln!(f, "      Permissions:")?;
+                write_indented(f, 4, "Workspace:")?;
+                write_indented(f, 6, "Permissions:")?;
 
                 if let Some(permissions) = &workspace.permissions {
                     for (key, value) in permissions {
-                        writeln!(f, "        {}: {}", key, value.join(", "))?;
+                        write_indented(f, 8, &format!("{}: {}", key, value.join(", ")))?;
                     }
                 } else {
-                    writeln!(f, "        None")?;
+                    write_indented(f, 8, "None")?;
                 }
 
                 if let Some(created_project_permissions) = &workspace.created_project_permissions {
-                    writeln!(f, "      Created Project Permissions:")?;
+                    write_indented(f, 6, "Created Project Permissions:")?;
                     for (key, value) in created_project_permissions {
-                        writeln!(f, "        {}: {}", key, value.join(", "))?;
+                        write_indented(f, 8, &format!("{}: {}", key, value.join(", ")))?;
                     }
                 }
 
                 if let Some(created_environment_permissions) =
                     &workspace.created_environment_permissions
                 {
-                    writeln!(f, "      Created Environment Permissions:")?;
+                    write_indented(f, 6, "Created Environment Permissions:")?;
                     for (key, value) in created_environment_permissions {
-                        writeln!(f, "        {}: {}", key, value.join(", "))?;
+                        write_indented(f, 8, &format!("{}: {}", key, value.join(", ")))?;
                     }
                 }
             }
