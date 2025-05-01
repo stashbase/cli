@@ -10,3 +10,12 @@ pub fn get_output_format(
         false => cmd_format.unwrap_or(default_output_format.unwrap_or_default()),
     }
 }
+
+pub fn write_indented(f: &mut std::fmt::Formatter<'_>, indent: usize, s: &str) -> std::fmt::Result {
+    let indent_str = " ".repeat(indent);
+    for line in s.lines() {
+        writeln!(f, "{}{}", indent_str, line)?;
+    }
+
+    Ok(())
+}
