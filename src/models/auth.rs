@@ -111,22 +111,26 @@ pub enum CurrentAuthResponse {
 
 impl std::fmt::Display for CurrentAuthResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use crate::utils::output::write_indented;
-        if let CurrentAuthResponse::User { data } = self {
-            writeln!(f, "Authenticated as User:")?;
-            write_indented(f, 2, &format!("ID: {}", data.id))?;
-            write_indented(f, 2, &format!("Email: {}", data.email))?;
-            write_indented(f, 2, &format!("Name: {}", data.name))?;
-            write_indented(f, 2, "Workspace:")?;
-            write_indented(f, 4, &format!("ID: {}", data.workspace.id))?;
-            write_indented(f, 4, &format!("Name: {}", data.workspace.name))?;
-            write_indented(f, 4, &format!("Slug: {}", data.workspace.slug))?;
-            write_indented(
-                f,
-                2,
-                &format!("Workspace User Role: {}", data.workspace_user_role),
-            )?;
+        match self {
+            CurrentAuthResponse::User { data } => write!(f, "{}", data),
+            CurrentAuthResponse::ServiceAccount { data } => write!(f, "{}", data),
+            CurrentAuthResponse::EnvironmentAccount { data } => write!(f, "{}", data),
         }
+    }
+}
+
+impl std::fmt::Display for AuthedUserData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Authenticated as User:")?;
+        write_indented(f, 2, &format!("ID: {}", self.id))?;
+        write_indented(f, 2, &format!("Email: {}", self.email))?;
+        write_indented(f, 2, &format!("Name: {}", self.name))?;
+        write_indented(f, 2, "Workspace:")?;
+        write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
+        write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
+        write_indented(f, 4, &format!("Slug: {}", self.workspace.slug))?;
+        write_indented(f, 4, &format!("User Role: {}", self.workspace_user_role))?;
+
         Ok(())
     }
 }
