@@ -7,10 +7,12 @@ use crate::{
     },
     config::config,
     handlers::{
-        config::expand_refs,
         entry::{
-            config::handle_config_commands, environments::handle_environment_commands,
-            projects::handle_project_commands, secrets::handle_secrets_commands,
+            auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
+            config::handle_config_commands,
+            environments::handle_environment_commands,
+            projects::handle_project_commands,
+            secrets::handle_secrets_commands,
             webhooks::handle_webhook_commands,
         },
         open::handle_open_dashboard,
@@ -46,6 +48,20 @@ pub async fn handle_cli(args: Cli) {
         let raw_output = args.raw;
 
         let result = match args.entity_type {
+            EntityType::Whoami => {
+                let format = match (raw_output, config.ouput_format.and_then(|o| o.general)) {
+                    (true, _) => OutputFormat::Json,
+                    (false, Some(OutputFormat::Json)) => OutputFormat::Json,
+                    (false, Some(OutputFormat::List)) | (false, Some(OutputFormat::Table)) => {
+                        OutputFormat::List
+                    }
+                    _ => OutputFormat::List,
+                };
+
+                let args = GetCurrentAuthDetailsRequestArgs { api_key, format };
+
+                handle_whoami_command(args).await
+            }
             EntityType::Project(cmd) => {
                 let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
