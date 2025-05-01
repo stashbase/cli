@@ -165,29 +165,30 @@ impl std::fmt::Display for AuthedServiceAccountData {
             writeln!(f, "    Project Count: {}", access.project_count)?;
 
             if let Some(workspace) = &access.workspace {
-                writeln!(f, "    Workspace Permissions:")?;
+                writeln!(f, "    Workspace:")?;
+                writeln!(f, "      Permissions:")?;
 
                 if let Some(permissions) = &workspace.permissions {
                     for (key, value) in permissions {
-                        writeln!(f, "      {}: {}", key, value.join(", "))?;
+                        writeln!(f, "        {}: {}", key, value.join(", "))?;
                     }
                 } else {
-                    writeln!(f, "      None")?;
+                    writeln!(f, "        None")?;
                 }
 
                 if let Some(created_project_permissions) = &workspace.created_project_permissions {
-                    writeln!(f, "    Created Project Permissions:")?;
+                    writeln!(f, "      Created Project Permissions:")?;
                     for (key, value) in created_project_permissions {
-                        writeln!(f, "      {}: {}", key, value.join(", "))?;
+                        writeln!(f, "        {}: {}", key, value.join(", "))?;
                     }
                 }
 
                 if let Some(created_environment_permissions) =
                     &workspace.created_environment_permissions
                 {
-                    writeln!(f, "    Created Environment Permissions:")?;
+                    writeln!(f, "      Created Environment Permissions:")?;
                     for (key, value) in created_environment_permissions {
-                        writeln!(f, "      {}: {}", key, value.join(", "))?;
+                        writeln!(f, "        {}: {}", key, value.join(", "))?;
                     }
                 }
             }
