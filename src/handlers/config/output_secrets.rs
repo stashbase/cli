@@ -19,11 +19,7 @@ pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
     if let Err(err) = res {
         eprintln!("{} {}", "Error:".red(), err);
     } else {
-        let msg = format!(
-            "{} {}",
-            "✔".green(),
-            "Default secrets output format has been set."
-        );
+        let msg = format!("Default secrets output format set.");
         eprintln!("{}", msg);
     }
 }

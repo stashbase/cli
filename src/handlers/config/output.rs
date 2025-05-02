@@ -20,7 +20,7 @@ pub fn set_default_output_format(output_format: OutputFormat) {
     if let Err(err) = res {
         eprintln!("{} {}", "Error:".red(), err);
     } else {
-        let msg = format!("{} {}", "✔".green(), "Default output format has been set.");
+        let msg = format!("{} {}", "✔".green(), "Default output format set.");
         eprintln!("{}", msg);
     }
 }

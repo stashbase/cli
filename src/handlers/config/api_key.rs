@@ -13,7 +13,7 @@ pub fn set_api_key(api_key: String) {
     if let Err(err) = res {
         eprintln!("{} {}", "Error:".red(), err);
     } else {
-        let msg = format!("{} {}", "✔".green(), "API Key has been set.");
+        let msg = format!("API Key set.");
         eprintln!("{}", msg);
     }
 }

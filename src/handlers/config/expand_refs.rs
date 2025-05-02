@@ -1,4 +1,3 @@
-// use anyhow::Result;
 use owo_colors::OwoColorize;
 
 use crate::{config::config, models::config::UpdateConfig};
@@ -24,11 +23,7 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
     if let Err(err) = res {
         eprintln!("{} {}", "Error:".red(), err);
     } else {
-        let msg = format!(
-            "{} {}",
-            "✔".green(),
-            "Default expand-refs config has been set."
-        );
+        let msg = format!("Default expand-refs config set.");
         eprintln!("{}", msg);
     }
 }

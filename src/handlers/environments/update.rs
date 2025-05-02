@@ -67,7 +67,7 @@ pub async fn handle_update_environment(
 
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Environment has been updated.");
+            spinner.stop_with_message("Environment updated.");
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
