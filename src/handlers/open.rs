@@ -40,7 +40,7 @@ pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
                 }
                 Err(e) => {
                     error!("{:#?}", e);
-                    bail!("Something went wrong");
+                    bail!("Something went wrong.");
                 }
             }
         }
