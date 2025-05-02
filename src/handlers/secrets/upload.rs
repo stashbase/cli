@@ -113,11 +113,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message(&format!(
-                "{} {}",
-                "✓".green(),
-                "Secrets have been uploaded."
-            ));
+            spinner.stop_with_message("Secrets uploaded.");
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
