@@ -92,7 +92,7 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                 Err(e) => {
                     spinner.stop_and_persist("", "");
                     debug!("Err: {}", e);
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
 
