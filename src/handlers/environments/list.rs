@@ -99,7 +99,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                         println!("{}", pretty);
                     } else {
                         if envs.is_empty() {
-                            spinner.stop_with_message("No environments found");
+                            spinner.stop_with_message("No environments found.");
                             return Ok(());
                         } else {
                             spinner.stop_and_persist("", "");
@@ -143,7 +143,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                 Err(e) => {
                     spinner.stop_and_persist("", "");
                     debug!("Err: {}", e);
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }

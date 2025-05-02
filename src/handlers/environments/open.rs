@@ -54,7 +54,7 @@ pub async fn handle_open_environment(
                 }
                 Err(e) => {
                     error!("{:#?}", e);
-                    bail!("Something went wrong");
+                    bail!("Something went wrong.");
                 }
             }
         }

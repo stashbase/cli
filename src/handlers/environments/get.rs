@@ -79,7 +79,7 @@ pub async fn handle_get_environment(
                     }
                 }
                 Err(_) => {
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }
