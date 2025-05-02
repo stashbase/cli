@@ -74,7 +74,7 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message(&format!("{} {}", "✓".green(), "Comment has been updated!"));
+            spinner.stop_with_message(&format!("{} {}", "✓".green(), "Comment has been updated."));
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);

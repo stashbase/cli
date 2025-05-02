@@ -56,9 +56,9 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     match res {
         RequestApiOptionResponse::Ok(_) => {
             let msg = match enabled {
-                true => "✅ Webhook has been enabled!",
+                true => "Webhook has been enabled.",
                 // false => "❌ Webhook has been disabled!",
-                false => "✅ Webhook has been disabled!",
+                false => "Webhook has been disabled.",
             };
 
             // println!("Project has been deleted");

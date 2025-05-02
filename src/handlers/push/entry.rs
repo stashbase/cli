@@ -315,7 +315,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message(&format!("{} {}", "✓".green(), "Secrets have been pushed!"));
+            spinner.stop_with_message(&format!("{} {}", "✓".green(), "Secrets have been pushed."));
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);

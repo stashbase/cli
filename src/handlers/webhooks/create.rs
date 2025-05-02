@@ -66,8 +66,8 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                     match webhook {
                         Ok(webhook) => {
                             let msg = match enable {
-                                true => "🔥 Webhook created and enabled!",
-                                false => "🔥 Webhook created!",
+                                true => "Webhook created and enabled.",
+                                false => "Webhook created.",
                             };
 
                             spinner.stop_with_message(msg);

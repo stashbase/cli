@@ -116,7 +116,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
             spinner.stop_with_message(&format!(
                 "{} {}",
                 "✓".green(),
-                "Secrets have been uploaded!"
+                "Secrets have been uploaded."
             ));
         }
         RequestApiOptionResponse::Err(e) => {
