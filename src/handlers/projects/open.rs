@@ -40,7 +40,7 @@ pub async fn handle_open_project(api_key: String, name: String) -> Result<()> {
                 }
                 Err(e) => {
                     error!("{:#?}", e);
-                    bail!("Something went wrong");
+                    bail!("Something went wrong.");
                 }
             }
         }

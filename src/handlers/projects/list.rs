@@ -103,7 +103,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                     let pagination = data.pagination;
 
                     if projects.is_empty() {
-                        spinner.stop_with_message("No projects found");
+                        spinner.stop_with_message("No projects found.");
                         eprintln!("\n{}", pagination);
                     } else {
                         spinner.stop_and_persist("", "");
@@ -124,7 +124,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                 Err(e) => {
                     debug!("{:#?}", &e);
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }

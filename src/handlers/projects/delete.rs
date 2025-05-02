@@ -19,12 +19,12 @@ pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> 
         bail!(err);
     }
 
-    eprintln!("{}", "All environments and secrets will be deleted".red());
+    eprintln!("{}", "All environments and secrets will be deleted.".red());
 
-    let i = interaction::input(&format!("Type '{}' to confirm", name));
+    let i = interaction::input(&format!("Type '{}' to confirm.", name));
 
     if i != name {
-        eprintln!("Input does not match, action aborted");
+        eprintln!("Input does not match, action aborted.");
         return Ok(());
     }
 
