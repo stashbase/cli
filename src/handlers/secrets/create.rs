@@ -171,7 +171,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                             spinner.stop_with_message(&format!(
                                 "{} {}",
                                 "✓".green(),
-                                "Secrets have been created!"
+                                "Secrets have been created."
                             ));
                         }
                     }
