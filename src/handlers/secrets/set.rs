@@ -115,7 +115,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message(&format!("{} {}", "✓".green(), "Secrets have been set."));
+            spinner.stop_with_message("Secrets set.");
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);

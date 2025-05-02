@@ -90,10 +90,8 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                         spinner.stop_with_message("No secrets to delete.");
                                     }
                                     _ => {
-                                        let msg = format!(
-                                            "All secrets ({}) have been deleted!",
-                                            d.deleted_count
-                                        );
+                                        let msg =
+                                            format!("All secrets ({}) deleted.", d.deleted_count);
 
                                         spinner.stop_with_message(&format!(
                                             "{} {}",
@@ -189,11 +187,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                         }
                                     } else {
                                         // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
-                                        spinner.stop_with_message(&format!(
-                                            "{} {}",
-                                            "✓".green(),
-                                            "Selected secrets have been deleted."
-                                        ));
+                                        spinner.stop_with_message("Selected secrets deleted.");
                                     }
                                 }
                                 Err(e) => {

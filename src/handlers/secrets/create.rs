@@ -168,11 +168,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                             eprintln!("{}", info_msg);
                         } else {
                             // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
-                            spinner.stop_with_message(&format!(
-                                "{} {}",
-                                "✓".green(),
-                                "Secrets have been created."
-                            ));
+                            spinner.stop_with_message("Secrets created.");
                         }
                     }
                     Err(e) => {
