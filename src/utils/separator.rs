@@ -4,7 +4,7 @@ pub struct KeyValueError;
 // TODO
 impl std::fmt::Display for KeyValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "expected a key-value pair (separated by '=')")
+        write!(f, "Expected a key-value pair (separated by '=').")
     }
 }
 
