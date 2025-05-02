@@ -64,7 +64,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     match res {
         RequestApiOptionResponse::Ok(_) => {
             // println!("Project has been deleted");
-            spinner.stop_with_message("✏️ Webhook has been updated!");
+            spinner.stop_with_message("Webhook has been updated.");
         }
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);

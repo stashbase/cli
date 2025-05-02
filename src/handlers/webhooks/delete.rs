@@ -55,7 +55,7 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
 
     match res {
         DeleteRequestApiResponse::Ok(_) => {
-            spinner.stop_with_message("🗑️ Webhook has been deleted!");
+            spinner.stop_with_message("Webhook has been deleted.");
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_with_message(&format!("{}", e));
