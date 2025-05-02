@@ -63,7 +63,7 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
         },
         ConfigSubcommand::Print => {
             if config.is_empty() {
-                eprintln!("Config file is empty");
+                eprintln!("Config file is empty.");
             } else {
                 let toml_string = toml::to_string(&config);
 
