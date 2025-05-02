@@ -63,7 +63,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                 match names {
                     Ok(secrets) => {
                         if secrets.is_empty() {
-                            spinner.stop_with_message("No secrets found");
+                            spinner.stop_with_message("No secrets found.");
                         } else {
                             let names = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
                             let print_string = format_secret_names(names, &format);
@@ -76,7 +76,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                     Err(e) => {
                         debug!("{}", e);
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong")
+                        bail!("Something went wrong.")
                     }
                 }
             }
@@ -88,7 +88,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         debug!("{:#?}", &secrets);
 
                         if secrets.is_empty() {
-                            spinner.stop_with_message("No secrets found");
+                            spinner.stop_with_message("No secrets found.");
                         } else {
                             spinner.stop_and_persist("", "");
                             let print_string = format_secrets(secrets, &format);
@@ -103,7 +103,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong")
+                        bail!("Something went wrong.")
                     }
                 }
             }

@@ -62,7 +62,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         let file_exists = check_file_exists(&path);
 
         if !file_exists {
-            let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist");
+            let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
             bail!("{}", err_msg);
         }
 
@@ -87,7 +87,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 debug!("{:#?}", values);
 
                 if values.is_empty() {
-                    let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found");
+                    let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
                     eprintln!("{}", msg);
 
                     let confirm = interaction::confirm_opt("Are you sure you want to continue?");
@@ -102,7 +102,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         eprintln!("{}", msg);
                     }
 
-                    let info = format!("Number of screts to create: {}", values.len());
+                    let info = format!("Number of secrets to create: {}", values.len());
                     eprintln!("{}", info);
 
                     let confirm = interaction::confirm_opt("Are you sure you want to continue?");
@@ -167,7 +167,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                     }
                     Err(_) => {
                         spinner.stop_with_message(
-                            "Something went wrong when when opening environment",
+                            "Something went wrong when when opening environment.",
                         );
                     }
                 }
@@ -206,8 +206,8 @@ fn validate_secrets_input(secrets: &Vec<Secret>) -> Result<Option<String>> {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            print_str.push_str(&format!("- message: invalid secret references format\n"));
-            print_str.push_str(&format!("- secrets: {} \n", hint_str));
+            print_str.push_str(&format!("  Message: Invalid secret references format.\n"));
+            print_str.push_str(&format!("  Secrets: {} \n", hint_str));
         }
 
         if !refs_validation.not_found.is_empty() {
@@ -223,9 +223,9 @@ fn validate_secrets_input(secrets: &Vec<Secret>) -> Result<Option<String>> {
             }
 
             print_str.push_str(&format!(
-                "- message: referenced secrets not found within the file\n"
+                "  Message: Referenced secrets not found within the file.\n"
             ));
-            print_str.push_str(&format!("- secret: {} \n", hint_str));
+            print_str.push_str(&format!("  Secret: {} \n", hint_str));
         }
 
         if !refs_validation.invalid_format.is_empty() && !refs_validation.not_found.is_empty() {

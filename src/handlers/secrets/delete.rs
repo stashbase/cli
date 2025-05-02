@@ -37,7 +37,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         let msg = format!(
             "{} {}",
             "Input error:".red(),
-            "no secrets to delete provided"
+            "No secrets to delete provided."
         );
         bail!("{}", msg);
     }
@@ -52,7 +52,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
     if delete_all {
         eprintln!(
             "{}",
-            "All secrets in selected environment will be deleted".red()
+            "All secrets in selected environment will be deleted.".red()
         );
     }
 
@@ -87,7 +87,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             match json_data {
                                 Ok(d) => match d.deleted_count {
                                     0 => {
-                                        spinner.stop_with_message("No secrets to delete");
+                                        spinner.stop_with_message("No secrets to delete.");
                                     }
                                     _ => {
                                         let msg = format!(
@@ -104,12 +104,12 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                 },
                                 Err(e) => {
                                     error!("{}", e);
-                                    bail!("Something went wrong");
+                                    bail!("Something went wrong.");
                                 }
                             }
                         }
                         None => {
-                            bail!("Something went wrong");
+                            bail!("Something went wrong.");
                         }
                     }
                 }

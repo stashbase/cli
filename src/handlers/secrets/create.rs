@@ -145,10 +145,10 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                 println!("{}", msg);
                             } else {
                                 if created_count == 0 && duplicate_secrets.len() == 0 {
-                                    spinner.stop_and_persist("No secrets created", "");
+                                    spinner.stop_and_persist("No secrets created.", "");
                                 } else {
                                     spinner.stop_and_persist("", "");
-                                    let msg = format!("No secrets created");
+                                    let msg = format!("No secrets created.");
                                     println!("{}", msg);
                                 }
                             }

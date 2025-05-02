@@ -174,7 +174,7 @@ where
 
                 return Ok(());
             } else if secrets.is_empty() {
-                spinner.stop_with_message("No secrets found");
+                spinner.stop_with_message("No secrets found.");
                 return Ok(());
             }
 
@@ -204,7 +204,7 @@ where
         }
         Err(_) => {
             spinner.stop_and_persist("", "");
-            bail!("Something went wrong")
+            bail!("Something went wrong.")
         }
     }
 
