@@ -104,7 +104,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
                 }
                 Err(e) => {
                     error!("{}", e);
-                    bail!("Something went wrong");
+                    bail!("Something went wrong.");
                 }
             }
         }

@@ -368,12 +368,12 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             if let Ok(mut secrets) = secrets {
                 if secrets.is_empty() && setted_secrets.is_empty() {
                     let msg = if only_len == 0 {
-                        format!("{}\n{}", "Error".red(), "- message: no secrets found")
+                        format!("{}\n{}", "Error".red(), "  Message: No secrets found.")
                     } else {
                         format!(
                             "{}\n{} ({} requested)",
                             "Error".red(),
-                            "- message: no secrets found",
+                            "  Message: No secrets found.",
                             only_len
                         )
                     };
@@ -384,7 +384,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
                 if only_len > 0 && secrets.len() < only_len {
                     let mut msg = format!(
-                        "{} {} secret(s) found, {} secret(s) requested",
+                        "{} {} Secret(s) found, {} secret(s) requested.",
                         "Error:".red(),
                         secrets.len(),
                         only_len

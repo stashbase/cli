@@ -140,7 +140,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         let err_msg = format!(
             "{} {}",
             "Error reading input file:".red(),
-            "file does not exist"
+            "file does not exist."
         );
         bail!("{}", err_msg);
     }
@@ -230,7 +230,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     }
 
     if secrets.is_empty() {
-        let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found");
+        let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
         eprintln!("{}", msg);
 
         return Ok(());
@@ -279,7 +279,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         eprint!("{}", reference_warnings);
     }
 
-    let info = format!("Number of screts to push: {}", secrets.len());
+    let info = format!("Number of secrets to push: {}", secrets.len());
     eprintln!("{}", info);
 
     let confirm = interaction::confirm_opt("Are you sure you want to continue?");

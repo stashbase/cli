@@ -271,12 +271,12 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 Ok(mut secrets) => {
                     if secrets.is_empty() && setted_secrets.is_empty() {
                         let msg = if only_len == 0 {
-                            format!("{}\n{}", "Error".red(), "- message: no secrets found")
+                            format!("{}\n{}", "Error".red(), "  Message: No secrets found.")
                         } else {
                             format!(
                                 "{}\n{} ({} requested)",
                                 "Error".red(),
-                                "- message: no secrets found",
+                                "  Message: No secrets found.",
                                 only_len
                             )
                         };
@@ -287,7 +287,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                     if only_len > 0 && secrets.len() < only_len {
                         let mut msg = format!(
-                            "{} {} secret(s) found, {} secret(s) requested",
+                            "{} {} Secret(s) found, {} secret(s) requested.",
                             "Error:".red(),
                             secrets.len(),
                             only_len
@@ -322,7 +322,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             let output_path = target_file.clone().unwrap();
 
                             if fs::metadata(&output_path).is_ok() && overwrite_file != true {
-                                eprintln!("{}", &format!("File '{}' already exists", output_path));
+                                eprintln!("{}", &format!("File '{}' already exists.", output_path));
 
                                 let confirmation =
                                     interaction::confirm_opt("Do you want to overwrite the file?");
@@ -371,7 +371,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             match file_res {
                                 Ok(_) => println!(
                                     "{}",
-                                    &format!("File '{}' successfully created", output_path)
+                                    &format!("File '{}' successfully created.", output_path)
                                 ),
                                 Err(e) => {
                                     bail!(e)
@@ -398,7 +398,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                         if file_exists && overwrite_file != true {
                             spinner.stop_with_message(&format!(
-                                "File '{}' already exists",
+                                "File '{}' already exists.",
                                 output_path
                             ));
                             let confirmation =
@@ -446,13 +446,13 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             Ok(_) => {
                                 if !file_exists {
                                     spinner.stop_with_message(&format!(
-                                        "File '{}' successfully created",
+                                        "File '{}' successfully created.",
                                         output_path
                                     ));
                                 } else {
                                     println!(
                                         "{}",
-                                        &format!("File '{}' successfully created", output_path)
+                                        &format!("File '{}' successfully created.", output_path)
                                     );
                                 }
                             }
@@ -467,7 +467,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 }
                 Err(_) => {
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }

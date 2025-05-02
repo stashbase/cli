@@ -39,7 +39,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     debug!("File exists: {}", file_exists);
 
     if !file_exists {
-        let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist");
+        let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
         bail!("{}", err_msg);
     }
 
@@ -71,7 +71,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     secrets.format();
 
     if secrets.is_empty() {
-        let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found");
+        let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
         eprintln!("{}", msg);
 
         return Ok(());
@@ -88,7 +88,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         eprint!("{}", reference_warnings);
     }
 
-    let info = format!("Number of screts to upload: {}", secrets.len());
+    let info = format!("Number of secrets to upload: {}", secrets.len());
     eprintln!("{}", info);
 
     let confirm = interaction::confirm_opt("Are you sure you want to continue?");
