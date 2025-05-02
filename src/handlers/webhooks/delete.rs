@@ -26,10 +26,10 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
     // confirmation
     eprintln!("{}", "Do you really want to delete this webhook?".red());
 
-    let i = interaction::input("Type 'DELETE' to confirm");
+    let i = interaction::input("Type 'DELETE' to confirm.");
 
     if i != "DELETE" {
-        println!("Input does not match, action aborted");
+        println!("Input does not match, action aborted.");
         return Ok(());
     }
 

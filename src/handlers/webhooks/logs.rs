@@ -106,7 +106,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                         }
                         OutputFormat::Table => {
                             if webhook_logs.data.is_empty() {
-                                spinner.stop_with_message("No change\n");
+                                spinner.stop_with_message("No change.\n");
                                 eprintln!("{}", webhook_logs.pagination);
                                 // return Ok(());
                             } else {

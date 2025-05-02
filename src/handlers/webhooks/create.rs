@@ -50,8 +50,7 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        bail!(format!("Error sending request: {}", err));
-        // bail!(err);
+        bail!(err);
     }
 
     let res = res.unwrap();
@@ -81,14 +80,14 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                         Err(e) => {
                             spinner.stop_and_persist("", "");
                             debug!("Err: {}", e);
-                            bail!("Something went wrong")
+                            bail!("Something went wrong.")
                         }
                     }
                 }
                 None => {
                     // NOTE: webhook creted but no id returned
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }
