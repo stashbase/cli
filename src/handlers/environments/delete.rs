@@ -51,9 +51,8 @@ pub async fn handle_delete_environment(
             spinner.stop_with_message("Environment deleted.");
         }
         DeleteRequestApiResponse::Err(e) => {
-            // error!("{:#?}", &e);
-            // eprint!("{}", e);
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

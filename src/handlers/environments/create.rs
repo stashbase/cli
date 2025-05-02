@@ -166,18 +166,15 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         }
                     }
                     Err(_) => {
-                        spinner.stop_with_message(
-                            "Something went wrong when when opening environment.",
-                        );
+                        spinner.stop_and_persist("", "");
+                        bail!("{}", "Something went wrong when when opening environment.");
                     }
                 }
             }
         }
         RequestApiOptionResponse::Err(e) => {
-            // spinner.stop_and_persist("", "");
-            // eprint!("{}", e);
-            // error!("{:#?}", &e);
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

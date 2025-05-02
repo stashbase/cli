@@ -117,7 +117,8 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

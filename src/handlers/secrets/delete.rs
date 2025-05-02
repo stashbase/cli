@@ -102,6 +102,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                 },
                                 Err(e) => {
                                     error!("{}", e);
+                                    spinner.stop_and_persist("", "");
                                     bail!("Something went wrong.");
                                 }
                             }
@@ -112,7 +113,8 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
-                    spinner.stop_with_message(&format!("\n{}", e));
+                    spinner.stop_and_persist("", "");
+                    bail!("{}", e);
                 }
             }
         }
@@ -196,12 +198,14 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             }
                         }
                         None => {
+                            spinner.stop_and_persist("", "");
                             bail!("Something went wrong");
                         }
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
-                    spinner.stop_with_message(&format!("\n{}", e));
+                    spinner.stop_and_persist("", "");
+                    bail!("{}", e);
                 }
             }
         }
