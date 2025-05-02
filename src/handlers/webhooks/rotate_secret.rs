@@ -37,7 +37,7 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
 
                 match data {
                     Ok(data) => {
-                        spinner.stop_with_message("Webhook secret has been rotated.");
+                        spinner.stop_with_message("Webhook secret rotated.");
                         // spinner.stop_with_message("✅ Webhook secret has been rotated!");
                         println!("\nSigning secret: {}", &data.signing_secret);
                     }

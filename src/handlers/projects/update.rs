@@ -58,7 +58,7 @@ pub async fn handle_update_project(
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
             // println!("Project has been deleted");
-            spinner.stop_with_message("Project has been updated.");
+            spinner.stop_with_message("Project updated.");
         }
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
