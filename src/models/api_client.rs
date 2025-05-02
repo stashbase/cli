@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use reqwest::{header::HeaderValue, StatusCode};
 use serde::Deserialize;
 
-use crate::utils::validation::SECRET_VALUE_MAX_LENGTH;
+use crate::utils::{output::write_indented, validation::SECRET_VALUE_MAX_LENGTH};
 
 #[derive(Debug)]
 pub struct RequestArgs {
@@ -755,15 +755,18 @@ impl fmt::Display for OutputError {
         let message = self.get_message();
         let hint = self.get_hint();
 
-        write!(f, "- message: {}", message)?;
+        // write!(f, "- message: {}", message)?;
+        write_indented(f, 2, &format!("Message: {}", message))?;
 
         if let Some(hint) = hint {
-            write!(f, "\n- hint: {}", hint)?;
+            // write!(f, "\n- hint: {}", hint)?;
+            write_indented(f, 2, &format!("Hint: {}", hint))?;
         }
 
         if let OutputError::Secrets(e) = self {
             if let Some(secrets) = e.secrets.as_ref() {
-                write!(f, "\n- secrets: {}", secrets.join(", "))?;
+                // write!(f, "\n- secrets: {}", secrets.join(", "))?;
+                write_indented(f, 2, &format!("Secrets: {}", secrets.join(", ")))?;
             }
         }
 
