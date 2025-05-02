@@ -37,9 +37,9 @@ pub async fn handle_set_env_lock(
     match res {
         RequestApiOptionResponse::Ok(_) => {
             if lock == true {
-                spinner.stop_with_message("🔒 Enviroment locked!");
+                spinner.stop_with_message("Environment locked.");
             } else {
-                spinner.stop_with_message("🔓 Enviroment unlocked!");
+                spinner.stop_with_message("Environment unlocked.");
             }
         }
         RequestApiOptionResponse::Err(e) => {
