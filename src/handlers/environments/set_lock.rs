@@ -29,7 +29,7 @@ pub async fn handle_set_env_lock(
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(format!("Error sending request: {}", err));
+        bail!(err);
     }
 
     let res = res.unwrap();

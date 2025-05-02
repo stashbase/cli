@@ -24,12 +24,12 @@ pub async fn handle_delete_environment(
     }
     // ok
 
-    eprintln!("{}", "Environment with all secrets will be deleted".red());
+    eprintln!("{}", "Environment with all secrets will be deleted.".red());
 
-    let i = interaction::input(&format!("Type '{}' to confirm", environment));
+    let i = interaction::input(&format!("Type '{}' to confirm.", environment));
 
     if i != environment {
-        println!("Input does not match, action aborted");
+        println!("Input does not match, action aborted.");
         return Ok(());
     }
 

@@ -81,7 +81,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                     debug!("{:#?}", &data);
 
                     if data.is_empty() {
-                        spinner.stop_with_message("No secrets to compare");
+                        spinner.stop_with_message("No secrets to compare.");
                     } else {
                         spinner.stop_and_persist("", "");
 
@@ -98,7 +98,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                 }
                 Err(_) => {
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }
