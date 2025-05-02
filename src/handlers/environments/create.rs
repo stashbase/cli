@@ -153,7 +153,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
                 match res_data {
                     Ok(data) => {
-                        spinner.stop_with_message("🔥 Environment created!");
+                        spinner.stop_with_message("Environment created.");
                         eprint!("Id: ");
                         print!("{}\n", data.id);
 
