@@ -14,7 +14,7 @@ pub fn confirm_text(confirm_text: &str) -> String {
             if input == confirm_text {
                 Ok(())
             } else {
-                Err("Input not contain match")
+                Err("Input does not match.")
             }
         })
         .interact()
