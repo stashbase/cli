@@ -65,20 +65,20 @@ pub async fn handle_create_project(
                         print!("{}\n", data.id);
                     }
                     Err(e) => {
+                        spinner.stop_and_persist("", "");
                         error!("{:#?}", e);
-                        spinner.stop_with_message(&format!("{}", "Something went wrong."));
+                        bail!("{}", "Something went wrong.");
                     }
                 }
             }
             None => {
-                spinner.stop_with_message(&format!("{}", "Something went wrong."));
+                spinner.stop_and_persist("", "");
+                bail!("{}", "Something went wrong.");
             }
         },
         RequestApiOptionResponse::Err(e) => {
-            // spinner.stop_and_persist("", "");
-            // eprint!("{}", e);
-            // error!("{:#?}", &e);
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

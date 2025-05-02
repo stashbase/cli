@@ -40,12 +40,14 @@ pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
                 }
                 Err(e) => {
                     error!("{:#?}", e);
+                    spinner.stop_and_persist("", "");
                     bail!("Something went wrong.");
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

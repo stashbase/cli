@@ -128,12 +128,15 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                     }
                 }
                 Err(e) => {
+                    spinner.stop_and_persist("", "");
                     debug!("Error: {:#?}", &e);
+                    bail!("{}", e);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

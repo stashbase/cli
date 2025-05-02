@@ -47,8 +47,8 @@ pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> 
             spinner.stop_with_message("Project deleted.");
         }
         DeleteRequestApiResponse::Err(e) => {
-            // eprintln!("{}", e);
-            spinner.stop_with_message(&format!("\n{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

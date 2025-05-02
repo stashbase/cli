@@ -211,12 +211,14 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                         }
                     }
                     Err(err) => {
-                        spinner.stop_with_message(&format!("{}", err));
+                        spinner.stop_and_persist("", "");
+                        bail!("{}", err);
                     }
                 }
             }
             None => {
-                spinner.stop_with_message(&format!("{}", "Something went wrong."));
+                spinner.stop_and_persist("", "");
+                bail!("{}", "Something went wrong.");
             }
         },
         RequestApiOptionResponse::Err(err) => {

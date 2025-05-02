@@ -92,7 +92,8 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
             }
         }
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

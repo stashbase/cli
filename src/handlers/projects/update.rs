@@ -61,8 +61,8 @@ pub async fn handle_update_project(
             spinner.stop_with_message("Project updated.");
         }
         RequestApiOptionResponse::Err(e) => {
-            // eprintln!("{}", e);
-            spinner.stop_with_message(&format!("\n{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

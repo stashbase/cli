@@ -281,7 +281,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             )
                         };
 
-                        spinner.stop_with_message(&msg);
+                        spinner.stop_and_persist("", "");
+                        eprintln!("{}", msg);
                         return Ok(());
                     }
 
@@ -295,7 +296,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                         msg.insert_str(0, "\n");
 
-                        spinner.stop_with_message(&msg);
+                        spinner.stop_and_persist("", "");
+                        eprintln!("{}", msg);
 
                         let confirmation =
                             interaction::confirm_opt("Do you still want to proceed?");
