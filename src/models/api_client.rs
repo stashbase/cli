@@ -382,8 +382,8 @@ pub enum OutputError {
 impl OutputError {
     pub fn cannot_connect() -> OutputError {
         OutputError::Generic(GenericOutputError {
-            message: "could not connect to the API".to_string(),
-            hint: Some("please try again later".to_string()),
+            message: "Could not connect to the API.".to_string(),
+            hint: Some("Please try again later.".to_string()),
         })
     }
 
@@ -407,12 +407,12 @@ impl From<ApiError> for OutputError {
         match &api_error.code {
             ApiErrorEntity::Generic(e) => match e {
                 GenericError::InternalServerError => OutputError::Generic(GenericOutputError {
-                    message: format!("internal server error"),
-                    hint: Some(format!("please try again later")),
+                    message: format!("Internal server error."),
+                    hint: Some(format!("Please try again later.")),
                 }),
                 GenericError::Unauthorized => OutputError::Generic(GenericOutputError {
-                    message: format!("you are not authorized"),
-                    hint: Some(format!("provide a valid api key")),
+                    message: format!("You are not authorized."),
+                    hint: Some(format!("Provide a valid api key.")),
                 }),
                 GenericError::ExpiredApiKey => {
                     let expired_at = if let Some(d) = api_error.details {
@@ -426,13 +426,13 @@ impl From<ApiError> for OutputError {
                     };
 
                     let message = match expired_at {
-                        Some(e) => format!("current api key expired at {}", e),
-                        None => format!("current api key is expired"),
+                        Some(e) => format!("Current api key expired at {}.", e),
+                        None => format!("Current api key is expired."),
                     };
 
                     OutputError::Generic(GenericOutputError {
                         message,
-                        hint: Some(format!("provide new api key and try again")),
+                        hint: Some(format!("Provide a new api key and try again.")),
                     })
                 }
                 GenericError::UnsupportedApiKey => {
@@ -440,7 +440,7 @@ impl From<ApiError> for OutputError {
                         let details = serde_json::from_value::<UnsupportedApiKeyErrorDetails>(d);
                         match details {
                             Ok(details) => Some(format!(
-                                "supported api key types for this action: {}",
+                                "Supported api key types for this action: {}.",
                                 details.supported_api_key_types.join(", ")
                             )),
                             Err(_) => None,
@@ -450,14 +450,14 @@ impl From<ApiError> for OutputError {
                     };
 
                     OutputError::Generic(GenericOutputError {
-                        message: format!("current api key is not supported"),
+                        message: format!("Current api key is not supported."),
                         hint,
                     })
                 }
                 GenericError::IpAddressNotAllowed => OutputError::Generic(GenericOutputError {
-                    message: format!("IP address not allowed"),
+                    message: format!("IP address not allowed."),
                     hint: Some(format!(
-                        "access denied, the IP of the request is not allowed to access the API"
+                        "Access denied, the IP of the request is not allowed to access the API."
                     )),
                 }),
                 GenericError::MissingPermission => {
@@ -467,17 +467,17 @@ impl From<ApiError> for OutputError {
                             Ok(details) => {
                                 if let Some(permissions) = details.required_permissions {
                                     Some(format!(
-                                        "required api key permissions to perform this action: {}",
+                                        "Required api key permissions to perform this action: {}.",
                                         permissions.join(", ")
                                     ))
                                 } else if let Some(r) = details.user_workspace_role {
                                     Some(format!(
-                                        "allowed user workspace role to perform this action: {}, current role: {}",
+                                        "Allowed user workspace role to perform this action: {}, current role: {}.",
                                         r.allowed.join(", "), r.current
                                     ))
                                 } else if let Some(r) = details.user_environment_role {
                                     Some(format!(
-                                        "allowed environment role to perform this action: {}, current role: {}",
+                                        "Allowed environment role to perform this action: {}, current role: {}.",
                                         r.allowed.join(", "), r.current
                                     ))
                                 } else {
@@ -491,9 +491,9 @@ impl From<ApiError> for OutputError {
                     };
 
                     OutputError::Generic(GenericOutputError {
-                        message: format!("missing permission"),
+                        message: format!("Missing permission."),
                         hint: hint.or(Some(format!(
-                            "current api key does not have permission to perform this action"
+                            "Current api key does not have permission to perform this action."
                         ))),
                     })
                 }
@@ -515,7 +515,7 @@ impl From<ApiError> for OutputError {
                     };
 
                     OutputError::Generic(GenericOutputError {
-                        message: format!("too many requests"),
+                        message: format!("Too many requests."),
                         hint,
                     })
                 }
@@ -523,25 +523,25 @@ impl From<ApiError> for OutputError {
 
             ApiErrorEntity::Project(e) => match e {
                 ProjectError::InvalidName => OutputError::Generic(GenericOutputError {
-                    message: format!("invalid project name"),
+                    message: format!("Invalid project name."),
                     hint: None,
                 }),
 
                 ProjectError::ProjectNotFound => OutputError::Generic(GenericOutputError {
-                    message: format!("project not found"),
+                    message: format!("Project not found."),
                     hint: None,
                 }),
 
                 ProjectError::ProjectLimitReached => OutputError::Generic(GenericOutputError {
-                    message: format!("project limit reached"),
+                    message: format!("Project limit reached."),
                     hint: Some(format!(
-                        "workspace reached the maximum number of projects allowed"
+                        "Workspace reached the maximum number of projects allowed."
                     )),
                 }),
 
                 ProjectError::ProjectAlreadyExists => OutputError::Generic(GenericOutputError {
-                    message: format!("project already exists"),
-                    hint: Some(format!("use a different name")),
+                    message: format!("Project already exists."),
+                    hint: Some(format!("Use a different name.")),
                 }),
 
                 ProjectError::MissingPermission => {
@@ -552,21 +552,21 @@ impl From<ApiError> for OutputError {
                             Ok(details) => {
                                 if let Some(permissions) = details.required_permissions {
                                     let msg = format!(
-                                        "required api key permissions to perform this action: {}",
+                                        "Required api key permissions to perform this action: {}.",
                                         permissions.join(", ")
                                     );
                                     Some(msg)
                                 } else if let Some(r) = details.user_workspace_role {
                                     let msg = format!(
-                                            "allowed user workspace role to perform this action: {}, current role: {}",
-                                            r.allowed.join(", "), r.current
-                                        );
+                                        "Allowed user workspace role to perform this action: {}, current role: {}.",
+                                        r.allowed.join(", "), r.current
+                                    );
                                     Some(msg)
                                 } else if let Some(r) = details.user_environment_role {
                                     let msg = format!(
-                                            "allowed environment role to perform this action: {}, current role: {}",
-                                            r.allowed.join(", "), r.current
-                                        );
+                                        "Allowed environment role to perform this action: {}, current role: {}.",
+                                        r.allowed.join(", "), r.current
+                                    );
                                     Some(msg)
                                 } else {
                                     None
@@ -579,117 +579,117 @@ impl From<ApiError> for OutputError {
                     };
 
                     OutputError::Generic(GenericOutputError {
-                        message: format!("missing permission"),
+                        message: format!("Missing permission."),
                         hint: match hint {
                             Some(h) => Some(h),
                             None => {
-                                Some(format!("you do not have permission to perform this action"))
+                                Some(format!("You do not have permission to perform this action."))
                             }
                         },
                     })
                 }
                 ProjectError::MissingFullProjectAccess => OutputError::Generic(GenericOutputError {
-                    message: format!("missing full project access"),
-                    hint: Some(format!("full project access is required to perform this action (project creator or workspace admin/owner)")),
+                    message: format!("Missing full project access."),
+                    hint: Some(format!("Full project access is required to perform this action (project creator or workspace admin/owner).")),
                 }),
 
                 ProjectError::NewNameEqualsOriginal => OutputError::Generic(GenericOutputError {
-                    message: format!("new project name equals original"),
-                    hint: Some(format!("use a different new name")),
+                    message: format!("New project name equals original."),
+                    hint: Some(format!("Use a different new name.")),
                 }),
             },
             ApiErrorEntity::Environment(e) => match e {
                 EnvironmentError::EnvironmentLimitReached => {
                     OutputError::Generic(GenericOutputError {
-                        message: format!("environment limit reached"),
+                        message: format!("Environment limit reached."),
                         hint: Some(format!(
-                            "project reached the maximum number of environments allowed"
+                            "Project reached the maximum number of environments allowed."
                         )),
                     })
                 }
                 EnvironmentError::ProjectNotFound => OutputError::Generic(GenericOutputError {
-                    message: format!("project not found"),
+                    message: format!("Project not found."),
                     hint: None,
                 }),
                 EnvironmentError::EnvironmentNotFound => OutputError::Generic(GenericOutputError {
-                    message: format!("environment not found"),
+                    message: format!("Environment not found."),
                     hint: None,
                 }),
                 EnvironmentError::CompareToEnvironmentNotFound => {
                     OutputError::Generic(GenericOutputError {
-                        message: format!("environment not found (second environment)"),
+                        message: format!("Environment not found (second environment)."),
                         hint: None,
                     })
                 }
                 EnvironmentError::EnvironmentAlreadyExists => {
                     OutputError::Generic(GenericOutputError {
-                        message: format!("environment already exists"),
-                        hint: Some(format!("use a different name")),
+                        message: format!("Environment already exists."),
+                        hint: Some(format!("Use a different name.")),
                     })
                 }
                 EnvironmentError::EnvironmentAlreadyLocked => {
                     OutputError::Generic(GenericOutputError {
-                        message: format!("environment already locked"),
+                        message: format!("Environment already locked."),
                         hint: None,
                     })
                 }
                 EnvironmentError::EnvironmentAlreadyUnlocked => {
                     OutputError::Generic(GenericOutputError {
-                        message: format!("environment already unlocked"),
+                        message: format!("Environment already unlocked."),
                         hint: None,
                     })
                 }
                 EnvironmentError::CurrentEnvironmentType => {
                     OutputError::Generic(GenericOutputError {
-                        message: format!("current environment type"),
-                        hint: Some(format!("cannot update to same type")),
+                        message: format!("Current environment type."),
+                        hint: Some(format!("Cannot update to same type.")),
                     })
                 }
                 EnvironmentError::EnvironmentLocked => OutputError::Generic(GenericOutputError {
-                    message: format!("this environment is locked"),
-                    hint: Some(format!("unlock environment to perform this action")),
+                    message: format!("This environment is locked."),
+                    hint: Some(format!("Unlock environment to perform this action.")),
                 }),
                 EnvironmentError::SelfComparison => OutputError::Generic(GenericOutputError {
-                    message: "environment comapring with itself".to_string(),
-                    hint: Some(format!("use different environment for comparison")),
+                    message: "Environment comparing with itself".to_string(),
+                    hint: Some(format!("Use different environment for comparison.")),
                 }),
                 EnvironmentError::NewNameEqualsOriginal => {
                     OutputError::Generic(GenericOutputError {
-                        message: format!("new environment name equals original"),
-                        hint: Some(format!("use a different new name")),
+                        message: format!("New environment name equals original."),
+                        hint: Some(format!("Use a different new name.")),
                     })
                 }
             },
 
             ApiErrorEntity::Webhook(e) => match e {
                 WebhookError::WebhookNotFound => OutputError::Generic(GenericOutputError {
-                    message: format!("webhook not found"),
+                    message: format!("Webhook not found."),
                     hint: None,
                 }),
                 WebhookError::WebhookAlreadyEnabled => OutputError::Generic(GenericOutputError {
-                    message: format!("webhook already enabled"),
+                    message: format!("Webhook already enabled."),
                     hint: None,
                 }),
                 WebhookError::WebhookAlreadyDisabled => OutputError::Generic(GenericOutputError {
-                    message: format!("webhook already disabled"),
+                    message: format!("Webhook already disabled."),
                     hint: None,
                 }),
             },
             ApiErrorEntity::Secret(e) => match e {
                 SecretsError::SecretNotFound => OutputError::Secrets(SecretsOutputError {
-                    message: format!("secret not found"),
+                    message: format!("Secret not found."),
                     hint: None,
                     secrets: None,
                 }),
                 SecretsError::DuplicateNewNames => OutputError::Secrets(SecretsOutputError {
-                    message: format!("duplicate new names"),
-                    hint: Some(format!("cannot change multiple secrets to the same name")),
+                    message: format!("Duplicate new names."),
+                    hint: Some(format!("Cannot change multiple secrets to the same name.")),
                     secrets: None,
                 }),
                 SecretsError::SecretsAlreadyExist => {
                     let secrets = api_error.get_secrets_names_details();
                     OutputError::Secrets(SecretsOutputError {
-                        message: format!("cannot rename secrets to already existing secrets"),
+                        message: format!("Cannot rename secrets to already existing secrets."),
                         hint: None,
                         secrets,
                     })
@@ -697,7 +697,7 @@ impl From<ApiError> for OutputError {
                 SecretsError::SelfReferencingSecrets => {
                     let secrets = api_error.get_secrets_names_details();
                     OutputError::Secrets(SecretsOutputError {
-                        message: format!("found self-referencing secrets"),
+                        message: format!("Found self-referencing secrets."),
                         hint: None,
                         secrets,
                     })
@@ -706,24 +706,24 @@ impl From<ApiError> for OutputError {
                     let secrets = api_error.get_secrets_names_details();
                     match secrets {
                         Some(s) if s.len() == 1 => OutputError::Secrets(SecretsOutputError {
-                            message: format!("updating this secret would result in self-reference, which is not allowed"),
+                            message: format!("Updating this secret would result in self-reference, which is not allowed."),
                             hint: None,
                             secrets: None,
                         }),
                         Some(s) => OutputError::Secrets(SecretsOutputError {
-                            message: format!("updating secrets would result in self-reference, which is not allowed"),
+                            message: format!("Updating secrets would result in self-reference, which is not allowed."),
                             hint: None,
                             secrets: Some(s),
                         }),
                         None => OutputError::Secrets(SecretsOutputError {
-                            message: format!("updating secret would result in self-reference, which is not allowed"),
+                            message: format!("Updating secret would result in self-reference, which is not allowed."),
                             hint: None,
                             secrets: None,
                         }),
                     }
                 }
                 SecretsError::SecretCommentTooLong => OutputError::Secrets(SecretsOutputError {
-                    message: format!("secret comment is too long"),
+                    message: format!("Secret comment is too long."),
                     hint: api_error.message,
                     secrets: None,
                 }),
@@ -731,7 +731,7 @@ impl From<ApiError> for OutputError {
                     let secrets = api_error.get_secrets_names_details();
                     OutputError::Secrets(SecretsOutputError {
                         message: format!(
-                            "secret values are too long (max {} characters)",
+                            "Secret values are too long (max {} characters).",
                             SECRET_VALUE_MAX_LENGTH
                         ),
                         hint: None,
