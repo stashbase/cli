@@ -22,12 +22,12 @@ pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
         let msg = format!(
             "{} {}",
             "✔".green(),
-            "Default secrets output format has been set"
+            "Default secrets output format has been set."
         );
         eprintln!("{}", msg);
     }
 }
 
 pub fn print_default_secrets_output_format(output_format: &SecretsOutputFormat) {
-    println!("Default output format (secrets): {}", output_format);
+    println!("Default output format (secrets): {}.", output_format);
 }
