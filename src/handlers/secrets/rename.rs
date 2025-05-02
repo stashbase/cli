@@ -37,7 +37,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         let msg = format!(
             "{} {}",
             "Input error:".red(),
-            "no secrets to rename provided"
+            "No secrets to rename provided."
         );
 
         bail!("{}", msg);
@@ -166,12 +166,12 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
                     }
                     Err(e) => {
                         debug!("Error: {}", e);
-                        bail!("Something went wrong");
+                        bail!("Something went wrong.");
                     }
                 }
             }
             None => {
-                bail!("Something went wrong");
+                bail!("Something went wrong.");
             }
         },
         RequestApiOptionResponse::Err(e) => {

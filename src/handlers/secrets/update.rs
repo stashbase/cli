@@ -37,7 +37,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
         bail!(
-            "{} No updates provided. Please specify at least one of: --values, --names, or --comments",
+            "{} No updates provided. Please specify at least one of: --values, --names, or --comments.",
             "Input error:".red()
         );
     }
@@ -186,10 +186,10 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                             println!("{}", msg);
                         } else {
                             if updated_count == 0 && not_found_secrets.len() == 0 {
-                                spinner.stop_and_persist("No secrets updated (no changes)", "");
+                                spinner.stop_and_persist("No secrets updated (no changes).", "");
                             } else {
                                 spinner.stop_and_persist("", "");
-                                let msg = format!("No secrets updated (no changes)");
+                                let msg = format!("No secrets updated (no changes).");
                                 println!("{}", msg);
                             }
                         }
@@ -216,7 +216,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                 }
             }
             None => {
-                spinner.stop_with_message(&format!("{}", "Something went wrong"));
+                spinner.stop_with_message(&format!("{}", "Something went wrong."));
             }
         },
         RequestApiOptionResponse::Err(err) => {
