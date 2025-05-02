@@ -797,7 +797,7 @@ impl fmt::Display for OutputError {
         //     "{}",
         //     "Error".if_supports_color(Stream::Stderr, |text| text.red())
         // )?;
-        writeln!(f, "{}", "Error".red().bold())?;
+        writeln!(f, "{}", "API Error".red().bold())?;
 
         let message = self.get_message();
         let hint = self.get_hint();
