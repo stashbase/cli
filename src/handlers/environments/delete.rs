@@ -48,7 +48,7 @@ pub async fn handle_delete_environment(
 
     match res {
         DeleteRequestApiResponse::Ok(_) => {
-            spinner.stop_with_message("🗑️ Environment has been deleted!");
+            spinner.stop_with_message("Environment has been deleted.");
         }
         DeleteRequestApiResponse::Err(e) => {
             // error!("{:#?}", &e);
