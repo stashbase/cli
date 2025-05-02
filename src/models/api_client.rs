@@ -755,8 +755,7 @@ impl fmt::Display for OutputError {
         let message = self.get_message();
         let hint = self.get_hint();
 
-        // write!(f, "- message: {}", message)?;
-        write_indented(f, 2, &format!("Message: {}", message))?;
+        write!(f, "  Message: {}", message)?;
 
         if let Some(hint) = hint {
             write!(f, "\n  Hint: {}", hint)?;
