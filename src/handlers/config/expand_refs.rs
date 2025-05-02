@@ -8,7 +8,7 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
         eprintln!(
             "{} {}",
             "Error:".red(),
-            "No 'enabled' boolean value provided"
+            "No 'enabled' boolean value provided."
         );
         return;
     }
@@ -27,7 +27,7 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
         let msg = format!(
             "{} {}",
             "✔".green(),
-            "Default expand-refs config has been set"
+            "Default expand-refs config has been set."
         );
         eprintln!("{}", msg);
     }
@@ -36,9 +36,9 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
 pub fn print_expand_refs_config(enabled: &Option<bool>) {
     if let Some(enabled) = enabled {
         if *enabled {
-            println!("Expand refs: true");
+            println!("Expand refs: true.");
         } else {
-            println!("Expand refs: false");
+            println!("Expand refs: false.");
         }
     }
 }
