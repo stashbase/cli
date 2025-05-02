@@ -13,7 +13,7 @@ pub fn create_config(path: &Path) -> Result<String> {
     let new_config = Config::new();
 
     let toml_string = toml::to_string(&new_config)
-        .with_context(|| format!("Could not create toml config file"))?;
+        .with_context(|| format!("Could not create toml config file."))?;
     debug!("new toml string: {}", &toml_string);
 
     fs::write(path, &toml_string)?;
@@ -26,7 +26,7 @@ pub fn get_config_path() -> Result<PathBuf> {
 
     match dir_path {
         Some(dirs) => Ok(dirs.config_dir().to_path_buf()),
-        None => bail!("Could not find config directory"),
+        None => bail!("Could not find config directory."),
     }
 }
 
@@ -39,7 +39,7 @@ pub fn get_config() -> Result<Config> {
             true => {
                 let content = fs::read_to_string(config_dir)?;
                 let data =
-                    toml::from_str::<Config>(&content).context("Could not parse config file")?;
+                    toml::from_str::<Config>(&content).context("Could not parse config file.")?;
 
                 Ok(data)
             }
@@ -51,7 +51,7 @@ pub fn get_config() -> Result<Config> {
             }
         }
     } else {
-        bail!("Could not find config directory")
+        bail!("Could not find config directory.")
     }
 }
 
