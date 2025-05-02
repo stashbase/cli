@@ -43,7 +43,7 @@ pub async fn handle_create_project(
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(format!("Error sending request: {}", err));
+        bail!(err);
     }
 
     let project_res = project_res.unwrap();
@@ -66,12 +66,12 @@ pub async fn handle_create_project(
                     }
                     Err(e) => {
                         error!("{:#?}", e);
-                        spinner.stop_with_message(&format!("{}", "Something went wrong"));
+                        spinner.stop_with_message(&format!("{}", "Something went wrong."));
                     }
                 }
             }
             None => {
-                spinner.stop_with_message(&format!("{}", "Something went wrong"));
+                spinner.stop_with_message(&format!("{}", "Something went wrong."));
             }
         },
         RequestApiOptionResponse::Err(e) => {

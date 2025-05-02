@@ -77,7 +77,7 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
                     }
                 }
                 Err(_) => {
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }
