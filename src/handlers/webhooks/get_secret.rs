@@ -38,12 +38,14 @@ pub async fn handle_get_webhook_secret(args: GetWebhookSecretArgs) -> Result<()>
                 }
                 Err(e) => {
                     error!("Err: {}", e);
-                    spinner.stop_with_message("Something went wrong.");
+                    spinner.stop_and_persist("", "");
+                    bail!("{}", "Something went wrong.");
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 

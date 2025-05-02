@@ -394,7 +394,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                         msg.insert_str(0, "\n");
                     }
 
-                    spinner.stop_with_message(&msg);
+                    spinner.stop_and_persist("", "");
+                    eprintln!("{}", msg);
 
                     let confirmation = interaction::confirm_opt("Do you still want to proceed?");
 
@@ -446,11 +447,14 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 }
             } else {
                 let err = secrets.unwrap_err();
-                spinner.stop_with_message(&format!("{}", err));
+                // spinner.stop_with_message(&format!("{}", err));
+                spinner.stop_and_persist("", "");
+                bail!("{}", err);
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
     //

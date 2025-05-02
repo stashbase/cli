@@ -54,13 +54,15 @@ pub async fn handle_open_environment_webhook(
                     }
                 }
                 Err(e) => {
+                    spinner.stop_and_persist("", "");
                     error!("{:#?}", e);
                     bail!("Something went wrong");
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_with_message(&format!("{}", e));
+            spinner.stop_and_persist("", "");
+            bail!("{}", e);
         }
     }
 
