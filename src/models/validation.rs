@@ -710,10 +710,10 @@ impl fmt::Display for RunInputValidationError {
         }
 
         if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
-            write!(f, "{}", format!("- hint: {}", hint),)?;
+            writeln!(f, "{}", format!("  Message: {}", msg),)?;
+            write!(f, "{}", format!("  Hint: {}", hint),)?;
         } else {
-            write!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("  Message: {}", msg),)?;
         }
 
         Ok(())
@@ -756,10 +756,10 @@ impl fmt::Display for YamlEnvConfigError {
         }
 
         if let Some(hint) = hint {
-            writeln!(f, "{}", format!("- message: {}", msg),)?;
-            write!(f, "{}", format!("- hint: {}", hint),)?;
+            writeln!(f, "{}", format!("  Message: {}", msg),)?;
+            write!(f, "{}", format!("  Hint: {}", hint),)?;
         } else {
-            write!(f, "{}", format!("- message: {}", msg),)?;
+            write!(f, "{}", format!("  Message: {}", msg),)?;
         }
 
         Ok(())
