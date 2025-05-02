@@ -759,14 +759,12 @@ impl fmt::Display for OutputError {
         write_indented(f, 2, &format!("Message: {}", message))?;
 
         if let Some(hint) = hint {
-            // write!(f, "\n- hint: {}", hint)?;
-            write_indented(f, 2, &format!("Hint: {}", hint))?;
+            write!(f, "\n  Hint: {}", hint)?;
         }
 
         if let OutputError::Secrets(e) = self {
             if let Some(secrets) = e.secrets.as_ref() {
-                // write!(f, "\n- secrets: {}", secrets.join(", "))?;
-                write_indented(f, 2, &format!("Secrets: {}", secrets.join(", ")))?;
+                write!(f, "\n  Secrets: {}", secrets.join(", "))?;
             }
         }
 
