@@ -58,7 +58,7 @@ pub async fn handle_create_project(
                         // let msg = format!("🔥 Project with id {} created!", data.id);
                         // spinner.stop_with_message(&msg);
 
-                        let msg = format!("🔥 Project created!");
+                        let msg = format!("Project created.");
                         spinner.stop_with_message(&msg);
 
                         eprint!("Id: ");
