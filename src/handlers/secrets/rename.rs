@@ -157,11 +157,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
                                 println!("{}", msg);
                             }
                         } else {
-                            spinner.stop_with_message(&format!(
-                                "{} {}",
-                                "✓".green(),
-                                "Selected secrets have been renamed."
-                            ));
+                            spinner.stop_with_message("Selected secrets renamed.");
                         }
                     }
                     Err(e) => {
