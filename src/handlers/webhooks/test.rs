@@ -26,7 +26,7 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
         webhook_id,
     } = args;
 
-    let msg = "Test webhook event will be sent the webhook URL";
+    let msg = "Test webhook event will be sent the webhook URL.";
     eprintln!("{}", msg.yellow());
 
     // eprintln!();
@@ -71,11 +71,11 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
                     }
                     Err(e) => {
                         debug!("{}", e);
-                        bail!("Something went wrong");
+                        bail!("Something went wrong.");
                     }
                 }
             } else {
-                bail!("Something went wrong");
+                bail!("Something went wrong.");
             }
             //
         }

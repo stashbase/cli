@@ -38,7 +38,7 @@ pub async fn handle_get_webhook_secret(args: GetWebhookSecretArgs) -> Result<()>
                 }
                 Err(e) => {
                     error!("Err: {}", e);
-                    spinner.stop_with_message("Something went wrong");
+                    spinner.stop_with_message("Something went wrong.");
                 }
             }
         }

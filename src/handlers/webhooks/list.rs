@@ -58,7 +58,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
             match webhooks {
                 Ok(webhooks) => {
                     if webhooks.is_empty() {
-                        spinner.stop_with_message("No webhooks found");
+                        spinner.stop_with_message("No webhooks found.");
                     } else {
                         spinner.stop_and_persist("", "");
 
@@ -88,7 +88,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                 Err(e) => {
                     spinner.stop_and_persist("", "");
                     debug!("Err: {}", e);
-                    bail!("Something went wrong")
+                    bail!("Something went wrong.")
                 }
             }
         }
