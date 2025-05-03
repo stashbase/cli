@@ -214,7 +214,7 @@ pub struct UpdateSecretsResponse {
 }
 
 // response
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteSecretsResponse {
     pub not_found_secrets: Vec<String>,
@@ -222,14 +222,14 @@ pub struct DeleteSecretsResponse {
 }
 
 // response
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenameSecretsResponse {
     pub not_found_secrets: Vec<String>,
     pub updated_count: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteAllSecretsResponse {
     pub deleted_count: usize,

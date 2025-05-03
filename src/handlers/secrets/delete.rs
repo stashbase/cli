@@ -10,6 +10,7 @@ use crate::{
     },
     utils::{
         interaction,
+        output::get_colored_json,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
@@ -21,6 +22,7 @@ pub struct HandleDeleteSecretsArgs {
     pub environment: String,
     pub names: Vec<String>,
     pub delete_all: bool,
+    pub json_format: bool,
 }
 
 // ✓
@@ -31,6 +33,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
         environment,
         delete_all,
         names,
+        json_format,
     } = args;
 
     if names.is_empty() && !delete_all {
@@ -86,21 +89,32 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             let json_data = serde_json::from_str::<DeleteAllSecretsResponse>(&text);
 
                             match json_data {
-                                Ok(d) => match d.deleted_count {
-                                    0 => {
-                                        spinner.stop_with_message("No secrets to delete.");
-                                    }
-                                    _ => {
-                                        let msg =
-                                            format!("All secrets ({}) deleted.", d.deleted_count);
+                                Ok(d) => {
+                                    if json_format {
+                                        let json_str = get_colored_json(&d).unwrap();
 
-                                        spinner.stop_with_message(&format!(
-                                            "{} {}",
-                                            "✓".green(),
-                                            msg
-                                        ));
+                                        spinner.stop_and_persist("", "");
+                                        println!("{}", json_str);
+                                    } else {
+                                        match d.deleted_count {
+                                            0 => {
+                                                spinner.stop_with_message("No secrets to delete.");
+                                            }
+                                            _ => {
+                                                let msg = format!(
+                                                    "All secrets ({}) deleted.",
+                                                    d.deleted_count
+                                                );
+
+                                                spinner.stop_with_message(&format!(
+                                                    "{} {}",
+                                                    "✓".green(),
+                                                    msg
+                                                ));
+                                            }
+                                        }
                                     }
-                                },
+                                }
                                 Err(e) => {
                                     error!("{}", e);
                                     spinner.stop_and_persist("", "");
@@ -141,6 +155,15 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
 
                             match json_data {
                                 Ok(data) => {
+                                    if json_format {
+                                        let json_str = get_colored_json(&data).unwrap();
+
+                                        spinner.stop_and_persist("", "");
+                                        println!("{}", json_str);
+
+                                        return Ok(());
+                                    }
+
                                     let not_found_secrets = data.not_found_secrets;
                                     let not_found_len = not_found_secrets.len();
 

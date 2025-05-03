@@ -116,6 +116,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 names: args.names,
                 delete_all: args.delete_all,
+                json_format: raw_output,
             };
 
             handle_delete_secrets(args).await?;
@@ -143,6 +144,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 values: args.secrets,
                 comments: args.comments,
+                json_format: raw_output,
             };
 
             handle_create_secrets(args).await?;
@@ -155,6 +157,7 @@ pub async fn handle_secrets_commands(
                 new_names: args.new_names,
                 values: args.values,
                 comment: args.comments,
+                json_format: raw_output,
             };
 
             handle_update_secrets(args).await?;
@@ -166,6 +169,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 format: args.format,
                 file_path: args.file_path,
+                json_format: raw_output,
             };
 
             handle_upload_secrets(args).await?;

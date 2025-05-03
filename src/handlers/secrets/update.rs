@@ -13,7 +13,7 @@ use crate::{
             ValidateUpdateSecrets,
         },
     },
-    utils::{separator, spinner::request_spinner},
+    utils::{output::get_colored_json, separator, spinner::request_spinner},
 };
 
 pub struct HandleUpdateSecretsArgs {
@@ -23,6 +23,7 @@ pub struct HandleUpdateSecretsArgs {
     pub new_names: Vec<String>,
     pub values: Vec<String>,
     pub comment: Vec<String>,
+    pub json_format: bool,
 }
 
 pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> {
@@ -33,6 +34,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         new_names,
         comment,
         values,
+        json_format,
     } = args;
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
@@ -160,6 +162,15 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         let updated_count = data.updated_count;
                         let not_found_secrets = data.not_found_secrets;
 
