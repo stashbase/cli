@@ -64,11 +64,14 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::FileArgWithInline,
         );
 
+        eprintln!("");
         bail!(err);
     }
 
     if command.is_empty() {
         let err = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
+
+        eprintln!("");
         bail!(err);
     }
 
@@ -83,12 +86,16 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         let err = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::MissingEnvArg,
         );
+
+        eprintln!("");
         bail!(err);
     } else if let Some(_) = environment {
         // missing project error
         let err = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::MissingProjectArg,
         );
+
+        eprintln!("");
         bail!(err);
     } else {
         let config_action_command = ConfigActionCommand::Run;
@@ -172,6 +179,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         if is_from_file {
             // eprintln!();
         }
+
+        eprintln!("");
         bail!(e);
     }
 
@@ -180,10 +189,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
         );
 
-        if is_from_file {
-            eprintln!();
-        }
+        // if is_from_file {
+        //     eprintln!();
+        // }
 
+        eprintln!("");
         bail!(err);
     }
 
@@ -194,10 +204,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
                 let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
 
-                if is_from_file {
-                    eprintln!();
-                }
+                // if is_from_file {
+                //     eprintln!();
+                // }
 
+                eprintln!("");
                 bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
         }
@@ -210,10 +221,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
                 let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
 
-                if is_from_file {
-                    eprintln!();
-                }
+                // if is_from_file {
+                //     eprintln!();
+                // }
 
+                eprintln!("");
                 bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
         }
@@ -229,10 +241,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 }
             }
             Err(e) => {
-                if is_from_file {
-                    eprintln!();
-                }
+                // if is_from_file {
+                //     eprintln!();
+                // }
 
+                eprintln!("");
                 bail!(e);
             }
         }
@@ -250,6 +263,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             let run_error = RunInputValidationError::NoSecretsToFetch;
             let err = InputValidationError::Run(run_error);
 
+            eprintln!("");
             bail!(err);
         }
     }

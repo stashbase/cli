@@ -20,6 +20,7 @@ pub async fn handle_delete_environment(
     let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_valid {
+        eprintln!("");
         bail!(err);
     }
     // ok

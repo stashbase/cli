@@ -76,6 +76,7 @@ pub async fn handle_secrets_commands(
     let validation_res = validate_project_environment_identifier(&project, &environment, false);
 
     if let Err(err) = validation_res {
+        eprintln!();
         bail!(err);
     }
 

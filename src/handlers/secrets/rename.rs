@@ -40,6 +40,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
             "No secrets to rename provided."
         );
 
+        eprintln!("");
         bail!("{}", msg);
     }
 
@@ -47,6 +48,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     debug!("{:#?}", name_value_pairs);
 
     if let Err(err) = name_value_pairs {
+        eprintln!("");
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
@@ -55,6 +57,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     let validation_res = validate_input(&project, &environment, &name_value_pairs);
 
     if let Err(e) = validation_res {
+        eprintln!("");
         bail!("{}", e);
     }
 
@@ -70,6 +73,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
             duplicate_new_names,
         ));
 
+        eprintln!("");
         bail!("{}", err);
     }
 
