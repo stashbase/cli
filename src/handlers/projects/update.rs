@@ -23,6 +23,7 @@ pub async fn handle_update_project(
     name: String,
     new_name: Option<String>,
     new_description: Option<String>,
+    json_format: bool,
 ) -> Result<()> {
     let validation_res = validate_input(&name, &new_name, &new_description);
 
@@ -58,8 +59,12 @@ pub async fn handle_update_project(
 
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
-            // println!("Project has been deleted");
-            spinner.stop_with_message("Project updated.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Project updated.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");

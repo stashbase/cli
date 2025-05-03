@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> {
+pub async fn handle_delete_project(api_key: String, name: String, json_format: bool) -> Result<()> {
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
@@ -44,8 +44,12 @@ pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> 
 
     match project_res {
         DeleteRequestApiResponse::Ok(_) => {
-            // println!("Project has been deleted");
-            spinner.stop_with_message("Project deleted.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Project deleted.");
+            }
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
