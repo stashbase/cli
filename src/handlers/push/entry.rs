@@ -40,6 +40,7 @@ pub struct HandlePushArgs {
     pub set: Vec<String>,
     pub exclude: Vec<String>,
     pub expand_refs: Option<bool>,
+    pub json_format: bool,
 }
 
 pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
@@ -52,6 +53,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         mut set,
         mut format,
         mut target_file,
+        json_format,
     } = args;
 
     let config_action_command = ConfigActionCommand::Push;
@@ -323,7 +325,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Secrets pushed.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Secrets pushed.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
