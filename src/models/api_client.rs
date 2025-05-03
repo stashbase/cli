@@ -471,15 +471,12 @@ impl OutputError {
         struct ErrorData<'a> {
             #[serde(flatten)]
             data: &'a OutputError,
-            #[serde(rename = "type")]
-            error_type: &'static str,
+            // #[serde(rename = "type")]
+            // error_type: &'static str,
         }
 
         let wrapper = ErrorWrapper {
-            error: ErrorData {
-                data: self,
-                error_type: "api",
-            },
+            error: ErrorData { data: self },
         };
         serde_json::to_value(&wrapper)
     }
