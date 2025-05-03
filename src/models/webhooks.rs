@@ -143,7 +143,7 @@ pub struct CreateWebhookPayload {
     pub enabled: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWebhookResponse {
     pub id: String,
@@ -151,7 +151,7 @@ pub struct CreateWebhookResponse {
     pub signing_secret: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotateWebhookSecretResponse {
     pub signing_secret: String,
