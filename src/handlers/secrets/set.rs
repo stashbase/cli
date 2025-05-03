@@ -124,7 +124,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

@@ -94,7 +94,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

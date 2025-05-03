@@ -176,7 +176,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                     }
                     Err(e) => {
                         spinner.stop_and_persist("", "");
-                        bail!("{}", e);
+                        bail!(e);
                     }
                 }
             }
@@ -188,7 +188,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

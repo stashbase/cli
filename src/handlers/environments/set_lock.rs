@@ -45,7 +45,7 @@ pub async fn handle_set_env_lock(
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

@@ -144,7 +144,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         },
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", err);
+            bail!(err);
         }
     }
 

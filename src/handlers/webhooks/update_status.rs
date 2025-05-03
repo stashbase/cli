@@ -66,7 +66,7 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 
