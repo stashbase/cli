@@ -69,8 +69,9 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(args.json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -107,7 +108,9 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(args.json_format)?;
+            bail!(error_output);
         }
     }
 

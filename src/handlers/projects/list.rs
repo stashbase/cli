@@ -83,9 +83,11 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     .await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+        spinner.stop_and_persist("", "");
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
@@ -135,7 +137,9 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

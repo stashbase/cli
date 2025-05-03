@@ -61,7 +61,8 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     spinner.stop_and_persist("", "");
 
     if let Err(err) = res {
-        bail!(err);
+        let error_output = err.format_error_output(format == SecretsOutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -113,7 +114,9 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
             // bail!("{}", e);
             debug!("Error: {}", e);
             eprintln!("");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == SecretsOutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 
