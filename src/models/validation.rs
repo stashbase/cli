@@ -1,7 +1,9 @@
+use colored_json::to_colored_json_auto;
 use core::fmt;
 use owo_colors::OwoColorize;
+use serde::Serialize;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum InputValidationError {
     CmdArgs(CmdArgInputValidationError),
     Projects(ProjectInputValidationError),
@@ -14,7 +16,7 @@ pub enum InputValidationError {
     Webhook(WebhookInputValidationError),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum CmdArgInputValidationError {
     MissingProject,
     DuplicateProject,
@@ -23,7 +25,7 @@ pub enum CmdArgInputValidationError {
     MissingProjectEnvironment,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum ProjectInputValidationError {
     NameTooShort { is_root: bool },
     NameTooLong { is_root: bool },
@@ -45,7 +47,7 @@ pub enum ProjectInputValidationError {
     NewNameEqualsOriginal,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum WebhookInputValidationError {
     // update
     NoUpdateFlags,
@@ -57,7 +59,7 @@ pub enum WebhookInputValidationError {
 }
 
 // TODO: key length (min = 2 ???)
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum SecretsInputValidationError {
     NoNames,
     NamesFormat(Vec<String>),
@@ -66,7 +68,7 @@ pub enum SecretsInputValidationError {
     DuplicateNames(Vec<String>),
     DuplicateNewNames(Vec<String>),
     SelfReferences(Vec<String>),
-    ReadFile(anyhow::Error),
+    ReadFile(String),
     CommentsTooLong(Vec<String>),
     CommentTooLong,
     // names vec
@@ -88,7 +90,7 @@ pub enum SecretsInputValidationError {
 }
 
 // TODO: check if is used as value (env cmd) or as arg (secrets cmd)
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
     NameTooLong { is_root: bool },
@@ -111,14 +113,14 @@ pub enum EnvironmentsInputValidationError {
 }
 
 // geenral for stashbase.yaml file, shared between load, push and pull commands
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum YamlEnvConfigError {
     FileNotFound { custom_path: bool },
     FailedToRead { custom_path: bool, message: String },
     NoEntries,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum LoadEnvironmentInputValidationError {
     FileArgWithInline,
     MissingProjectArg,
@@ -136,13 +138,13 @@ pub enum LoadEnvironmentInputValidationError {
     SetSecretNamesTooLong(Vec<String>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum PushPullInputValidationError {
     NoFileSpecified { is_push: bool },
     // other errors same as from LoadEnvironment
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub enum RunInputValidationError {
     NoCmdProvided,
     NoSecretsToFetch,
@@ -353,7 +355,7 @@ impl fmt::Display for SecretsInputValidationError {
                 let msg = "Error reading file.";
 
                 writeln!(f, "{}", format!("  Message: {}", msg))?;
-                write!(f, "{}", format!("  Details: {}", error.to_string()))?;
+                write!(f, "{}", format!("  Details: {}", error))?;
 
                 return Ok(());
             }
@@ -781,5 +783,44 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Run(inner) => write!(f, "{}", inner),
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
         }
+    }
+}
+
+impl InputValidationError {
+    pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
+        if json_format {
+            let json_err = self.to_colored_json()?;
+            Ok(json_err)
+        } else {
+            Ok(self.to_string())
+        }
+    }
+
+    pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
+        #[derive(serde::Serialize)]
+        struct ErrorWrapper<'a> {
+            #[serde(rename = "error")]
+            error: ErrorData<'a>,
+        }
+
+        #[derive(serde::Serialize)]
+        struct ErrorData<'a> {
+            #[serde(flatten)]
+            data: &'a InputValidationError,
+            // #[serde(rename = "type")]
+            // error_type: &'static str,
+        }
+
+        let wrapper = ErrorWrapper {
+            error: ErrorData { data: self },
+        };
+        serde_json::to_value(&wrapper)
+    }
+
+    pub fn to_colored_json(&self) -> Result<String, serde_json::Error> {
+        let json_value = self.to_json_value()?;
+        let json_str = to_colored_json_auto(&json_value)?;
+
+        Ok(json_str)
     }
 }
