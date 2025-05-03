@@ -22,7 +22,7 @@ pub async fn handle_create_project(
     let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -31,7 +31,7 @@ pub async fn handle_create_project(
     if name_has_id_format {
         let error = InputValidationError::Projects(ProjectInputValidationError::NameUsingIdFormat);
 
-        eprintln!("");
+        eprintln!();
         bail!(error)
     }
 

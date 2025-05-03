@@ -17,7 +17,7 @@ pub async fn handle_set_env_lock(
         validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_validation_res {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 

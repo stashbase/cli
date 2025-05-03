@@ -32,8 +32,8 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     if values.is_empty() {
         let msg = format!("{} {}", "Input error:".red(), "no secrets to set");
 
-        eprintln!("");
-        bail!("{}", msg);
+        eprintln!();
+        bail!(msg);
     }
 
     debug!("{:#?}", comment);
@@ -43,7 +43,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     debug!("{:#?}", name_value_pairs);
 
     if let Err(err) = name_value_pairs {
-        eprintln!("");
+        eprintln!();
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
@@ -53,7 +53,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     debug!("{:#?}", comment_pairs);
 
     if let Err(err) = comment_pairs {
-        eprintln!("");
+        eprintln!();
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
@@ -89,14 +89,14 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     }
 
     if let Err(err) = payload.validate() {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
     let reference_warnings = payload.get_reference_warnings();
 
     if !reference_warnings.is_empty() {
-        eprintln!("");
+        eprintln!();
         eprint!("{}", reference_warnings);
 
         let confirm = interaction::confirm_opt("Are you sure you want to continue?");

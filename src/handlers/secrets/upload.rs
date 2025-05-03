@@ -63,7 +63,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     if let Err(err) = secrets_res {
         let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err));
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -81,7 +81,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
     // validate secrets
     if let Err(err) = secrets.validate() {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
