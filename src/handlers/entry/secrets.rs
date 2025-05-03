@@ -128,6 +128,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 values: args.secrets,
                 comment: args.comments,
+                json_format: raw_output,
             };
 
             handle_set_secrets(args).await?;
