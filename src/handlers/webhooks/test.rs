@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::webhooks,
     models::{api_client::RequestApiOptionResponse, webhooks::TestWebhookResponse},
-    utils::{interaction, spinner::request_spinner},
+    utils::{interaction, output::get_colored_json, spinner::request_spinner},
 };
 
 #[derive(Debug)]
@@ -14,6 +14,7 @@ pub struct TestWebhookArgs {
     pub project: String,
     pub environment: String,
     pub webhook_id: String,
+    pub json_format: bool,
 }
 
 pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
@@ -24,6 +25,7 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
         project,
         environment,
         webhook_id,
+        json_format,
     } = args;
 
     let msg = "Test webhook event will be sent the webhook URL.";
@@ -50,7 +52,9 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_str = err.format_error_output(json_format)?;
+        bail!(error_str);
     }
 
     // safe
@@ -66,8 +70,15 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
 
                 match test_response_json {
                     Ok(test_res) => {
-                        spinner.stop_and_persist("", "");
-                        print!("{}", &test_res);
+                        if json_format {
+                            let json_str = get_colored_json(&test_res).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+                        } else {
+                            spinner.stop_and_persist("", "");
+                            print!("{}", &test_res);
+                        }
                     }
                     Err(e) => {
                         debug!("{}", e);
@@ -82,7 +93,9 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_str = e.format_error_output(json_format)?;
+            bail!(error_str);
         }
     }
 
