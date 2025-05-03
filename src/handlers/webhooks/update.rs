@@ -17,6 +17,7 @@ pub struct UpdateWebhookArgs {
     pub project: String,
     pub environment: String,
     pub webhook_id: String,
+    pub json_format: bool,
     // data
     pub url: Option<String>,
     pub description: Option<String>,
@@ -32,6 +33,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
         webhook_id,
         url,
         description,
+        json_format,
     } = args;
 
     let validation_res = validate_input(&url, &description);
@@ -56,7 +58,9 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_str = err.format_error_output(json_format)?;
+        bail!(error_str);
     }
 
     // safe
@@ -65,12 +69,19 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     match res {
         RequestApiOptionResponse::Ok(_) => {
             // println!("Project has been deleted");
-            spinner.stop_with_message("Webhook updated.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Webhook updated.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_str = e.format_error_output(json_format)?;
+            bail!(error_str);
         }
     }
 
