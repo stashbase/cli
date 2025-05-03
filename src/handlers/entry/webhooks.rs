@@ -110,6 +110,7 @@ pub async fn handle_webhook_commands(
                 api_key,
                 project,
                 environment,
+                json_format: raw_output,
                 webhook_id: cmd_args.webhook_id,
             };
 
@@ -124,6 +125,7 @@ pub async fn handle_webhook_commands(
                 description: cmd_args.description,
                 return_secret: cmd_args.return_secret,
                 enable: cmd_args.enable,
+                json_format: raw_output,
             };
 
             handle_create_webhook(fn_args).await?;
@@ -148,6 +150,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: cmd_args.webhook_id,
                 enabled: false,
+                json_format: raw_output,
             };
 
             handle_update_webhook_status(fn_args).await?;
@@ -159,6 +162,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: cmd_args.webhook_id,
                 enabled: true,
+                json_format: raw_output,
             };
 
             handle_update_webhook_status(fn_args).await?;
@@ -199,6 +203,7 @@ pub async fn handle_webhook_commands(
                 project,
                 environment,
                 webhook_id: cmd_args.webhook_id,
+                json_format: raw_output,
             };
 
             handle_rotate_webhook_secret(fn_args).await?;
@@ -209,6 +214,7 @@ pub async fn handle_webhook_commands(
                 project,
                 environment,
                 webhook_id: cmd_args.webhook_id,
+                json_format: raw_output,
             };
 
             handle_get_webhook_secret(fn_args).await?;
