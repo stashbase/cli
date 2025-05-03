@@ -86,6 +86,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 PushPullInputValidationError::NoFileSpecified { is_push: false },
             );
 
+            eprintln!("");
             bail!(err);
         }
 
@@ -477,7 +478,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

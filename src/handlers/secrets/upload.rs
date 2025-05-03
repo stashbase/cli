@@ -40,7 +40,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
     if !file_exists {
         let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
-        bail!("{}", err_msg);
+        bail!(err_msg);
     }
 
     // let secrets_res = read_secrets_file(path);
@@ -121,7 +121,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

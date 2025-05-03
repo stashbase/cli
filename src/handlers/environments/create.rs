@@ -64,6 +64,8 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
         if !file_exists {
             let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
+
+            eprintln!("");
             bail!("{}", err_msg);
         }
 
@@ -119,6 +121,8 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
             }
             Err(e) => {
                 let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(e));
+
+                eprintln!("");
                 bail!(err);
             }
         }

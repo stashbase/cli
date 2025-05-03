@@ -46,7 +46,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
 
     if let Err(e) = validation_res {
         eprintln!("");
-        bail!("{}", e);
+        bail!(e);
     }
 
     // op
@@ -116,7 +116,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                 }
                 RequestApiOptionResponse::Err(e) => {
                     spinner.stop_and_persist("", "");
-                    bail!("{}", e);
+                    bail!(e);
                 }
             }
         }
@@ -207,7 +207,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                 }
                 RequestApiOptionResponse::Err(e) => {
                     spinner.stop_and_persist("", "");
-                    bail!("{}", e);
+                    bail!(e);
                 }
             }
         }

@@ -46,7 +46,7 @@ pub async fn handle_open_project(api_key: String, name: String) -> Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

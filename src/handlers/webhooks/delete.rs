@@ -59,7 +59,7 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 
