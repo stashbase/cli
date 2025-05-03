@@ -37,6 +37,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     debug!("{:#?}", name_value_pairs);
 
     if let Err(err) = name_value_pairs {
+        eprintln!("");
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
@@ -46,6 +47,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     debug!("{:#?}", comment_pairs);
 
     if let Err(err) = comment_pairs {
+        eprintln!("");
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
@@ -80,6 +82,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     }
 
     if let Err(err) = payload.validate() {
+        eprintln!("");
         bail!(err);
     }
 

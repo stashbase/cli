@@ -166,6 +166,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
+        eprintln!("");
         bail!(e);
     }
 
@@ -214,6 +215,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 }
             }
             Err(e) => {
+                eprintln!("");
                 bail!(e);
             }
         }

@@ -16,6 +16,7 @@ pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> 
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
+        eprintln!("");
         bail!(err);
     }
 

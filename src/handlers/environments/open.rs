@@ -23,6 +23,7 @@ pub async fn handle_open_environment(
         validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_validation_res {
+        eprintln!("");
         bail!(err);
     }
 

@@ -52,6 +52,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     let input_valid = validate_project_environment(&project, &name, true);
 
     if let Err(err) = input_valid {
+        eprintln!("");
         bail!(err);
     }
 

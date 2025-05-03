@@ -24,6 +24,7 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
+        eprintln!("");
         bail!(err);
     }
 
