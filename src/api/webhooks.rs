@@ -194,6 +194,7 @@ pub struct RotateArgs {
     pub project: String,
     pub environment: String,
     pub webhook_id: String,
+    pub json_format: bool,
 }
 
 pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse> {
