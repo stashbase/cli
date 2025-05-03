@@ -11,6 +11,18 @@ pub fn get_output_format(
     }
 }
 
+pub fn get_is_json_output_format(
+    raw_output: bool,
+    default_output_format: Option<OutputFormat>,
+) -> bool {
+    match raw_output {
+        true => true,
+        false => match default_output_format == Some(OutputFormat::Json) {
+            true => true,
+            false => false,
+        },
+    }
+}
 pub fn write_indented(f: &mut std::fmt::Formatter<'_>, indent: usize, s: &str) -> std::fmt::Result {
     let indent_str = " ".repeat(indent);
     for line in s.lines() {
