@@ -47,7 +47,7 @@ pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 
