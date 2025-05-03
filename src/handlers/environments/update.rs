@@ -25,6 +25,7 @@ pub async fn handle_update_environment(
     new_name: Option<String>,
     new_description: Option<String>,
     new_is_production: Option<bool>,
+    json_format: bool,
 ) -> Result<()> {
     // validation
     let input_valid_res = validate_input(
@@ -68,7 +69,12 @@ pub async fn handle_update_environment(
 
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Environment updated.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Environment updated.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
