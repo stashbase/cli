@@ -138,6 +138,7 @@ pub async fn handle_webhook_commands(
                 url: cmd_args.url,
                 description: cmd_args.description,
                 webhook_id: cmd_args.webhook_id,
+                json_format: raw_output,
             };
 
             handle_update_webhook(fn_args).await?;
@@ -173,6 +174,7 @@ pub async fn handle_webhook_commands(
                 project,
                 environment,
                 webhook_id: cmd_args.webhook_id,
+                json_format: raw_output,
             };
 
             handle_test_webhook(fn_args).await?;

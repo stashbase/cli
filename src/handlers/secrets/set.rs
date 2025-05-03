@@ -17,6 +17,7 @@ pub struct HandleSetSecretsArgs {
     pub environment: String,
     pub values: Vec<String>,
     pub comment: Vec<String>,
+    pub json_format: bool,
 }
 
 // NOTE: for now must have at least one value -> validate length
@@ -27,6 +28,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         environment,
         values,
         comment,
+        json_format,
     } = args;
 
     if values.is_empty() {
@@ -111,20 +113,28 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_str = err.format_error_output(json_format)?;
+        bail!(error_str);
     }
 
     let res = res.unwrap();
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Secrets set.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Secrets set.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_str = e.format_error_output(json_format)?;
+            bail!(error_str);
         }
     }
 
