@@ -13,6 +13,7 @@ pub struct DeleteWebhookArgs {
     pub project: String,
     pub environment: String,
     pub webhook_id: String,
+    pub json_format: bool,
 }
 
 pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
@@ -21,6 +22,7 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
         project,
         environment,
         webhook_id,
+        json_format,
     } = args;
 
     // confirmation
@@ -55,7 +57,12 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
 
     match res {
         DeleteRequestApiResponse::Ok(_) => {
-            spinner.stop_with_message("Webhook deleted.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Webhook deleted.");
+            }
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");

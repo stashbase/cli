@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use crate::{
     api::webhooks,
     models::{api_client::RequestApiOptionResponse, webhooks::RotateWebhookSecretResponse},
-    utils::{interaction, spinner::request_spinner},
+    utils::{interaction, output::get_colored_json, spinner::request_spinner},
 };
 
 pub type RotateWebhookSecretArgs = webhooks::RotateArgs;
@@ -17,6 +17,7 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
         return Ok(());
     }
 
+    let json_format = args.json_format;
     let mut spinner = request_spinner();
 
     let res = webhooks::rotate_secret(args).await;
@@ -37,9 +38,15 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
 
                 match data {
                     Ok(data) => {
-                        spinner.stop_with_message("Webhook secret rotated.");
-                        // spinner.stop_with_message("✅ Webhook secret has been rotated!");
-                        println!("\nSigning secret: {}", &data.signing_secret);
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+                        } else {
+                            spinner.stop_with_message("Webhook secret rotated.");
+                            println!("\nSigning secret: {}", &data.signing_secret);
+                        }
                     }
                     Err(e) => {
                         spinner.stop_and_persist("", "");
