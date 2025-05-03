@@ -21,6 +21,7 @@ pub struct HandleUploadSecretsArgs {
     pub environment: String,
     pub file_path: String,
     pub format: Option<SecretsFileFormat>,
+    pub json_format: bool,
 }
 
 pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> {
@@ -30,6 +31,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         environment,
         file_path,
         format,
+        json_format,
     } = args;
 
     let path = Path::new(&file_path);
@@ -116,7 +118,12 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Secrets uploaded.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Secrets uploaded.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
