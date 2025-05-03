@@ -16,6 +16,7 @@ pub async fn handle_delete_environment(
     api_key: String,
     project: String,
     environment: String,
+    json_format: bool,
 ) -> Result<()> {
     let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
@@ -49,7 +50,12 @@ pub async fn handle_delete_environment(
 
     match res {
         DeleteRequestApiResponse::Ok(_) => {
-            spinner.stop_with_message("Environment deleted.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Environment deleted.");
+            }
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");

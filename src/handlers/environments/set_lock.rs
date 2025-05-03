@@ -12,6 +12,7 @@ pub async fn handle_set_env_lock(
     project: String,
     environment: String,
     lock: bool,
+    json_format: bool,
 ) -> Result<()> {
     let input_validation_res =
         validate_project_environment_identifier(&project, &environment, true);
@@ -37,10 +38,15 @@ pub async fn handle_set_env_lock(
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            if lock == true {
-                spinner.stop_with_message("Environment locked.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
             } else {
-                spinner.stop_with_message("Environment unlocked.");
+                if lock == true {
+                    spinner.stop_with_message("Environment locked.");
+                } else {
+                    spinner.stop_with_message("Environment unlocked.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {

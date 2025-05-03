@@ -83,21 +83,21 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                 Ok(data) => {
                     debug!("{:#?}", &data);
 
-                    if data.is_empty() {
+                    if data.is_empty() && !args.json_format {
                         spinner.stop_with_message("No secrets to compare.");
-                    } else {
-                        spinner.stop_and_persist("", "");
-
-                        let print_string = format_comparison(
-                            args.environment_1,
-                            args.environment_2,
-                            data,
-                            args.json_format,
-                            args.only_names,
-                        );
-
-                        println!("{}", print_string);
                     }
+
+                    spinner.stop_and_persist("", "");
+
+                    let print_string = format_comparison(
+                        args.environment_1,
+                        args.environment_2,
+                        data,
+                        args.json_format,
+                        args.only_names,
+                    );
+
+                    println!("{}", print_string);
                 }
                 Err(_) => {
                     spinner.stop_and_persist("", "");
