@@ -468,7 +468,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
     //

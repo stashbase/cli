@@ -36,6 +36,7 @@ pub async fn handle_update_environment(
     );
 
     if let Err(err) = input_valid_res {
+        eprintln!("");
         bail!(err);
     }
 

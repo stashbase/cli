@@ -110,7 +110,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         },
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

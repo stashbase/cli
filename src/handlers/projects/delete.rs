@@ -49,7 +49,7 @@ pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> 
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

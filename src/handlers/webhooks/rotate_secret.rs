@@ -54,7 +54,7 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

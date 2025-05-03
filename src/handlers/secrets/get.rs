@@ -112,7 +112,8 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
         GetRequestApiResponse::Err(e) => {
             // bail!("{}", e);
             debug!("Error: {}", e);
-            eprintln!("{}", e);
+            eprintln!("");
+            bail!(e);
         }
     }
 

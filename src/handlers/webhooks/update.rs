@@ -38,7 +38,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
 
     if let Err(e) = validation_res {
         eprintln!("");
-        bail!("{}", e);
+        bail!(e);
     }
 
     let args = webhooks::UpdateArgs {
@@ -70,7 +70,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

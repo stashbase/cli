@@ -28,7 +28,7 @@ pub async fn handle_update_project(
 
     if let Err(e) = validation_res {
         eprintln!("");
-        bail!("{}", e);
+        bail!(e);
     }
 
     debug!("updating project...:");
@@ -63,7 +63,7 @@ pub async fn handle_update_project(
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

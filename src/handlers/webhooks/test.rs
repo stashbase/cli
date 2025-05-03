@@ -82,7 +82,7 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

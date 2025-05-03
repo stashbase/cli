@@ -70,18 +70,18 @@ pub async fn handle_create_project(
                     Err(e) => {
                         spinner.stop_and_persist("", "");
                         error!("{:#?}", e);
-                        bail!("{}", "Something went wrong.");
+                        bail!("Something went wrong.");
                     }
                 }
             }
             None => {
                 spinner.stop_and_persist("", "");
-                bail!("{}", "Something went wrong.");
+                bail!("Something went wrong.");
             }
         },
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 
