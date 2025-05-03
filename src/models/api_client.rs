@@ -1,11 +1,15 @@
 use core::fmt;
 
+use colored_json::to_colored_json_auto;
 use log::debug;
 use owo_colors::OwoColorize;
 use reqwest::{header::HeaderValue, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use crate::utils::{output::write_indented, validation::SECRET_VALUE_MAX_LENGTH};
+use crate::utils::{
+    output::{get_colored_json, write_indented},
+    validation::SECRET_VALUE_MAX_LENGTH,
+};
 
 #[derive(Debug)]
 pub struct RequestArgs {
@@ -360,14 +364,14 @@ pub enum WebhookError {
     WebhookAlreadyDisabled,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GenericOutputError {
     pub code: Option<String>, // error code from API response
     pub message: String,
     pub hint: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SecretsOutputError {
     pub code: String, // error code from API response
     pub message: String,
@@ -379,6 +383,18 @@ pub struct SecretsOutputError {
 pub enum OutputError {
     Generic(GenericOutputError),
     Secrets(SecretsOutputError),
+}
+
+impl serde::Serialize for OutputError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            OutputError::Generic(e) => e.serialize(serializer),
+            OutputError::Secrets(e) => e.serialize(serializer),
+        }
+    }
 }
 
 impl OutputError {
@@ -409,6 +425,24 @@ impl OutputError {
             OutputError::Generic(e) => e.code.as_deref(),
             OutputError::Secrets(e) => Some(&e.code),
         }
+    }
+
+    pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
+        // Create a wrapper struct inline for serialization
+        #[derive(serde::Serialize)]
+        struct ErrorWrapper<'a> {
+            error: &'a OutputError,
+        }
+
+        let wrapper = ErrorWrapper { error: self };
+        serde_json::to_value(&wrapper)
+    }
+
+    pub fn to_colored_json(&self) -> Result<String, serde_json::Error> {
+        let json_value = self.to_json_value()?;
+        let json_str = to_colored_json_auto(&json_value)?;
+
+        Ok(json_str)
     }
 }
 
