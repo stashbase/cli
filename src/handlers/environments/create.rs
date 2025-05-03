@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
+use colored_json::{to_colored_json, to_colored_json_auto};
 use log::{debug, error};
 use owo_colors::OwoColorize;
 
@@ -17,6 +18,7 @@ use crate::{
     utils::{
         files::check_file_exists,
         interaction,
+        output::get_colored_json,
         secrets::{parse_secrets_from_str, read_secrets_from_file},
         spinner::request_spinner,
         validation::{
@@ -35,6 +37,7 @@ pub struct HandleCreateEnvironmentArgs {
     pub open: bool,
     pub file_path: Option<String>,
     pub format: Option<SecretsFileFormat>,
+    pub json_format: bool,
 }
 
 pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Result<()> {
@@ -47,6 +50,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         file_path,
         format,
         open,
+        json_format,
     } = args;
 
     let input_valid = validate_project_environment(&project, &name, true);
@@ -158,6 +162,15 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
                 match res_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         spinner.stop_with_message("Environment created.");
                         eprint!("Id: ");
                         print!("{}\n", data.id);
