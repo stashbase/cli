@@ -36,7 +36,7 @@ pub async fn handle_update_environment(
     );
 
     if let Err(err) = input_valid_res {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -72,7 +72,7 @@ pub async fn handle_update_environment(
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

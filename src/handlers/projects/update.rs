@@ -27,7 +27,7 @@ pub async fn handle_update_project(
     let validation_res = validate_input(&name, &new_name, &new_description);
 
     if let Err(e) = validation_res {
-        eprintln!("");
+        eprintln!();
         bail!(e);
     }
 

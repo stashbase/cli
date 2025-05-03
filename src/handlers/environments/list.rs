@@ -46,7 +46,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let project_identifier_vlidation_result = validate_project_identifier(&project, false);
 
     if let Err(err) = project_identifier_vlidation_result {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -55,7 +55,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         let search_validation_res = validate_env_search(&search);
 
         if let Err(err) = search_validation_res {
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
     }

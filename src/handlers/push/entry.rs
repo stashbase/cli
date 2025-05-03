@@ -79,7 +79,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                 PushPullInputValidationError::NoFileSpecified { is_push: true },
             );
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
 
@@ -144,8 +144,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             "file does not exist."
         );
 
-        eprintln!("");
-        bail!("{}", err_msg);
+        eprintln!();
+        bail!(err_msg);
     }
 
     //
@@ -171,7 +171,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     if let Err(err) = secrets_res {
         let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err));
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -183,7 +183,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
-        eprintln!("");
+        eprintln!();
         bail!(e);
     }
 
@@ -266,7 +266,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                 }
             }
             Err(e) => {
-                eprintln!("");
+                eprintln!();
                 bail!(e);
             }
         }
@@ -277,7 +277,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     // validate secrets
     if let Err(err) = secrets.validate() {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -328,7 +328,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

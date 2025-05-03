@@ -23,7 +23,7 @@ pub async fn handle_open_environment(
         validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_validation_res {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -62,7 +62,7 @@ pub async fn handle_open_environment(
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

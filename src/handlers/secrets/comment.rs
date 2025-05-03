@@ -39,7 +39,7 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
     let input_validation_res = validate_input(&project, &environment, &name);
 
     if let Err(e) = input_validation_res {
-        eprintln!("");
+        eprintln!();
         bail!(e);
     }
 
@@ -53,7 +53,7 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
     if !is_valid {
         let err = InputValidationError::Secrets(SecretsInputValidationError::CommentTooLong);
 
-        eprintln!("");
+        eprintln!();
         bail!(err)
     }
 

@@ -45,7 +45,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
     let validation_res = validate_input(&project, &environment, &names);
 
     if let Err(e) = validation_res {
-        eprintln!("");
+        eprintln!();
         bail!(e);
     }
 

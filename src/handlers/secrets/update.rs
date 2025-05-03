@@ -36,7 +36,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     } = args;
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
-        eprintln!("");
+        eprintln!();
         bail!(
             "{} No updates provided. Please specify at least one of: --values, --names, or --comments.",
             "Input error:".red()
@@ -78,7 +78,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         let name_value_pairs = separator::key_value(new_names);
 
         if let Err(err) = name_value_pairs {
-            eprintln!("");
+            eprintln!();
             bail!("{} {}", format!("Input error:").red(), err);
         }
 
@@ -104,7 +104,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         let name_value_pairs = separator::key_value(comment);
 
         if let Err(err) = name_value_pairs {
-            eprintln!("");
+            eprintln!();
             bail!("{} {}", format!("Input error:").red(), err);
         }
 
@@ -137,7 +137,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         .collect();
 
     if let Err(err) = payload.validate() {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -216,13 +216,13 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                     }
                     Err(err) => {
                         spinner.stop_and_persist("", "");
-                        bail!("{}", err);
+                        bail!(err);
                     }
                 }
             }
             None => {
                 spinner.stop_and_persist("", "");
-                bail!("{}", "Something went wrong.");
+                bail!("Something went wrong.");
             }
         },
         RequestApiOptionResponse::Err(err) => {

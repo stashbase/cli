@@ -42,7 +42,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
             let webhook_error = WebhookInputValidationError::InvalidLimit;
             let err = InputValidationError::Webhook(webhook_error);
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
     }
@@ -54,7 +54,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
             let webhook_error = WebhookInputValidationError::InvalidPage;
             let err = InputValidationError::Webhook(webhook_error);
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
     }
