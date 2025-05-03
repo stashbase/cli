@@ -79,8 +79,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
     if let Err(err) = env_res {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let env_res = env_res.unwrap();
@@ -151,7 +152,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

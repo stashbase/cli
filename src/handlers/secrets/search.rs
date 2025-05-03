@@ -114,7 +114,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -144,7 +146,10 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         },
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
-            bail!(err);
+
+            let error_output =
+                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

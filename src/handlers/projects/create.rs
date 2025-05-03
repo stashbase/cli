@@ -46,9 +46,11 @@ pub async fn handle_create_project(
     let project_res = projects::create_project(api_key, &data).await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+        spinner.stop_and_persist("", "");
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
@@ -90,7 +92,9 @@ pub async fn handle_create_project(
         },
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 
