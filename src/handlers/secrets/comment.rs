@@ -25,6 +25,7 @@ pub struct HandleCommentArgs {
     pub environment: String,
     pub name: String,
     pub comment: String,
+    pub json_format: bool,
 }
 
 pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
@@ -34,6 +35,7 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
         environment,
         comment,
         name,
+        json_format,
     } = args;
 
     let input_validation_res = validate_input(&project, &environment, &name);
@@ -76,7 +78,12 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Comment updated.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Comment updated.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);

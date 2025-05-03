@@ -11,6 +11,7 @@ use crate::{
     },
     utils::{
         duplicates::{self, find_duplicates},
+        output::get_colored_json,
         separator,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
@@ -22,6 +23,7 @@ pub struct HandleRenameSecretsArgs {
     pub project: String,
     pub environment: String,
     pub secrets: Vec<String>,
+    pub json_format: bool,
 }
 
 // TODO: input error - at least one item
@@ -31,6 +33,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         project,
         environment,
         secrets,
+        json_format,
     } = args;
 
     if secrets.is_empty() {
@@ -107,6 +110,15 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         let not_found_secrets = data.not_found_secrets;
                         let not_found_len = not_found_secrets.len();
 

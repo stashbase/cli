@@ -8,7 +8,10 @@ use crate::{
         api_client::RequestApiOptionResponse,
         secrets::{CreateSecretsResponse, Secret, ValidateSecrets},
     },
-    utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
+    utils::{
+        interaction, output::get_colored_json, secrets::format_secret_comment, separator,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleCreateSecretsArgs {
@@ -17,6 +20,7 @@ pub struct HandleCreateSecretsArgs {
     pub environment: String,
     pub values: Vec<String>,
     pub comments: Vec<String>,
+    pub json_format: bool,
 }
 
 pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> {
@@ -26,6 +30,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
         environment,
         values,
         comments,
+        json_format,
     } = args;
 
     if values.is_empty() {
@@ -116,6 +121,15 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         let created_count = data.created_count;
                         let duplicate_secrets = data.duplicate_secrets;
 
