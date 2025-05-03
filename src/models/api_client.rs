@@ -436,13 +436,18 @@ impl OutputError {
     }
 
     pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
-        // Create a wrapper struct inline for serialization
         #[derive(serde::Serialize)]
         struct ErrorWrapper<'a> {
+            #[serde(rename = "type")]
+            error_type: &'static str,
+            #[serde(flatten)]
             error: &'a OutputError,
         }
 
-        let wrapper = ErrorWrapper { error: self };
+        let wrapper = ErrorWrapper {
+            error_type: "api",
+            error: self,
+        };
         serde_json::to_value(&wrapper)
     }
 
