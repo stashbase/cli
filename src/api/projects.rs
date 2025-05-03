@@ -1,11 +1,9 @@
-use anyhow::Result;
-
 use crate::{
     cmd::projects::SortBy,
     models::{
         api_client::{
-            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
-            RequestArgs,
+            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
+            RequestApiOptionResponse, RequestArgs,
         },
         projects::{CreateProjectPayload, UpdateProjectPayload},
     },
@@ -20,7 +18,7 @@ pub async fn list_projects(
     descending: bool,
     page: Option<usize>,
     limit: Option<usize>,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let mut query = vec![("sort-by".to_string(), format!("{}", sort_by))];
 
     if descending == true {
@@ -48,7 +46,10 @@ pub async fn list_projects(
     client::get_request(args).await
 }
 
-pub async fn get_project(api_key: String, identifier: String) -> Result<GetRequestApiResponse> {
+pub async fn get_project(
+    api_key: String,
+    identifier: String,
+) -> Result<GetRequestApiResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(identifier)),
         query: None,
@@ -61,7 +62,7 @@ pub async fn get_project(api_key: String, identifier: String) -> Result<GetReque
 pub async fn get_project_dashboard_url(
     api_key: String,
     identifier: String,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let subpath = format!("{}/dashboard-url", identifier);
 
     let args = RequestArgs {
@@ -76,7 +77,7 @@ pub async fn get_project_dashboard_url(
 pub async fn create_project(
     api_key: String,
     data: &CreateProjectPayload,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Projects(None),
         query: None,
@@ -90,7 +91,7 @@ pub async fn update_project(
     api_key: String,
     identifier: String,
     data: &UpdateProjectPayload,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(identifier)),
         query: None,
@@ -103,7 +104,7 @@ pub async fn update_project(
 pub async fn delete_project(
     api_key: String,
     identifier: String,
-) -> Result<DeleteRequestApiResponse> {
+) -> Result<DeleteRequestApiResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Projects(Some(identifier)),
         query: None,
