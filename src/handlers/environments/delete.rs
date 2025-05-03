@@ -20,7 +20,7 @@ pub async fn handle_delete_environment(
     let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_valid {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
     // ok
@@ -53,7 +53,7 @@ pub async fn handle_delete_environment(
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

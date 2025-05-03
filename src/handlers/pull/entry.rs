@@ -86,7 +86,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 PushPullInputValidationError::NoFileSpecified { is_push: false },
             );
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
 
@@ -167,7 +167,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
-        eprintln!("");
+        eprintln!();
         bail!(e);
     }
 
@@ -216,7 +216,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 }
             }
             Err(e) => {
-                eprintln!("");
+                eprintln!();
                 bail!(e);
             }
         }

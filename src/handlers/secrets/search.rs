@@ -52,7 +52,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         let validation_res = validate_project_identifier(project, false);
 
         if let Err(err) = validation_res {
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
     }
@@ -61,7 +61,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         let search_error = SecretsInputValidationError::SearchMissingNameOrValue;
         let err = InputValidationError::Secrets(search_error);
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -69,7 +69,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         let search_error = SecretsInputValidationError::SearchBothNameAndValue;
         let err = InputValidationError::Secrets(search_error);
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -78,7 +78,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
             let search_error = SecretsInputValidationError::SearchTooShort;
             let err = InputValidationError::Secrets(search_error);
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
 
@@ -94,13 +94,13 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
             let search_error = SecretsInputValidationError::SearchValueEmpty;
             let err = InputValidationError::Secrets(search_error);
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         } else if value.len() > 1000 {
             let search_error = SecretsInputValidationError::SearchValueTooLong;
             let err = InputValidationError::Secrets(search_error);
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
     }

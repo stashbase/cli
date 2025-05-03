@@ -64,14 +64,14 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::FileArgWithInline,
         );
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
     if command.is_empty() {
         let err = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -87,7 +87,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::MissingEnvArg,
         );
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     } else if let Some(_) = environment {
         // missing project error
@@ -95,7 +95,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::MissingProjectArg,
         );
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     } else {
         let config_action_command = ConfigActionCommand::Run;
@@ -180,7 +180,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             // eprintln!();
         }
 
-        eprintln!("");
+        eprintln!();
         bail!(e);
     }
 
@@ -193,7 +193,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         //     eprintln!();
         // }
 
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -208,7 +208,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 //     eprintln!();
                 // }
 
-                eprintln!("");
+                eprintln!();
                 bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
         }
@@ -225,7 +225,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 //     eprintln!();
                 // }
 
-                eprintln!("");
+                eprintln!();
                 bail!(InputValidationError::LoadEnvironment(mapped_err));
             }
         }
@@ -245,7 +245,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 //     eprintln!();
                 // }
 
-                eprintln!("");
+                eprintln!();
                 bail!(e);
             }
         }
@@ -263,7 +263,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
             let run_error = RunInputValidationError::NoSecretsToFetch;
             let err = InputValidationError::Run(run_error);
 
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
     }
@@ -463,7 +463,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
                 let err = secrets.unwrap_err();
                 // spinner.stop_with_message(&format!("{}", err));
                 spinner.stop_and_persist("", "");
-                bail!("{}", err);
+                bail!(err);
             }
         }
         GetRequestApiResponse::Err(e) => {

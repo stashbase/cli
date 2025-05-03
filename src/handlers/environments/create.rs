@@ -52,7 +52,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     let input_valid = validate_project_environment(&project, &name, true);
 
     if let Err(err) = input_valid {
-        eprintln!("");
+        eprintln!();
         bail!(err);
     }
 
@@ -65,8 +65,8 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         if !file_exists {
             let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
 
-            eprintln!("");
-            bail!("{}", err_msg);
+            eprintln!();
+            bail!(err_msg);
         }
 
         //
@@ -122,7 +122,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
             Err(e) => {
                 let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(e));
 
-                eprintln!("");
+                eprintln!();
                 bail!(err);
             }
         }
@@ -172,14 +172,14 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!("{}", "Something went wrong when when opening environment.");
+                        bail!("Something went wrong when when opening environment.");
                     }
                 }
             }
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!("{}", e);
+            bail!(e);
         }
     }
 

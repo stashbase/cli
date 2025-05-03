@@ -46,7 +46,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         let search_validation_res = validate_project_search(&search);
 
         if let Err(err) = search_validation_res {
-            eprintln!("");
+            eprintln!();
             bail!(err);
         }
     }
@@ -55,7 +55,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         if limit < 2 || limit > 30 {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidLimit);
 
-            eprintln!("");
+            eprintln!();
             bail!(error);
         }
     }
@@ -64,7 +64,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         if page < 1 || page > 1000 {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidPage);
 
-            eprintln!("");
+            eprintln!();
             bail!(error);
         }
     }
