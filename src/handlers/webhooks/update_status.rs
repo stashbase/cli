@@ -50,7 +50,9 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     // safe
@@ -73,7 +75,9 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

@@ -37,8 +37,9 @@ pub async fn handle_get_environment(
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -86,7 +87,9 @@ pub async fn handle_get_environment(
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

@@ -31,7 +31,9 @@ pub async fn handle_set_env_lock(
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -51,7 +53,9 @@ pub async fn handle_set_env_lock(
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

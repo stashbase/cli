@@ -318,7 +318,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -335,7 +337,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

@@ -42,8 +42,9 @@ pub async fn handle_delete_environment(
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        error!("{:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -59,7 +60,9 @@ pub async fn handle_delete_environment(
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 
