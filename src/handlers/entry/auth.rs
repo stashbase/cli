@@ -60,7 +60,8 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
             }
         }
         GetRequestApiResponse::Err(err) => {
-            spinner.stop_with_message(&format!("{}", err));
+            spinner.stop_and_persist("", "");
+            bail!(err);
         }
     }
 
