@@ -9,6 +9,7 @@ use crate::{
         validation::{InputValidationError, ProjectInputValidationError},
     },
     utils::{
+        output::get_colored_json,
         spinner::request_spinner,
         validation::{resource_name_has_id_format, validate_project_name, IdentifierResource},
     },
@@ -18,6 +19,7 @@ pub async fn handle_create_project(
     api_key: String,
     name: String,
     description: Option<String>,
+    json_format: bool,
 ) -> Result<()> {
     let name_is_valid = validate_project_name(&name, false, true);
 
@@ -61,11 +63,18 @@ pub async fn handle_create_project(
                         // let msg = format!("🔥 Project with id {} created!", data.id);
                         // spinner.stop_with_message(&msg);
 
-                        let msg = format!("Project created.");
-                        spinner.stop_with_message(&msg);
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
 
-                        eprint!("Id: ");
-                        print!("{}\n", data.id);
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+                        } else {
+                            let msg = format!("Project created.");
+                            spinner.stop_with_message(&msg);
+
+                            eprint!("Id: ");
+                            print!("{}\n", data.id);
+                        }
                     }
                     Err(e) => {
                         spinner.stop_and_persist("", "");

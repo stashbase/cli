@@ -45,17 +45,23 @@ pub async fn handle_project_commands(
         }
 
         ProjectSubcommand::Create(args) => {
-            handle_create_project(api_key, args.name, args.description).await?;
+            handle_create_project(api_key, args.name, args.description, raw_output).await?;
         }
         ProjectSubcommand::Delete(args) => {
-            handle_delete_project(api_key, args.identifier).await?;
+            handle_delete_project(api_key, args.identifier, raw_output).await?;
         }
         ProjectSubcommand::Open(args) => {
             handle_open_project(api_key, args.identifier).await?;
         }
         ProjectSubcommand::Update(args) => {
-            handle_update_project(api_key, args.identifier, args.new_name, args.description)
-                .await?;
+            handle_update_project(
+                api_key,
+                args.identifier,
+                args.new_name,
+                args.description,
+                raw_output,
+            )
+            .await?;
         }
     }
 
