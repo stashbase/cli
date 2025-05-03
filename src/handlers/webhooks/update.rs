@@ -37,6 +37,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     let validation_res = validate_input(&url, &description);
 
     if let Err(e) = validation_res {
+        eprintln!("");
         bail!("{}", e);
     }
 

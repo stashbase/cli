@@ -71,7 +71,12 @@ pub async fn handle_webhook_commands(
     let (project, environment) = cmd.try_get_project_environment()?;
 
     // other input
-    validate_input(&project, &environment, &cmd.subcommand)?;
+    let validation_res = validate_input(&project, &environment, &cmd.subcommand);
+
+    if let Err(err) = validation_res {
+        eprintln!("");
+        bail!(err);
+    }
 
     match cmd.subcommand {
         WebhookSubcommand::List(args) => {

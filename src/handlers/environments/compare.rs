@@ -36,12 +36,14 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         validate_project_environment_identifier(&args.project, &args.environment_1, false);
 
     if let Err(err) = validation_res {
+        eprintln!("");
         bail!(err);
     }
 
     let env_identifier_validation_res = validate_environment_identifier(&args.environment_2, false);
 
     if let Err(err) = env_identifier_validation_res {
+        eprintln!("");
         bail!(err);
     }
 
@@ -49,6 +51,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         let err =
             InputValidationError::Environments(EnvironmentsInputValidationError::SelfComparison);
 
+        eprintln!("");
         bail!(err)
     }
 

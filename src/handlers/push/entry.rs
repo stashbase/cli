@@ -79,6 +79,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                 PushPullInputValidationError::NoFileSpecified { is_push: true },
             );
 
+            eprintln!("");
             bail!(err);
         }
 
@@ -142,6 +143,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             "Error reading input file:".red(),
             "file does not exist."
         );
+
+        eprintln!("");
         bail!("{}", err_msg);
     }
 
@@ -167,6 +170,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     if let Err(err) = secrets_res {
         let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err));
+
+        eprintln!("");
         bail!(err);
     }
 
@@ -178,6 +183,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
+        eprintln!("");
         bail!(e);
     }
 
@@ -260,6 +266,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                 }
             }
             Err(e) => {
+                eprintln!("");
                 bail!(e);
             }
         }
@@ -270,6 +277,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     // validate secrets
     if let Err(err) = secrets.validate() {
+        eprintln!("");
         bail!(err);
     }
 

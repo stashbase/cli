@@ -45,6 +45,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
     let validation_res = validate_input(&project, &environment, &names);
 
     if let Err(e) = validation_res {
+        eprintln!("");
         bail!("{}", e);
     }
 
@@ -108,6 +109,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             }
                         }
                         None => {
+                            spinner.stop_and_persist("", "");
                             bail!("Something went wrong.");
                         }
                     }
