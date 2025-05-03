@@ -236,7 +236,7 @@ pub struct UpdateSecrets {
     pub comments: Vec<String>,
 }
 
-#[derive(Debug, ValueEnum, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, ValueEnum, Copy, Clone, PartialEq, Eq, Default)]
 pub enum SecretsFileFormat {
     #[default]
     Dotenv,
