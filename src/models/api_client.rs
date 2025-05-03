@@ -406,6 +406,22 @@ impl serde::Serialize for OutputError {
 }
 
 impl OutputError {
+    pub fn failed_to_read_response_body() -> OutputError {
+        OutputError::Generic(GenericOutputError {
+            code: None,
+            message: "Failed to read response body.".to_string(),
+            hint: Some("Please try again later.".to_string()),
+        })
+    }
+
+    pub fn failed_to_deserialize_response_body() -> OutputError {
+        OutputError::Generic(GenericOutputError {
+            code: None,
+            message: "Failed to deserialize response body.".to_string(),
+            hint: Some("Please try again later.".to_string()),
+        })
+    }
+
     pub fn cannot_connect() -> OutputError {
         OutputError::Generic(GenericOutputError {
             code: None,
@@ -435,18 +451,35 @@ impl OutputError {
         }
     }
 
+    pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
+        if json_format {
+            let json_err = self.to_colored_json()?;
+            Ok(json_err)
+        } else {
+            Ok(self.to_string())
+        }
+    }
+
     pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
         #[derive(serde::Serialize)]
         struct ErrorWrapper<'a> {
+            #[serde(rename = "error")]
+            error: ErrorData<'a>,
+        }
+
+        #[derive(serde::Serialize)]
+        struct ErrorData<'a> {
+            #[serde(flatten)]
+            data: &'a OutputError,
             #[serde(rename = "type")]
             error_type: &'static str,
-            #[serde(flatten)]
-            error: &'a OutputError,
         }
 
         let wrapper = ErrorWrapper {
-            error_type: "api",
-            error: self,
+            error: ErrorData {
+                data: self,
+                error_type: "api",
+            },
         };
         serde_json::to_value(&wrapper)
     }
