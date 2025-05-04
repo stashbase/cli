@@ -12,6 +12,7 @@ use crate::{
             SecretPropertiesToUpdate, UpdateSecretsPayload, UpdateSecretsResponse, UpdatedSecret,
             ValidateUpdateSecrets,
         },
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{output::get_colored_json, separator, spinner::request_spinner},
 };
@@ -50,15 +51,19 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
     // process new values
     if !values.is_empty() {
-        let name_value_pairs = separator::key_value(values).map_err(|err| {
-            anyhow::anyhow!(
-                "\n{} Invalid input format: {}. Expected format: NAME=VALUE",
-                "Input error:".red(),
-                err
-            )
-        })?;
+        let name_value_pairs = separator::key_value(values);
 
-        for (name, value) in name_value_pairs {
+        if let Err(err) = name_value_pairs {
+            let error =
+                InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+
+            let error_output = error.format_error_output(json_format)?;
+
+            eprintln!();
+            bail!(error_output);
+        }
+
+        for (name, value) in name_value_pairs.unwrap() {
             let existing_secret = secret_updates.get_mut(&name);
 
             if let Some(secret) = existing_secret {
@@ -80,8 +85,13 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         let name_value_pairs = separator::key_value(new_names);
 
         if let Err(err) = name_value_pairs {
+            let error =
+                InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+
+            let error_output = error.format_error_output(json_format)?;
+
             eprintln!();
-            bail!("{} {}", format!("Input error:").red(), err);
+            bail!(error_output);
         }
 
         for (name, new_name) in name_value_pairs.unwrap() {
@@ -105,9 +115,14 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     if !comment.is_empty() {
         let name_value_pairs = separator::key_value(comment);
 
-        if let Err(err) = name_value_pairs {
+        if let Err(_) = name_value_pairs {
+            let error =
+                InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+
+            let error_output = error.format_error_output(json_format)?;
+
             eprintln!();
-            bail!("{} {}", format!("Input error:").red(), err);
+            bail!(error_output);
         }
 
         for (name, comment) in name_value_pairs.unwrap() {

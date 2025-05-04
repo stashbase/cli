@@ -585,7 +585,10 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                 }
                 Err(err) => {
                     let mapped_err = map_secret_to_load_set_secrets_error(&err);
-                    bail!(InputValidationError::LoadEnvironment(mapped_err));
+                    let error_output = err.format_error_output(false)?;
+
+                    eprintln!();
+                    bail!(error_output);
                 }
             }
         }
