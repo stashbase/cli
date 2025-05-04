@@ -1,3 +1,5 @@
+use std::os::linux::raw;
+
 use anyhow::Result;
 
 use crate::{
@@ -51,7 +53,7 @@ pub async fn handle_project_commands(
             handle_delete_project(api_key, args.identifier, raw_output).await?;
         }
         ProjectSubcommand::Open(args) => {
-            handle_open_project(api_key, args.identifier).await?;
+            handle_open_project(api_key, args.identifier, raw_output).await?;
         }
         ProjectSubcommand::Update(args) => {
             handle_update_project(
