@@ -73,7 +73,16 @@ pub async fn handle_webhook_commands(
     default_output_format: Option<OutputFormat>,
 ) -> anyhow::Result<()> {
     // required options
-    let (project, environment) = cmd.try_get_project_environment()?;
+    let project_env_res = cmd.try_get_project_environment();
+
+    if let Err(err) = project_env_res {
+        let formatted_err = err.format_error_output(raw_output)?;
+
+        eprintln!();
+        bail!(formatted_err);
+    }
+
+    let (project, environment) = project_env_res.unwrap();
 
     // other input
     let validation_res = validate_input(&project, &environment, &cmd.subcommand);

@@ -71,7 +71,16 @@ pub async fn handle_secrets_commands(
         return Ok(());
     }
 
-    let (project, environment) = cmd.try_get_project_environment()?;
+    let project_env_res = cmd.try_get_project_environment();
+
+    if let Err(err) = project_env_res {
+        let formatted_err = err.format_error_output(raw_output)?;
+
+        eprintln!();
+        bail!(formatted_err);
+    }
+
+    let (project, environment) = project_env_res.unwrap();
 
     let validation_res = validate_project_environment_identifier(&project, &environment, false);
 

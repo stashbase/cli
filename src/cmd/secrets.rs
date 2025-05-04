@@ -1,9 +1,8 @@
 use std::fmt::Display;
 
-use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::models::secrets::SecretsSearchOutputFormat;
+use crate::models::{secrets::SecretsSearchOutputFormat, validation::InputValidationError};
 
 use super::{
     config::SecretsOutputFormat,
@@ -26,7 +25,7 @@ pub struct SecretArgs {
 }
 
 impl SecretArgs {
-    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
+    pub fn try_get_project_environment(&self) -> Result<(String, String), InputValidationError> {
         let root_project: Option<_> = self.project.as_deref();
         let root_environment: Option<_> = self.environment.as_deref();
 
