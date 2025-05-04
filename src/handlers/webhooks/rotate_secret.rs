@@ -1,10 +1,13 @@
-use log::debug;
+use log::{debug, error};
 
 use anyhow::{bail, Result};
 
 use crate::{
     api::webhooks,
-    models::{api_client::RequestApiOptionResponse, webhooks::RotateWebhookSecretResponse},
+    models::{
+        api_client::{OutputError, RequestApiOptionResponse},
+        webhooks::RotateWebhookSecretResponse,
+    },
     utils::{interaction, output::get_colored_json, spinner::request_spinner},
 };
 
@@ -52,8 +55,12 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
                     }
                     Err(e) => {
                         spinner.stop_and_persist("", "");
-                        debug!("Err: {}", e);
-                        bail!("Something went wrong")
+                        error!("{}", e);
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
                     }
                 }
             } else {

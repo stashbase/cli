@@ -4,7 +4,7 @@ use log::debug;
 use crate::{
     api::webhooks,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         webhooks::{CreateWebhookPayload, CreateWebhookResponse},
     },
     utils::{output::get_colored_json, spinner::request_spinner},
@@ -90,17 +90,23 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                             eprint!("Signing secret: ");
                             print!("{}\n", webhook.signing_secret);
                         }
-                        Err(e) => {
+                        Err(_) => {
                             spinner.stop_and_persist("", "");
-                            debug!("Err: {}", e);
-                            bail!("Something went wrong.")
+
+                            let error = OutputError::failed_to_deserialize_response_body();
+                            let formatted_err = error.format_error_output(json_format)?;
+
+                            bail!(formatted_err);
                         }
                     }
                 }
                 None => {
-                    // NOTE: webhook creted but no id returned
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.")
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
