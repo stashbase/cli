@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::{debug, error};
 use owo_colors::OwoColorize;
 
@@ -28,7 +28,7 @@ pub struct HandleGetSecretsArgs {
     pub expand_refs: bool,
 }
 
-pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
+pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()> {
     let HandleGetSecretsArgs {
         api_key,
         project,
@@ -41,8 +41,10 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     let validation_res = validate_input(&project, &environment, &names);
 
     if let Err(e) = validation_res {
+        let error_output = e.format_error_output(format == SecretsOutputFormat::Json)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     debug!("listing secrets...:");
@@ -123,29 +125,32 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> Result<()> {
     Ok(())
 }
 
-fn validate_input(project: &str, environment: &str, names: &Vec<String>) -> Result<()> {
+fn validate_input(
+    project: &str,
+    environment: &str,
+    names: &Vec<String>,
+) -> Result<(), InputValidationError> {
     let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     let env_validation_res = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     if names.is_empty() {
         let err = InputValidationError::Secrets(SecretsInputValidationError::NoNames);
-        bail!(err);
+        return Err(err);
     }
 
     let name_validation_res = validate_secret_names(names);
 
     if let Err(err) = name_validation_res {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+        return Err(err);
     }
 
     Ok(())

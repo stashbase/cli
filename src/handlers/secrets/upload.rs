@@ -66,8 +66,10 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         let err =
             InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err.to_string()));
 
+        let error_output = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let mut secrets = secrets_res.unwrap();
@@ -85,7 +87,9 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     // validate secrets
     if let Err(err) = secrets.validate() {
         eprintln!();
-        bail!(err);
+        let error_output = err.format_error_output(json_format)?;
+
+        bail!(error_output);
     }
 
     let reference_warnings = secrets.get_reference_warnings();
