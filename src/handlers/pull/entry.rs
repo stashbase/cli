@@ -46,6 +46,7 @@ pub struct HandlePullArgs {
     pub format: Option<PullFormat>,
     pub expand_refs: Option<bool>,
     pub overwrite_file: bool,
+    pub json_format: bool,
 }
 
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
@@ -60,6 +61,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut print_secrets,
         mut expand_refs,
         overwrite_file,
+        json_format,
     } = args;
 
     let project: Option<String>;
@@ -86,8 +88,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 PushPullInputValidationError::NoFileSpecified { is_push: false },
             );
 
+            let formatted_err = err.format_error_output(json_format)?;
+
             eprintln!();
-            bail!(err);
+            bail!(formatted_err);
         }
 
         if let None = format {
@@ -167,8 +171,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
+        let formatted_err = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(formatted_err);
     }
 
     if !only.is_empty() && !exclude.is_empty() {
@@ -176,8 +182,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
         );
 
+        let formatted_err = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     if !only.is_empty() {
@@ -185,9 +193,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Err(err) = name_validation_res {
             let mapped_err = map_secret_to_load_only_secrets_error(&err);
+            let error = InputValidationError::LoadEnvironment(mapped_err);
+            let formatted_err = error.format_error_output(json_format)?;
 
             eprintln!();
-            bail!(InputValidationError::LoadEnvironment(mapped_err));
+            bail!(formatted_err);
         }
     }
 
@@ -196,9 +206,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         if let Err(err) = name_validation_res {
             let mapped_err = map_secret_to_load_exclude_secrets_error(&err);
+            let error = InputValidationError::LoadEnvironment(mapped_err);
+            let formatted_err = error.format_error_output(json_format)?;
 
             eprintln!();
-            bail!(InputValidationError::LoadEnvironment(mapped_err));
+            bail!(formatted_err);
         }
     }
 
@@ -212,8 +224,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 }
             }
             Err(e) => {
+                let formatted_err = e.format_error_output(json_format)?;
+
                 eprintln!();
-                bail!(e);
+                bail!(formatted_err);
             }
         }
     }
@@ -254,10 +268,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     .await;
 
     if let Err(err) = res {
-        debug!("Error: {:#?}", &err);
         spinner.stop_with_message(&err.to_string());
+        debug!("Error: {:#?}", &err);
 
-        return Ok(());
+        let formatted_err = err.format_error_output(json_format)?;
+        bail!(formatted_err);
     }
 
     let res = res.unwrap();
@@ -474,7 +489,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let formatted_err = e.format_error_output(json_format)?;
+            bail!(formatted_err);
         }
     }
 
