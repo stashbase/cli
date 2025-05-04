@@ -201,16 +201,14 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         let name_validation_res = validate_secret_names(&only);
 
         if let Err(err) = name_validation_res {
-            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
+            let mapped_err = map_secret_to_load_only_secrets_error(&err);
 
-                // if is_from_file {
-                //     eprintln!();
-                // }
+            // if is_from_file {
+            //     eprintln!();
+            // }
 
-                eprintln!();
-                bail!(InputValidationError::LoadEnvironment(mapped_err));
-            }
+            eprintln!();
+            bail!(InputValidationError::LoadEnvironment(mapped_err));
         }
     }
 
@@ -218,16 +216,14 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         let name_validation_res = validate_secret_names(&exclude);
 
         if let Err(err) = name_validation_res {
-            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
+            let mapped_err = map_secret_to_load_exclude_secrets_error(&err);
 
-                // if is_from_file {
-                //     eprintln!();
-                // }
+            // if is_from_file {
+            //     eprintln!();
+            // }
 
-                eprintln!();
-                bail!(InputValidationError::LoadEnvironment(mapped_err));
-            }
+            eprintln!();
+            bail!(InputValidationError::LoadEnvironment(mapped_err));
         }
     }
 
@@ -588,13 +584,8 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                     return Ok(name_value_pairs);
                 }
                 Err(err) => {
-                    if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                        let mapped_err = map_secret_to_load_set_secrets_error(validation_err);
-                        bail!(InputValidationError::LoadEnvironment(mapped_err));
-                    } else {
-                        // unreachable
-                        bail!(err)
-                    }
+                    let mapped_err = map_secret_to_load_set_secrets_error(&err);
+                    bail!(InputValidationError::LoadEnvironment(mapped_err));
                 }
             }
         }
