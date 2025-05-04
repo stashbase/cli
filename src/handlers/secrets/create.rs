@@ -42,7 +42,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
     debug!("{:#?}", name_value_pairs);
 
-    if let Err(err) = name_value_pairs {
+    if let Err(_) = name_value_pairs {
         eprintln!();
 
         let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
@@ -56,7 +56,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     let comment_pairs = separator::key_value(comments);
     debug!("{:#?}", comment_pairs);
 
-    if let Err(err) = comment_pairs {
+    if let Err(_) = comment_pairs {
         let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
         let error_output = error.format_error_output(json_format)?;
 
