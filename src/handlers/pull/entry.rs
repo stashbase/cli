@@ -15,7 +15,7 @@ use crate::{
     cmd::{config::SecretsOutputFormat, pull::PullFormat},
     handlers::run::entry::get_set_name_value_pairs,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::Secret,
         validation::{
@@ -483,7 +483,12 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 }
                 Err(_) => {
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.")
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    eprintln!();
+                    bail!(formatted_err);
                 }
             }
         }
