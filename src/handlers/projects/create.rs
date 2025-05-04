@@ -24,17 +24,20 @@ pub async fn handle_create_project(
     let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
+        let error_output = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let name_has_id_format = resource_name_has_id_format(IdentifierResource::Project, &name);
 
     if name_has_id_format {
         let error = InputValidationError::Projects(ProjectInputValidationError::NameUsingIdFormat);
+        let error_output = error.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(error)
+        bail!(error_output);
     }
 
     debug!("creating project...:");
