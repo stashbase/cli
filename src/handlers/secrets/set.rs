@@ -33,10 +33,12 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     } = args;
 
     if values.is_empty() {
-        let msg = format!("{} {}", "Input error:".red(), "no secrets to set");
+        let secrets_error = SecretsInputValidationError::NoSecretsToSet;
+        let input_error = InputValidationError::Secrets(secrets_error);
+        let error_output = input_error.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(msg);
+        bail!(error_output);
     }
 
     debug!("{:#?}", comment);
