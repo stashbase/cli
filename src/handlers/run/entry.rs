@@ -62,19 +62,21 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     } = args;
 
     if file.is_some() && (project.is_some() || environment.is_some()) {
-        let err = InputValidationError::LoadEnvironment(
+        let error = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::FileArgWithInline,
         );
+        let formatted_err = error.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     if command.is_empty() {
-        let err = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
+        let error = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
+        let formatted_err = error.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     let mut is_from_file = true;
@@ -85,20 +87,22 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         is_from_file = false;
     } else if let Some(_) = project {
         // missing env arg
-        let err = InputValidationError::LoadEnvironment(
+        let error = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::MissingEnvArg,
         );
+        let formatted_err = error.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     } else if let Some(_) = environment {
         // missing project error
-        let err = InputValidationError::LoadEnvironment(
+        let error = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::MissingProjectArg,
         );
+        let formatted_err = error.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     } else {
         let config_action_command = ConfigActionCommand::Run;
         // LOAD from file
@@ -178,12 +182,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
-        if is_from_file {
-            // eprintln!();
-        }
+        let formatted_err = e.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(e);
+        bail!(formatted_err);
     }
 
     if !only.is_empty() && !exclude.is_empty() {
@@ -191,12 +193,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
         );
 
-        // if is_from_file {
-        //     eprintln!();
-        // }
+        let formatted_err = err.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     if !only.is_empty() {
@@ -204,13 +204,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
         if let Err(err) = name_validation_res {
             let mapped_err = map_secret_to_load_only_secrets_error(&err);
-
-            // if is_from_file {
-            //     eprintln!();
-            // }
+            let error = InputValidationError::LoadEnvironment(mapped_err);
+            let formatted_err = error.format_error_output(json_format)?;
 
             eprintln!();
-            bail!(InputValidationError::LoadEnvironment(mapped_err));
+            bail!(formatted_err);
         }
     }
 
@@ -219,13 +217,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
         if let Err(err) = name_validation_res {
             let mapped_err = map_secret_to_load_exclude_secrets_error(&err);
-
-            // if is_from_file {
-            //     eprintln!();
-            // }
+            let error = InputValidationError::LoadEnvironment(mapped_err);
+            let formatted_err = error.format_error_output(json_format)?;
 
             eprintln!();
-            bail!(InputValidationError::LoadEnvironment(mapped_err));
+            bail!(formatted_err);
         }
     }
 
@@ -239,12 +235,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 }
             }
             Err(e) => {
-                // if is_from_file {
-                //     eprintln!();
-                // }
+                let formatted_err = e.format_error_output(json_format)?;
 
                 eprintln!();
-                bail!(e);
+                bail!(formatted_err);
             }
         }
     }
