@@ -116,7 +116,7 @@ pub enum EnvironmentsInputValidationError {
 #[derive(Debug, Serialize)]
 pub enum YamlEnvConfigError {
     FileNotFound { custom_path: bool },
-    FailedToRead { custom_path: bool, message: &'static str },
+    FailedToRead { custom_path: bool, message: String },
     NoEntries,
 }
 
@@ -700,11 +700,11 @@ impl YamlEnvConfigError {
             } => match custom_path {
                 true => (
                     "Failed to read the specified config file.",
-                    Some(message)
+                    Some(Box::leak(message.clone().into_boxed_str()))
                 ),
                 false => (
                     "Failed to read 'stashbase.yaml' file.",
-                    Some(message)
+                    Some(Box::leak(message.clone().into_boxed_str()))
                 ),
             },
         }
