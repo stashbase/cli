@@ -69,10 +69,21 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         let file_exists = check_file_exists(&path);
 
         if !file_exists {
-            let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
+            if json_format {
+                let error_json = serde_json::json!({
+                    "error": {
+                        "message": "Error reading file: file does not exist."
+                    }
+                });
+                let pretty = to_colored_json_auto(&error_json).unwrap();
 
-            eprintln!();
-            bail!(err_msg);
+                eprintln!();
+                bail!(pretty);
+            } else {
+                let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
+                eprintln!();
+                bail!(err_msg);
+            }
         }
 
         //
