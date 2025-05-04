@@ -6,7 +6,7 @@ use crate::{
     api::projects,
     cmd::config::OutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         projects::{
             ProjectWithCountNoDescriptionTable, SingleProject, SingleProjectTable,
             SingleProjectWithCountNoDescriptionTable,
@@ -82,7 +82,10 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
                     }
                 }
                 Err(_) => {
-                    bail!("Something went wrong.")
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
