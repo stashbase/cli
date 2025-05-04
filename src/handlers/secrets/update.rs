@@ -39,11 +39,11 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     } = args;
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NoUpdatesProvided);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(
-            "{} No updates provided. Please specify at least one of: --values, --names, or --comments.",
-            "Input error:".red()
-        );
+        bail!(error_output);
     }
 
     // name -> {new_name, value, comment}
