@@ -7,6 +7,7 @@ use crate::{
     models::{
         api_client::RequestApiOptionResponse,
         secrets::{CreateSecretsResponse, Secret, ValidateSecrets},
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
         interaction, output::get_colored_json, secrets::format_secret_comment, separator,
@@ -43,7 +44,11 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
     if let Err(err) = name_value_pairs {
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
+        bail!(error_output);
     }
 
     let name_value_pairs = name_value_pairs.unwrap();
@@ -52,8 +57,11 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     debug!("{:#?}", comment_pairs);
 
     if let Err(err) = comment_pairs {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+        bail!(error_output);
     }
 
     // OK

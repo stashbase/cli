@@ -7,6 +7,7 @@ use crate::{
     models::{
         api_client::RequestApiOptionResponse,
         secrets::{Secret, ValidateSecrets},
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
 };
@@ -44,9 +45,12 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     debug!("{:#?}", name_value_pairs);
 
-    if let Err(err) = name_value_pairs {
+    if let Err(_) = name_value_pairs {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+        bail!(error_output);
     }
 
     let name_value_pairs = name_value_pairs.unwrap();
@@ -54,9 +58,12 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let comment_pairs = separator::key_value(comment);
     debug!("{:#?}", comment_pairs);
 
-    if let Err(err) = comment_pairs {
+    if let Err(_) = comment_pairs {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+        bail!(error_output);
     }
 
     // OK

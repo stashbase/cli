@@ -71,6 +71,7 @@ pub enum SecretsInputValidationError {
     ReadFile(String),
     CommentsTooLong(Vec<String>),
     CommentTooLong,
+    NameValueSeparator,
     // names vec
     ValuesTooLong(Vec<String>),
     // for search command
@@ -602,6 +603,11 @@ impl SecretsInputValidationError {
                 "New name equals to original name.",
                 Some("Use different new name."),
                 secrets.clone()
+            ),
+            SecretsInputValidationError::NameValueSeparator => (
+                "Invalid name-value pairs.",
+                Some("Expected a name-value pairs separated by '='."),
+                vec![]
             ),
         }
     }
