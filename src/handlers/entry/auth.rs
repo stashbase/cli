@@ -21,14 +21,18 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
         format: args.format,
     };
 
+    let json_format = args.format == OutputFormat::Json;
     let mut spinner = request_spinner();
 
     let response = get_current_auth_details(args.api_key).await;
 
     if let Err(err) = response {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let formatted_err = err.format_error_output(json_format)?;
+
+        eprintln!();
+        bail!(formatted_err);
     }
 
     let response = response.unwrap();
@@ -61,7 +65,11 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
         }
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
-            bail!(err);
+
+            let formatted_err = err.format_error_output(json_format)?;
+
+            eprintln!();
+            bail!(formatted_err);
         }
     }
 
