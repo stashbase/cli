@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::debug;
 
 use crate::{
@@ -23,7 +23,7 @@ pub struct UpdateWebhookArgs {
     pub description: Option<String>,
 }
 
-pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
+pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> anyhow::Result<()> {
     debug!("{:#?}", &args);
 
     let UpdateWebhookArgs {
@@ -39,8 +39,10 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     let validation_res = validate_input(&url, &description);
 
     if let Err(e) = validation_res {
-        eprintln!("");
-        bail!(e);
+        let formatted_err = e.format_error_output(false)?;
+
+        eprintln!();
+        bail!(formatted_err);
     }
 
     let args = webhooks::UpdateArgs {
@@ -88,10 +90,13 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_input(new_name: &Option<String>, new_description: &Option<String>) -> Result<()> {
+pub fn validate_input(
+    new_name: &Option<String>,
+    new_description: &Option<String>,
+) -> Result<(), InputValidationError> {
     if new_name.is_none() && new_description.is_none() {
         let err = InputValidationError::Webhook(WebhookInputValidationError::NoUpdateFlags);
-        bail!(err)
+        return Err(err);
     }
 
     Ok(())
