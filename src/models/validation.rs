@@ -63,6 +63,7 @@ pub enum WebhookInputValidationError {
 pub enum SecretsInputValidationError {
     NoNames,
     NoSecretsToCreate,
+    NoSecretsToDelete,
     NamesFormat(Vec<String>),
     NamesTooShort(Vec<String>),
     NamesTooLong(Vec<String>),
@@ -502,6 +503,11 @@ impl SecretsInputValidationError {
         match self {
             SecretsInputValidationError::NoSecretsToCreate => (
                 "No secrets to create provided.",
+                Some("Provide at least one secret name."),
+                vec![]
+            ),
+            SecretsInputValidationError::NoSecretsToDelete => (
+                "No secrets to delete provided.",
                 Some("Provide at least one secret name."),
                 vec![]
             ),
