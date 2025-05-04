@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
+use colored_json::to_colored_json_auto;
 use log::debug;
 use owo_colors::OwoColorize;
 
@@ -78,8 +79,20 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     secrets.format();
 
     if secrets.is_empty() {
-        let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
-        eprintln!("{}", msg);
+        if json_format {
+            let error_json = serde_json::json!({
+                "error": {
+                    "message": "Nothing to upload: no secrets found."
+                }
+            });
+            let json = to_colored_json_auto(&error_json).unwrap();
+
+            eprintln!();
+            println!("{}", json);
+        } else {
+            let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
+            eprintln!("{}", msg);
+        }
 
         return Ok(());
     }
