@@ -79,9 +79,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
                     if format == SecretsOutputFormat::Json {
                         let json_str = get_colored_json(&secrets).unwrap();
 
-                        spinner.stop_and_persist("", "");
                         println!("{}", json_str);
-
                         return Ok(());
                     }
 
