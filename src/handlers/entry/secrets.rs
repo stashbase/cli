@@ -76,8 +76,10 @@ pub async fn handle_secrets_commands(
     let validation_res = validate_project_environment_identifier(&project, &environment, false);
 
     if let Err(err) = validation_res {
+        let formatted_err = err.format_error_output(raw_output)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     match cmd.subcommand {
