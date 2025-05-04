@@ -10,7 +10,7 @@ use tabled::Tabled;
 use crate::{
     api::secrets,
     models::{
-        api_client::{GetApiResponseOk, GetRequestApiResponse},
+        api_client::{GetApiResponseOk, GetRequestApiResponse, OutputError},
         secrets::{
             ProjectSecretSearchedByName, ProjectSecretSearchedByNameTable,
             ProjectSecretSearchedByValue, ProjectSecretSearchedByValueTable,
@@ -230,7 +230,12 @@ where
         }
         Err(_) => {
             spinner.stop_and_persist("", "");
-            bail!("Something went wrong.")
+
+            let error = OutputError::failed_to_deserialize_response_body();
+            let formatted_err =
+                error.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+
+            bail!(formatted_err);
         }
     }
 
