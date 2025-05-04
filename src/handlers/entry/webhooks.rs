@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 
 use crate::{
     cmd::{
@@ -18,6 +18,7 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
+    models::validation::InputValidationError,
     utils::{
         output::get_output_format,
         validation::{
@@ -27,26 +28,30 @@ use crate::{
     },
 };
 
-fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcommand) -> Result<()> {
+fn validate_input(
+    project: &str,
+    environment: &str,
+    subcommand: &WebhookSubcommand,
+) -> Result<(), InputValidationError> {
     // validate project and environment
     let input_valid = validate_project_environment_identifier(project, environment, false);
 
     if let Err(err) = input_valid {
-        bail!(err);
+        return Err(err);
     }
 
     // validate webhook id
     if let Some(webhook_id) = subcommand.get_webhook_id() {
         let valid_webhook_id = validate_webhook_id(webhook_id);
         if let Err(err) = valid_webhook_id {
-            bail!(err);
+            return Err(err);
         }
     }
 
     if let Some(webhook_id) = subcommand.get_webhook_url() {
         let valid_webhook_url = validate_webhook_url(webhook_id);
         if let Err(err) = valid_webhook_url {
-            bail!(err);
+            return Err(err);
         }
     }
 
@@ -54,7 +59,7 @@ fn validate_input(project: &str, environment: &str, subcommand: &WebhookSubcomma
         let valid_description = validate_webhook_description(description);
 
         if let Err(err) = valid_description {
-            bail!(err);
+            return Err(err);
         }
     }
 
@@ -66,7 +71,7 @@ pub async fn handle_webhook_commands(
     api_key: String,
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     // required options
     let (project, environment) = cmd.try_get_project_environment()?;
 
@@ -74,8 +79,10 @@ pub async fn handle_webhook_commands(
     let validation_res = validate_input(&project, &environment, &cmd.subcommand);
 
     if let Err(err) = validation_res {
-        eprintln!("");
-        bail!(err);
+        let formatted_err = err.format_error_output(raw_output)?;
+
+        eprintln!();
+        bail!(formatted_err);
     }
 
     match cmd.subcommand {
