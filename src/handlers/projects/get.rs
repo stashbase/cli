@@ -24,8 +24,10 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let mut spinner = request_spinner();

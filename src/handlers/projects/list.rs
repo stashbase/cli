@@ -46,26 +46,30 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         let search_validation_res = validate_project_search(&search);
 
         if let Err(err) = search_validation_res {
+            let error_output = err.format_error_output(format == OutputFormat::Json)?;
+
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         }
     }
 
     if let Some(limit) = limit {
         if limit < 2 || limit > 30 {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidLimit);
+            let error_output = error.format_error_output(format == OutputFormat::Json)?;
 
             eprintln!();
-            bail!(error);
+            bail!(error_output);
         }
     }
 
     if let Some(page) = page {
         if page < 1 || page > 1000 {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidPage);
+            let error_output = error.format_error_output(format == OutputFormat::Json)?;
 
             eprintln!();
-            bail!(error);
+            bail!(error_output);
         }
     }
 
