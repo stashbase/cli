@@ -340,13 +340,13 @@ impl InputValidationError {
         #[derive(serde::Serialize)]
         struct ErrorData<'a> {
             #[serde(flatten)]
-            data: &'a InputValidationError,
+            data: &'a MessageHint,
             // #[serde(rename = "type")]
             // error_type: &'static str,
         }
 
         let wrapper = ErrorWrapper {
-            error: ErrorData { data: self },
+            error: ErrorData { data: &self.to_struct() },
         };
         serde_json::to_value(&wrapper)
     }
@@ -357,6 +357,7 @@ impl InputValidationError {
 
         Ok(json_str)
     }
+
 }
 
 impl CmdArgInputValidationError {
@@ -824,6 +825,8 @@ impl RunInputValidationError {
 pub struct MessageHint {
     message: &'static str,
     hint: Option<&'static str>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     secrets: Vec<String>,
 }
 
