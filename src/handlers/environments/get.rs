@@ -6,7 +6,7 @@ use crate::{
     api::environments,
     cmd::config::OutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
     },
     utils::{
@@ -83,7 +83,11 @@ pub async fn handle_get_environment(
                     }
                 }
                 Err(_) => {
-                    bail!("Something went wrong.")
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    eprintln!();
+                    bail!(formatted_err);
                 }
             }
         }

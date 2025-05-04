@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::{
     api::environments,
-    models::api_client::GetRequestApiResponse,
+    models::api_client::{GetRequestApiResponse, OutputError},
     utils::{spinner::request_spinner, validation::validate_project_environment_identifier},
 };
 
@@ -56,7 +56,12 @@ pub async fn handle_open_environment(
                 Err(e) => {
                     error!("{:#?}", e);
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.");
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(false)?;
+
+                    eprintln!();
+                    bail!(formatted_err);
                 }
             }
         }
