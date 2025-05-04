@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::debug;
 use owo_colors::OwoColorize;
 
@@ -28,7 +28,7 @@ pub struct HandleCommentArgs {
     pub json_format: bool,
 }
 
-pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
+pub async fn handle_update_comment(args: HandleCommentArgs) -> anyhow::Result<()> {
     let HandleCommentArgs {
         api_key,
         project,
@@ -41,8 +41,10 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
     let input_validation_res = validate_input(&project, &environment, &name);
 
     if let Err(e) = input_validation_res {
+        let error_output = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     let formatted_comment = match comment.is_empty() {
@@ -54,9 +56,10 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
 
     if !is_valid {
         let err = InputValidationError::Secrets(SecretsInputValidationError::CommentTooLong);
+        let error_output = err.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err)
+        bail!(error_output);
     }
 
     // ok
@@ -99,24 +102,27 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> Result<()> {
     Ok(())
 }
 
-fn validate_input(project: &str, environment: &str, name: &str) -> Result<()> {
+fn validate_input(
+    project: &str,
+    environment: &str,
+    name: &str,
+) -> Result<(), InputValidationError> {
     let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     let env_validation_res = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     let name_valid = validate_secret_name(&name);
 
     if let Err(err) = name_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+        return Err(err);
     }
 
     Ok(())
