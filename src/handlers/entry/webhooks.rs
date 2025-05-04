@@ -212,8 +212,14 @@ pub async fn handle_webhook_commands(
             handle_list_webhook_logs(fn_args).await?;
         }
         WebhookSubcommand::Open(cmd_args) => {
-            handle_open_environment_webhook(api_key, project, environment, cmd_args.webhook_id)
-                .await?;
+            handle_open_environment_webhook(
+                api_key,
+                project,
+                environment,
+                cmd_args.webhook_id,
+                raw_output,
+            )
+            .await?;
         }
         WebhookSubcommand::RotateSecret(cmd_args) => {
             let fn_args = RotateWebhookSecretArgs {
