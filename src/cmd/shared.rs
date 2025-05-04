@@ -1,4 +1,3 @@
-use anyhow::{bail, Result};
 use clap::Args;
 
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
@@ -32,17 +31,17 @@ pub fn try_get_project_environment(
     // from subcommand
     project: Option<&str>,
     environment: Option<&str>,
-) -> Result<(String, String)> {
+) -> Result<(String, String), InputValidationError> {
     if root_project.is_some() && project.is_some() {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::DuplicateProject
-        ))
+        let error = InputValidationError::CmdArgs(CmdArgInputValidationError::DuplicateProject);
+
+        return Err(error);
     }
 
     if root_environment.is_some() && environment.is_some() {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::DuplicateEnvironment
-        ))
+        let error = InputValidationError::CmdArgs(CmdArgInputValidationError::DuplicateEnvironment);
+
+        return Err(error);
     }
 
     if project.is_none()
@@ -50,21 +49,19 @@ pub fn try_get_project_environment(
         && environment.is_none()
         && root_environment.is_none()
     {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::MissingProjectEnvironment
-        ))
+        let error =
+            InputValidationError::CmdArgs(CmdArgInputValidationError::MissingProjectEnvironment);
+        return Err(error);
     }
 
     if project.is_none() && root_project.is_none() {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::MissingProject
-        ))
+        let error = InputValidationError::CmdArgs(CmdArgInputValidationError::MissingProject);
+        return Err(error);
     }
 
     if environment.is_none() && root_environment.is_none() {
-        bail!(InputValidationError::CmdArgs(
-            CmdArgInputValidationError::MissingEnvironment
-        ))
+        let error = InputValidationError::CmdArgs(CmdArgInputValidationError::MissingEnvironment);
+        return Err(error);
     }
 
     let project = match root_project {
