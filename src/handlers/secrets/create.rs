@@ -35,7 +35,11 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     } = args;
 
     if values.is_empty() {
-        bail!("{} No secrets to create provided", "Input error:".red());
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NoSecretsToCreate);
+        let error_output = error.format_error_output(json_format)?;
+
+        eprintln!();
+        bail!(error_output);
     }
 
     let name_value_pairs = separator::key_value(values);
