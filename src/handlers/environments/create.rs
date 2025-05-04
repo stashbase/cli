@@ -10,7 +10,7 @@ use crate::{
     cmd::secrets::SecretsFileFormat,
     handlers::environments::open::GetEnvUrlResponse,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         environments::{CreatEnvironmentPayload, CreateEnvironmentResponse},
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
@@ -137,12 +137,13 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 secrets = Some(values);
             }
             Err(e) => {
-                let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(
+                let error = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(
                     e.to_string(),
                 ));
+                let formatted_err = error.format_error_output(json_format)?;
 
                 eprintln!();
-                bail!(err);
+                bail!(formatted_err);
             }
         }
     }
@@ -201,7 +202,11 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong when when opening environment.");
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
