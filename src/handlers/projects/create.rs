@@ -4,7 +4,7 @@ use log::{debug, error};
 use crate::{
     api::projects,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         projects::{CreateProjectPayload, CreateProjectResponse},
         validation::{InputValidationError, ProjectInputValidationError},
     },
@@ -83,8 +83,10 @@ pub async fn handle_create_project(
                     }
                     Err(e) => {
                         spinner.stop_and_persist("", "");
-                        error!("{:#?}", e);
-                        bail!("Something went wrong.");
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
