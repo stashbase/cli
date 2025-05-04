@@ -11,7 +11,7 @@ use tabled::{
 use crate::{
     api::environments::{self, CompareEnvironmentsRequestArgs},
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         environments::CompareEnvironmentsResponse,
         validation::{EnvironmentsInputValidationError, InputValidationError},
     },
@@ -108,7 +108,11 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                 }
                 Err(_) => {
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.")
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(args.json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
