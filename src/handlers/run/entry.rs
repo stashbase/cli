@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::debug;
 use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
@@ -43,9 +43,10 @@ pub struct HandleRunArgs {
     pub print_secrets: bool,
     pub file: Option<String>,
     pub expand_refs: Option<bool>,
+    pub json_format: bool,
 }
 
-pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
+pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
         command,
@@ -57,6 +58,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
         mut exclude,
         mut expand_refs,
         mut print_secrets,
+        json_format,
     } = args;
 
     if file.is_some() && (project.is_some() || environment.is_some()) {
@@ -257,10 +259,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> Result<()> {
 
         if exists_count == setted_len {
             let run_error = RunInputValidationError::NoSecretsToFetch;
-            let err = InputValidationError::Run(run_error);
+            let error = InputValidationError::Run(run_error);
+            let formatted_err = error.format_error_output(json_format)?;
 
             eprintln!();
-            bail!(err);
+            bail!(formatted_err);
         }
     }
 
@@ -477,7 +480,7 @@ async fn handle_run(
     print_secrets: bool,
     secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let mut success_msg = format!(
         "{} {} ({} {})",
         "✓".green(),
@@ -566,7 +569,9 @@ fn print_table(secrets: &Vec<SecretWithoutComment>) {
     println!("{}\n", table);
 }
 
-pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, String)>> {
+pub fn get_set_name_value_pairs(
+    values: Vec<String>,
+) -> Result<Vec<(String, String)>, InputValidationError> {
     let name_value_pairs_res = separator::key_value(values);
 
     match name_value_pairs_res {
@@ -585,19 +590,18 @@ pub fn get_set_name_value_pairs(values: Vec<String>) -> Result<Vec<(String, Stri
                 }
                 Err(err) => {
                     let mapped_err = map_secret_to_load_set_secrets_error(&err);
-                    let error_output = err.format_error_output(false)?;
+                    let error = InputValidationError::LoadEnvironment(mapped_err);
 
-                    eprintln!();
-                    bail!(error_output);
+                    return Err(error);
                 }
             }
         }
         Err(_) => {
-            let err = InputValidationError::LoadEnvironment(
+            let error = InputValidationError::LoadEnvironment(
                 LoadEnvironmentInputValidationError::SetSecretNameValueSeparator,
             );
 
-            bail!(err);
+            return Err(error);
         }
     }
 }
