@@ -21,8 +21,10 @@ pub async fn handle_delete_environment(
     let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_valid {
+        let formatted_err = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
     // ok
 

@@ -56,8 +56,10 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     let input_valid = validate_project_environment(&project, &name, true);
 
     if let Err(err) = input_valid {
+        let formatted_err = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     let mut secrets: Option<Vec<Secret>> = None;
@@ -124,7 +126,9 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 secrets = Some(values);
             }
             Err(e) => {
-                let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(e));
+                let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(
+                    e.to_string(),
+                ));
 
                 eprintln!();
                 bail!(err);

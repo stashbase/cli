@@ -47,7 +47,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
     if let Err(err) = project_identifier_vlidation_result {
         eprintln!();
-        bail!(err);
+        let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+        bail!(formatted_err);
     }
 
     // validate search
@@ -56,7 +58,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
         if let Err(err) = search_validation_res {
             eprintln!();
-            bail!(err);
+            let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+            bail!(formatted_err);
         }
     }
 
