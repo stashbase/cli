@@ -5,7 +5,7 @@ use crate::{
     api::secrets,
     cmd::config::SecretsOutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         secrets::{Secret, SecretOptional},
     },
     utils::{
@@ -75,10 +75,13 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                             println!("{}", print_string);
                         }
                     }
-                    Err(e) => {
-                        debug!("{}", e);
+                    Err(_) => {
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err =
+                            error.format_error_output(format == SecretsOutputFormat::Json)?;
+
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong.")
+                        bail!(formatted_err);
                     }
                 }
             }
@@ -105,7 +108,12 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong.")
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err =
+                            error.format_error_output(format == SecretsOutputFormat::Json)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
