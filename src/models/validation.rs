@@ -64,6 +64,8 @@ pub enum SecretsInputValidationError {
     NoNames,
     NoSecretsToCreate,
     NoSecretsToDelete,
+    NoSecretsToSet,
+    NoUpdatesProvided,
     NamesFormat(Vec<String>),
     NamesTooShort(Vec<String>),
     NamesTooLong(Vec<String>),
@@ -511,8 +513,18 @@ impl SecretsInputValidationError {
                 Some("Provide at least one secret name."),
                 vec![]
             ),
+            SecretsInputValidationError::NoSecretsToSet => (
+                "No secrets to set provided.",
+                Some("Provide at least one secret name."),
+                vec![]
+            ),
+            SecretsInputValidationError::NoUpdatesProvided => (
+                "No secret updates provided.",
+                Some("Provide at least one of the following options: --values, --names, --comments."),
+                vec![]
+            ),
             SecretsInputValidationError::NamesFormat(secrets) => (
-                "Invalid secret names.",
+                "Invalid secret names provided.",
                 Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed"),
                 secrets.clone()
             ),
