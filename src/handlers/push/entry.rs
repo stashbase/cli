@@ -208,12 +208,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         let name_validation_res = validate_secret_names(&names_vec);
 
         if let Err(err) = name_validation_res {
-            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
+            let mapped_err = map_secret_to_load_only_secrets_error(&err);
 
-                eprintln!();
-                bail!(InputValidationError::LoadEnvironment(mapped_err));
-            }
+            eprintln!();
+            bail!(InputValidationError::LoadEnvironment(mapped_err));
         }
 
         secrets = secrets
@@ -225,11 +223,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         let name_validation_res = validate_secret_names(&names_vec);
 
         if let Err(err) = name_validation_res {
-            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
-                eprintln!();
-                bail!(InputValidationError::LoadEnvironment(mapped_err));
-            }
+            let mapped_err = map_secret_to_load_exclude_secrets_error(&err);
+
+            eprintln!();
+            bail!(InputValidationError::LoadEnvironment(mapped_err));
         }
 
         secrets = secrets
