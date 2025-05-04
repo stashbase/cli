@@ -9,6 +9,8 @@ use tabled::Tabled;
 
 use crate::{cmd::config::SecretsOutputFormat, utils};
 
+use super::validation::InputValidationError;
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithoutComment {
@@ -114,7 +116,7 @@ impl Display for Secret {
 }
 
 pub trait ValidateSecrets {
-    fn validate(&self) -> anyhow::Result<()>;
+    fn validate(&self) -> Result<(), InputValidationError>;
     fn get_reference_warnings(&self) -> SecretReferenceWarnings;
 }
 
@@ -123,7 +125,7 @@ pub trait FormatSecrets {
 }
 
 impl ValidateSecrets for Vec<Secret> {
-    fn validate(&self) -> anyhow::Result<()> {
+    fn validate(&self) -> Result<(), InputValidationError> {
         utils::validation::validate_secrets(self)
     }
 
@@ -160,11 +162,11 @@ pub struct UpdatedSecret {
 pub type UpdateSecretsPayload = Vec<UpdatedSecret>;
 
 pub trait ValidateUpdateSecrets {
-    fn validate(&self) -> anyhow::Result<()>;
+    fn validate(&self) -> Result<(), InputValidationError>;
 }
 
 impl ValidateUpdateSecrets for Vec<UpdatedSecret> {
-    fn validate(&self) -> anyhow::Result<()> {
+    fn validate(&self) -> Result<(), InputValidationError> {
         utils::validation::validate_update_secrets(self)
     }
 }
