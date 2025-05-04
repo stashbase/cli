@@ -116,7 +116,7 @@ pub enum EnvironmentsInputValidationError {
 #[derive(Debug, Serialize)]
 pub enum YamlEnvConfigError {
     FileNotFound { custom_path: bool },
-    FailedToRead { custom_path: bool, message: String },
+    FailedToRead { custom_path: bool, message: &'static str },
     NoEntries,
 }
 
@@ -152,31 +152,7 @@ pub enum RunInputValidationError {
 
 impl fmt::Display for CmdArgInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: &str;
-
-        match self {
-            CmdArgInputValidationError::MissingProject => {
-                msg = "Project not specified.";
-                hint = "Use '-p/--project' argument to specify the project.";
-            }
-            CmdArgInputValidationError::DuplicateProject => {
-                msg = "Project specified multiple times.";
-                hint = "Use '-p/--project' argument only once.";
-            }
-            CmdArgInputValidationError::MissingEnvironment => {
-                msg = "Environment not specified.";
-                hint = "Use '-e/--environment' argument to specify the environment.";
-            }
-            CmdArgInputValidationError::DuplicateEnvironment => {
-                msg = "Environment specified multiple times.";
-                hint = "Use '-e/--environment' argument only once.";
-            }
-            CmdArgInputValidationError::MissingProjectEnvironment => {
-                msg = "Project and environment not specified.";
-                hint = "Use '-p/--project' and '-e/--environment' arguments.";
-            }
-        }
+        let (msg, hint) = self.message_and_hint();
 
         writeln!(f, "{}", format!("  Message: {}", msg))?;
         write!(f, "{}", format!("  Hint: {}", hint))?;
@@ -187,96 +163,7 @@ impl fmt::Display for CmdArgInputValidationError {
 
 impl fmt::Display for ProjectInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
-
-        match self {
-            ProjectInputValidationError::NameTooShort { is_root } => {
-                if *is_root {
-                    msg = "Argument name is too short.";
-                    hint = Some("Minimum is 2 characters.");
-                } else {
-                    msg = "Project argument is too short.";
-                    hint = Some("Minimum is 2 characters.");
-                }
-            }
-
-            ProjectInputValidationError::NameTooLong { is_root } => {
-                if *is_root {
-                    msg = "Argument name is too long.";
-                    hint = Some("Maximum is 40 characters.");
-                } else {
-                    msg = "Project argument is too long.";
-                    hint = Some("Maximum is 40 characters.");
-                }
-            }
-            ProjectInputValidationError::NameFormat { is_root } => {
-                if *is_root {
-                    msg = "Argument name is invalid.";
-                    hint = Some("Name can contain only alphanumeric characters, hyphens or underscores (no spaces).");
-                } else {
-                    msg = "Argument project is invalid.";
-                    hint = Some("Project name can contain only alphanumeric characters, hyphens or underscores.");
-                }
-            }
-            ProjectInputValidationError::NoUpdateFlags => {
-                msg = "No update option specified.";
-                hint = Some("Use one of: -n (--name), -d (--description).");
-            }
-            ProjectInputValidationError::NewNameFormat => {
-                msg = "Name option value is invalid.";
-                hint = Some("Name can contain only alphanumeric characters, hyphens or underscores (no spaces).");
-            }
-            ProjectInputValidationError::NewNameTooShort => {
-                msg = "Name option value is too short.";
-                hint = Some("Minimum is 2 characters.");
-            }
-            ProjectInputValidationError::NewNameEqualsOriginal => {
-                msg = "New name equals to original name.";
-                hint = Some("Use different new name.");
-            }
-            ProjectInputValidationError::SearchTooShort => {
-                msg = "Argument search is too short.";
-                hint = Some("Minimum is 2 characters.");
-            }
-            ProjectInputValidationError::SearchFormat => {
-                msg = "Argument search is invalid.";
-                hint = Some(
-                    "Search can contain only alphanumeric characters, hyphens or underscores.",
-                );
-            }
-            ProjectInputValidationError::InvalidIdentifierFormat { is_root } => {
-                if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'proj_' followed by 22 alphanumeric characters.";
-
-                    msg = "Argument name or id is invalid.";
-                    hint = Some(&hint_str);
-                } else {
-                    let  hint_str = "The project name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'proj_' followed by 22 alphanumeric characters.";
-
-                    msg = "Argument project is invalid.";
-                    hint = Some(&hint_str);
-                }
-            }
-            ProjectInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and hyphens (-), without the prefix 'proj_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
-
-                msg = "Name is using id format.";
-                hint = Some(&hint_str);
-            }
-            ProjectInputValidationError::NewNameTooLong => {
-                msg = "Name option value is too long.";
-                hint = Some("Maximum is 40 characters.");
-            }
-            ProjectInputValidationError::InvalidLimit => {
-                msg = "Limit option value is invalid.";
-                hint = Some("Limit can range from 2 to 30.");
-            }
-            ProjectInputValidationError::InvalidPage => {
-                msg = "Page option value is invalid.";
-                hint = Some("Page can range from 1 to 1000.");
-            }
-        }
+        let (msg, hint) = self.message_and_hint();
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg))?;
@@ -291,115 +178,7 @@ impl fmt::Display for ProjectInputValidationError {
 
 impl fmt::Display for SecretsInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
-        let mut secrets_names: Option<&Vec<String>> = None;
-
-        match self {
-            SecretsInputValidationError::NamesFormat(names) => {
-                msg = "Invalid secret names.";
-                hint = Some(
-                    "Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed",
-                );
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::NamesTooShort(names) => {
-                msg = "Secret names are too short.";
-                hint = Some("Minimum length for secret name is 2 characters.");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::NamesTooLong(names) => {
-                msg = "Secret names are too long.";
-                hint = Some("Maximum length for secret name is 255 characters.");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::CommentsTooLong(names) => {
-                msg = "Secret comments are too long.";
-                hint = Some("Maximum length for comment is 512 characters (after formatting).");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::CommentTooLong => {
-                msg = "Secret comment is too long.";
-                hint = Some("Maximum length for comment is 512 characters (after formatting).");
-            }
-            SecretsInputValidationError::SearchFormat => {
-                msg = "Argument search is invalid.";
-                hint = Some(
-                    "Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed.",
-                );
-            }
-            SecretsInputValidationError::SearchTooShort => {
-                msg = "Argument search is too short.";
-                hint = Some("Minimum is 2 characters.");
-            }
-            SecretsInputValidationError::NoNames => {
-                msg = "No secrets names specified.";
-                hint = Some("Separate names of secrets to return with spaces.");
-            }
-            SecretsInputValidationError::DuplicateNames(names) => {
-                msg = "Found duplicate secret names.";
-                hint = Some("Secret names cannot be used more than once.");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::DuplicateNewNames(names) => {
-                msg = "Found duplicate new names.";
-                hint = Some("New names cannot be used more than once.");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::SelfReferences(names) => {
-                msg = "Found self-referencing secrets.";
-                hint = Some("Secrets cannot reference themselves.");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::ReadFile(error) => {
-                let msg = "Error reading file.";
-
-                writeln!(f, "{}", format!("  Message: {}", msg))?;
-                write!(f, "{}", format!("  Details: {}", error))?;
-
-                return Ok(());
-            }
-            SecretsInputValidationError::SearchBothNameAndValue => {
-                msg = "Cannot provide both 'name' and 'value' options.";
-                hint = Some("Provide only one of them.");
-            }
-            SecretsInputValidationError::SearchMissingNameOrValue => {
-                msg = "No search criteria provided.";
-                hint = Some("Provide either 'name' or 'value' option.");
-            }
-            SecretsInputValidationError::SearchValueTooLong => {
-                msg = "Option 'value' is too long.";
-                hint = Some("Maximum length is 1000 characters.");
-            }
-            SecretsInputValidationError::SearchValueEmpty => {
-                msg = "Option 'value' is empty.";
-                hint = Some("Provide non-empty string value.");
-            }
-            SecretsInputValidationError::ValuesTooLong(secret_names) => {
-                msg = "Secret values are too long.";
-                hint = Some("Maximum length is 4096 characters.");
-                secrets_names = Some(secret_names);
-            }
-            SecretsInputValidationError::NoData => {
-                msg = "No data provided.";
-                hint = Some("Provide valid secret data.");
-            }
-            SecretsInputValidationError::NewNamesFormat(names) => {
-                msg = "Invalid new secret names.";
-                hint = Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed.");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::MissingPropertiesToUpdate(names) => {
-                msg = "Missing properties to update.";
-                hint = Some("Provide valid secret data.");
-                secrets_names = Some(names);
-            }
-            SecretsInputValidationError::NewNameSameAsName(names) => {
-                msg = "New name equals to original name.";
-                hint = Some("Use different new name.");
-                secrets_names = Some(names);
-            }
-        }
+        let (msg, hint, secrets_names) = self.message_and_hint_and_secrets();
 
         write!(f, "  Message: {}", msg)?;
 
@@ -407,16 +186,14 @@ impl fmt::Display for SecretsInputValidationError {
             write!(f, "\n  Hint: {}", hint)?;
         }
 
-        if let Some(secrets_names) = secrets_names {
-            if !secrets_names.is_empty() {
-                let formatted_secrets = secrets_names
-                    .iter()
-                    .map(|s| format!("\"{}\"", s))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+        if !secrets_names.is_empty() {
+            let formatted_secrets = secrets_names
+                .iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect::<Vec<_>>()
+                .join(", ");
 
-                write!(f, "\n  Secrets: {}", formatted_secrets)?;
-            }
+            write!(f, "\n  Secrets: {}", formatted_secrets)?;
         }
 
         Ok(())
@@ -425,92 +202,7 @@ impl fmt::Display for SecretsInputValidationError {
 
 impl fmt::Display for EnvironmentsInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
-
-        match self {
-            EnvironmentsInputValidationError::NameTooShort { is_root } => {
-                if *is_root {
-                    msg = "Argument name is too short.";
-                    hint = Some("Minimum is 2 characters.");
-                } else {
-                    msg = "Environment argument is too short.";
-                    hint = Some("Minimum is 2 characters.");
-                }
-            }
-            EnvironmentsInputValidationError::NameFormat { is_root } => {
-                if *is_root {
-                    msg = "Argument name is invalid.";
-                    hint = Some(
-                        "Name can contain only alphanumeric characters, underscores or hyphen separator (no spaces).",
-                    );
-                } else {
-                    msg = "Argument environment is invalid.";
-                    hint = Some("Environment name can contain only alphanumeric characters, underscores or hyphen separator.");
-                }
-            }
-            EnvironmentsInputValidationError::NewNameEqualsOriginal => {
-                msg = "Provided new name equals to original name.";
-                hint = Some("Use different new name.");
-            }
-            EnvironmentsInputValidationError::NoUpdateFlags => {
-                msg = "No update flag specified.";
-                hint = Some("Use one of: -n (--name), -d (--description), -t (--type).");
-            }
-            EnvironmentsInputValidationError::NewNameFormat => {
-                msg = "New name option value is invalid.";
-                hint = Some("Name can contain only alphanumeric characters, underscores or hyphen separator (no spaces).");
-            }
-            EnvironmentsInputValidationError::NewNameTooShort => {
-                msg = "New name option value is too short.";
-                hint = Some("Minimum is 2 characters.");
-            }
-            EnvironmentsInputValidationError::SearchTooShort => {
-                msg = "Argument search is too short.";
-                hint = Some("Minimum is 2 characters.");
-            }
-            EnvironmentsInputValidationError::SearchFormat => {
-                msg = "Argument search is invalid.";
-                hint =
-                    Some("Search can contain only alphanumeric characters, underscores or hyphen separator.");
-            }
-            EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
-                if *is_root {
-                    let  hint_str = "The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters.";
-
-                    msg = "Argument name or id is invalid.";
-                    hint = Some(&hint_str);
-                } else {
-                    let  hint_str = "The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters.";
-
-                    msg = "Argument environment is invalid.";
-                    hint = Some(&hint_str);
-                }
-            }
-            EnvironmentsInputValidationError::NameUsingIdFormat => {
-                let hint_str = "Ensure the name is in a valid format: alphanumeric, may include underscores (_) and a signle hyphen (-) as as separator, without the prefix 'env_' followed by 22 alphanumeric characters, min 2 max 40 characters.";
-
-                msg = "Name is using id format.";
-                hint = Some(&hint_str);
-            }
-            EnvironmentsInputValidationError::NameTooLong { is_root } => {
-                if *is_root {
-                    msg = "Argument name is too long.";
-                    hint = Some("Maximum is 40 characters.");
-                } else {
-                    msg = "Project argument is too long.";
-                    hint = Some("Maximum is 40 characters.");
-                }
-            }
-            EnvironmentsInputValidationError::NewNameTooLong => {
-                msg = "New name option value is too long.";
-                hint = Some("Maximum is 40 characters.");
-            }
-            EnvironmentsInputValidationError::SelfComparison => {
-                msg = "Cannot compare an environment with itself.";
-                hint = Some("Use different environment for comparison.");
-            }
-        }
+        let (msg, hint) = self.message_and_hint();
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg),)?;
@@ -525,77 +217,7 @@ impl fmt::Display for EnvironmentsInputValidationError {
 
 impl fmt::Display for LoadEnvironmentInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
-        let mut secrets_names: Option<&Vec<String>> = None;
-
-        match self {
-            LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly => {
-                msg = "Use of both --exclude and --only flag.";
-                hint = Some("Use only one of them.");
-            }
-            LoadEnvironmentInputValidationError::OnlySecretNamesFormat(names) => {
-                msg = "Invalid only secret names.";
-                hint = Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::OnlySecretNamesTooShort(names) => {
-                msg = "Only argument secret names are too short.";
-                hint = Some("Minimum length for secret name is 2 characters.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::OnlySecretNamesTooLong(names) => {
-                msg = "Only argument secret names are too long.";
-                hint = Some("Maximum length for secret name is 255 characters.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::ExcludeSecretNamesFormat(names) => {
-                msg = "Invalid exclude secret names.";
-                hint = Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::ExcludeSecretNamesTooShort(names) => {
-                msg = "Exclude secret names are too short.";
-                hint = Some("Minimum length for secret name is 2 characters.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::ExcludeSecretNamesTooLong(names) => {
-                msg = "Exclude secret names are too long.";
-                hint = Some("Maximum length for secret name is 255 characters.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::MissingProjectArg => {
-                msg = "Missing project argument.";
-                hint = Some("Use '-p' flag to specify the project.");
-            }
-            LoadEnvironmentInputValidationError::MissingEnvArg => {
-                msg = "Missing environment argument.";
-                hint = Some("Use '-e' flag to specify the environment.");
-            }
-            LoadEnvironmentInputValidationError::FileArgWithInline => {
-                msg = "Cannot use '--file' flag and '-p' or '-e' flag at the same time.";
-                hint = None;
-            }
-            LoadEnvironmentInputValidationError::SetSecretNameValueSeparator => {
-                msg = "Invalid set argument.";
-                hint = Some("Expected a name-value pair (separated by '=').");
-            }
-            LoadEnvironmentInputValidationError::SetSecretNamesFormat(names) => {
-                msg = "Invalid set secret names.";
-                hint = Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::SetSecretNamesTooShort(names) => {
-                msg = "Set secret names are too short.";
-                hint = Some("Minimum length for secret name is 2 characters.");
-                secrets_names = Some(names);
-            }
-            LoadEnvironmentInputValidationError::SetSecretNamesTooLong(names) => {
-                msg = "Set secret names are too long.";
-                hint = Some("Maximum length for secret name is 255 characters.");
-                secrets_names = Some(names);
-            }
-        }
+        let (msg, hint, secrets_names) = self.message_and_hint_and_secrets();
 
         write!(f, "  Message: {}", msg)?;
 
@@ -603,7 +225,6 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             write!(f, "\n  Hint: {}", hint)?;
         }
 
-        if let Some(secrets_names) = secrets_names {
             if !secrets_names.is_empty() {
                 let formatted_secrets = secrets_names
                     .iter()
@@ -612,7 +233,6 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
                     .join(", ");
 
                 write!(f, "\n  Secrets: {}", formatted_secrets)?;
-            }
         }
 
         Ok(())
@@ -621,23 +241,8 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
 
 impl fmt::Display for PushPullInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
+        let (msg, hint) = self.message_and_hint();
 
-        match self {
-            PushPullInputValidationError::NoFileSpecified { is_push } => match is_push {
-                true => {
-                    msg = "No file specified.";
-                    hint =
-                    Some("Add root property 'file' or push property 'file' to the config or use '--file' flag.");
-                }
-                false => {
-                    msg = "No file specified.";
-                    hint =
-                    Some("Add root property 'file' or pull property 'file' to the config or use '--file' flag.");
-                }
-            },
-        }
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg),)?;
@@ -652,38 +257,8 @@ impl fmt::Display for PushPullInputValidationError {
 
 impl fmt::Display for WebhookInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
+        let (msg, hint) = self.message_and_hint();
 
-        match self {
-            WebhookInputValidationError::NoUpdateFlags => {
-                msg = "No update flag specified.";
-                hint = Some("Use one of: -u (--url), -d (--description).");
-            }
-            WebhookInputValidationError::InvalidLimit => {
-                msg = "Invalid '--limit' option value.";
-                hint = Some("Limit can range from 2 to 30.");
-            }
-            WebhookInputValidationError::InvalidId => {
-                let hint_str =
-                    "Id must start with the prefix 'whk_' followed by 22 alphanumeric characters.";
-
-                msg = "Invalid webhook id value.";
-                hint = Some(&hint_str);
-            }
-            WebhookInputValidationError::InvalidUrl => {
-                msg = "Invalid webhook url.";
-                hint = Some("Must be valid url using https protocol.");
-            }
-            WebhookInputValidationError::DescriptionTooLong => {
-                msg = "Description is too long.";
-                hint = Some("Maximum is 200 characters.");
-            }
-            WebhookInputValidationError::InvalidPage => {
-                msg = "Page option value is invalid.";
-                hint = Some("Page can range from 1 to 1000.");
-            }
-        }
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg),)?;
@@ -698,19 +273,7 @@ impl fmt::Display for WebhookInputValidationError {
 
 impl fmt::Display for RunInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
-
-        match self {
-            RunInputValidationError::NoCmdProvided => {
-                msg = "No command provided.";
-                hint = Some("Provide command you want to run.");
-            }
-            RunInputValidationError::NoSecretsToFetch => {
-                msg = "No secrets to fetch.";
-                hint = Some("'set' secrets option overrides all secrets from option 'only'.");
-            }
-        }
+        let (msg, hint) = self.message_and_hint();
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg),)?;
@@ -725,38 +288,8 @@ impl fmt::Display for RunInputValidationError {
 
 impl fmt::Display for YamlEnvConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let msg: &str;
-        let hint: Option<&str>;
+        let (msg, hint) = self.message_and_hint();
 
-        match self {
-            YamlEnvConfigError::FileNotFound { custom_path } => match custom_path {
-                true => {
-                    msg = "No config file found.";
-                    hint = Some("Make sure the specified file exists.");
-                }
-                false => {
-                    msg = "No 'stashbase.yaml' file found.";
-                    hint = Some("Create file or use '-p' and '-e' flags.");
-                }
-            },
-            YamlEnvConfigError::NoEntries => {
-                msg = "No entries found in 'stashbase.yaml'.";
-                hint = Some("Add entries to the file or use '-p' and '-e' flags.");
-            }
-            YamlEnvConfigError::FailedToRead {
-                custom_path,
-                message,
-            } => match custom_path {
-                true => {
-                    msg = "Failed to read the specified config file.";
-                    hint = Some(message);
-                }
-                false => {
-                    msg = "Failed to read 'stashbase.yaml' file.";
-                    hint = Some(message);
-                }
-            },
-        }
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg))?;
@@ -772,6 +305,7 @@ impl fmt::Display for YamlEnvConfigError {
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "{}", "Input error".red().bold())?;
+
         match self {
             InputValidationError::Projects(inner) => write!(f, "{}", inner),
             InputValidationError::Secrets(inner) => write!(f, "{}", inner),
@@ -823,4 +357,517 @@ impl InputValidationError {
 
         Ok(json_str)
     }
+}
+
+impl CmdArgInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, &'static str) {
+        match self {
+            CmdArgInputValidationError::MissingProject => (
+                "Project not specified.",
+                "Use '-p/--project' argument to specify the project.",
+            ),
+            CmdArgInputValidationError::DuplicateProject => (
+                "Project specified multiple times.",
+                "Use '-p/--project' argument only once.",
+            ),
+            CmdArgInputValidationError::MissingEnvironment => (
+                "Environment not specified.",
+                "Use '-e/--environment' argument to specify the environment.",
+            ),
+            CmdArgInputValidationError::DuplicateEnvironment => (
+                "Environment specified multiple times.",
+                "Use '-e/--environment' argument only once.",
+            ),
+            CmdArgInputValidationError::MissingProjectEnvironment => (
+                "Project and environment not specified.",
+                "Use '-p/--project' and '-e/--environment' arguments.",
+            ),
+        }
+    }
+}
+
+impl ProjectInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            ProjectInputValidationError::NameTooShort { is_root } => {
+                if *is_root {
+                    ("Argument name is too short.", Some("Minimum is 2 characters."))
+                } else {
+                    ("Project argument is too short.", Some("Minimum is 2 characters."))
+                }
+            }
+            ProjectInputValidationError::NameTooLong { is_root } => {
+                if *is_root {
+                    ("Argument name is too long.", Some("Maximum is 40 characters."))
+                } else {
+                    ("Project argument is too long.", Some("Maximum is 40 characters."))
+                }
+            }
+            ProjectInputValidationError::NameFormat { is_root } => {
+                if *is_root {
+                    ("Argument name is invalid.", Some("Name can contain only alphanumeric characters, hyphens or underscores (no spaces)."))
+                } else {
+                    ("Argument project is invalid.", Some("Project name can contain only alphanumeric characters, hyphens or underscores."))
+                }
+            }
+            ProjectInputValidationError::NoUpdateFlags => (
+                "No update option specified.",
+                Some("Use one of: -n (--name), -d (--description).")
+            ),
+            ProjectInputValidationError::NewNameFormat => (
+                "Name option value is invalid.",
+                Some("Name can contain only alphanumeric characters, hyphens or underscores (no spaces).")
+            ),
+            ProjectInputValidationError::NewNameTooShort => (
+                "Name option value is too short.",
+                Some("Minimum is 2 characters.")
+            ),
+            ProjectInputValidationError::NewNameEqualsOriginal => (
+                "New name equals to original name.",
+                Some("Use different new name.")
+            ),
+            ProjectInputValidationError::SearchTooShort => (
+                "Argument search is too short.",
+                Some("Minimum is 2 characters.")
+            ),
+            ProjectInputValidationError::SearchFormat => (
+                "Argument search is invalid.",
+                Some("Search can contain only alphanumeric characters, hyphens or underscores.")
+            ),
+            ProjectInputValidationError::InvalidIdentifierFormat { is_root } => {
+                if *is_root {
+                    ("Argument name or id is invalid.", Some("The name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'proj_' followed by 22 alphanumeric characters."))
+                } else {
+                    ("Argument project is invalid.", Some("The project name or id must be alphanumeric, name may include underscores (_) and hyphens(-) and must be between 2 to 40 characters long. Id must start with the prefix 'proj_' followed by 22 alphanumeric characters."))
+                }
+            }
+            ProjectInputValidationError::NameUsingIdFormat => (
+                "Name is using id format.",
+                Some("Ensure the name is in a valid format: alphanumeric, may include underscores (_) and hyphens (-), without the prefix 'proj_' followed by 22 alphanumeric characters, min 2 max 40 characters.")
+            ),
+            ProjectInputValidationError::NewNameTooLong => (
+                "Name option value is too long.",
+                Some("Maximum is 40 characters.")
+            ),
+            ProjectInputValidationError::InvalidLimit => (
+                "Limit option value is invalid.",
+                Some("Limit can range from 2 to 30.")
+            ),
+            ProjectInputValidationError::InvalidPage => (
+                "Page option value is invalid.",
+                Some("Page can range from 1 to 1000.")
+            ),
+        }
+    }
+}
+
+impl WebhookInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            WebhookInputValidationError::NoUpdateFlags => (
+                "No update flag specified.",
+                Some("Use one of: -u (--url), -d (--description)."),
+            ),
+            WebhookInputValidationError::InvalidLimit => (
+                "Invalid '--limit' option value.",
+                Some("Limit can range from 2 to 30."),
+            ),
+            WebhookInputValidationError::InvalidId => (
+                "Invalid webhook id value.",
+                Some(
+                    "Id must start with the prefix 'whk_' followed by 22 alphanumeric characters.",
+                ),
+            ),
+            WebhookInputValidationError::InvalidUrl => (
+                "Invalid webhook url.",
+                Some("Must be valid url using https protocol."),
+            ),
+            WebhookInputValidationError::DescriptionTooLong => (
+                "Description is too long.",
+                Some("Maximum is 200 characters."),
+            ),
+            WebhookInputValidationError::InvalidPage => (
+                "Page option value is invalid.",
+                Some("Page can range from 1 to 1000."),
+            ),
+        }
+    }
+}
+
+impl SecretsInputValidationError {
+    pub fn message_and_hint_and_secrets(&self) -> (&'static str, Option<&'static str>, Vec<String>) {
+        match self {
+            SecretsInputValidationError::NamesFormat(secrets) => (
+                "Invalid secret names.",
+                Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed"),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::NamesTooShort(secrets) => (
+                "Secret names are too short.",
+                Some("Minimum length for secret name is 2 characters."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::NamesTooLong(secrets) => (
+                "Secret names are too long.",
+                Some("Maximum length for secret name is 255 characters."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::CommentsTooLong(secrets) => (
+                "Secret comments are too long.",
+                Some("Maximum length for comment is 512 characters (after formatting)."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::CommentTooLong => (
+                "Secret comment is too long.",
+                Some("Maximum length for comment is 512 characters (after formatting)."),
+                vec![]
+            ),
+            SecretsInputValidationError::SearchFormat => (
+                "Argument search is invalid.",
+                Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed."),
+                vec![]
+            ),
+            SecretsInputValidationError::SearchTooShort => (
+                "Argument search is too short.",
+                Some("Minimum is 2 characters."),
+                vec![]
+            ),
+            SecretsInputValidationError::NoNames => (
+                "No secrets names specified.",
+                Some("Separate names of secrets to return with spaces."),
+                vec![]
+            ),
+            SecretsInputValidationError::DuplicateNames(secrets) => (
+                "Found duplicate secret names.",
+                Some("Secret names cannot be used more than once."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::DuplicateNewNames(secrets) => (
+                "Found duplicate new names.",
+                Some("New names cannot be used more than once."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::SelfReferences(secrets) => (
+                "Found self-referencing secrets.",
+                Some("Secrets cannot reference themselves."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::ReadFile(_) => (
+                "Error reading file.",
+                None,
+                vec![]
+            ),
+            SecretsInputValidationError::SearchBothNameAndValue => (
+                "Cannot provide both 'name' and 'value' options.",
+                Some("Provide only one of them."),
+                vec![]
+            ),
+            SecretsInputValidationError::SearchMissingNameOrValue => (
+                "No search criteria provided.",
+                Some("Provide either 'name' or 'value' option."),
+                vec![]
+            ),
+            SecretsInputValidationError::SearchValueTooLong => (
+                "Option 'value' is too long.",
+                Some("Maximum length is 1000 characters."),
+                vec![]
+            ),
+            SecretsInputValidationError::SearchValueEmpty => (
+                "Option 'value' is empty.",
+                Some("Provide non-empty string value."),
+                vec![]
+            ),
+            SecretsInputValidationError::ValuesTooLong(secrets) => (
+                "Secret values are too long.",
+                Some("Maximum length is 4096 characters."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::NoData => (
+                "No data provided.",
+                Some("Provide valid secret data."),
+                vec![]
+            ),
+            SecretsInputValidationError::NewNamesFormat(secrets) => (
+                "Invalid new secret names.",
+                Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::MissingPropertiesToUpdate(secrets) => (
+                "Missing properties to update.",
+                Some("Provide valid secret data."),
+                secrets.clone()
+            ),
+            SecretsInputValidationError::NewNameSameAsName(secrets) => (
+                "New name equals to original name.",
+                Some("Use different new name."),
+                secrets.clone()
+            ),
+        }
+    }
+}
+
+impl EnvironmentsInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            EnvironmentsInputValidationError::NameTooShort { is_root } => {
+                if *is_root {
+                    ("Argument name is too short.", Some("Minimum is 2 characters."))
+                } else {
+                    ("Environment argument is too short.", Some("Minimum is 2 characters."))
+                }
+            }
+            EnvironmentsInputValidationError::NameFormat { is_root } => {
+                if *is_root {
+                    ("Argument name is invalid.", Some("Name can contain only alphanumeric characters, underscores or hyphen separator (no spaces)."))
+                } else {
+                    ("Argument environment is invalid.", Some("Environment name can contain only alphanumeric characters, underscores or hyphen separator."))
+                }
+            }
+            EnvironmentsInputValidationError::NewNameEqualsOriginal => (
+                "Provided new name equals to original name.",
+                Some("Use different new name.")
+            ),
+            EnvironmentsInputValidationError::NoUpdateFlags => (
+                "No update flag specified.",
+                Some("Use one of: -n (--name), -d (--description), -t (--type).")
+            ),
+            EnvironmentsInputValidationError::NewNameFormat => (
+                "New name option value is invalid.",
+                Some("Name can contain only alphanumeric characters, underscores or hyphen separator (no spaces).")
+            ),
+            EnvironmentsInputValidationError::NewNameTooShort => (
+                "New name option value is too short.",
+                Some("Minimum is 2 characters.")
+            ),
+            EnvironmentsInputValidationError::SearchTooShort => (
+                "Argument search is too short.",
+                Some("Minimum is 2 characters.")
+            ),
+            EnvironmentsInputValidationError::SearchFormat => (
+                "Argument search is invalid.",
+                Some("Search can contain only alphanumeric characters, underscores or hyphen separator.")
+            ),
+            EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root } => {
+                if *is_root {
+                    ("Argument name or id is invalid.", Some("The name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters."))
+                } else {
+                    ("Argument environment is invalid.", Some("The environment name or id must be alphanumeric, name may include underscores (_) and a signle hyphen (-) as as separator and must be between 2 to 40 characters long. Id must start with the prefix 'env_' followed by 22 alphanumeric characters."))
+                }
+            }
+            EnvironmentsInputValidationError::NameUsingIdFormat => (
+                "Name is using id format.",
+                Some("Ensure the name is in a valid format: alphanumeric, may include underscores (_) and a signle hyphen (-) as as separator, without the prefix 'env_' followed by 22 alphanumeric characters, min 2 max 40 characters.")
+            ),
+            EnvironmentsInputValidationError::NameTooLong { is_root } => {
+                if *is_root {
+                    ("Argument name is too long.", Some("Maximum is 40 characters."))
+                } else {
+                    ("Project argument is too long.", Some("Maximum is 40 characters."))
+                }
+            }
+            EnvironmentsInputValidationError::NewNameTooLong => (
+                "New name option value is too long.",
+                Some("Maximum is 40 characters.")
+            ),
+            EnvironmentsInputValidationError::SelfComparison => (
+                "Cannot compare an environment with itself.",
+                Some("Use different environment for comparison.")
+            ),
+        }
+    }
+}
+
+impl YamlEnvConfigError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            YamlEnvConfigError::FileNotFound { custom_path } => match custom_path {
+                true => (
+                    "No config file found.",
+                    Some("Make sure the specified file exists.")
+                ),
+                false => (
+                    "No 'stashbase.yaml' file found.",
+                    Some("Create file or use '-p' and '-e' flags.")
+                ),
+            },
+            YamlEnvConfigError::NoEntries => (
+                "No entries found in 'stashbase.yaml'.",
+                Some("Add entries to the file or use '-p' and '-e' flags.")
+            ),
+            YamlEnvConfigError::FailedToRead {
+                custom_path,
+                message,
+            } => match custom_path {
+                true => (
+                    "Failed to read the specified config file.",
+                    Some(message)
+                ),
+                false => (
+                    "Failed to read 'stashbase.yaml' file.",
+                    Some(message)
+                ),
+            },
+        }
+    }
+}
+
+impl LoadEnvironmentInputValidationError {
+    pub fn message_and_hint_and_secrets(&self) -> (&'static str, Option<&'static str>, Vec<String>) {
+        match self {
+            LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly => (
+                "Use of both --exclude and --only flag.",
+                Some("Use only one of them."),
+                vec![]
+            ),
+            LoadEnvironmentInputValidationError::OnlySecretNamesFormat(secrets) => (
+                "Invalid only secret names.",
+                Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::OnlySecretNamesTooShort(secrets) => (
+                "Only argument secret names are too short.",
+                Some("Minimum length for secret name is 2 characters."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::OnlySecretNamesTooLong(secrets) => (
+                "Only argument secret names are too long.",
+                Some("Maximum length for secret name is 255 characters."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::ExcludeSecretNamesFormat(secrets) => (
+                "Invalid exclude secret names.",
+                Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::ExcludeSecretNamesTooShort(secrets) => (
+                "Exclude secret names are too short.",
+                Some("Minimum length for secret name is 2 characters."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::ExcludeSecretNamesTooLong(secrets) => (
+                "Exclude secret names are too long.",
+                Some("Maximum length for secret name is 255 characters."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::MissingProjectArg => (
+                "Missing project argument.",
+                Some("Use '-p' flag to specify the project."),
+                vec![]
+            ),
+            LoadEnvironmentInputValidationError::MissingEnvArg => (
+                "Missing environment argument.",
+                Some("Use '-e' flag to specify the environment."),
+                vec![]
+            ),
+            LoadEnvironmentInputValidationError::FileArgWithInline => (
+                "Cannot use '--file' flag and '-p' or '-e' flag at the same time.",
+                None,
+                vec![]
+            ),
+            LoadEnvironmentInputValidationError::SetSecretNameValueSeparator => (
+                "Invalid set argument.",
+                Some("Expected a name-value pair (separated by '=')."),
+                vec![]  
+            ),
+            LoadEnvironmentInputValidationError::SetSecretNamesFormat(secrets) => (
+                "Invalid set secret names.",
+                Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::SetSecretNamesTooShort(secrets) => (
+                "Set secret names are too short.",
+                Some("Minimum length for secret name is 2 characters."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::SetSecretNamesTooLong(secrets) => (
+                "Set secret names are too long.",
+                Some("Maximum length for secret name is 255 characters."),
+                secrets.clone()
+            ),
+        }
+    }
+}
+
+impl PushPullInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            PushPullInputValidationError::NoFileSpecified { is_push } => match is_push {
+                true => (
+                    "No file specified.",
+                    Some("Add root property 'file' or push property 'file' to the config or use '--file' flag.")
+                ),
+                false => (
+                    "No file specified.",
+                    Some("Add root property 'file' or pull property 'file' to the config or use '--file' flag.")
+                ),
+            },
+        }
+    }
+}
+
+impl RunInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            RunInputValidationError::NoCmdProvided => (
+                "No command provided.",
+                Some("Provide command you want to run."),
+            ),
+            RunInputValidationError::NoSecretsToFetch => (
+                "No secrets to fetch.",
+                Some("'set' secrets option overrides all secrets from option 'only'."),
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct MessageHint {
+    message: &'static str,
+    hint: Option<&'static str>,
+    secrets: Vec<String>,
+}
+
+impl InputValidationError {
+    pub fn to_struct(&self) -> MessageHint {
+        return match self {
+            InputValidationError::CmdArgs(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: Some(h), secrets: vec![] }
+            }
+            InputValidationError::Projects(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::Secrets(inner) => {
+                let (m, h, s) = inner.message_and_hint_and_secrets();
+                MessageHint { message: m, hint: h, secrets: s }
+            }
+            InputValidationError::Environments(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::YamlConfigFile(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::Run(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::LoadEnvironment(inner) => {
+                let (m, h, s) = inner.message_and_hint_and_secrets();
+                MessageHint { message: m, hint: h, secrets: s }
+            }
+            InputValidationError::PushPullEnvironment(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::Webhook(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+        };
+
+    }
+
 }
