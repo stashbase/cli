@@ -125,6 +125,7 @@ pub async fn handle_cli(args: Cli) {
                     file: args.config_file,
                     expand_refs: args.expand_refs,
                     print_secrets: args.print_secrets,
+                    json_format: raw_output,
                 };
 
                 handle_load_env_run(args).await
@@ -141,6 +142,7 @@ pub async fn handle_cli(args: Cli) {
                     expand_refs: args.expand_refs,
                     print_secrets: args.print_secrets,
                     overwrite_file: args.overwrite,
+                    json_format: raw_output,
                 };
 
                 handle_pull(args).await
