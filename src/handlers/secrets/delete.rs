@@ -7,7 +7,7 @@ use crate::{
     models::{
         api_client::{DeleteRequestApiResponse, RequestApiOptionResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsResponse},
-        validation::InputValidationError,
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
         interaction,
@@ -38,12 +38,13 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
     } = args;
 
     if names.is_empty() && !delete_all {
-        let msg = format!(
-            "{} {}",
-            "Input error:".red(),
-            "No secrets to delete provided."
-        );
-        bail!("{}", msg);
+        let secrets_error = SecretsInputValidationError::NoSecretsToDelete;
+        let input_error = InputValidationError::Secrets(secrets_error);
+
+        let error_output = input_error.format_error_output(json_format)?;
+
+        eprintln!();
+        bail!(error_output);
     }
 
     let validation_res = validate_input(&project, &environment, &names);
