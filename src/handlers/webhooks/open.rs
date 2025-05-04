@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::{
     api::{environments, webhooks},
-    models::api_client::GetRequestApiResponse,
+    models::api_client::{GetRequestApiResponse, OutputError},
     utils::spinner::request_spinner,
 };
 
@@ -55,14 +55,20 @@ pub async fn handle_open_environment_webhook(
                 }
                 Err(e) => {
                     spinner.stop_and_persist("", "");
-                    error!("{:#?}", e);
-                    bail!("Something went wrong");
+                    error!("{}", e);
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(false)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(false)?;
+            bail!(error_output);
         }
     }
 
