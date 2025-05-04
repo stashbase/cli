@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::{debug, error};
 use owo_colors::OwoColorize;
 
@@ -7,6 +7,7 @@ use crate::{
     models::{
         api_client::{DeleteRequestApiResponse, RequestApiOptionResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsResponse},
+        validation::InputValidationError,
     },
     utils::{
         interaction,
@@ -26,7 +27,7 @@ pub struct HandleDeleteSecretsArgs {
 }
 
 // ✓
-pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> {
+pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Result<()> {
     let HandleDeleteSecretsArgs {
         api_key,
         project,
@@ -48,8 +49,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
     let validation_res = validate_input(&project, &environment, &names);
 
     if let Err(e) = validation_res {
+        let error_output = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     // op
@@ -243,24 +246,27 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
     Ok(())
 }
 
-fn validate_input(project: &str, environment: &str, names: &Vec<String>) -> Result<()> {
+fn validate_input(
+    project: &str,
+    environment: &str,
+    names: &Vec<String>,
+) -> Result<(), InputValidationError> {
     let name_is_valid = validate_project_name(project, false, false);
 
     if let Err(err) = name_is_valid {
-        bail!(err);
+        return Err(err);
     }
 
     let env_name_validation = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_name_validation {
-        bail!(err);
+        return Err(err);
     }
 
     let names_valid = validate_secret_names(names);
 
     if let Err(err) = names_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+        return Err(err);
     }
 
     Ok(())
