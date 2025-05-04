@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         secrets::{CreateSecretsResponse, Secret, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -205,15 +205,24 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                             spinner.stop_with_message("Secrets created.");
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!(e);
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
             None => {
                 spinner.stop_and_persist("", "");
-                bail!("Something went wrong");
+
+                let error = OutputError::failed_to_deserialize_response_body();
+                let formatted_err = error.format_error_output(json_format)?;
+
+                eprintln!();
+                bail!(formatted_err);
             }
         },
         RequestApiOptionResponse::Err(e) => {

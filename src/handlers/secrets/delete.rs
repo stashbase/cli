@@ -5,7 +5,7 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{
-        api_client::{DeleteRequestApiResponse, RequestApiOptionResponse},
+        api_client::{DeleteRequestApiResponse, OutputError, RequestApiOptionResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsResponse},
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -121,22 +121,31 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    error!("{}", e);
+                                Err(_) => {
                                     spinner.stop_and_persist("", "");
-                                    bail!("Something went wrong.");
+
+                                    let error = OutputError::failed_to_deserialize_response_body();
+                                    let formatted_err = error.format_error_output(json_format)?;
+
+                                    bail!(formatted_err);
                                 }
                             }
                         }
                         None => {
                             spinner.stop_and_persist("", "");
-                            bail!("Something went wrong.");
+
+                            let error = OutputError::failed_to_deserialize_response_body();
+                            let formatted_err = error.format_error_output(json_format)?;
+
+                            bail!(formatted_err);
                         }
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
                     spinner.stop_and_persist("", "");
-                    bail!(e);
+                    let formatted_err = e.format_error_output(json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
@@ -145,8 +154,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");
-                error!("{:#?}", &err);
-                bail!(err);
+
+                let formatted_err = err.format_error_output(json_format)?;
+                bail!(formatted_err);
             }
 
             let res = res.unwrap();
@@ -223,14 +233,23 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                         spinner.stop_with_message("Selected secrets deleted.");
                                     }
                                 }
-                                Err(e) => {
-                                    error!("{}", e);
+                                Err(_) => {
+                                    spinner.stop_and_persist("", "");
+
+                                    let error = OutputError::failed_to_deserialize_response_body();
+                                    let formatted_err = error.format_error_output(json_format)?;
+
+                                    bail!(formatted_err);
                                 }
                             }
                         }
                         None => {
                             spinner.stop_and_persist("", "");
-                            bail!("Something went wrong");
+
+                            let error = OutputError::failed_to_deserialize_response_body();
+                            let formatted_err = error.format_error_output(json_format)?;
+
+                            bail!(formatted_err);
                         }
                     }
                 }

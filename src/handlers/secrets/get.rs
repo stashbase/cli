@@ -8,7 +8,7 @@ use crate::{
     api::secrets,
     cmd::config::SecretsOutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -108,14 +108,18 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
                 }
                 Err(e) => {
                     error!("{}", e);
-                    bail!("Something went wrong.");
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err =
+                        error.format_error_output(format == SecretsOutputFormat::Json)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             // bail!("{}", e);
             debug!("Error: {}", e);
-            eprintln!("");
 
             let error_output = e.format_error_output(format == SecretsOutputFormat::Json)?;
             bail!(error_output);
