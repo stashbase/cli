@@ -25,8 +25,10 @@ pub async fn handle_get_environment(
     let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_valid {
+        let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     // OK

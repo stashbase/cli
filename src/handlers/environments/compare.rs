@@ -36,15 +36,19 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         validate_project_environment_identifier(&args.project, &args.environment_1, false);
 
     if let Err(err) = validation_res {
+        let formatted_err = err.format_error_output(args.json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     let env_identifier_validation_res = validate_environment_identifier(&args.environment_2, false);
 
     if let Err(err) = env_identifier_validation_res {
+        let formatted_err = err.format_error_output(args.json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     if args.environment_1 == args.environment_2 {
@@ -52,7 +56,9 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
             InputValidationError::Environments(EnvironmentsInputValidationError::SelfComparison);
 
         eprintln!();
-        bail!(err)
+        let formatted_err = err.format_error_output(args.json_format)?;
+
+        bail!(formatted_err);
     }
 
     let mut spinner = request_spinner();
