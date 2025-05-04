@@ -80,9 +80,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             let err = InputValidationError::PushPullEnvironment(
                 PushPullInputValidationError::NoFileSpecified { is_push: true },
             );
+            let error_output = err.format_error_output(json_format)?;
 
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         }
 
         if let None = format {
@@ -174,8 +175,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         let err =
             InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err.to_string()));
 
+        let error_output = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     // validate project and environment
@@ -186,8 +189,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
+        let error_output = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     //  process, format and validate secrets
@@ -198,8 +203,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
         );
 
+        let error_output = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     if only_set.is_empty() == false {
@@ -209,9 +216,11 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
         if let Err(err) = name_validation_res {
             let mapped_err = map_secret_to_load_only_secrets_error(&err);
+            let error_output = InputValidationError::LoadEnvironment(mapped_err)
+                .format_error_output(json_format)?;
 
             eprintln!();
-            bail!(InputValidationError::LoadEnvironment(mapped_err));
+            bail!(error_output);
         }
 
         secrets = secrets
@@ -224,9 +233,11 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
         if let Err(err) = name_validation_res {
             let mapped_err = map_secret_to_load_exclude_secrets_error(&err);
+            let error_output = InputValidationError::LoadEnvironment(mapped_err)
+                .format_error_output(json_format)?;
 
             eprintln!();
-            bail!(InputValidationError::LoadEnvironment(mapped_err));
+            bail!(error_output);
         }
 
         secrets = secrets
