@@ -50,7 +50,7 @@ pub async fn handle_environment_commands(
             handle_get_environment(api_key, format, project, args.identifier).await?;
         }
         EnvironmentSubcommand::Open(args) => {
-            handle_open_environment(api_key, project, args.identifier).await?;
+            handle_open_environment(api_key, project, args.identifier, raw_output).await?;
         }
         EnvironmentSubcommand::Create(args) => {
             let args = HandleCreateEnvironmentArgs {
