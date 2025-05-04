@@ -9,7 +9,7 @@ use crate::{
     api::secrets,
     handlers::run::subprocess,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
         secrets::SecretWithoutComment,
         validation::{
@@ -453,10 +453,12 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     .await?;
                 }
             } else {
-                let err = secrets.unwrap_err();
-                // spinner.stop_with_message(&format!("{}", err));
                 spinner.stop_and_persist("", "");
-                bail!(err);
+
+                let error = OutputError::failed_to_deserialize_response_body();
+                let formatted_err = error.format_error_output(json_format)?;
+
+                bail!(formatted_err);
             }
         }
         GetRequestApiResponse::Err(e) => {
