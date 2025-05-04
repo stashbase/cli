@@ -62,6 +62,7 @@ pub enum WebhookInputValidationError {
 #[derive(Debug, Serialize)]
 pub enum SecretsInputValidationError {
     NoNames,
+    NoSecretsToCreate,
     NamesFormat(Vec<String>),
     NamesTooShort(Vec<String>),
     NamesTooLong(Vec<String>),
@@ -499,6 +500,11 @@ impl WebhookInputValidationError {
 impl SecretsInputValidationError {
     pub fn message_and_hint_and_secrets(&self) -> (&'static str, Option<&'static str>, Vec<String>) {
         match self {
+            SecretsInputValidationError::NoSecretsToCreate => (
+                "No secrets to create provided.",
+                Some("Provide at least one secret name."),
+                vec![]
+            ),
             SecretsInputValidationError::NamesFormat(secrets) => (
                 "Invalid secret names.",
                 Some("Cannot start with a digit, only uppercase alphanumeric characters and underscores allowed"),
