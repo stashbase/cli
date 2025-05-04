@@ -9,6 +9,7 @@ use crate::{
         secrets::{Secret, SecretOptional},
     },
     utils::{
+        output::get_colored_json,
         secrets::{format_secret_names, format_secrets},
         spinner::request_spinner,
     },
@@ -65,7 +66,14 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                 match names {
                     Ok(secrets) => {
                         if secrets.is_empty() {
-                            spinner.stop_with_message("No secrets found.");
+                            if format == SecretsOutputFormat::Json {
+                                let json_str = get_colored_json(&secrets).unwrap();
+
+                                spinner.stop_and_persist("", "");
+                                println!("{}", json_str);
+                            } else {
+                                spinner.stop_with_message("No secrets found.");
+                            }
                         } else {
                             let names = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
                             let print_string = format_secret_names(names, &format);
@@ -93,7 +101,14 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         debug!("{:#?}", &secrets);
 
                         if secrets.is_empty() {
-                            spinner.stop_with_message("No secrets found.");
+                            if format == SecretsOutputFormat::Json {
+                                let json_str = get_colored_json(&secrets).unwrap();
+
+                                spinner.stop_and_persist("", "");
+                                println!("{}", json_str);
+                            } else {
+                                spinner.stop_with_message("No secrets found.");
+                            }
                         } else {
                             spinner.stop_and_persist("", "");
                             let print_string = format_secrets(secrets, &format);
