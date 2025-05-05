@@ -92,6 +92,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
 
                     if data.is_empty() && !args.json_format {
                         spinner.stop_with_message("No secrets to compare.");
+                        return Ok(());
                     }
 
                     spinner.stop_and_persist("", "");
