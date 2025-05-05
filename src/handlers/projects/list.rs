@@ -106,6 +106,8 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                     debug!("{:#?}", &data);
 
                     if let OutputFormat::Json = format {
+                        spinner.stop_and_persist("", "");
+
                         output_json(&data);
                         return Ok(());
                     }
