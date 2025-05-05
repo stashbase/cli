@@ -34,13 +34,11 @@ pub fn try_get_project_environment(
 ) -> Result<(String, String), InputValidationError> {
     if root_project.is_some() && project.is_some() {
         let error = InputValidationError::CmdArgs(CmdArgInputValidationError::DuplicateProject);
-
         return Err(error);
     }
 
     if root_environment.is_some() && environment.is_some() {
         let error = InputValidationError::CmdArgs(CmdArgInputValidationError::DuplicateEnvironment);
-
         return Err(error);
     }
 
@@ -51,6 +49,7 @@ pub fn try_get_project_environment(
     {
         let error =
             InputValidationError::CmdArgs(CmdArgInputValidationError::MissingProjectEnvironment);
+
         return Err(error);
     }
 
