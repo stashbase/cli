@@ -346,12 +346,12 @@ impl InputValidationError {
         struct ErrorData<'a> {
             #[serde(flatten)]
             data: &'a MessageHint,
-            // #[serde(rename = "type")]
-            // error_type: &'static str,
+            #[serde(rename = "type")]
+            error_type: &'static str,
         }
 
         let wrapper = ErrorWrapper {
-            error: ErrorData { data: &self.to_struct() },
+            error: ErrorData { data: &self.to_struct(), error_type: "input_validation_error" },
         };
         serde_json::to_value(&wrapper)
     }
