@@ -475,6 +475,13 @@ impl OutputError {
             error_type: &'static str,
         }
 
+        let wrapper = ErrorWrapper {
+            error: ErrorData {
+                data: self,
+                error_type: "api_error",
+            },
+        };
+
         serde_json::to_value(&wrapper)
     }
 
