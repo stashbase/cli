@@ -6,7 +6,7 @@ use crate::{
     api::projects,
     cmd::{config::OutputFormat, projects::SortBy},
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         projects::{
             ProjectList, ProjectWithCountNoDescriptionTable, SingleListProject,
             SingleListProjectWithoutDescription,
@@ -46,26 +46,30 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         let search_validation_res = validate_project_search(&search);
 
         if let Err(err) = search_validation_res {
+            let error_output = err.format_error_output(format == OutputFormat::Json)?;
+
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         }
     }
 
     if let Some(limit) = limit {
         if limit < 2 || limit > 30 {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidLimit);
+            let error_output = error.format_error_output(format == OutputFormat::Json)?;
 
             eprintln!();
-            bail!(error);
+            bail!(error_output);
         }
     }
 
     if let Some(page) = page {
         if page < 1 || page > 1000 {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidPage);
+            let error_output = error.format_error_output(format == OutputFormat::Json)?;
 
             eprintln!();
-            bail!(error);
+            bail!(error_output);
         }
     }
 
@@ -83,9 +87,11 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     .await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+        spinner.stop_and_persist("", "");
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
@@ -100,6 +106,8 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                     debug!("{:#?}", &data);
 
                     if let OutputFormat::Json = format {
+                        spinner.stop_and_persist("", "");
+
                         output_json(&data);
                         return Ok(());
                     }
@@ -129,13 +137,20 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                 Err(e) => {
                     debug!("{:#?}", &e);
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.")
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    eprintln!();
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

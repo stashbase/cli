@@ -1,10 +1,8 @@
-use anyhow::Result;
-
 use super::client;
 use crate::models::{
     api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
-        RequestArgs,
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
+        RequestApiOptionResponse, RequestArgs,
     },
     secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload, UpdateSecretsPayload},
 };
@@ -16,7 +14,7 @@ pub async fn list(
     only_names: bool,
     only: Option<Vec<String>>,
     expand_refs: bool,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let mut query_str = vec![];
 
     if only_names {
@@ -53,7 +51,7 @@ pub async fn pull(
     exclude: Vec<String>,
     with_comment: bool,
     expand_refs: bool,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let mut query = match !only.is_empty() || !exclude.is_empty() {
         true => {
             let mut query = vec![];
@@ -96,7 +94,7 @@ pub async fn update_comment(
     environment: String,
     name: String,
     data: &UpdateSecretCommentPayload,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -115,7 +113,7 @@ pub async fn delete(
     project: String,
     environment: String,
     secrets_to_delete: &Vec<String>,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -133,7 +131,7 @@ pub async fn delete_all(
     api_key: String,
     project: String,
     environment: String,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -152,7 +150,7 @@ pub async fn create_secrets(
     project: String,
     environment: String,
     data: &Vec<Secret>,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -171,7 +169,7 @@ pub async fn set_sercrets(
     project: String,
     environment: String,
     data: &Vec<Secret>,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -190,7 +188,7 @@ pub async fn update_secrets(
     project: String,
     environment: String,
     data: &UpdateSecretsPayload,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -209,7 +207,7 @@ pub async fn rename_secrets(
     project: String,
     environment: String,
     data: &RenameSecretsPayload,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Secrets {
             project,
@@ -230,7 +228,7 @@ pub async fn search_secrets(
     value: &Option<String>,
     show_values: bool,
     with_ids: bool,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let mut query = vec![];
 
     if let Some(name) = name {

@@ -4,13 +4,17 @@ use anyhow::{bail, Result};
 
 use crate::{
     api::webhooks,
-    models::{api_client::GetRequestApiResponse, webhooks::WebhookSigningSecret},
-    utils::spinner::request_spinner,
+    models::{
+        api_client::{GetRequestApiResponse, OutputError},
+        webhooks::WebhookSigningSecret,
+    },
+    utils::{output::get_colored_json, spinner::request_spinner},
 };
 
 pub type GetWebhookSecretArgs = webhooks::GetSecretArgs;
 
 pub async fn handle_get_webhook_secret(args: GetWebhookSecretArgs) -> Result<()> {
+    let json_format = args.json_format;
     let mut spinner = request_spinner();
 
     let res = webhooks::get_secret(args).await;
@@ -18,7 +22,9 @@ pub async fn handle_get_webhook_secret(args: GetWebhookSecretArgs) -> Result<()>
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     // safe
@@ -30,22 +36,32 @@ pub async fn handle_get_webhook_secret(args: GetWebhookSecretArgs) -> Result<()>
 
             match signing_secret_json {
                 Ok(data) => {
-                    // spinner.stop_and_persist("", &data.signing_secret);
-                    // spinner.stop_with_message(&data.signing_secret);
+                    if json_format {
+                        let json_str = get_colored_json(&data).unwrap();
 
-                    spinner.stop_with_message("");
-                    println!("{}", data.signing_secret);
+                        spinner.stop_and_persist("", "");
+                        println!("{}", json_str);
+                    } else {
+                        spinner.stop_with_message("");
+                        println!("{}", data.signing_secret);
+                    }
                 }
                 Err(e) => {
-                    error!("Err: {}", e);
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.");
+                    error!("{}", e);
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

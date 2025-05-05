@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::{debug, error};
 
 use crate::{
@@ -25,7 +25,8 @@ pub async fn handle_update_environment(
     new_name: Option<String>,
     new_description: Option<String>,
     new_is_production: Option<bool>,
-) -> Result<()> {
+    json_format: bool,
+) -> anyhow::Result<()> {
     // validation
     let input_valid_res = validate_input(
         &project,
@@ -36,8 +37,10 @@ pub async fn handle_update_environment(
     );
 
     if let Err(err) = input_valid_res {
+        let error = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error);
     }
 
     // OK
@@ -61,18 +64,27 @@ pub async fn handle_update_environment(
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
 
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Environment updated.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Environment updated.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 
@@ -85,23 +97,23 @@ pub fn validate_input(
     new_env_name: &Option<String>,
     new_description: &Option<String>,
     new_is_production: &Option<bool>,
-) -> Result<()> {
+) -> Result<(), InputValidationError> {
     let project_name_is_valid = validate_project_name(&project, false, false);
 
     if let Err(err) = project_name_is_valid {
-        bail!(err);
+        return Err(err);
     }
 
     let env_name_validation_res = validate_environment_name(environment, false, true);
 
     if let Err(err) = env_name_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     if new_env_name.is_none() && new_description.is_none() && new_is_production.is_none() {
         let err =
             InputValidationError::Environments(EnvironmentsInputValidationError::NoUpdateFlags);
-        bail!(err)
+        return Err(err);
     }
 
     if let Some(new_name) = &new_env_name {
@@ -111,7 +123,7 @@ pub fn validate_input(
             let err = InputValidationError::Environments(
                 EnvironmentsInputValidationError::NameUsingIdFormat,
             );
-            bail!(err)
+            return Err(err);
         }
 
         let name_is_id = resource_name_has_id_format(IdentifierResource::Environment, environment);
@@ -120,14 +132,14 @@ pub fn validate_input(
             let err = InputValidationError::Environments(
                 EnvironmentsInputValidationError::NewNameEqualsOriginal,
             );
-            bail!(err)
+            return Err(err);
         }
 
         // TODO new arg
         let new_name_is_valid = validate_environment_name(new_name, true, true);
 
         if let Err(err) = new_name_is_valid {
-            bail!(err);
+            return Err(err);
         }
     }
 

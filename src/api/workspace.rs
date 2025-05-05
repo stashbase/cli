@@ -1,9 +1,7 @@
-use anyhow::Result;
-
 use super::client;
-use crate::models::api_client::{ApiPath, GetRequestApiResponse, RequestArgs};
+use crate::models::api_client::{ApiPath, GetRequestApiResponse, OutputError, RequestArgs};
 
-pub async fn get_url(api_key: String) -> Result<GetRequestApiResponse> {
+pub async fn get_url(api_key: String) -> Result<GetRequestApiResponse, OutputError> {
     let subpath = format!("dashboard-url");
 
     let args = RequestArgs {

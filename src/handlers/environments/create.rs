@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
+use colored_json::{to_colored_json, to_colored_json_auto};
 use log::{debug, error};
 use owo_colors::OwoColorize;
 
@@ -9,7 +10,7 @@ use crate::{
     cmd::secrets::SecretsFileFormat,
     handlers::environments::open::GetEnvUrlResponse,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         environments::{CreatEnvironmentPayload, CreateEnvironmentResponse},
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
@@ -17,6 +18,7 @@ use crate::{
     utils::{
         files::check_file_exists,
         interaction,
+        output::get_colored_json,
         secrets::{parse_secrets_from_str, read_secrets_from_file},
         spinner::request_spinner,
         validation::{
@@ -35,6 +37,7 @@ pub struct HandleCreateEnvironmentArgs {
     pub open: bool,
     pub file_path: Option<String>,
     pub format: Option<SecretsFileFormat>,
+    pub json_format: bool,
 }
 
 pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Result<()> {
@@ -47,13 +50,16 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         file_path,
         format,
         open,
+        json_format,
     } = args;
 
     let input_valid = validate_project_environment(&project, &name, true);
 
     if let Err(err) = input_valid {
+        let formatted_err = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     let mut secrets: Option<Vec<Secret>> = None;
@@ -63,10 +69,21 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         let file_exists = check_file_exists(&path);
 
         if !file_exists {
-            let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
+            if json_format {
+                let error_json = serde_json::json!({
+                    "error": {
+                        "message": "Error reading file: file does not exist."
+                    }
+                });
+                let pretty = to_colored_json_auto(&error_json).unwrap();
 
-            eprintln!();
-            bail!(err_msg);
+                eprintln!();
+                bail!(pretty);
+            } else {
+                let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
+                eprintln!();
+                bail!(err_msg);
+            }
         }
 
         //
@@ -120,10 +137,13 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 secrets = Some(values);
             }
             Err(e) => {
-                let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(e));
+                let error = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(
+                    e.to_string(),
+                ));
+                let formatted_err = error.format_error_output(json_format)?;
 
                 eprintln!();
-                bail!(err);
+                bail!(formatted_err);
             }
         }
     }
@@ -143,8 +163,9 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
-        error!("{:#?}", &err);
-        bail!(format!("Error sending request: {}", err));
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
@@ -158,6 +179,15 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
                 match res_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         spinner.stop_with_message("Environment created.");
                         eprint!("Id: ");
                         print!("{}\n", data.id);
@@ -172,14 +202,20 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong when when opening environment.");
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

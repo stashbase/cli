@@ -6,7 +6,7 @@ use crate::{
     api::environments::{self, ListEnvsRequestArgs},
     cmd::{config::OutputFormat, environments::EnvSortBy},
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
     },
     utils::{
@@ -47,7 +47,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
     if let Err(err) = project_identifier_vlidation_result {
         eprintln!();
-        bail!(err);
+        let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+        bail!(formatted_err);
     }
 
     // validate search
@@ -56,7 +58,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
         if let Err(err) = search_validation_res {
             eprintln!();
-            bail!(err);
+            let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+            bail!(formatted_err);
         }
     }
 
@@ -79,8 +83,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
     if let Err(err) = env_res {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let env_res = env_res.unwrap();
@@ -100,7 +105,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
                         println!("{}", pretty);
                     } else {
-                        if envs.is_empty() {
+                        if envs.is_empty() && format != OutputFormat::Json {
                             spinner.stop_with_message("No environments found.");
                             return Ok(());
                         } else {
@@ -144,14 +149,20 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                 }
                 Err(e) => {
                     spinner.stop_and_persist("", "");
-                    debug!("Err: {}", e);
-                    bail!("Something went wrong.")
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    eprintln!();
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

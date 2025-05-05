@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{bail, Result};
 use linked_hash_map::LinkedHashMap;
 use linked_hash_set::LinkedHashSet;
 use regex::Regex;
@@ -33,7 +32,11 @@ pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
 }
 
-pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
+pub fn validate_project_name(
+    value: &str,
+    is_new_name: bool,
+    is_root: bool,
+) -> Result<(), InputValidationError> {
     if value.len() < 2 {
         let err = if is_new_name {
             InputValidationError::Projects(ProjectInputValidationError::NewNameTooShort)
@@ -41,7 +44,7 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
             InputValidationError::Projects(ProjectInputValidationError::NameTooShort { is_root })
         };
 
-        bail!(err)
+        return Err(err);
     }
 
     if value.len() > 40 {
@@ -51,7 +54,7 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
             InputValidationError::Projects(ProjectInputValidationError::NameTooLong { is_root })
         };
 
-        bail!(err)
+        return Err(err);
     }
 
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
@@ -63,20 +66,20 @@ pub fn validate_project_name(value: &str, is_new_name: bool, is_root: bool) -> R
             InputValidationError::Projects(ProjectInputValidationError::NameFormat { is_root })
         };
 
-        bail!(err)
+        return Err(err);
     }
 
     Ok(())
 }
 
-pub fn validate_project_identifier(value: &str, is_root: bool) -> Result<()> {
+pub fn validate_project_identifier(value: &str, is_root: bool) -> Result<(), InputValidationError> {
     if value.len() < 2 || value.len() > 40 {
         let err =
             InputValidationError::Projects(ProjectInputValidationError::InvalidIdentifierFormat {
                 is_root,
             });
 
-        bail!(err)
+        return Err(err);
     }
 
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
@@ -87,7 +90,7 @@ pub fn validate_project_identifier(value: &str, is_root: bool) -> Result<()> {
                 is_root,
             });
 
-        bail!(err)
+        return Err(err);
     }
 
     Ok(())
@@ -119,7 +122,7 @@ pub fn resource_name_has_id_format(resource: IdentifierResource, input: &str) ->
 }
 
 // name of secret
-pub fn validate_secret_name(value: &str) -> Result<()> {
+pub fn validate_secret_name(value: &str) -> Result<(), InputValidationError> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
     let starts_with_digit = value.chars().nth(0).unwrap_or(' ').is_ascii_digit();
 
@@ -127,27 +130,27 @@ pub fn validate_secret_name(value: &str) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NamesFormat(vec![value.to_string()]);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err)
+        return Err(input_err);
     }
 
     if value.len() < SECRET_NAME_MIN_LENGTH {
         let secrets_error = SecretsInputValidationError::NamesTooShort(vec![value.to_string()]);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err)
+        return Err(input_err);
     }
 
     if value.len() > SECRET_NAME_MAX_LENGTH {
         let secrets_error = SecretsInputValidationError::NamesTooLong(vec![value.to_string()]);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err)
+        return Err(input_err);
     }
 
     Ok(())
 }
 
-pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
+pub fn validate_secret_names(values: &Vec<String>) -> Result<(), InputValidationError> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
     let (invalid_format_names, too_short_names, too_long_names): (
@@ -177,7 +180,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NamesFormat(invalid_format_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err)
+        return Err(input_err);
     }
 
     if too_short_names.len() > 0 {
@@ -185,7 +188,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NamesTooShort(too_short_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err)
+        return Err(input_err);
     }
 
     if too_long_names.len() > 0 {
@@ -193,7 +196,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NamesTooLong(too_long_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err)
+        return Err(input_err);
     }
 
     // let invalid = values.into_iter().find(|v| !regex.is_match(*v));
@@ -209,7 +212,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_secret_values(values: &Vec<String>) -> Result<()> {
+pub fn validate_secret_values(values: &Vec<String>) -> Result<(), InputValidationError> {
     let too_long_value_secret_names: Vec<_> = values
         .iter()
         .filter(|value| value.len() > SECRET_VALUE_MAX_LENGTH)
@@ -219,7 +222,7 @@ pub fn validate_secret_values(values: &Vec<String>) -> Result<()> {
     if too_long_value_secret_names.len() > 0 {
         let error_message = SecretsInputValidationError::ValuesTooLong(too_long_value_secret_names);
         let err = InputValidationError::Secrets(error_message);
-        bail!(err);
+        return Err(err);
     }
 
     Ok(())
@@ -350,7 +353,9 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
     validation_obj
 }
 
-pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<()> {
+pub fn validate_secret_name_new_name(
+    values: &Vec<(String, String)>,
+) -> Result<(), InputValidationError> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
     let invalid = values
@@ -362,7 +367,7 @@ pub fn validate_secret_name_new_name(values: &Vec<(String, String)>) -> Result<(
         let secrets_error = SecretsInputValidationError::NamesFormat(vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err)
+        return Err(input_err);
     }
 
     Ok(())
@@ -385,7 +390,7 @@ pub fn format_secrets_input(secrets: &mut Vec<Secret>) {
     }
 }
 
-pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
+pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<(), InputValidationError> {
     let mut invalid_names = LinkedHashSet::new();
     let mut self_references = LinkedHashSet::new();
     let mut comment_too_long_secrets_names = LinkedHashSet::new();
@@ -428,7 +433,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NamesFormat(invalid_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     // Find duplicates
@@ -443,7 +448,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::DuplicateNames(duplicate_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !value_too_long_secret_names.is_empty() {
@@ -456,7 +461,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
             SecretsInputValidationError::ValuesTooLong(value_too_long_secret_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !comment_too_long_secrets_names.is_empty() {
@@ -469,7 +474,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
             SecretsInputValidationError::CommentsTooLong(comment_too_long_secrets_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !self_references.is_empty() {
@@ -478,17 +483,16 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::SelfReferences(self_references_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     Ok(())
 }
 
-pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
+pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<(), InputValidationError> {
     if secrets.is_empty() {
-        bail!(InputValidationError::Secrets(
-            SecretsInputValidationError::NoData
-        ));
+        let err = InputValidationError::Secrets(SecretsInputValidationError::NoData);
+        return Err(err);
     }
 
     let mut name_counts = HashMap::new();
@@ -558,7 +562,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NamesFormat(invalid_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !invalid_new_names.is_empty() {
@@ -566,7 +570,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NewNamesFormat(invalid_new_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !missing_properties_names.is_empty() {
@@ -575,7 +579,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
             SecretsInputValidationError::MissingPropertiesToUpdate(missing_properties_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     // Check for duplicate original names
@@ -589,7 +593,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::DuplicateNames(duplicate_names);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     // Check for duplicate new names
@@ -603,7 +607,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::DuplicateNewNames(duplicate_new_names);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !new_name_same_as_name.is_empty() {
@@ -611,7 +615,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::NewNameSameAsName(same_names_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !value_too_long_names.is_empty() {
@@ -619,7 +623,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::ValuesTooLong(value_too_long_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !self_references.is_empty() {
@@ -627,7 +631,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::SelfReferences(self_references_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     if !comment_too_long_names.is_empty() {
@@ -635,13 +639,17 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<()> {
         let secrets_error = SecretsInputValidationError::CommentsTooLong(comment_too_long_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
-        bail!(input_err);
+        return Err(input_err);
     }
 
     Ok(())
 }
 
-pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) -> Result<()> {
+pub fn validate_environment_name(
+    value: &str,
+    is_new_name: bool,
+    is_root: bool,
+) -> Result<(), InputValidationError> {
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
 
     if value.len() < 2 {
@@ -653,7 +661,7 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
             InputValidationError::Environments(EnvironmentsInputValidationError::NewNameTooShort)
         };
 
-        bail!(err)
+        return Err(err);
     }
 
     if value.len() > 40 {
@@ -665,7 +673,7 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
             InputValidationError::Environments(EnvironmentsInputValidationError::NewNameTooLong)
         };
 
-        bail!(err)
+        return Err(err);
     }
 
     let dash_count = count_dashes(value);
@@ -681,19 +689,22 @@ pub fn validate_environment_name(value: &str, is_new_name: bool, is_root: bool) 
             InputValidationError::Environments(EnvironmentsInputValidationError::NewNameFormat)
         };
 
-        bail!(err)
+        return Err(err);
     }
 
     Ok(())
 }
 
-pub fn validate_environment_identifier(value: &str, is_root: bool) -> Result<()> {
+pub fn validate_environment_identifier(
+    value: &str,
+    is_root: bool,
+) -> Result<(), InputValidationError> {
     if value.len() < 2 || value.len() > 40 {
         let err = InputValidationError::Environments(
             EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
         );
 
-        bail!(err)
+        return Err(err);
     } else {
         let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
 
@@ -706,7 +717,7 @@ pub fn validate_environment_identifier(value: &str, is_root: bool) -> Result<()>
                 EnvironmentsInputValidationError::InvalidIdentifierFormat { is_root },
             );
 
-            bail!(err)
+            return Err(err);
         }
     }
 
@@ -717,18 +728,18 @@ pub fn validate_project_environment(
     project: &str,
     environment: &str,
     env_is_root: bool,
-) -> Result<()> {
+) -> Result<(), InputValidationError> {
     let project_name_is_valid = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_is_valid {
-        bail!(err);
+        return Err(err);
     }
 
     // validate env
     let env_name_is_valid = validate_environment_name(environment, false, env_is_root);
 
     if let Err(err) = env_name_is_valid {
-        bail!(err);
+        return Err(err);
     }
 
     Ok(())
@@ -738,32 +749,32 @@ pub fn validate_project_environment_identifier(
     project: &str,
     environment: &str,
     env_is_root: bool,
-) -> Result<()> {
+) -> Result<(), InputValidationError> {
     let project_name_is_valid = validate_project_identifier(project, false);
 
     if let Err(err) = project_name_is_valid {
-        bail!(err);
+        return Err(err);
     }
 
     // validate env
     let env_name_is_valid = validate_environment_identifier(environment, env_is_root);
 
     if let Err(err) = env_name_is_valid {
-        bail!(err);
+        return Err(err);
     }
 
     Ok(())
 }
 
 //
-pub fn validate_env_search(value: &str) -> Result<()> {
+pub fn validate_env_search(value: &str) -> Result<(), InputValidationError> {
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+(?:/[a-zA-Z0-9-_]+)?$").unwrap();
 
     if value.len() < 2 {
         let err =
             InputValidationError::Environments(EnvironmentsInputValidationError::SearchTooShort);
 
-        bail!(err)
+        return Err(err);
     } else {
         let dash_count = count_dashes(value);
         let is_firt_dash = value.chars().nth(0) == Some('-');
@@ -772,81 +783,86 @@ pub fn validate_env_search(value: &str) -> Result<()> {
             let err =
                 InputValidationError::Environments(EnvironmentsInputValidationError::SearchFormat);
 
-            bail!(err)
+            return Err(err);
         }
     }
 
     Ok(())
 }
 
-pub fn validate_project_search(value: &str) -> Result<()> {
+pub fn validate_project_search(value: &str) -> Result<(), InputValidationError> {
     let regex = Regex::new(r"^[a-zA-Z0-9-_]+$").unwrap();
 
     if value.len() < 2 {
         let err = InputValidationError::Projects(ProjectInputValidationError::SearchTooShort);
 
-        bail!(err)
+        return Err(err);
     } else {
         if !regex.is_match(value) {
             let err = InputValidationError::Projects(ProjectInputValidationError::SearchFormat);
 
-            bail!(err)
+            return Err(err);
         }
     }
 
     Ok(())
 }
 
-pub fn validate_secret_search(value: &str) -> Result<()> {
+pub fn validate_secret_search(value: &str) -> Result<(), InputValidationError> {
     let regex = Regex::new(r"^[A-Z0-9_]+$").unwrap();
 
     if value.len() < 2 {
         let err = InputValidationError::Secrets(SecretsInputValidationError::SearchTooShort);
-        bail!(err)
+        return Err(err);
     }
 
     if !regex.is_match(value) {
         let err = InputValidationError::Secrets(SecretsInputValidationError::SearchFormat);
-        bail!(err)
+        return Err(err);
     }
 
     Ok(())
 }
 
-pub fn validate_webhook_id(value: &str) -> Result<()> {
+pub fn validate_webhook_id(value: &str) -> Result<(), InputValidationError> {
     let prefix = "whk_";
 
     if (value.starts_with(prefix)) == false {
         let input_err = WebhookInputValidationError::InvalidId;
-        bail!(InputValidationError::Webhook(input_err));
+        let err = InputValidationError::Webhook(input_err);
+        return Err(err);
     }
 
     let parsed = ShortUuid::parse_str(&value.strip_prefix(prefix).unwrap());
 
     if let Err(_) = parsed {
         let input_err = WebhookInputValidationError::InvalidId;
-
-        bail!(InputValidationError::Webhook(input_err));
+        let err = InputValidationError::Webhook(input_err);
+        return Err(err);
     }
 
     Ok(())
 }
 
-pub fn validate_webhook_url(url: &str) -> Result<()> {
+pub fn validate_webhook_url(url: &str) -> Result<(), InputValidationError> {
     let https_url_regex = Regex::new(r"^(https://[-\w]+(\.\w[-\w]*)+)([/?].*)?$").unwrap();
 
     if !https_url_regex.is_match(url) {
         let input_err = WebhookInputValidationError::InvalidUrl;
-        bail!(InputValidationError::Webhook(input_err));
+        let err = InputValidationError::Webhook(input_err);
+
+        return Err(err);
     }
 
     Ok(())
 }
 
-pub fn validate_webhook_description(description: &str) -> Result<()> {
+pub fn validate_webhook_description(description: &str) -> Result<(), InputValidationError> {
     if description.len() > 200 {
         let input_err = WebhookInputValidationError::DescriptionTooLong;
-        bail!(InputValidationError::Webhook(input_err));
+        let err = InputValidationError::Webhook(input_err);
+
+        return Err(err);
     }
 
     Ok(())

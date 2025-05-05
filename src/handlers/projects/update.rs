@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::{debug, error};
 
 use crate::{
@@ -23,12 +23,15 @@ pub async fn handle_update_project(
     name: String,
     new_name: Option<String>,
     new_description: Option<String>,
-) -> Result<()> {
+    json_format: bool,
+) -> anyhow::Result<()> {
     let validation_res = validate_input(&name, &new_name, &new_description);
 
     if let Err(e) = validation_res {
+        let error_output = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     debug!("updating project...:");
@@ -51,19 +54,27 @@ pub async fn handle_update_project(
         // eprintln!();
         spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
 
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
-            // println!("Project has been deleted");
-            spinner.stop_with_message("Project updated.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Project updated.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 
@@ -74,16 +85,16 @@ pub fn validate_input(
     name: &str,
     new_name: &Option<String>,
     new_description: &Option<String>,
-) -> Result<()> {
+) -> Result<(), InputValidationError> {
     if new_name.is_none() && new_description.is_none() {
         let err = InputValidationError::Projects(ProjectInputValidationError::NoUpdateFlags);
-        bail!(err)
+        return Err(err);
     }
 
     let identifier_validation_res = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     if let Some(new_name) = &new_name {
@@ -92,7 +103,7 @@ pub fn validate_input(
         if new_name_is_id {
             let err =
                 InputValidationError::Projects(ProjectInputValidationError::NameUsingIdFormat);
-            bail!(err)
+            return Err(err);
         }
 
         let name_is_id = resource_name_has_id_format(IdentifierResource::Project, name);
@@ -100,13 +111,13 @@ pub fn validate_input(
         if *new_name == name && !name_is_id {
             let err =
                 InputValidationError::Projects(ProjectInputValidationError::NewNameEqualsOriginal);
-            bail!(err)
+            return Err(err);
         }
 
         let new_name_is_valid = validate_project_name(new_name, true, true);
 
         if let Err(err) = new_name_is_valid {
-            bail!(err);
+            return Err(err);
         }
     }
 

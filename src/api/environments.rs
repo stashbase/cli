@@ -1,12 +1,10 @@
-use anyhow::Result;
-
 use super::client;
 use crate::{
     cmd::environments::EnvSortBy,
     models::{
         api_client::{
-            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
-            RequestArgs,
+            ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
+            RequestApiOptionResponse, RequestArgs,
         },
         environments::{CreatEnvironmentPayload, UpdateEnvironmentPayload},
     },
@@ -23,7 +21,7 @@ pub struct ListEnvsRequestArgs {
     pub descending: bool,
 }
 
-pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse> {
+pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, OutputError> {
     let ListEnvsRequestArgs {
         api_key,
         project,
@@ -73,7 +71,7 @@ pub async fn get(
     api_key: String,
     project: String,
     environment: String,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let args = RequestArgs {
         api_key,
         query: None,
@@ -90,7 +88,7 @@ pub async fn get_url(
     api_key: String,
     project: String,
     identifier: String,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let subpath = format!("{}/dashboard-url", identifier);
 
     let args = RequestArgs {
@@ -110,7 +108,7 @@ pub async fn create(
     project: String,
     open: bool,
     data: &CreatEnvironmentPayload,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let query = match open {
         true => Some(vec![(format!("url"), format!("true"))]),
         false => None,
@@ -133,7 +131,7 @@ pub async fn update(
     project: String,
     environment: String,
     data: &UpdateEnvironmentPayload,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Environments {
             project,
@@ -151,7 +149,7 @@ pub async fn set_lock(
     project: String,
     environment: String,
     locked: bool,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let subpath = match locked {
         true => format!("{}/lock", environment),
         false => format!("{}/unlock", environment),
@@ -173,7 +171,7 @@ pub async fn delete(
     api_key: String,
     project: String,
     name: String,
-) -> Result<DeleteRequestApiResponse> {
+) -> Result<DeleteRequestApiResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Environments {
             project,
@@ -196,7 +194,7 @@ pub struct CompareEnvironmentsRequestArgs<'a> {
 
 pub async fn compare<'a>(
     args: CompareEnvironmentsRequestArgs<'a>,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let CompareEnvironmentsRequestArgs {
         api_key,
         project,

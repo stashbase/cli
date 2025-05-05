@@ -1,5 +1,6 @@
-use anyhow::Result;
 use clap::{Args, Subcommand};
+
+use crate::models::validation::InputValidationError;
 
 use super::{
     config::OutputFormat,
@@ -22,7 +23,7 @@ pub struct WebhookCommand {
 }
 
 impl WebhookCommand {
-    pub fn try_get_project_environment(&self) -> Result<(String, String)> {
+    pub fn try_get_project_environment(&self) -> Result<(String, String), InputValidationError> {
         let root_project: Option<_> = self.project.as_deref();
         let root_environment: Option<_> = self.environment.as_deref();
 

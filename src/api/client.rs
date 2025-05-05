@@ -1,6 +1,5 @@
 use std::env;
 
-use anyhow::{bail, Context, Result};
 use log::debug;
 use reqwest::{header::HeaderMap, Method};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -68,7 +67,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 // }
 //
 
-pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
+pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, OutputError> {
     let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
@@ -82,14 +81,17 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
 
     if let Err(_) = &res {
         let err = OutputError::cannot_connect();
-        bail!(err)
+        return Err(err);
     }
 
     let res = res.unwrap();
     let status = res.status();
 
     if status.is_success() {
-        let text = res.text().await.context("Could not parse response")?;
+        let text = res
+            .text()
+            .await
+            .map_err(|_| OutputError::failed_to_read_response_body())?;
         let response = GetRequestApiResponse::Ok(GetApiResponseOk { status, text });
 
         Ok(response)
@@ -97,7 +99,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
         let error_response: ApiErrorResponse = res
             .json()
             .await
-            .context("Failed to deserialize API error response")?;
+            .map_err(|_| OutputError::failed_to_deserialize_response_body())?;
 
         // Convert the API error into your custom error type
         let custom_error: OutputError = error_response.error.into();
@@ -105,7 +107,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse> {
     }
 }
 
-pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse> {
+pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse, OutputError> {
     let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
@@ -119,7 +121,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
 
     if let Err(_) = &res {
         let err = OutputError::cannot_connect();
-        bail!(err)
+        return Err(err);
     }
 
     let res = res.unwrap();
@@ -133,7 +135,10 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
 
                 Ok(response)
             } else {
-                let text = res.text().await.context("Could not parse response")?;
+                let text = res
+                    .text()
+                    .await
+                    .map_err(|_| OutputError::failed_to_read_response_body())?;
                 let response = DeleteRequestApiResponse::Ok(DeleteApiResponseOk {
                     status,
                     text: Some(text),
@@ -151,7 +156,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
         let error_response: ApiErrorResponse = res
             .json()
             .await
-            .context("Failed to deserialize API error response")?;
+            .map_err(|_| OutputError::failed_to_deserialize_response_body())?;
 
         // Convert the API error into your custom error type
         let custom_error: OutputError = error_response.error.into();
@@ -162,7 +167,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
 pub async fn post_request<T>(
     args: RequestArgs,
     data: Option<&T>,
-) -> Result<RequestApiOptionResponse>
+) -> Result<RequestApiOptionResponse, OutputError>
 where
     T: serde::Serialize,
 {
@@ -172,14 +177,14 @@ where
 pub async fn patch_request<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<&T>,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     post_patch_put(args, data, reqwest::Method::PATCH).await
 }
 
 pub async fn put_request<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<&T>,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     post_patch_put(args, data, reqwest::Method::PUT).await
 }
 
@@ -187,7 +192,7 @@ async fn post_patch_put<T: serde::Serialize>(
     args: RequestArgs,
     data: Option<T>,
     method: Method,
-) -> Result<RequestApiOptionResponse> {
+) -> Result<RequestApiOptionResponse, OutputError> {
     let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
@@ -221,7 +226,7 @@ async fn post_patch_put<T: serde::Serialize>(
 
     if let Err(_) = &res {
         let err = OutputError::cannot_connect();
-        bail!(err)
+        return Err(err);
     }
 
     let res = res.unwrap();
@@ -235,7 +240,11 @@ async fn post_patch_put<T: serde::Serialize>(
 
                 Ok(response)
             } else {
-                let text = res.text().await.context("Could not parse response")?;
+                let text = res
+                    .text()
+                    .await
+                    .map_err(|_| OutputError::failed_to_read_response_body())?;
+
                 let response = RequestApiOptionResponse::Ok(OptionResponseOk {
                     status,
                     text: Some(text),
@@ -252,7 +261,7 @@ async fn post_patch_put<T: serde::Serialize>(
         let error_response: ApiErrorResponse = res
             .json()
             .await
-            .context("Failed to deserialize API error response")?;
+            .map_err(|_| OutputError::failed_to_deserialize_response_body())?;
 
         // Convert the API error into your custom error type
         let custom_error: OutputError = error_response.error.into();

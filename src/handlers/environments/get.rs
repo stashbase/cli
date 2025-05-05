@@ -6,7 +6,7 @@ use crate::{
     api::environments,
     cmd::config::OutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
     },
     utils::{
@@ -25,8 +25,10 @@ pub async fn handle_get_environment(
     let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_valid {
+        let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     // OK
@@ -37,8 +39,9 @@ pub async fn handle_get_environment(
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -80,13 +83,19 @@ pub async fn handle_get_environment(
                     }
                 }
                 Err(_) => {
-                    bail!("Something went wrong.")
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    eprintln!();
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 
