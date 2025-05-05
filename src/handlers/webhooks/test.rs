@@ -94,6 +94,8 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
                     }
                 }
             } else {
+                spinner.stop_and_persist("", "");
+
                 let error = OutputError::failed_to_deserialize_response_body();
                 let formatted_err = error.format_error_output(json_format)?;
 
