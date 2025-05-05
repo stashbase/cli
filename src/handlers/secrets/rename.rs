@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::debug;
 use owo_colors::OwoColorize;
 
@@ -11,6 +11,7 @@ use crate::{
     },
     utils::{
         duplicates::{self, find_duplicates},
+        output::get_colored_json,
         separator,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
@@ -22,15 +23,17 @@ pub struct HandleRenameSecretsArgs {
     pub project: String,
     pub environment: String,
     pub secrets: Vec<String>,
+    pub json_format: bool,
 }
 
 // TODO: input error - at least one item
-pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> {
+pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Result<()> {
     let HandleRenameSecretsArgs {
         api_key,
         project,
         environment,
         secrets,
+        json_format,
     } = args;
 
     if secrets.is_empty() {
@@ -57,8 +60,10 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     let validation_res = validate_input(&project, &environment, &name_value_pairs);
 
     if let Err(e) = validation_res {
+        let error_output = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     let new_names = name_value_pairs
@@ -94,7 +99,9 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -107,6 +114,15 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         let not_found_secrets = data.not_found_secrets;
                         let not_found_len = not_found_secrets.len();
 
@@ -177,6 +193,9 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> Result<()> 
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_with_message(&format!("{}", e));
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 
@@ -187,17 +206,17 @@ fn validate_input(
     project: &str,
     environment: &str,
     name_value_pairs: &Vec<(String, String)>,
-) -> Result<()> {
+) -> Result<(), InputValidationError> {
     let project_name_validation_res = validate_project_name(project, false, false);
 
     if let Err(err) = project_name_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     let env_validation_res = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_validation_res {
-        bail!(err);
+        return Err(err);
     }
 
     let old_names = name_value_pairs
@@ -208,7 +227,7 @@ fn validate_input(
     let valid_old_names = validate_secret_names(&old_names);
 
     if let Err(err) = valid_old_names {
-        bail!(err);
+        return Err(err);
     }
 
     let new_names = name_value_pairs
@@ -219,7 +238,7 @@ fn validate_input(
     let valid_new_names = validate_secret_names(&new_names);
 
     if let Err(err) = valid_new_names {
-        bail!(err);
+        return Err(err);
     }
 
     let duplicate_names = find_duplicates(&old_names);
@@ -229,7 +248,7 @@ fn validate_input(
             duplicate_names,
         ));
 
-        bail!(err);
+        return Err(err);
     }
 
     // let keys_valid_res = validate_secret_key_new_key(&key_value_pairs);

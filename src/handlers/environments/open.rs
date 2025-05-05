@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::{
     api::environments,
-    models::api_client::GetRequestApiResponse,
+    models::api_client::{GetRequestApiResponse, OutputError},
     utils::{spinner::request_spinner, validation::validate_project_environment_identifier},
 };
 
@@ -18,13 +18,16 @@ pub async fn handle_open_environment(
     api_key: String,
     project: String,
     environment: String,
+    json_format: bool,
 ) -> Result<()> {
     let input_validation_res =
         validate_project_environment_identifier(&project, &environment, true);
 
     if let Err(err) = input_validation_res {
+        let formatted_err = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     // OK
@@ -34,8 +37,9 @@ pub async fn handle_open_environment(
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
-        error!("{:#?}", &err);
-        bail!(err);
+
+        let formatted_err = err.format_error_output(json_format)?;
+        bail!(formatted_err);
     }
 
     let project_res = project_res.unwrap();
@@ -56,13 +60,20 @@ pub async fn handle_open_environment(
                 Err(e) => {
                     error!("{:#?}", e);
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.");
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    eprintln!();
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let formatted_err = e.format_error_output(json_format)?;
+            bail!(formatted_err);
         }
     }
 

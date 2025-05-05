@@ -71,13 +71,24 @@ pub async fn handle_secrets_commands(
         return Ok(());
     }
 
-    let (project, environment) = cmd.try_get_project_environment()?;
+    let project_env_res = cmd.try_get_project_environment();
+
+    if let Err(err) = project_env_res {
+        let formatted_err = err.format_error_output(raw_output)?;
+
+        eprintln!();
+        bail!(formatted_err);
+    }
+
+    let (project, environment) = project_env_res.unwrap();
 
     let validation_res = validate_project_environment_identifier(&project, &environment, false);
 
     if let Err(err) = validation_res {
+        let formatted_err = err.format_error_output(raw_output)?;
+
         eprintln!();
-        bail!(err);
+        bail!(formatted_err);
     }
 
     match cmd.subcommand {
@@ -116,6 +127,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 names: args.names,
                 delete_all: args.delete_all,
+                json_format: raw_output,
             };
 
             handle_delete_secrets(args).await?;
@@ -127,6 +139,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 values: args.secrets,
                 comment: args.comments,
+                json_format: raw_output,
             };
 
             handle_set_secrets(args).await?;
@@ -143,6 +156,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 values: args.secrets,
                 comments: args.comments,
+                json_format: raw_output,
             };
 
             handle_create_secrets(args).await?;
@@ -155,6 +169,7 @@ pub async fn handle_secrets_commands(
                 new_names: args.new_names,
                 values: args.values,
                 comment: args.comments,
+                json_format: raw_output,
             };
 
             handle_update_secrets(args).await?;
@@ -166,6 +181,7 @@ pub async fn handle_secrets_commands(
                 environment,
                 format: args.format,
                 file_path: args.file_path,
+                json_format: raw_output,
             };
 
             handle_upload_secrets(args).await?;

@@ -6,7 +6,7 @@ use crate::{
     api::projects,
     cmd::config::OutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         projects::{
             ProjectWithCountNoDescriptionTable, SingleProject, SingleProjectTable,
             SingleProjectWithCountNoDescriptionTable,
@@ -24,17 +24,21 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let mut spinner = request_spinner();
     let project_res = projects::get_project(api_key, name).await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+        spinner.stop_and_persist("", "");
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
@@ -78,13 +82,20 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
                     }
                 }
                 Err(_) => {
-                    bail!("Something went wrong.")
+                    spinner.stop_and_persist("", "");
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

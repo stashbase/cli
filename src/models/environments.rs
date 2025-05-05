@@ -198,7 +198,7 @@ pub struct CreatEnvironmentPayload {
     pub secrets: Option<Vec<Secret>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateEnvironmentResponse {
     pub id: String,
     pub name: String,

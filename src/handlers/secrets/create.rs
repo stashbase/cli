@@ -5,10 +5,14 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         secrets::{CreateSecretsResponse, Secret, ValidateSecrets},
+        validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
+    utils::{
+        interaction, output::get_colored_json, secrets::format_secret_comment, separator,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleCreateSecretsArgs {
@@ -17,6 +21,7 @@ pub struct HandleCreateSecretsArgs {
     pub environment: String,
     pub values: Vec<String>,
     pub comments: Vec<String>,
+    pub json_format: bool,
 }
 
 pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> {
@@ -26,19 +31,28 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
         environment,
         values,
         comments,
+        json_format,
     } = args;
 
     if values.is_empty() {
-        bail!("{} No secrets to create provided", "Input error:".red());
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NoSecretsToCreate);
+        let error_output = error.format_error_output(json_format)?;
+
+        eprintln!();
+        bail!(error_output);
     }
 
     let name_value_pairs = separator::key_value(values);
 
     debug!("{:#?}", name_value_pairs);
 
-    if let Err(err) = name_value_pairs {
+    if let Err(_) = name_value_pairs {
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
+        bail!(error_output);
     }
 
     let name_value_pairs = name_value_pairs.unwrap();
@@ -46,9 +60,12 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     let comment_pairs = separator::key_value(comments);
     debug!("{:#?}", comment_pairs);
 
-    if let Err(err) = comment_pairs {
+    if let Err(_) = comment_pairs {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+        bail!(error_output);
     }
 
     // OK
@@ -82,8 +99,11 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     }
 
     if let Err(err) = payload.validate() {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let reference_warnings = payload.get_reference_warnings();
@@ -104,7 +124,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -116,6 +138,15 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         let created_count = data.created_count;
                         let duplicate_secrets = data.duplicate_secrets;
 
@@ -174,21 +205,32 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                             spinner.stop_with_message("Secrets created.");
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!(e);
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
             None => {
                 spinner.stop_and_persist("", "");
-                bail!("Something went wrong");
+
+                let error = OutputError::failed_to_deserialize_response_body();
+                let formatted_err = error.format_error_output(json_format)?;
+
+                eprintln!();
+                bail!(formatted_err);
             }
         },
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

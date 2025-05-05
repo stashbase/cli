@@ -1,15 +1,17 @@
-use anyhow::{bail, Result};
+use anyhow::bail;
 use log::{debug, error};
 use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
     models::{
-        api_client::{DeleteRequestApiResponse, RequestApiOptionResponse},
+        api_client::{DeleteRequestApiResponse, OutputError, RequestApiOptionResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsResponse},
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
         interaction,
+        output::get_colored_json,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
@@ -21,32 +23,37 @@ pub struct HandleDeleteSecretsArgs {
     pub environment: String,
     pub names: Vec<String>,
     pub delete_all: bool,
+    pub json_format: bool,
 }
 
 // ✓
-pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> {
+pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Result<()> {
     let HandleDeleteSecretsArgs {
         api_key,
         project,
         environment,
         delete_all,
         names,
+        json_format,
     } = args;
 
     if names.is_empty() && !delete_all {
-        let msg = format!(
-            "{} {}",
-            "Input error:".red(),
-            "No secrets to delete provided."
-        );
-        bail!("{}", msg);
+        let secrets_error = SecretsInputValidationError::NoSecretsToDelete;
+        let input_error = InputValidationError::Secrets(secrets_error);
+
+        let error_output = input_error.format_error_output(json_format)?;
+
+        eprintln!();
+        bail!(error_output);
     }
 
     let validation_res = validate_input(&project, &environment, &names);
 
     if let Err(e) = validation_res {
+        let error_output = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     // op
@@ -73,7 +80,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");
                 error!("{:#?}", &err);
-                bail!(err);
+
+                let error_output = err.format_error_output(json_format)?;
+                bail!(error_output);
             }
 
             let res = res.unwrap();
@@ -86,37 +95,57 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                             let json_data = serde_json::from_str::<DeleteAllSecretsResponse>(&text);
 
                             match json_data {
-                                Ok(d) => match d.deleted_count {
-                                    0 => {
-                                        spinner.stop_with_message("No secrets to delete.");
-                                    }
-                                    _ => {
-                                        let msg =
-                                            format!("All secrets ({}) deleted.", d.deleted_count);
+                                Ok(d) => {
+                                    if json_format {
+                                        let json_str = get_colored_json(&d).unwrap();
 
-                                        spinner.stop_with_message(&format!(
-                                            "{} {}",
-                                            "✓".green(),
-                                            msg
-                                        ));
+                                        spinner.stop_and_persist("", "");
+                                        println!("{}", json_str);
+                                    } else {
+                                        match d.deleted_count {
+                                            0 => {
+                                                spinner.stop_with_message("No secrets to delete.");
+                                            }
+                                            _ => {
+                                                let msg = format!(
+                                                    "All secrets ({}) deleted.",
+                                                    d.deleted_count
+                                                );
+
+                                                spinner.stop_with_message(&format!(
+                                                    "{} {}",
+                                                    "✓".green(),
+                                                    msg
+                                                ));
+                                            }
+                                        }
                                     }
-                                },
-                                Err(e) => {
-                                    error!("{}", e);
+                                }
+                                Err(_) => {
                                     spinner.stop_and_persist("", "");
-                                    bail!("Something went wrong.");
+
+                                    let error = OutputError::failed_to_deserialize_response_body();
+                                    let formatted_err = error.format_error_output(json_format)?;
+
+                                    bail!(formatted_err);
                                 }
                             }
                         }
                         None => {
                             spinner.stop_and_persist("", "");
-                            bail!("Something went wrong.");
+
+                            let error = OutputError::failed_to_deserialize_response_body();
+                            let formatted_err = error.format_error_output(json_format)?;
+
+                            bail!(formatted_err);
                         }
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
                     spinner.stop_and_persist("", "");
-                    bail!(e);
+                    let formatted_err = e.format_error_output(json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
@@ -125,8 +154,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
 
             if let Err(err) = res {
                 spinner.stop_and_persist("", "");
-                error!("{:#?}", &err);
-                bail!(err);
+
+                let formatted_err = err.format_error_output(json_format)?;
+                bail!(formatted_err);
             }
 
             let res = res.unwrap();
@@ -141,6 +171,15 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
 
                             match json_data {
                                 Ok(data) => {
+                                    if json_format {
+                                        let json_str = get_colored_json(&data).unwrap();
+
+                                        spinner.stop_and_persist("", "");
+                                        println!("{}", json_str);
+
+                                        return Ok(());
+                                    }
+
                                     let not_found_secrets = data.not_found_secrets;
                                     let not_found_len = not_found_secrets.len();
 
@@ -194,20 +233,31 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
                                         spinner.stop_with_message("Selected secrets deleted.");
                                     }
                                 }
-                                Err(e) => {
-                                    error!("{}", e);
+                                Err(_) => {
+                                    spinner.stop_and_persist("", "");
+
+                                    let error = OutputError::failed_to_deserialize_response_body();
+                                    let formatted_err = error.format_error_output(json_format)?;
+
+                                    bail!(formatted_err);
                                 }
                             }
                         }
                         None => {
                             spinner.stop_and_persist("", "");
-                            bail!("Something went wrong");
+
+                            let error = OutputError::failed_to_deserialize_response_body();
+                            let formatted_err = error.format_error_output(json_format)?;
+
+                            bail!(formatted_err);
                         }
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
                     spinner.stop_and_persist("", "");
-                    bail!(e);
+
+                    let error_output = e.format_error_output(json_format)?;
+                    bail!(error_output);
                 }
             }
         }
@@ -216,24 +266,27 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> Result<()> 
     Ok(())
 }
 
-fn validate_input(project: &str, environment: &str, names: &Vec<String>) -> Result<()> {
+fn validate_input(
+    project: &str,
+    environment: &str,
+    names: &Vec<String>,
+) -> Result<(), InputValidationError> {
     let name_is_valid = validate_project_name(project, false, false);
 
     if let Err(err) = name_is_valid {
-        bail!(err);
+        return Err(err);
     }
 
     let env_name_validation = validate_environment_name(environment, false, false);
 
     if let Err(err) = env_name_validation {
-        bail!(err);
+        return Err(err);
     }
 
     let names_valid = validate_secret_names(names);
 
     if let Err(err) = names_valid {
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+        return Err(err);
     }
 
     Ok(())

@@ -34,7 +34,7 @@ pub struct UpdateProjectPayload {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateProjectResponse {
     pub id: String,
 

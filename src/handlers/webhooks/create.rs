@@ -4,10 +4,10 @@ use log::debug;
 use crate::{
     api::webhooks,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         webhooks::{CreateWebhookPayload, CreateWebhookResponse},
     },
-    utils::spinner::request_spinner,
+    utils::{output::get_colored_json, spinner::request_spinner},
 };
 
 pub struct CreateWebhookArgs {
@@ -19,6 +19,7 @@ pub struct CreateWebhookArgs {
     // payload
     pub url: String,
     pub description: Option<String>,
+    pub json_format: bool,
 }
 
 pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
@@ -30,6 +31,7 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
         description,
         return_secret,
         enable,
+        json_format,
     } = args;
 
     let args = webhooks::CreateArgs {
@@ -50,7 +52,9 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -65,6 +69,15 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
 
                     match webhook {
                         Ok(webhook) => {
+                            if json_format {
+                                let json_str = get_colored_json(&webhook).unwrap();
+
+                                spinner.stop_and_persist("", "");
+                                println!("{}", json_str);
+
+                                return Ok(());
+                            }
+
                             let msg = match enable {
                                 true => "Webhook created and enabled.",
                                 false => "Webhook created.",
@@ -77,23 +90,31 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                             eprint!("Signing secret: ");
                             print!("{}\n", webhook.signing_secret);
                         }
-                        Err(e) => {
+                        Err(_) => {
                             spinner.stop_and_persist("", "");
-                            debug!("Err: {}", e);
-                            bail!("Something went wrong.")
+
+                            let error = OutputError::failed_to_deserialize_response_body();
+                            let formatted_err = error.format_error_output(json_format)?;
+
+                            bail!(formatted_err);
                         }
                     }
                 }
                 None => {
-                    // NOTE: webhook creted but no id returned
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.")
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

@@ -10,7 +10,7 @@ use tabled::Tabled;
 use crate::{
     api::secrets,
     models::{
-        api_client::{GetApiResponseOk, GetRequestApiResponse},
+        api_client::{GetApiResponseOk, GetRequestApiResponse, OutputError},
         secrets::{
             ProjectSecretSearchedByName, ProjectSecretSearchedByNameTable,
             ProjectSecretSearchedByValue, ProjectSecretSearchedByValueTable,
@@ -52,40 +52,51 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         let validation_res = validate_project_identifier(project, false);
 
         if let Err(err) = validation_res {
+            let error_output =
+                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         }
     }
 
     if name.is_none() && value.is_none() {
         let search_error = SecretsInputValidationError::SearchMissingNameOrValue;
         let err = InputValidationError::Secrets(search_error);
+        let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     if name.is_some() && value.is_some() {
         let search_error = SecretsInputValidationError::SearchBothNameAndValue;
         let err = InputValidationError::Secrets(search_error);
+        let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     if let Some(name) = &name {
         if name.is_empty() {
             let search_error = SecretsInputValidationError::SearchTooShort;
             let err = InputValidationError::Secrets(search_error);
+            let error_output =
+                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         }
 
         let validation_res = validate_secret_name(name);
 
         if let Err(err) = validation_res {
-            bail!(err);
+            let error_output =
+                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+
+            eprintln!();
+            bail!(error_output);
         }
     }
 
@@ -93,15 +104,19 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         if value.is_empty() {
             let search_error = SecretsInputValidationError::SearchValueEmpty;
             let err = InputValidationError::Secrets(search_error);
+            let error_output =
+                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         } else if value.len() > 1000 {
             let search_error = SecretsInputValidationError::SearchValueTooLong;
             let err = InputValidationError::Secrets(search_error);
+            let error_output =
+                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         }
     }
 
@@ -114,7 +129,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -144,7 +161,10 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         },
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
-            bail!(err);
+
+            let error_output =
+                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 
@@ -210,7 +230,12 @@ where
         }
         Err(_) => {
             spinner.stop_and_persist("", "");
-            bail!("Something went wrong.")
+
+            let error = OutputError::failed_to_deserialize_response_body();
+            let formatted_err =
+                error.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+
+            bail!(formatted_err);
         }
     }
 

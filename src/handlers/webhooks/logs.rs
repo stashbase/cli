@@ -1,12 +1,12 @@
 use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
-use log::debug;
+use log::{debug, error};
 
 use crate::{
     api::webhooks,
     cmd::config::OutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         validation::{InputValidationError, WebhookInputValidationError},
         webhooks::{TableWebhookLog, WebhookLogList},
     },
@@ -75,7 +75,9 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == OutputFormat::Json)?;
+        bail!(error_output);
     }
 
     // safe
@@ -131,14 +133,20 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                 }
                 Err(e) => {
                     spinner.stop_and_persist("", "");
-                    debug!("Error: {:#?}", &e);
-                    bail!(e);
+                    error!("{}", e);
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == OutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

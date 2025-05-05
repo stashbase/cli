@@ -14,6 +14,7 @@ pub struct UpdateWebhookStatusArgs {
     pub environment: String,
     pub webhook_id: String,
     pub enabled: bool,
+    pub json_format: bool,
 }
 
 impl From<UpdateWebhookStatusArgs> for webhooks::UpdateStatusArgs {
@@ -40,6 +41,8 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     let mut spinner = request_spinner();
 
     let enabled = args.enabled;
+    let json_format = args.json_format;
+
     let req_args: webhooks::UpdateStatusArgs = args.into();
 
     let res = webhooks::update_status(req_args).await;
@@ -47,7 +50,9 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     // safe
@@ -55,18 +60,24 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            let msg = match enabled {
-                true => "Webhook enabled.",
-                false => "Webhook disabled.",
-            };
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                let msg = match enabled {
+                    true => "Webhook enabled.",
+                    false => "Webhook disabled.",
+                };
 
-            // println!("Project has been deleted");
-            spinner.stop_with_message(msg);
+                spinner.stop_with_message(msg);
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 
