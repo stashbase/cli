@@ -60,7 +60,6 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
                     }
                 },
                 Err(_) => {
-                    spinner.stop_and_persist("", "");
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(json_format)?;
 
