@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
+use colored_json::to_colored_json_auto;
 use log::debug;
 use owo_colors::OwoColorize;
 
@@ -21,6 +22,7 @@ pub struct HandleUploadSecretsArgs {
     pub environment: String,
     pub file_path: String,
     pub format: Option<SecretsFileFormat>,
+    pub json_format: bool,
 }
 
 pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> {
@@ -30,6 +32,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         environment,
         file_path,
         format,
+        json_format,
     } = args;
 
     let path = Path::new(&file_path);
@@ -61,10 +64,13 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     let secrets_res = read_secrets_from_file(path, &target_format);
 
     if let Err(err) = secrets_res {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err));
+        let err =
+            InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err.to_string()));
+
+        let error_output = err.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let mut secrets = secrets_res.unwrap();
@@ -73,8 +79,20 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     secrets.format();
 
     if secrets.is_empty() {
-        let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
-        eprintln!("{}", msg);
+        if json_format {
+            let error_json = serde_json::json!({
+                "error": {
+                    "message": "Nothing to upload: no secrets found."
+                }
+            });
+            let json = to_colored_json_auto(&error_json).unwrap();
+
+            eprintln!();
+            println!("{}", json);
+        } else {
+            let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
+            eprintln!("{}", msg);
+        }
 
         return Ok(());
     }
@@ -82,7 +100,9 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     // validate secrets
     if let Err(err) = secrets.validate() {
         eprintln!();
-        bail!(err);
+        let error_output = err.format_error_output(json_format)?;
+
+        bail!(error_output);
     }
 
     let reference_warnings = secrets.get_reference_warnings();
@@ -109,19 +129,28 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Secrets uploaded.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Secrets uploaded.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

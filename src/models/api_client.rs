@@ -1,11 +1,15 @@
 use core::fmt;
 
+use colored_json::to_colored_json_auto;
 use log::debug;
 use owo_colors::OwoColorize;
 use reqwest::{header::HeaderValue, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use crate::utils::{output::write_indented, validation::SECRET_VALUE_MAX_LENGTH};
+use crate::utils::{
+    output::{get_colored_json, write_indented},
+    validation::SECRET_VALUE_MAX_LENGTH,
+};
 
 #[derive(Debug)]
 pub struct RequestArgs {
@@ -360,18 +364,26 @@ pub enum WebhookError {
     WebhookAlreadyDisabled,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GenericOutputError {
-    pub code: Option<String>, // error code from API response
     pub message: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>, // error code from API response
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SecretsOutputError {
     pub code: String, // error code from API response
     pub message: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub secrets: Option<Vec<String>>,
 }
 
@@ -381,7 +393,35 @@ pub enum OutputError {
     Secrets(SecretsOutputError),
 }
 
+impl serde::Serialize for OutputError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            OutputError::Generic(e) => e.serialize(serializer),
+            OutputError::Secrets(e) => e.serialize(serializer),
+        }
+    }
+}
+
 impl OutputError {
+    pub fn failed_to_read_response_body() -> OutputError {
+        OutputError::Generic(GenericOutputError {
+            code: None,
+            message: "Failed to read response body.".to_string(),
+            hint: Some("Please try again later.".to_string()),
+        })
+    }
+
+    pub fn failed_to_deserialize_response_body() -> OutputError {
+        OutputError::Generic(GenericOutputError {
+            code: None,
+            message: "Failed to deserialize response body.".to_string(),
+            hint: Some("Please try again later.".to_string()),
+        })
+    }
+
     pub fn cannot_connect() -> OutputError {
         OutputError::Generic(GenericOutputError {
             code: None,
@@ -409,6 +449,43 @@ impl OutputError {
             OutputError::Generic(e) => e.code.as_deref(),
             OutputError::Secrets(e) => Some(&e.code),
         }
+    }
+
+    pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
+        if json_format {
+            let json_err = self.to_colored_json()?;
+            Ok(json_err)
+        } else {
+            Ok(self.to_string())
+        }
+    }
+
+    pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
+        #[derive(serde::Serialize)]
+        struct ErrorWrapper<'a> {
+            #[serde(rename = "error")]
+            error: ErrorData<'a>,
+        }
+
+        #[derive(serde::Serialize)]
+        struct ErrorData<'a> {
+            #[serde(flatten)]
+            data: &'a OutputError,
+            // #[serde(rename = "type")]
+            // error_type: &'static str,
+        }
+
+        let wrapper = ErrorWrapper {
+            error: ErrorData { data: self },
+        };
+        serde_json::to_value(&wrapper)
+    }
+
+    pub fn to_colored_json(&self) -> Result<String, serde_json::Error> {
+        let json_value = self.to_json_value()?;
+        let json_str = to_colored_json_auto(&json_value)?;
+
+        Ok(json_str)
     }
 }
 

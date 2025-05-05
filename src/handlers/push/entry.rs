@@ -40,6 +40,7 @@ pub struct HandlePushArgs {
     pub set: Vec<String>,
     pub exclude: Vec<String>,
     pub expand_refs: Option<bool>,
+    pub json_format: bool,
 }
 
 pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
@@ -52,6 +53,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         mut set,
         mut format,
         mut target_file,
+        json_format,
     } = args;
 
     let config_action_command = ConfigActionCommand::Push;
@@ -78,9 +80,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             let err = InputValidationError::PushPullEnvironment(
                 PushPullInputValidationError::NoFileSpecified { is_push: true },
             );
+            let error_output = err.format_error_output(json_format)?;
 
             eprintln!();
-            bail!(err);
+            bail!(error_output);
         }
 
         if let None = format {
@@ -169,10 +172,13 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let secrets_res = read_secrets_from_file(path, &target_format);
 
     if let Err(err) = secrets_res {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err));
+        let err =
+            InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err.to_string()));
+
+        let error_output = err.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     // validate project and environment
@@ -183,8 +189,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
 
     if let Err(e) = validation_res {
+        let error_output = e.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(e);
+        bail!(error_output);
     }
 
     //  process, format and validate secrets
@@ -195,8 +203,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly,
         );
 
+        let error_output = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     if only_set.is_empty() == false {
@@ -205,12 +215,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         let name_validation_res = validate_secret_names(&names_vec);
 
         if let Err(err) = name_validation_res {
-            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = map_secret_to_load_only_secrets_error(&validation_err);
+            let mapped_err = map_secret_to_load_only_secrets_error(&err);
+            let error_output = InputValidationError::LoadEnvironment(mapped_err)
+                .format_error_output(json_format)?;
 
-                eprintln!();
-                bail!(InputValidationError::LoadEnvironment(mapped_err));
-            }
+            eprintln!();
+            bail!(error_output);
         }
 
         secrets = secrets
@@ -222,11 +232,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         let name_validation_res = validate_secret_names(&names_vec);
 
         if let Err(err) = name_validation_res {
-            if let Some(validation_err) = err.downcast_ref::<InputValidationError>() {
-                let mapped_err = map_secret_to_load_exclude_secrets_error(&validation_err);
-                eprintln!();
-                bail!(InputValidationError::LoadEnvironment(mapped_err));
-            }
+            let mapped_err = map_secret_to_load_exclude_secrets_error(&err);
+            let error_output = InputValidationError::LoadEnvironment(mapped_err)
+                .format_error_output(json_format)?;
+
+            eprintln!();
+            bail!(error_output);
         }
 
         secrets = secrets
@@ -316,19 +327,28 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Secrets pushed.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Secrets pushed.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

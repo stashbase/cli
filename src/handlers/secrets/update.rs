@@ -7,13 +7,14 @@ use owo_colors::OwoColorize;
 use crate::{
     api::secrets,
     models::{
-        api_client::RequestApiOptionResponse,
+        api_client::{OutputError, RequestApiOptionResponse},
         secrets::{
             SecretPropertiesToUpdate, UpdateSecretsPayload, UpdateSecretsResponse, UpdatedSecret,
             ValidateUpdateSecrets,
         },
+        validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{separator, spinner::request_spinner},
+    utils::{output::get_colored_json, separator, spinner::request_spinner},
 };
 
 pub struct HandleUpdateSecretsArgs {
@@ -23,6 +24,7 @@ pub struct HandleUpdateSecretsArgs {
     pub new_names: Vec<String>,
     pub values: Vec<String>,
     pub comment: Vec<String>,
+    pub json_format: bool,
 }
 
 pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> {
@@ -33,14 +35,15 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         new_names,
         comment,
         values,
+        json_format,
     } = args;
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NoUpdatesProvided);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(
-            "{} No updates provided. Please specify at least one of: --values, --names, or --comments.",
-            "Input error:".red()
-        );
+        bail!(error_output);
     }
 
     // name -> {new_name, value, comment}
@@ -48,15 +51,19 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
     // process new values
     if !values.is_empty() {
-        let name_value_pairs = separator::key_value(values).map_err(|err| {
-            anyhow::anyhow!(
-                "\n{} Invalid input format: {}. Expected format: NAME=VALUE",
-                "Input error:".red(),
-                err
-            )
-        })?;
+        let name_value_pairs = separator::key_value(values);
 
-        for (name, value) in name_value_pairs {
+        if let Err(err) = name_value_pairs {
+            let error =
+                InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+
+            let error_output = error.format_error_output(json_format)?;
+
+            eprintln!();
+            bail!(error_output);
+        }
+
+        for (name, value) in name_value_pairs.unwrap() {
             let existing_secret = secret_updates.get_mut(&name);
 
             if let Some(secret) = existing_secret {
@@ -78,8 +85,13 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         let name_value_pairs = separator::key_value(new_names);
 
         if let Err(err) = name_value_pairs {
+            let error =
+                InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+
+            let error_output = error.format_error_output(json_format)?;
+
             eprintln!();
-            bail!("{} {}", format!("Input error:").red(), err);
+            bail!(error_output);
         }
 
         for (name, new_name) in name_value_pairs.unwrap() {
@@ -103,9 +115,14 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     if !comment.is_empty() {
         let name_value_pairs = separator::key_value(comment);
 
-        if let Err(err) = name_value_pairs {
+        if let Err(_) = name_value_pairs {
+            let error =
+                InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+
+            let error_output = error.format_error_output(json_format)?;
+
             eprintln!();
-            bail!("{} {}", format!("Input error:").red(), err);
+            bail!(error_output);
         }
 
         for (name, comment) in name_value_pairs.unwrap() {
@@ -137,8 +154,11 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         .collect();
 
     if let Err(err) = payload.validate() {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let mut spinner = request_spinner();
@@ -147,7 +167,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -160,6 +182,15 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
                 match json_data {
                     Ok(data) => {
+                        if json_format {
+                            let json_str = get_colored_json(&data).unwrap();
+
+                            spinner.stop_and_persist("", "");
+                            println!("{}", json_str);
+
+                            return Ok(());
+                        }
+
                         let updated_count = data.updated_count;
                         let not_found_secrets = data.not_found_secrets;
 
@@ -214,21 +245,31 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                             println!("{}", info_msg);
                         }
                     }
-                    Err(err) => {
+                    Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!(err);
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
             None => {
                 spinner.stop_and_persist("", "");
-                bail!("Something went wrong.");
+
+                let error = OutputError::failed_to_deserialize_response_body();
+                let formatted_err = error.format_error_output(json_format)?;
+
+                bail!(formatted_err);
             }
         },
         RequestApiOptionResponse::Err(err) => {
             spinner.stop_and_persist("", "");
             debug!("Error: {:#?}", &err);
-            bail!(err);
+
+            let error_output = err.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

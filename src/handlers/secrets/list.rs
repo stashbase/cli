@@ -5,10 +5,11 @@ use crate::{
     api::secrets,
     cmd::config::SecretsOutputFormat,
     models::{
-        api_client::GetRequestApiResponse,
+        api_client::{GetRequestApiResponse, OutputError},
         secrets::{Secret, SecretOptional},
     },
     utils::{
+        output::get_colored_json,
         secrets::{format_secret_names, format_secrets},
         spinner::request_spinner,
     },
@@ -50,7 +51,9 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
         debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_output = err.format_error_output(format == SecretsOutputFormat::Json)?;
+        bail!(error_output);
     }
 
     let res = res.unwrap();
@@ -63,7 +66,14 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                 match names {
                     Ok(secrets) => {
                         if secrets.is_empty() {
-                            spinner.stop_with_message("No secrets found.");
+                            if format == SecretsOutputFormat::Json {
+                                let json_str = get_colored_json(&secrets).unwrap();
+
+                                spinner.stop_and_persist("", "");
+                                println!("{}", json_str);
+                            } else {
+                                spinner.stop_with_message("No secrets found.");
+                            }
                         } else {
                             let names = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
                             let print_string = format_secret_names(names, &format);
@@ -73,10 +83,13 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                             println!("{}", print_string);
                         }
                     }
-                    Err(e) => {
-                        debug!("{}", e);
+                    Err(_) => {
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err =
+                            error.format_error_output(format == SecretsOutputFormat::Json)?;
+
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong.")
+                        bail!(formatted_err);
                     }
                 }
             }
@@ -88,7 +101,14 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         debug!("{:#?}", &secrets);
 
                         if secrets.is_empty() {
-                            spinner.stop_with_message("No secrets found.");
+                            if format == SecretsOutputFormat::Json {
+                                let json_str = get_colored_json(&secrets).unwrap();
+
+                                spinner.stop_and_persist("", "");
+                                println!("{}", json_str);
+                            } else {
+                                spinner.stop_with_message("No secrets found.");
+                            }
                         } else {
                             spinner.stop_and_persist("", "");
                             let print_string = format_secrets(secrets, &format);
@@ -103,14 +123,21 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
-                        bail!("Something went wrong.")
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err =
+                            error.format_error_output(format == SecretsOutputFormat::Json)?;
+
+                        bail!(formatted_err);
                     }
                 }
             }
         },
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(format == SecretsOutputFormat::Json)?;
+            bail!(error_output);
         }
     }
 

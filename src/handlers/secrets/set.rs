@@ -7,6 +7,7 @@ use crate::{
     models::{
         api_client::RequestApiOptionResponse,
         secrets::{Secret, ValidateSecrets},
+        validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
 };
@@ -17,6 +18,7 @@ pub struct HandleSetSecretsArgs {
     pub environment: String,
     pub values: Vec<String>,
     pub comment: Vec<String>,
+    pub json_format: bool,
 }
 
 // NOTE: for now must have at least one value -> validate length
@@ -27,13 +29,16 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         environment,
         values,
         comment,
+        json_format,
     } = args;
 
     if values.is_empty() {
-        let msg = format!("{} {}", "Input error:".red(), "no secrets to set");
+        let secrets_error = SecretsInputValidationError::NoSecretsToSet;
+        let input_error = InputValidationError::Secrets(secrets_error);
+        let error_output = input_error.format_error_output(json_format)?;
 
         eprintln!();
-        bail!(msg);
+        bail!(error_output);
     }
 
     debug!("{:#?}", comment);
@@ -42,9 +47,12 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     debug!("{:#?}", name_value_pairs);
 
-    if let Err(err) = name_value_pairs {
+    if let Err(_) = name_value_pairs {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+        bail!(error_output);
     }
 
     let name_value_pairs = name_value_pairs.unwrap();
@@ -52,9 +60,12 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let comment_pairs = separator::key_value(comment);
     debug!("{:#?}", comment_pairs);
 
-    if let Err(err) = comment_pairs {
+    if let Err(_) = comment_pairs {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!("{} {}", format!("Input error:").red(), err);
+        bail!(error_output);
     }
 
     // OK
@@ -89,8 +100,11 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     }
 
     if let Err(err) = payload.validate() {
+        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
+        let error_output = error.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     let reference_warnings = payload.get_reference_warnings();
@@ -111,20 +125,28 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
 
     if let Err(err) = res {
         spinner.stop_and_persist("", "");
-        debug!("Error: {:#?}", &err);
-        bail!(err);
+
+        let error_str = err.format_error_output(json_format)?;
+        bail!(error_str);
     }
 
     let res = res.unwrap();
 
     match res {
         RequestApiOptionResponse::Ok(_) => {
-            spinner.stop_with_message("Secrets set.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Secrets set.");
+            }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_str = e.format_error_output(json_format)?;
+            bail!(error_str);
         }
     }
 

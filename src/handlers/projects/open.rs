@@ -3,7 +3,9 @@ use log::error;
 use serde::Deserialize;
 
 use crate::{
-    api::projects, models::api_client::GetRequestApiResponse, utils::spinner::request_spinner,
+    api::projects,
+    models::api_client::{GetRequestApiResponse, OutputError},
+    utils::spinner::request_spinner,
 };
 
 #[derive(Debug, Deserialize)]
@@ -12,15 +14,16 @@ struct OpenProjectResponse {
     dashboard_url: String,
 }
 
-pub async fn handle_open_project(api_key: String, name: String) -> Result<()> {
+pub async fn handle_open_project(api_key: String, name: String, json_format: bool) -> Result<()> {
     // send request
     let mut spinner = request_spinner();
     let project_res = projects::get_project_dashboard_url(api_key, name).await;
 
     if let Err(err) = project_res {
         spinner.stop_and_persist("", "");
-        error!("{:#?}", &err);
-        bail!(err);
+
+        let formatted_err = err.format_error_output(json_format)?;
+        bail!(formatted_err);
     }
 
     let project_res = project_res.unwrap();
@@ -40,13 +43,20 @@ pub async fn handle_open_project(api_key: String, name: String) -> Result<()> {
                 }
                 Err(e) => {
                     spinner.stop_and_persist("", "");
-                    bail!("Something went wrong.");
+                    error!("{}", e);
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+            let formatted_err = e.format_error_output(json_format)?;
+
+            bail!(formatted_err);
         }
     }
 

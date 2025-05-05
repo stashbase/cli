@@ -12,12 +12,14 @@ use crate::{
     },
 };
 
-pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> {
+pub async fn handle_delete_project(api_key: String, name: String, json_format: bool) -> Result<()> {
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
+        let error_output = err.format_error_output(json_format)?;
+
         eprintln!();
-        bail!(err);
+        bail!(error_output);
     }
 
     eprintln!("{}", "All environments and secrets will be deleted.".red());
@@ -35,21 +37,29 @@ pub async fn handle_delete_project(api_key: String, name: String) -> Result<()> 
     let project_res = projects::delete_project(api_key, name).await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
         error!("{:#?}", &err);
-        bail!(err);
+        spinner.stop_and_persist("", "");
+
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let project_res = project_res.unwrap();
 
     match project_res {
         DeleteRequestApiResponse::Ok(_) => {
-            // println!("Project has been deleted");
-            spinner.stop_with_message("Project deleted.");
+            if json_format {
+                spinner.stop_and_persist("", "");
+                println!("{{}}");
+            } else {
+                spinner.stop_with_message("Project deleted.");
+            }
         }
         DeleteRequestApiResponse::Err(e) => {
             spinner.stop_and_persist("", "");
-            bail!(e);
+
+            let error_output = e.format_error_output(json_format)?;
+            bail!(error_output);
         }
     }
 

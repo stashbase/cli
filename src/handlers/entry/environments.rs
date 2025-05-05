@@ -18,16 +18,6 @@ use crate::{
     utils::output::get_output_format,
 };
 
-pub fn is_json_output(raw_output: bool, default_output_format: Option<OutputFormat>) -> bool {
-    match raw_output {
-        true => true,
-        false => match default_output_format == Some(OutputFormat::Json) {
-            true => true,
-            false => false,
-        },
-    }
-}
-
 pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
     api_key: String,
@@ -60,7 +50,7 @@ pub async fn handle_environment_commands(
             handle_get_environment(api_key, format, project, args.identifier).await?;
         }
         EnvironmentSubcommand::Open(args) => {
-            handle_open_environment(api_key, project, args.identifier).await?;
+            handle_open_environment(api_key, project, args.identifier, raw_output).await?;
         }
         EnvironmentSubcommand::Create(args) => {
             let args = HandleCreateEnvironmentArgs {
@@ -72,19 +62,20 @@ pub async fn handle_environment_commands(
                 open: args.open,
                 format: args.file_format,
                 file_path: args.file_path,
+                json_format: raw_output,
             };
 
             handle_create_environment(args).await?;
         }
 
         EnvironmentSubcommand::Lock(args) => {
-            handle_set_env_lock(api_key, project, args.identifier, true).await?;
+            handle_set_env_lock(api_key, project, args.identifier, true, raw_output).await?;
         }
         EnvironmentSubcommand::Unlock(args) => {
-            handle_set_env_lock(api_key, project, args.identifier, false).await?;
+            handle_set_env_lock(api_key, project, args.identifier, false, raw_output).await?;
         }
         EnvironmentSubcommand::Delete(args) => {
-            handle_delete_environment(api_key, project, args.identifier).await?;
+            handle_delete_environment(api_key, project, args.identifier, raw_output).await?;
         }
         EnvironmentSubcommand::Update(args) => {
             handle_update_environment(
@@ -94,19 +85,18 @@ pub async fn handle_environment_commands(
                 args.new_name,
                 args.description,
                 args.is_production,
+                raw_output,
             )
             .await?
         }
         EnvironmentSubcommand::Compare(args) => {
-            let json_format = is_json_output(raw_output, default_output_format);
-
             let handler_args = HandleCompareEnvironmentsArgs {
                 api_key,
                 project,
                 environment_1: args.identifier_1,
                 environment_2: args.identifier_2,
                 only_names: args.only_names,
-                json_format,
+                json_format: raw_output,
             };
 
             handle_compare_environments(handler_args).await?;

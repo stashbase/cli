@@ -1,9 +1,7 @@
-use anyhow::Result;
-
 use crate::models::{
     api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, RequestApiOptionResponse,
-        RequestArgs,
+        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
+        RequestApiOptionResponse, RequestArgs,
     },
     webhooks::{CreateWebhookPayload, UpdateWebhookPayload, UpdateWebhookStatusPayload},
 };
@@ -16,7 +14,7 @@ pub struct ListArgs {
     pub environment: String,
 }
 
-pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse> {
+pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse, OutputError> {
     let ListArgs {
         api_key,
         project,
@@ -44,7 +42,7 @@ pub struct GetArgs {
     pub with_secret: bool,
 }
 
-pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse> {
+pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse, OutputError> {
     let GetArgs {
         api_key,
         project,
@@ -80,7 +78,7 @@ pub struct CreateArgs {
     pub data: CreateWebhookPayload,
 }
 
-pub async fn create(args: CreateArgs) -> Result<RequestApiOptionResponse> {
+pub async fn create(args: CreateArgs) -> Result<RequestApiOptionResponse, OutputError> {
     let query = match args.return_secret {
         true => Some(vec![("return-secret".to_string(), "true".to_string())]),
         false => None,
@@ -107,7 +105,7 @@ pub struct TestArgs {
     pub webhook_id: String,
 }
 
-pub async fn test(args: TestArgs) -> Result<RequestApiOptionResponse> {
+pub async fn test(args: TestArgs) -> Result<RequestApiOptionResponse, OutputError> {
     let path = format!("{}/test", args.webhook_id);
 
     let req_args = RequestArgs {
@@ -132,7 +130,7 @@ pub struct UpdateArgs {
     pub data: UpdateWebhookPayload,
 }
 
-pub async fn update(args: UpdateArgs) -> Result<RequestApiOptionResponse> {
+pub async fn update(args: UpdateArgs) -> Result<RequestApiOptionResponse, OutputError> {
     let req_args = RequestArgs {
         path: ApiPath::Webhooks {
             project: args.project,
@@ -154,7 +152,9 @@ pub struct UpdateStatusArgs {
     pub data: UpdateWebhookStatusPayload,
 }
 
-pub async fn update_status(args: UpdateStatusArgs) -> Result<RequestApiOptionResponse> {
+pub async fn update_status(
+    args: UpdateStatusArgs,
+) -> Result<RequestApiOptionResponse, OutputError> {
     let path = format!("{}/status", args.webhook_id);
 
     let req_args = RequestArgs {
@@ -172,7 +172,7 @@ pub async fn update_status(args: UpdateStatusArgs) -> Result<RequestApiOptionRes
 
 pub type GetSecretArgs = RotateArgs;
 
-pub async fn get_secret(args: GetSecretArgs) -> Result<GetRequestApiResponse> {
+pub async fn get_secret(args: GetSecretArgs) -> Result<GetRequestApiResponse, OutputError> {
     let path = format!("{}/signing-secret", args.webhook_id);
 
     let req_args = RequestArgs {
@@ -194,9 +194,10 @@ pub struct RotateArgs {
     pub project: String,
     pub environment: String,
     pub webhook_id: String,
+    pub json_format: bool,
 }
 
-pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse> {
+pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse, OutputError> {
     let path = format!("{}/signing-secret", args.webhook_id);
 
     let req_args = RequestArgs {
@@ -220,7 +221,7 @@ pub struct DeleteArgs {
     pub webhook_id: String,
 }
 
-pub async fn delete(args: DeleteArgs) -> Result<DeleteRequestApiResponse> {
+pub async fn delete(args: DeleteArgs) -> Result<DeleteRequestApiResponse, OutputError> {
     let req_args = RequestArgs {
         path: ApiPath::Webhooks {
             project: args.project,
@@ -245,7 +246,7 @@ pub struct ListLogsArgs {
     pub limit: Option<usize>,
 }
 
-pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse> {
+pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse, OutputError> {
     let ListLogsArgs {
         api_key,
         project,
@@ -285,7 +286,7 @@ pub async fn get_dashboard_url(
     project: String,
     environment: String,
     webhook_id: &str,
-) -> Result<GetRequestApiResponse> {
+) -> Result<GetRequestApiResponse, OutputError> {
     let subpath = format!("{}/dashboard-url", webhook_id);
 
     let args = RequestArgs {
