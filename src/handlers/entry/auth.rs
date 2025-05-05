@@ -5,7 +5,10 @@ use log::debug;
 use crate::{
     api::auth::get_current_auth_details,
     cmd::config::OutputFormat,
-    models::{api_client::GetRequestApiResponse, auth::CurrentAuthResponse},
+    models::{
+        api_client::{GetRequestApiResponse, OutputError},
+        auth::CurrentAuthResponse,
+    },
     utils::spinner::request_spinner,
 };
 
@@ -56,19 +59,19 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
                         unreachable!()
                     }
                 },
-                Err(err) => {
+                Err(_) => {
                     spinner.stop_and_persist("", "");
-                    debug!("Error: {:#?}", &err);
-                    bail!(err);
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(err) => {
             spinner.stop_and_persist("", "");
-
             let formatted_err = err.format_error_output(json_format)?;
 
-            eprintln!();
             bail!(formatted_err);
         }
     }
