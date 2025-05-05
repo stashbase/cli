@@ -82,6 +82,8 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
                     }
                 }
                 Err(_) => {
+                    spinner.stop_and_persist("", "");
+
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
 
