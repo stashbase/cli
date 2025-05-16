@@ -64,8 +64,6 @@ impl EnvironmentSubcommand {
             EnvironmentSubcommand::Create(c) => c.shared_args.project.as_ref(),
             EnvironmentSubcommand::Update(u) => u.shared_args.project.as_ref(),
             EnvironmentSubcommand::Compare(c) => c.shared_args.project.as_ref(),
-            EnvironmentSubcommand::Lock(l) => l.shared_args.project.as_ref(),
-            EnvironmentSubcommand::Unlock(u) => u.shared_args.project.as_ref(),
             EnvironmentSubcommand::Delete(d) => d.shared_args.project.as_ref(),
             EnvironmentSubcommand::Open(o) => o.shared_args.project.as_ref(),
         }
@@ -92,12 +90,6 @@ pub enum EnvironmentSubcommand {
 
     /// Compare secrets of two environments
     Compare(CompareEnvironment),
-
-    /// Lock project
-    Lock(SetEnvironmentLock),
-
-    /// Unlock project
-    Unlock(SetEnvironmentLock),
 
     /// Delete a project
     #[clap(aliases = &["d", "del"])]
@@ -193,17 +185,6 @@ pub struct GetEnvironment {
     /// Format output
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
-}
-
-#[derive(Debug, Args)]
-#[command(override_usage = "environments lock/unlock <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
-pub struct SetEnvironmentLock {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectArgs,
-
-    /// Project name or id
-    #[arg(value_name = "NAME_OR_ID")]
-    pub identifier: String,
 }
 
 #[derive(Debug, Args)]
