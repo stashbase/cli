@@ -36,8 +36,6 @@ pub async fn handle_environment_commands(
                 sort_by: args.sort_by,
                 descending: args.descending,
                 is_production: args.is_production,
-                locked: args.locked,
-                unlocked: args.unlocked,
                 format,
             };
 

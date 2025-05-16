@@ -102,7 +102,6 @@ pub enum EnvironmentSubcommand {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "environments list -p <PROJECT> [OPTIONS]")]
-// TODO: order/group by type + locked ???
 pub struct ListEnvironments {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
@@ -153,7 +152,6 @@ impl fmt::Display for EnvSortBy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             EnvSortBy::Name => write!(f, "name"),
-            EnvSortBy::Locked => write!(f, "locked"),
             EnvSortBy::CreatedAt => write!(f, "created"),
             EnvSortBy::SecretCount => write!(f, "secretCount"),
         }?;
