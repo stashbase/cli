@@ -12,7 +12,6 @@ use crate::{
         get::handle_get_environment,
         list::{handle_list_environments, HandleListEnvironmentsArgs},
         open::handle_open_environment,
-        set_lock::handle_set_env_lock,
         update::handle_update_environment,
     },
     utils::output::get_output_format,
@@ -68,12 +67,6 @@ pub async fn handle_environment_commands(
             handle_create_environment(args).await?;
         }
 
-        EnvironmentSubcommand::Lock(args) => {
-            handle_set_env_lock(api_key, project, args.identifier, true, raw_output).await?;
-        }
-        EnvironmentSubcommand::Unlock(args) => {
-            handle_set_env_lock(api_key, project, args.identifier, false, raw_output).await?;
-        }
         EnvironmentSubcommand::Delete(args) => {
             handle_delete_environment(api_key, project, args.identifier, raw_output).await?;
         }
