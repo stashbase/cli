@@ -40,7 +40,6 @@ pub struct Environment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    pub locked: bool,
     pub is_production: bool,
     pub secret_count: usize,
 
@@ -68,16 +67,13 @@ pub struct TableEnvironment {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 7)]
+    #[tabled(rename = "Description", order = 6)]
     pub description: Option<String>,
-
-    #[tabled(rename = "Locked", order = 5)]
-    pub locked: bool,
 
     #[tabled(rename = "Production", order = 4)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 6)]
+    #[tabled(rename = "Secrets", order = 5)]
     pub secret_count: usize,
 }
 
@@ -98,13 +94,10 @@ pub struct TableEnvironmentWithoutDescription {
     #[tabled(rename = "User role", order = 3)]
     pub user_role: String,
 
-    #[tabled(rename = "Locked", order = 5)]
-    pub locked: bool,
-
     #[tabled(rename = "Production", order = 4)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 6)]
+    #[tabled(rename = "Secrets", order = 5)]
     pub secret_count: usize,
 }
 
@@ -123,7 +116,6 @@ impl From<Environment> for TableEnvironment {
             created_at,
             name: env.name,
             description: env.description,
-            locked: env.locked,
             user_role,
             is_production: env.is_production,
             secret_count: env.secret_count,
@@ -145,7 +137,6 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
             id: env.id,
             created_at,
             name: env.name,
-            locked: env.locked,
             user_role,
             is_production: env.is_production,
             secret_count: env.secret_count,
@@ -168,7 +159,6 @@ impl Display for Environment {
 
         writeln!(f, "{} {}", "Id:".green(), self.id)?;
         writeln!(f, "{} {}", "Name:".green(), self.name)?;
-        writeln!(f, "{} {}", "Locked:".green(), self.locked)?;
         writeln!(f, "{} {}", "Production:".green(), self.is_production)?;
 
         if let Some(user_role) = &self.user_role {
