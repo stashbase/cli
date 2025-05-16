@@ -15,8 +15,6 @@ pub struct ListEnvsRequestArgs {
     pub project: String,
     pub search: Option<String>,
     pub is_production: Option<bool>,
-    pub locked: bool,
-    pub unlocked: bool,
     pub sort_by: EnvSortBy,
     pub descending: bool,
 }
@@ -27,8 +25,6 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
         project,
         search,
         is_production,
-        locked,
-        unlocked,
         sort_by: sort,
         descending,
     } = args;
@@ -45,14 +41,6 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
 
     if let Some(is_production) = is_production {
         query.push(("is-production".to_string(), is_production.to_string()));
-    }
-
-    if locked && !unlocked {
-        query.push(("locked".to_string(), "true".to_string()));
-    }
-
-    if !locked && unlocked {
-        query.push(("locked".to_string(), "false".to_string()));
     }
 
     let args = RequestArgs {
