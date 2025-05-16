@@ -144,29 +144,6 @@ pub async fn update(
     client::patch_request(args, Some(data)).await
 }
 
-pub async fn set_lock(
-    api_key: String,
-    project: String,
-    environment: String,
-    locked: bool,
-) -> Result<RequestApiOptionResponse, OutputError> {
-    let subpath = match locked {
-        true => format!("{}/lock", environment),
-        false => format!("{}/unlock", environment),
-    };
-
-    let args = RequestArgs {
-        path: ApiPath::Environments {
-            project,
-            path: Some(subpath),
-        },
-        query: None,
-        api_key,
-    };
-
-    client::patch_request::<()>(args, None).await
-}
-
 pub async fn delete(
     api_key: String,
     project: String,
