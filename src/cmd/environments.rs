@@ -121,14 +121,6 @@ pub struct ListEnvironments {
     )]
     pub is_production: Option<bool>,
 
-    /// Filter locked
-    #[arg(value_enum, long = "locked")]
-    pub locked: bool,
-
-    /// Filter unlocked
-    #[arg(value_enum, long = "unlocked")]
-    pub unlocked: bool,
-
     /// Sort environments by property
     #[arg(value_enum, short = 's', long = "sort-by")]
     pub sort_by: Option<EnvSortBy>,
@@ -153,8 +145,6 @@ pub enum EnvSortBy {
     Name,
     #[value(name = "createdAt")]
     CreatedAt,
-    #[value(name = "locked")]
-    Locked,
     #[value(name = "secretCount")]
     SecretCount,
 }
