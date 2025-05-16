@@ -282,18 +282,6 @@ pub enum EnvironmentError {
     #[serde(rename = "conflict.environment_already_exists")]
     EnvironmentAlreadyExists,
 
-    #[serde(rename = "conflict.environment_already_unlocked")]
-    EnvironmentAlreadyUnlocked,
-
-    #[serde(rename = "conflict.environment_already_locked")]
-    EnvironmentAlreadyLocked,
-
-    #[serde(rename = "conflict.current_environment_type")]
-    CurrentEnvironmentType,
-
-    #[serde(rename = "resource.environment_locked")]
-    EnvironmentLocked,
-
     #[serde(rename = "quota.environment_limit_reached")]
     EnvironmentLimitReached,
 
@@ -737,32 +725,6 @@ impl From<ApiError> for OutputError {
                         hint: Some(format!("Use a different name.")),
                     })
                 }
-                EnvironmentError::EnvironmentAlreadyLocked => {
-                    OutputError::Generic(GenericOutputError {
-                        message: format!("Environment already locked."),
-                        code: Some(format!("conflict.environment_already_locked")),
-                        hint: None,
-                    })
-                }
-                EnvironmentError::EnvironmentAlreadyUnlocked => {
-                    OutputError::Generic(GenericOutputError {
-                        message: format!("Environment already unlocked."),
-                        code: Some(format!("conflict.environment_already_unlocked")),
-                        hint: None,
-                    })
-                }
-                EnvironmentError::CurrentEnvironmentType => {
-                    OutputError::Generic(GenericOutputError {
-                        message: format!("Current environment type."),
-                        code: Some(format!("conflict.current_environment_type")),
-                        hint: Some(format!("Cannot update to same type.")),
-                    })
-                }
-                EnvironmentError::EnvironmentLocked => OutputError::Generic(GenericOutputError {
-                    message: format!("This environment is locked."),
-                    code: Some(format!("resource.environment_locked")),
-                    hint: Some(format!("Unlock environment to perform this action.")),
-                }),
                 EnvironmentError::SelfComparison => OutputError::Generic(GenericOutputError {
                     message: "Environment comparing with itself".to_string(),
                     code: Some(format!("validation.environment_self_comparison")),
