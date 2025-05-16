@@ -23,8 +23,6 @@ pub struct HandleListEnvironmentsArgs {
     pub sort_by: Option<EnvSortBy>,
     pub descending: bool,
     pub is_production: Option<bool>,
-    pub locked: bool,
-    pub unlocked: bool,
     pub format: OutputFormat,
 }
 
@@ -36,8 +34,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         sort_by: sort,
         descending,
         is_production,
-        locked,
-        unlocked,
         format,
     } = args;
 
@@ -72,8 +68,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         api_key,
         project,
         is_production,
-        locked,
-        unlocked,
         search,
         sort_by: sort.unwrap_or_default(),
         descending,
