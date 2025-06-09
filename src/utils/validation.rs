@@ -392,7 +392,6 @@ pub fn format_secrets_input(secrets: &mut Vec<Secret>) {
 
 pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<(), InputValidationError> {
     let mut invalid_names = LinkedHashSet::new();
-    let mut self_references = LinkedHashSet::new();
     let mut comment_too_long_secrets_names = LinkedHashSet::new();
     let mut value_too_long_secret_names = LinkedHashSet::new();
     let mut name_counts = HashMap::new();
@@ -404,11 +403,6 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<(), InputValidationErro
         // Validate name format
         if validate_secret_name(name).is_err() {
             invalid_names.insert_if_absent(name);
-        }
-
-        // Check for self references
-        if secret.value.contains(&format!("${{{}}}", name)) {
-            self_references.insert_if_absent(name);
         }
 
         // Track name occurrences for duplicates
@@ -477,15 +471,6 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<(), InputValidationErro
         return Err(input_err);
     }
 
-    if !self_references.is_empty() {
-        let self_references_vec = self_references.into_iter().map(|s| s.to_string()).collect();
-
-        let secrets_error = SecretsInputValidationError::SelfReferences(self_references_vec);
-        let input_err = InputValidationError::Secrets(secrets_error);
-
-        return Err(input_err);
-    }
-
     Ok(())
 }
 
@@ -503,7 +488,6 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<(), Input
     let mut missing_properties_names = LinkedHashSet::new();
     let mut comment_too_long_names = LinkedHashSet::new();
     let mut value_too_long_names = LinkedHashSet::new();
-    let mut self_references = LinkedHashSet::new();
 
     // First pass: collect all validation issues
     for secret in secrets {
@@ -535,13 +519,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<(), Input
             }
         }
 
-        // Check for self references in value
         if let Some(value) = &secret.value {
-            let reference_name = secret.new_name.as_ref().unwrap_or(&secret.name);
-            if value.contains(&format!("${{{}}}", reference_name)) {
-                self_references.insert_if_absent(secret.name.clone());
-            }
-
             // Check value length
             if value.len() > SECRET_VALUE_MAX_LENGTH {
                 value_too_long_names.insert_if_absent(secret.name.clone());
@@ -621,14 +599,6 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<(), Input
     if !value_too_long_names.is_empty() {
         let value_too_long_vec = value_too_long_names.into_iter().collect();
         let secrets_error = SecretsInputValidationError::ValuesTooLong(value_too_long_vec);
-        let input_err = InputValidationError::Secrets(secrets_error);
-
-        return Err(input_err);
-    }
-
-    if !self_references.is_empty() {
-        let self_references_vec = self_references.into_iter().collect();
-        let secrets_error = SecretsInputValidationError::SelfReferences(self_references_vec);
         let input_err = InputValidationError::Secrets(secrets_error);
 
         return Err(input_err);
