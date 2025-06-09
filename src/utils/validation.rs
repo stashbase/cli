@@ -340,6 +340,10 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
                     .entry(secret.name.clone())
                     .or_insert_with(Vec::new)
                     .push(ref_);
+            } else if ref_ == secret.name {
+                validation_obj
+                    .self_reference
+                    .insert_if_absent(secret.name.clone());
             } else if !secret_names.contains(&ref_) {
                 validation_obj
                     .not_found
@@ -348,6 +352,7 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
                     .push(ref_);
             }
         }
+
     }
 
     validation_obj

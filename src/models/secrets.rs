@@ -525,6 +525,8 @@ pub struct SecretReferenceWarnings {
     pub not_found: NotFoundReferences,
     // name of secrets that have empty references to other secrets (counts also whitespace)
     pub empty_value: LinkedHashSet<String>,
+    // self references
+    pub self_reference: LinkedHashSet<String>,
 }
 
 impl SecretReferenceWarnings {
@@ -533,11 +535,15 @@ impl SecretReferenceWarnings {
             invalid_format: LinkedHashMap::new(),
             not_found: NotFoundReferences::new(),
             empty_value: LinkedHashSet::new(),
+            self_reference: LinkedHashSet::new(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.invalid_format.len() == 0 && self.not_found.len() == 0 && self.empty_value.len() == 0
+        self.invalid_format.len() == 0 &&
+        self.not_found.len() == 0 &&
+        self.empty_value.len() == 0 &&
+        self.self_reference.len() == 0
     }
 }
 
