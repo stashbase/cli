@@ -549,6 +549,24 @@ impl SecretReferenceWarnings {
 
 impl std::fmt::Display for SecretReferenceWarnings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.self_reference.is_empty() {
+            let secrets_str = self
+                .self_reference
+                .iter()
+                .map(|k| format!("\"{}\"", k))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+
+            writeln!(
+                f,
+                "- message: secrets referencing itself (within input)"
+            )?;
+            writeln!(f, "- secrets: {} \n", secrets_str)?;
+        }
+
+
         if !self.invalid_format.is_empty() {
             let secrets_str = self
                 .invalid_format
