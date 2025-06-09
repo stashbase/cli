@@ -116,7 +116,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         return Ok(());
                     }
                 } else {
-                    let validation_msg = validate_secrets_input(&values)?;
+                    let validation_msg = validate_secrets_input(&values);
 
                     if let Some(msg) = validation_msg {
                         eprintln!("{}", msg);
@@ -222,19 +222,18 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     Ok(())
 }
 
-fn validate_secrets_input(secrets: &Vec<Secret>) -> Result<Option<String>> {
+fn validate_secrets_input(secrets: &Vec<Secret>) -> Option<String> {
     let refs_validation = validate_secrets_references_with_existence(&secrets);
+    let mut print_str = String::new();
 
     if !refs_validation.self_referenced_secrets.is_empty() {
-        let err = InputValidationError::Secrets(SecretsInputValidationError::SelfReferences(
-            refs_validation.self_referenced_secrets,
+        print_str.push_str(&format!(
+            "  Message: Found self referencing secrets.\n"
         ));
-
-        bail!(err);
+        print_str.push_str(&format!("  Secrets: {} \n", refs_validation.self_referenced_secrets.join(", ")));
     }
 
     if !refs_validation.invalid_format.is_empty() || !refs_validation.not_found.is_empty() {
-        let mut print_str = String::new();
 
         if !refs_validation.invalid_format.is_empty() {
             let hint_str = refs_validation
@@ -273,8 +272,8 @@ fn validate_secrets_input(secrets: &Vec<Secret>) -> Result<Option<String>> {
         }
 
         print_str = format!("{}\n", print_str);
-        return Ok(Some(print_str));
+        return Some(print_str);
     }
 
-    Ok(None)
+    None
 }
