@@ -327,12 +327,6 @@ pub enum SecretsError {
     #[serde(rename = "conflict.secrets_already_exist")]
     SecretsAlreadyExist,
 
-    #[serde(rename = "validation.self_referencing_secrets")]
-    SelfReferencingSecrets,
-
-    #[serde(rename = "conflict.self_referencing_secrets")]
-    SelfReferencingSecretsConflict,
-
     #[serde(rename = "validation.secret_comment_too_long")]
     SecretCommentTooLong,
 
@@ -777,38 +771,6 @@ impl From<ApiError> for OutputError {
                         hint: None,
                         secrets,
                     })
-                }
-                SecretsError::SelfReferencingSecrets => {
-                    let secrets = api_error.get_secrets_names_details();
-                    OutputError::Secrets(SecretsOutputError {
-                        message: format!("Found self-referencing secrets."),
-                        code: format!("validation.self_referencing_secrets"),
-                        hint: None,
-                        secrets,
-                    })
-                }
-                SecretsError::SelfReferencingSecretsConflict => {
-                    let secrets = api_error.get_secrets_names_details();
-                    match secrets {
-                        Some(s) if s.len() == 1 => OutputError::Secrets(SecretsOutputError {
-                            message: format!("Updating this secret would result in self-reference, which is not allowed."),
-                            code: format!("validation.self_referencing_secrets"),
-                            hint: None,
-                            secrets: None,
-                        }),
-                        Some(s) => OutputError::Secrets(SecretsOutputError {
-                            message: format!("Updating secrets would result in self-reference, which is not allowed."),
-                            code: format!("validation.self_referencing_secrets"),
-                            hint: None,
-                            secrets: Some(s),
-                        }),
-                        None => OutputError::Secrets(SecretsOutputError {
-                            message: format!("Updating secret would result in self-reference, which is not allowed."),
-                            code: format!("validation.self_referencing_secrets"),
-                            hint: None,
-                            secrets: None,
-                        }),
-                    }
                 }
                 SecretsError::SecretCommentTooLong => OutputError::Secrets(SecretsOutputError {
                     code: format!("validation.secret_comment_too_long"),
