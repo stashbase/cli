@@ -154,8 +154,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         .collect();
 
     if let Err(err) = payload.validate() {
-        let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
-        let error_output = error.format_error_output(json_format)?;
+        let error_output = err.format_error_output(json_format)?;
 
         eprintln!();
         bail!(error_output);
