@@ -268,7 +268,6 @@ pub fn validate_secrets_references(
     validation_obj
 }
 
-// self reference = fatal error, invalid format = warning
 pub fn validate_secrets_references_with_existence(
     secrets: &Vec<Secret>,
 ) -> ReferencesValidationWithExistence {
