@@ -344,6 +344,9 @@ pub enum WebhookError {
 
     #[serde(rename = "conflict.webhook_already_disabled")]
     WebhookAlreadyDisabled,
+
+    #[serde(rename = "quota.webhook_limit_reached")]
+    WebhookLimitReached,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -748,6 +751,11 @@ impl From<ApiError> for OutputError {
                     message: format!("Webhook already disabled."),
                     code: Some(format!("conflict.webhook_already_disabled")),
                     hint: None,
+                }),
+                WebhookError::WebhookLimitReached => OutputError::Generic(GenericOutputError {
+                    message: format!("Webhook limit reached."),
+                    code: Some(format!("quota.webhook_limit_reached")),
+                    hint: Some(format!("Environment reached the maximum number of webhooks allowed.")),
                 }),
             },
             ApiErrorEntity::Secret(e) => match e {
