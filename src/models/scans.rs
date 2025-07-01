@@ -2,19 +2,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ChangeRange {
+pub struct LineRange {
     pub start_line: usize,
     pub end_line: usize,
-
-    #[serde(skip)]
-    pub content: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffHunk {
-    pub full_content: String,      // Hunks + context combined
-    pub changes: Vec<ChangeRange>, // Individual change ranges
+    pub full_content: String,    // Hunks + context combined
+    pub changes: Vec<LineRange>, // Individual change ranges
 
     #[serde(rename = "startLine")]
     pub context_start_line: usize,
@@ -55,7 +52,7 @@ pub struct CommitHunks {
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub file_path: String,
-    pub range: ChangeRange,
+    pub range: LineRange,
     pub preview: String,
     pub severity: String,
 
