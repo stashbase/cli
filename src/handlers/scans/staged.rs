@@ -93,9 +93,10 @@ pub async fn handle_scan_staged_file_hunks(
 
                 match response {
                     Ok(data) => {
+                        let output_dir = config.output_dir;
                         spinner.stop_and_persist("", "");
 
-                        let exit_code = handle_scan_results(data);
+                        let exit_code = handle_scan_results(data, output_dir);
                         std::process::exit(exit_code);
                     }
                     Err(_) => {
@@ -125,7 +126,7 @@ pub async fn handle_scan_staged_file_hunks(
 }
 
 // return exit code
-fn handle_scan_results(results: ScanStagedFileHunksResponse) -> i32 {
+fn handle_scan_results(results: ScanStagedFileHunksResponse, output_dir: Option<String>) -> i32 {
     if results.results.is_empty() {
         println!("No secrets detected in staged changes!");
         return 0;
@@ -133,10 +134,10 @@ fn handle_scan_results(results: ScanStagedFileHunksResponse) -> i32 {
 
     // Serialize result to JSON
     let json = serde_json::to_string_pretty(&results).unwrap();
-    let output_dir = "scan_results";
+    let output_dir = output_dir.unwrap_or("scan_results".to_string());
 
-    if should_write_new_results(output_dir, &json) {
-        let file_path = save_scan_results(output_dir, &json);
+    if should_write_new_results(&output_dir, &json) {
+        let file_path = save_scan_results(&output_dir, &json);
         println!(
             "Potential secrets detected in your changes. Scan result saved to: {}",
             file_path
