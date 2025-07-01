@@ -11,6 +11,24 @@ use std::{
     rc::Rc,
 };
 
+pub struct HandleStagedFileHunksArgs {
+    pub context_lines: usize,
+    pub config_file_path: String,
+    pub ignore_line_comment: String,
+    pub exclude_patterns: Vec<String>,
+}
+
+pub async fn handle_staged_file_hunks(
+    args: HandleStagedFileHunksArgs,
+) -> Result<Vec<FileHunks>, anyhow::Error> {
+    let HandleStagedFileHunksArgs {
+        context_lines,
+        config_file_path,
+        ignore_line_comment,
+        exclude_patterns,
+    } = args;
+}
+
 pub fn get_staged_file_hunks(
     context_lines: usize,
     config_file_path: &str,
