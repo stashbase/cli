@@ -30,6 +30,9 @@ pub struct FileHunks {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StagedFileHunksPayload {
     pub files: Vec<FileHunks>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_value_hashes: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
