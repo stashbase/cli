@@ -1,3 +1,5 @@
+use std::path::Path;
+use ignore::gitignore::GitignoreBuilder;
 use crate::models::scans::DiffHunk;
 
 pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) -> bool {
@@ -70,3 +72,11 @@ pub fn is_binary_file(extension: &str) -> bool {
     }
 }
 
+pub fn should_exclude_file(file_path: &str, exclude_patterns: &[String]) -> bool {
+    let mut builder = GitignoreBuilder::new("/"); // Root directory
+    for pattern in exclude_patterns {
+        builder.add_line(None, pattern).unwrap();
+    }
+    let gitignore = builder.build().unwrap();
+    gitignore.matched(Path::new(file_path), false).is_ignore()
+}
