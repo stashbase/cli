@@ -400,12 +400,14 @@ pub fn get_staged_file_hunks(
                                                     let change_clone = change.clone();
                                                     last_hunk.changes.push(change_clone);
 
+                                                    let change_range = ChangeRangeWithHash {
+                                                        start_line: actual_line,
+                                                        end_line: actual_line,
+                                                        content_hash: content_hash,
+                                                    };
+
                                                     *current_changes.get_mut(&file_path).unwrap() =
-                                                        Some(ChangeRangeWithHash {
-                                                            start_line: actual_line,
-                                                            end_line: actual_line,
-                                                            content_hash: content_hash,
-                                                        });
+                                                        Some(change_range);
                                                 }
                                             }
                                         }
@@ -417,12 +419,14 @@ pub fn get_staged_file_hunks(
                                                 .any(|change| change.content_hash == content_hash);
 
                                             if !content_exists {
+                                                let change_range = ChangeRangeWithHash {
+                                                    start_line: actual_line,
+                                                    end_line: actual_line,
+                                                    content_hash: content_hash,
+                                                };
+
                                                 *current_changes.get_mut(&file_path).unwrap() =
-                                                    Some(ChangeRangeWithHash {
-                                                        start_line: actual_line,
-                                                        end_line: actual_line,
-                                                        content_hash: content_hash,
-                                                    });
+                                                    Some(change_range);
                                             }
                                         }
                                     }
@@ -477,12 +481,14 @@ pub fn get_staged_file_hunks(
                                                     });
 
                                                 if !content_exists {
+                                                    let change_range = ChangeRangeWithHash {
+                                                        start_line: line_number,
+                                                        end_line: line_number,
+                                                        content_hash: content_hash,
+                                                    };
+
                                                     *current_changes.get_mut(&file_path).unwrap() =
-                                                        Some(ChangeRangeWithHash {
-                                                            start_line: line_number,
-                                                            end_line: line_number,
-                                                            content_hash: content_hash,
-                                                        });
+                                                        Some(change_range);
                                                 }
                                             }
                                         }
@@ -510,13 +516,15 @@ pub fn get_staged_file_hunks(
                                                     last_hunk.changes.push(change_clone);
                                                     // Don't start new change if it's a blank line
                                                     if !is_blank_line {
-                                                        *current_changes
-                                                            .get_mut(&file_path)
-                                                            .unwrap() = Some(ChangeRangeWithHash {
+                                                        let change_range = ChangeRangeWithHash {
                                                             start_line: line_number,
                                                             end_line: line_number,
                                                             content_hash: content_hash,
-                                                        });
+                                                        };
+
+                                                        *current_changes
+                                                            .get_mut(&file_path)
+                                                            .unwrap() = Some(change_range);
                                                     }
                                                 }
                                             }
@@ -531,12 +539,14 @@ pub fn get_staged_file_hunks(
                                                     });
 
                                                 if !content_exists {
+                                                    let change_range = ChangeRangeWithHash {
+                                                        start_line: line_number,
+                                                        end_line: line_number,
+                                                        content_hash: content_hash,
+                                                    };
+
                                                     *current_changes.get_mut(&file_path).unwrap() =
-                                                        Some(ChangeRangeWithHash {
-                                                            start_line: line_number,
-                                                            end_line: line_number,
-                                                            content_hash: content_hash,
-                                                        });
+                                                        Some(change_range);
                                                 }
                                             }
                                         }
