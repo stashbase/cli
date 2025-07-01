@@ -134,16 +134,20 @@ fn handle_scan_results(results: ScanStagedFileHunksResponse, output_dir: Option<
 
     // Serialize result to JSON
     let json = serde_json::to_string_pretty(&results).unwrap();
-    let output_dir = output_dir.unwrap_or("scan_results".to_string());
 
-    if should_write_new_results(&output_dir, &json) {
-        let file_path = save_scan_results(&output_dir, &json);
-        println!(
-            "Potential secrets detected in your changes. Scan result saved to: {}",
-            file_path
-        );
+    if let Some(output_dir) = output_dir {
+        if should_write_new_results(&output_dir, &json) {
+            let file_path = save_scan_results(&output_dir, &json);
+
+            println!(
+                "Potential secrets detected in your changes. Scan result saved to: {}",
+                file_path
+            );
+        } else {
+            println!("Potential secrets detected in your changes. Results match previous scan.");
+        }
     } else {
-        println!("Potential secrets detected in your changes. Results match previous scan.");
+        println!("Potential secrets detected in your changes.");
     }
 
     if let Some(skipped_files) = results.skipped_files {
