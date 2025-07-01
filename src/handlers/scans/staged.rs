@@ -3,6 +3,7 @@ use crate::{
     utils::scans::{get_comment_prefix, is_binary_file, should_exclude_file, should_skip_line},
 };
 use git2::Repository;
+use sha2::Digest;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -196,6 +197,8 @@ pub fn get_staged_file_hunks(
                     .unwrap_or(false);
                 let line_number = line.new_lineno().unwrap_or(0) as usize;
                 let content = String::from_utf8_lossy(line.content()).to_string();
+                // create sha256 hash
+                let content_hash: [u8; 32] = sha2::Sha256::digest(content.as_bytes()).into();
 
                 // Skip "No newline at end of file" messages
                 if content.trim() == "\\ No newline at end of file" {
@@ -239,22 +242,24 @@ pub fn get_staged_file_hunks(
                                             {
                                                 change.end_line =
                                                     std::cmp::max(change.end_line, actual_line);
-                                                change.content.push_str(&content);
+
+                                                change.content_hash = content_hash;
                                             } else {
                                                 // Check if this content already exists in the hunk's changes
-                                                let content_exists = last_hunk
-                                                    .changes
-                                                    .iter()
-                                                    .any(|change| change.content == content);
+                                                let content_exists =
+                                                    last_hunk.changes.iter().any(|change| {
+                                                        change.content_hash == content_hash
+                                                    });
 
                                                 if !content_exists {
                                                     let change_clone = change.clone();
                                                     last_hunk.changes.push(change_clone);
+
                                                     *current_changes.get_mut(&file_path).unwrap() =
                                                         Some(LineRange {
                                                             start_line: actual_line,
                                                             end_line: actual_line,
-                                                            content: content.clone(),
+                                                            content_hash: content_hash,
                                                         });
                                                 }
                                             }
@@ -264,14 +269,14 @@ pub fn get_staged_file_hunks(
                                             let content_exists = last_hunk
                                                 .changes
                                                 .iter()
-                                                .any(|change| change.content == content);
+                                                .any(|change| change.content_hash == content_hash);
 
                                             if !content_exists {
                                                 *current_changes.get_mut(&file_path).unwrap() =
                                                     Some(LineRange {
                                                         start_line: actual_line,
                                                         end_line: actual_line,
-                                                        content: content.clone(),
+                                                        content_hash: content_hash,
                                                     });
                                             }
                                         }
@@ -315,23 +320,23 @@ pub fn get_staged_file_hunks(
                                             // Continue existing change
                                             change.end_line =
                                                 std::cmp::max(change.end_line, line_number);
-                                            change.content.push_str(&content);
+                                            change.content_hash = content_hash;
                                         }
                                         None => {
                                             // Skip leading blank lines
                                             if !is_blank_line {
                                                 // Check if this content already exists in the hunk's changes
-                                                let content_exists = last_hunk
-                                                    .changes
-                                                    .iter()
-                                                    .any(|change| change.content == content);
+                                                let content_exists =
+                                                    last_hunk.changes.iter().any(|change| {
+                                                        change.content_hash == content_hash
+                                                    });
 
                                                 if !content_exists {
                                                     *current_changes.get_mut(&file_path).unwrap() =
                                                         Some(LineRange {
                                                             start_line: line_number,
                                                             end_line: line_number,
-                                                            content: content.clone(),
+                                                            content_hash: content_hash,
                                                         });
                                                 }
                                             }
@@ -346,13 +351,13 @@ pub fn get_staged_file_hunks(
                                                 // Always include the line if we're in the middle of a change
                                                 change.end_line =
                                                     std::cmp::max(change.end_line, line_number);
-                                                change.content.push_str(&content);
+                                                change.content_hash = content_hash;
                                             } else {
                                                 // Check if this content already exists in the hunk's changes
-                                                let content_exists = last_hunk
-                                                    .changes
-                                                    .iter()
-                                                    .any(|change| change.content == content);
+                                                let content_exists =
+                                                    last_hunk.changes.iter().any(|change| {
+                                                        change.content_hash == content_hash
+                                                    });
 
                                                 if !content_exists {
                                                     // Gap too large, create new change range
@@ -365,7 +370,7 @@ pub fn get_staged_file_hunks(
                                                             .unwrap() = Some(LineRange {
                                                             start_line: line_number,
                                                             end_line: line_number,
-                                                            content: content.clone(),
+                                                            content_hash: content_hash,
                                                         });
                                                     }
                                                 }
@@ -375,17 +380,17 @@ pub fn get_staged_file_hunks(
                                             // Don't start new change if it's a blank line
                                             if !is_blank_line {
                                                 // Check if this content already exists in the hunk's changes
-                                                let content_exists = last_hunk
-                                                    .changes
-                                                    .iter()
-                                                    .any(|change| change.content == content);
+                                                let content_exists =
+                                                    last_hunk.changes.iter().any(|change| {
+                                                        change.content_hash == content_hash
+                                                    });
 
                                                 if !content_exists {
                                                     *current_changes.get_mut(&file_path).unwrap() =
                                                         Some(LineRange {
                                                             start_line: line_number,
                                                             end_line: line_number,
-                                                            content: content.clone(),
+                                                            content_hash: content_hash,
                                                         });
                                                 }
                                             }
