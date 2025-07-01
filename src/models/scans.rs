@@ -23,17 +23,16 @@ pub struct DiffHunk {
     pub context_end_line: usize,
 }
 
-// staged file wiht hunk content
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StagedFileHunks {
+pub struct FileHunks {
     pub file_path: String,
     pub hunks: Vec<DiffHunk>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StagedFileHunksPayload {
-    pub files: Vec<StagedFileHunks>,
+    pub files: Vec<FileHunks>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,12 +48,5 @@ pub struct PushCommitHunksPayload {
 #[serde(rename_all = "camelCase")]
 pub struct CommitHunks {
     pub commit_id: String,
-    pub files: Vec<CommitFileHunksFile>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CommitFileHunksFile {
-    pub file_path: String,
-    pub hunks: Vec<DiffHunk>,
+    pub files: Vec<FileHunks>,
 }
