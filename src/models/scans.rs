@@ -7,7 +7,7 @@ use crate::utils::scans::should_merge_hunks;
 pub struct LineRange {
     pub start_line: usize,
     pub end_line: usize,
-    pub content: String,
+    pub content_hash: [u8; 32], //sha256 hash of the content
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
