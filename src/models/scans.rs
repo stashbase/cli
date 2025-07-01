@@ -35,3 +35,26 @@ pub struct StagedFileHunks {
 pub struct StagedFileHunksPayload {
     pub files: Vec<StagedFileHunks>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanPushCommitHunksRequest {
+    pub commits: Vec<CommitHunks>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore_value_hashes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitHunks {
+    pub commit_id: String,
+    pub files: Vec<CommitFileHunksFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFileHunksFile {
+    pub file_path: String,
+    pub hunks: Vec<DiffHunk>,
+}
