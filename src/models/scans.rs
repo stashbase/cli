@@ -32,6 +32,13 @@ impl ScanConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct ChangeRange {
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ChangeRangeWithHash {
     pub start_line: usize,
     pub end_line: usize,
@@ -86,7 +93,7 @@ pub struct CommitHunks {
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub file_path: String,
-    pub range: ChangeRangeWithHash,
+    pub range: ChangeRange,
     pub preview: String,
     pub severity: String,
 
