@@ -2,6 +2,34 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::scans::should_merge_hunks;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanConfig {
+    pub enabled: Option<bool>,
+    pub exclude: Option<Vec<String>>,
+
+    #[serde(rename = "ignore-value-hashes")]
+    pub ignore_value_hashes: Option<Vec<String>>,
+}
+
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            enabled: None,
+            exclude: None,
+            ignore_value_hashes: None,
+        }
+    }
+}
+
+impl ScanConfig {
+    pub fn get_from_file(config_path: &str) -> Result<Self, anyhow::Error> {
+        let file = std::fs::File::open(config_path)?;
+        let config: ScanConfig = serde_yaml::from_reader(file)?;
+
+        Ok(config)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LineRange {
