@@ -90,8 +90,8 @@ pub fn calculate_hash(content: &str) -> Vec<u8> {
     hasher.finalize().to_vec()
 }
 
-pub fn get_latest_scan_file() -> Option<std::fs::DirEntry> {
-    let scan_dir = Path::new("scan_results");
+pub fn get_latest_scan_file(output_dir: &str) -> Option<std::fs::DirEntry> {
+    let scan_dir = Path::new(output_dir);
     fs::read_dir(scan_dir)
         .ok()?
         .filter_map(|entry| entry.ok())
@@ -99,8 +99,8 @@ pub fn get_latest_scan_file() -> Option<std::fs::DirEntry> {
         .max_by_key(|entry| entry.path())
 }
 
-pub fn should_write_new_results(new_content: &str) -> bool {
-    if let Some(latest_file) = get_latest_scan_file() {
+pub fn should_write_new_results(output_dir: &str, new_content: &str) -> bool {
+    if let Some(latest_file) = get_latest_scan_file(output_dir) {
         // Read and hash the content of the latest file
         if let Ok(content) = fs::read_to_string(latest_file.path()) {
             let existing_hash = calculate_hash(&content);
@@ -111,9 +111,9 @@ pub fn should_write_new_results(new_content: &str) -> bool {
     true // No existing file or couldn't read it, should write
 }
 
-pub fn save_scan_results(json_content: &str) -> String {
+pub fn save_scan_results(output_dir: &str, json_content: &str) -> String {
     // Create scan_results directory if it doesn't exist
-    fs::create_dir_all("scan_results").unwrap();
+    fs::create_dir_all(output_dir).unwrap();
 
     // Get current timestamp
     let timestamp = SystemTime::now()
@@ -122,7 +122,7 @@ pub fn save_scan_results(json_content: &str) -> String {
         .as_secs();
 
     // Create file path
-    let file_path = format!("scan_results/{}.json", timestamp);
+    let file_path = format!("{}/{}.json", output_dir, timestamp);
 
     // Write to file
     fs::write(&file_path, json_content).unwrap();
