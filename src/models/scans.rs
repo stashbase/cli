@@ -97,6 +97,24 @@ pub struct ScanResult {
     pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanStagedFileHunksResponse {
+    // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped_files: Option<Vec<String>>,
+    pub results: Vec<ScanResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanPushCommitHunksResponse {
+    // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped_commits: Option<Vec<String>>,
+    pub results: Vec<ScanResult>,
+}
+
 impl FileHunks {
     pub fn merge_overlapping_hunks(files: Vec<Self>, context_line_count: usize) -> Vec<Self> {
         // Group files by file path first
