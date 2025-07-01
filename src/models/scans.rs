@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::utils::scans::should_merge_hunks;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LineRange {
@@ -64,4 +66,94 @@ pub struct ScanResult {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
+}
+
+impl FileHunks {
+    pub fn merge_overlapping_hunks(files: Vec<Self>, context_line_count: usize) -> Vec<Self> {
+        // Group files by file path first
+        let mut file_groups: std::collections::HashMap<String, Vec<DiffHunk>> =
+            std::collections::HashMap::new();
+
+        // Group hunks by file path
+        for file in files {
+            file_groups
+                .entry(file.file_path.clone())
+                .or_default()
+                .extend(file.hunks);
+        }
+
+        // Process each file's hunks separately
+        let mut result = Vec::new();
+        for (file_path, hunks) in file_groups {
+            if hunks.len() <= 1 {
+                let file_hunks = Self { file_path, hunks };
+                result.push(file_hunks);
+                continue;
+            }
+
+            let mut sorted_hunks = hunks;
+            sorted_hunks.sort_by_key(|h| h.context_start_line);
+
+            let mut merged = Vec::new();
+            let mut current = sorted_hunks[0].clone();
+
+            for next in sorted_hunks.into_iter().skip(1) {
+                if should_merge_hunks(&current, &next, context_line_count) {
+                    // Extend the current hunk's context boundaries
+                    current.context_end_line = current.context_end_line.max(next.context_end_line);
+
+                    // Merge the full content intelligently to avoid duplication
+                    let mut combined_lines: Vec<String> =
+                        current.full_content.lines().map(String::from).collect();
+
+                    let next_lines: Vec<String> = next
+                        .full_content
+                        .lines()
+                        .map(String::from)
+                        .skip_while(|line| combined_lines.contains(line))
+                        .collect();
+
+                    if !next_lines.is_empty() {
+                        combined_lines.extend(next_lines);
+                        current.full_content = combined_lines.join("\n");
+                    }
+
+                    // Combine the changes arrays
+                    current.changes.extend(next.changes);
+
+                    // Sort changes by start line and merge any that are consecutive
+                    current.changes.sort_by_key(|change| change.start_line);
+                    let mut merged_changes = Vec::new();
+                    let current_change = current.changes.get(0).cloned();
+
+                    if let Some(mut current_change) = current_change {
+                        for next_change in current.changes.into_iter().skip(1) {
+                            if next_change.start_line == current_change.end_line + 1 {
+                                // Consecutive changes, merge them
+                                current_change.end_line = next_change.end_line;
+                            } else {
+                                // Non-consecutive changes, push current and start new
+                                merged_changes.push(current_change);
+                                current_change = next_change;
+                            }
+                        }
+                        merged_changes.push(current_change);
+                    }
+                    current.changes = merged_changes;
+                } else {
+                    merged.push(current);
+                    current = next;
+                }
+            }
+            merged.push(current);
+
+            let result_file_hunks = Self {
+                file_path,
+                hunks: merged,
+            };
+            result.push(result_file_hunks);
+        }
+
+        result
+    }
 }
