@@ -38,7 +38,7 @@ pub struct StagedFileHunksPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanPushCommitHunksRequest {
+pub struct PushCommitHunksPayload {
     pub commits: Vec<CommitHunks>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
