@@ -1,6 +1,8 @@
-use std::path::Path;
+use sha2::{Sha256, Digest};
+use std::{path::Path, fs};
 use ignore::gitignore::GitignoreBuilder;
 use crate::models::scans::DiffHunk;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) -> bool {
     // Only merge if they're close enough
@@ -79,4 +81,51 @@ pub fn should_exclude_file(file_path: &str, exclude_patterns: &[String]) -> bool
     }
     let gitignore = builder.build().unwrap();
     gitignore.matched(Path::new(file_path), false).is_ignore()
+}
+
+
+pub fn calculate_hash(content: &str) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    hasher.finalize().to_vec()
+}
+
+pub fn get_latest_scan_file() -> Option<std::fs::DirEntry> {
+    let scan_dir = Path::new("scan_results");
+    fs::read_dir(scan_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .max_by_key(|entry| entry.path())
+}
+
+pub fn should_write_new_results(new_content: &str) -> bool {
+    if let Some(latest_file) = get_latest_scan_file() {
+        // Read and hash the content of the latest file
+        if let Ok(content) = fs::read_to_string(latest_file.path()) {
+            let existing_hash = calculate_hash(&content);
+            let new_hash = calculate_hash(new_content);
+            return new_hash != existing_hash;
+        }
+    }
+    true // No existing file or couldn't read it, should write
+}
+
+pub fn save_scan_results(json_content: &str) -> String {
+    // Create scan_results directory if it doesn't exist
+    fs::create_dir_all("scan_results").unwrap();
+
+    // Get current timestamp
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Create file path
+    let file_path = format!("scan_results/{}.json", timestamp);
+
+    // Write to file
+    fs::write(&file_path, json_content).unwrap();
+
+    file_path
 }
