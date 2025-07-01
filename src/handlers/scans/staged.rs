@@ -92,6 +92,8 @@ pub async fn handle_scan_staged_file_hunks(
 
                 match response {
                     Ok(data) => {
+                        spinner.stop_and_persist("", "");
+
                         let exit_code = handle_scan_results(data);
                         std::process::exit(exit_code);
                     }
