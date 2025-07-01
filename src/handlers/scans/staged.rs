@@ -3,7 +3,7 @@ use crate::{
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
         scans::{
-            DiffHunk, FileHunks, LineRange, ScanConfig, ScanStagedFileHunksResponse,
+            ChangeRangeWithHash, DiffHunk, FileHunks, ScanConfig, ScanStagedFileHunksResponse,
             StagedFileHunksPayload,
         },
     },
@@ -176,7 +176,9 @@ pub fn get_staged_file_hunks(
 
     let files_with_hunks = Rc::new(RefCell::new(HashMap::<String, Vec<DiffHunk>>::new()));
     // Track current change per file
-    let current_changes = Rc::new(RefCell::new(HashMap::<String, Option<LineRange>>::new()));
+    let current_changes = Rc::new(RefCell::new(
+        HashMap::<String, Option<ChangeRangeWithHash>>::new(),
+    ));
     let prev_line = Rc::new(RefCell::new(String::new()));
 
     // Create a cache for excluded files
@@ -394,7 +396,7 @@ pub fn get_staged_file_hunks(
                                                     last_hunk.changes.push(change_clone);
 
                                                     *current_changes.get_mut(&file_path).unwrap() =
-                                                        Some(LineRange {
+                                                        Some(ChangeRangeWithHash {
                                                             start_line: actual_line,
                                                             end_line: actual_line,
                                                             content_hash: content_hash,
@@ -411,7 +413,7 @@ pub fn get_staged_file_hunks(
 
                                             if !content_exists {
                                                 *current_changes.get_mut(&file_path).unwrap() =
-                                                    Some(LineRange {
+                                                    Some(ChangeRangeWithHash {
                                                         start_line: actual_line,
                                                         end_line: actual_line,
                                                         content_hash: content_hash,
@@ -471,7 +473,7 @@ pub fn get_staged_file_hunks(
 
                                                 if !content_exists {
                                                     *current_changes.get_mut(&file_path).unwrap() =
-                                                        Some(LineRange {
+                                                        Some(ChangeRangeWithHash {
                                                             start_line: line_number,
                                                             end_line: line_number,
                                                             content_hash: content_hash,
@@ -505,7 +507,7 @@ pub fn get_staged_file_hunks(
                                                     if !is_blank_line {
                                                         *current_changes
                                                             .get_mut(&file_path)
-                                                            .unwrap() = Some(LineRange {
+                                                            .unwrap() = Some(ChangeRangeWithHash {
                                                             start_line: line_number,
                                                             end_line: line_number,
                                                             content_hash: content_hash,
@@ -525,7 +527,7 @@ pub fn get_staged_file_hunks(
 
                                                 if !content_exists {
                                                     *current_changes.get_mut(&file_path).unwrap() =
-                                                        Some(LineRange {
+                                                        Some(ChangeRangeWithHash {
                                                             start_line: line_number,
                                                             end_line: line_number,
                                                             content_hash: content_hash,
