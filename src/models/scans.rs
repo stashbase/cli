@@ -50,3 +50,18 @@ pub struct CommitHunks {
     pub commit_id: String,
     pub files: Vec<FileHunks>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResult {
+    pub file_path: String,
+    pub range: ChangeRange,
+    pub preview: String,
+    pub severity: String,
+
+    #[serde(rename = "valueSHA256")]
+    pub value_sha256: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
+}
