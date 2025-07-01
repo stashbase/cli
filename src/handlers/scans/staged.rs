@@ -27,16 +27,16 @@ use std::{
 static IGNORE_COMMENT: &str = "@stashbase-ignore";
 static CONTEXT_LINES: usize = 10;
 
-pub struct HandleStagedFileHunksArgs {
+pub struct HandleScanStagedFileHunksArgs {
     pub api_key: String,
     //
     pub config_file_path: String,
 }
 
-pub async fn handle_staged_file_hunks(
-    args: HandleStagedFileHunksArgs,
+pub async fn handle_scan_staged_file_hunks(
+    args: HandleScanStagedFileHunksArgs,
 ) -> Result<(), anyhow::Error> {
-    let HandleStagedFileHunksArgs {
+    let HandleScanStagedFileHunksArgs {
         api_key,
         config_file_path,
     } = args;
