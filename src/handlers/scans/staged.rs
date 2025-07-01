@@ -133,9 +133,10 @@ fn handle_scan_results(results: ScanStagedFileHunksResponse) -> i32 {
 
     // Serialize result to JSON
     let json = serde_json::to_string_pretty(&results).unwrap();
+    let output_dir = "scan_results";
 
-    if should_write_new_results(&json) {
-        let file_path = save_scan_results(&json);
+    if should_write_new_results(output_dir, &json) {
+        let file_path = save_scan_results(output_dir, &json);
         println!(
             "Potential secrets detected in your changes. Scan result saved to: {}",
             file_path
