@@ -1,6 +1,19 @@
 use crate::{
-    models::scans::{DiffHunk, FileHunks, LineRange},
-    utils::scans::{get_comment_prefix, is_binary_file, should_exclude_file, should_skip_line},
+    api,
+    models::{
+        api_client::{OutputError, RequestApiOptionResponse},
+        scans::{
+            DiffHunk, FileHunks, LineRange, ScanConfig, ScanStagedFileHunksResponse,
+            StagedFileHunksPayload,
+        },
+    },
+    utils::{
+        scans::{
+            get_comment_prefix, is_binary_file, save_scan_results, should_exclude_file,
+            should_skip_line, should_write_new_results,
+        },
+        spinner::request_spinner,
+    },
 };
 use git2::Repository;
 use sha2::Digest;
@@ -11,22 +24,129 @@ use std::{
     rc::Rc,
 };
 
+static IGNORE_COMMENT: &str = "@stashbase-ignore";
+static CONTEXT_LINES: usize = 10;
+
 pub struct HandleStagedFileHunksArgs {
-    pub context_lines: usize,
+    pub api_key: String,
+    //
     pub config_file_path: String,
-    pub ignore_line_comment: String,
-    pub exclude_patterns: Vec<String>,
 }
 
 pub async fn handle_staged_file_hunks(
     args: HandleStagedFileHunksArgs,
-) -> Result<Vec<FileHunks>, anyhow::Error> {
+) -> Result<(), anyhow::Error> {
     let HandleStagedFileHunksArgs {
-        context_lines,
+        api_key,
         config_file_path,
-        ignore_line_comment,
-        exclude_patterns,
     } = args;
+
+    let config = ScanConfig::get_from_file(&config_file_path)?;
+    let enabled = config.enabled;
+
+    if let Some(enabled) = enabled {
+        if !enabled {
+            std::process::exit(0);
+        }
+    }
+
+    let exclude = config.exclude.unwrap_or(vec![]);
+
+    let staged_files =
+        get_staged_file_hunks(CONTEXT_LINES, &config_file_path, &IGNORE_COMMENT, &exclude)?;
+
+    if staged_files.is_empty() {
+        std::process::exit(0);
+    }
+
+    let ignore_value_hashes = config.ignore_value_hashes.map(|hashes| {
+        hashes
+            .into_iter()
+            .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+            .collect::<Vec<_>>()
+    });
+
+    let data = StagedFileHunksPayload {
+        ignore_value_hashes,
+        files: staged_files,
+    };
+
+    let mut spinner = request_spinner();
+
+    let response = api::scans::scan_staged_hunks(api_key, &data).await;
+
+    if let Err(err) = response {
+        spinner.stop_and_persist("", "");
+
+        let error_output = err.format_error_output(false)?;
+        eprintln!("{}", error_output);
+        std::process::exit(1);
+    }
+
+    let response = response.unwrap();
+
+    match response {
+        RequestApiOptionResponse::Ok(res) => match res.text {
+            Some(text) => {
+                let response = serde_json::from_str::<ScanStagedFileHunksResponse>(&text);
+
+                match response {
+                    Ok(data) => {
+                        let exit_code = handle_scan_results(data);
+                        std::process::exit(exit_code);
+                    }
+                    Err(_) => {
+                        spinner.stop_and_persist("", "");
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(false)?;
+
+                        eprintln!("{}", formatted_err);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            None => {
+                spinner.stop_and_persist("", "");
+                eprintln!("Something went wrong.");
+                std::process::exit(1);
+            }
+        },
+        RequestApiOptionResponse::Err(e) => {
+            spinner.stop_and_persist("", "");
+
+            let error_output = e.format_error_output(false)?;
+            eprintln!("{}", error_output);
+            std::process::exit(1);
+        }
+    }
+}
+
+// return exit code
+fn handle_scan_results(results: ScanStagedFileHunksResponse) -> i32 {
+    if results.results.is_empty() {
+        return 0;
+    }
+
+    // Serialize result to JSON
+    let json = serde_json::to_string_pretty(&results).unwrap();
+
+    if should_write_new_results(&json) {
+        let file_path = save_scan_results(&json);
+        println!(
+            "Potential secrets detected in your changes. Scan result saved to: {}",
+            file_path
+        );
+    } else {
+        println!("Potential secrets detected in your changes. Results match previous scan.");
+    }
+
+    if let Some(skipped_files) = results.skipped_files {
+        println!("Skipped files: {:?}", skipped_files);
+    }
+
+    println!("Please review the findings before committing. If these are false positives, you can bypass this check with '--no-verify'");
+
+    return 1;
 }
 
 pub fn get_staged_file_hunks(
