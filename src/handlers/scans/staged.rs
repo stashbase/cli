@@ -126,6 +126,7 @@ pub async fn handle_scan_staged_file_hunks(
 // return exit code
 fn handle_scan_results(results: ScanStagedFileHunksResponse) -> i32 {
     if results.results.is_empty() {
+        println!("No secrets detected in staged changes!");
         return 0;
     }
 
