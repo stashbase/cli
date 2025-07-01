@@ -41,7 +41,7 @@ pub async fn handle_scan_staged_file_hunks(
         config_file_path,
     } = args;
 
-    let config = ScanConfig::get_from_file(&config_file_path).unwrap_or_default();
+    let config = ScanConfig::load_from_file(&config_file_path).unwrap_or_default();
     let enabled = config.enabled;
 
     if let Some(enabled) = enabled {
