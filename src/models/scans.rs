@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
 use crate::utils::scans::should_merge_hunks;
@@ -107,6 +109,24 @@ pub struct ScanResult {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
+}
+
+impl Display for ScanResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut result = String::new();
+        result.push_str(&format!("File: {}\n", self.file_path));
+        result.push_str(&format!(
+            "Range: {},{}\n",
+            self.range.start_line, self.range.end_line
+        ));
+        result.push_str(&format!("Preview: {}\n", self.preview));
+        result.push_str(&format!("Severity: {}\n", self.severity));
+        result.push_str(&format!("Value SHA256: {}", self.value_sha256));
+        if let Some(id) = &self.commit_id {
+            result.push_str(&format!("\nCommit: {}", id));
+        }
+        write!(f, "{}", result)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
