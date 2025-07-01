@@ -30,3 +30,8 @@ pub struct StagedFileHunks {
     pub file_path: String,
     pub hunks: Vec<DiffHunk>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StagedFileHunksPayload {
+    pub files: Vec<StagedFileHunks>,
+}
