@@ -46,6 +46,7 @@ pub async fn handle_scan_staged_file_hunks(
 
     if let Some(enabled) = enabled {
         if !enabled {
+            println!("Scans are disabled in the config file.");
             std::process::exit(0);
         }
     }
