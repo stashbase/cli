@@ -70,6 +70,7 @@ pub struct FileHunks {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StagedFileHunksPayload {
     pub files: Vec<FileHunks>,
 
