@@ -22,7 +22,7 @@ impl Default for ScanConfig {
 }
 
 impl ScanConfig {
-    pub fn get_from_file(config_path: &str) -> Result<Self, anyhow::Error> {
+    pub fn load_from_file(config_path: &str) -> Result<Self, anyhow::Error> {
         let file = std::fs::File::open(config_path)?;
         let config: ScanConfig = serde_yaml::from_reader(file)?;
 
