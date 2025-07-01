@@ -7,6 +7,9 @@ pub struct ScanConfig {
     pub enabled: Option<bool>,
     pub exclude: Option<Vec<String>>,
 
+    #[serde(rename = "output-dir")]
+    pub output_dir: Option<String>,
+
     #[serde(rename = "ignore-value-hashes")]
     pub ignore_value_hashes: Option<Vec<String>>,
 }
@@ -16,6 +19,7 @@ impl Default for ScanConfig {
         Self {
             enabled: None,
             exclude: None,
+            output_dir: None,
             ignore_value_hashes: None,
         }
     }
