@@ -20,8 +20,16 @@ pub enum ScanSubcommand {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "scan staged [OPTIONS]")]
-pub struct ScanStaged {}
+pub struct ScanStaged {
+    /// Relative path to a config file
+    #[arg(value_enum, short = 'c', long = "config")]
+    pub config_file: Option<String>,
+}
 
 #[derive(Debug, Args)]
 #[command(override_usage = "scan commits [OPTIONS]")]
-pub struct ScanCommits {}
+pub struct ScanCommits {
+    /// Relative path to a config file
+    #[arg(value_enum, short = 'c', long = "config")]
+    pub config_file: Option<String>,
+}
