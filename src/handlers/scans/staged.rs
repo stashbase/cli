@@ -163,17 +163,21 @@ fn handle_output_scan_results(
         let json = serde_json::to_string_pretty(&results).unwrap();
 
         if let Some(output_dir) = output_dir {
-            if should_write_new_results(&output_dir, &json) {
-                let file_path = save_scan_results(&output_dir, &json);
-                eprintln!(
-                    "{{\"message\": \"Scan results saved to: {}\", \"file_path\": \"{}\"}}",
-                    file_path, file_path
-                );
+            if is_empty {
+                eprintln!("{{\"message\": \"No secrets detected in staged changes!\"}}");
             } else {
-                eprintln!(
-                    "{{\"message\": \"Results match previous scan\", \"file_path\": \"{}\"}}",
-                    output_dir
-                );
+                if should_write_new_results(&output_dir, &json) {
+                    let file_path = save_scan_results(&output_dir, &json);
+                    eprintln!(
+                        "{{\"message\": \"Scan results saved to: {}\", \"file_path\": \"{}\"}}",
+                        file_path, file_path
+                    );
+                } else {
+                    eprintln!(
+                        "{{\"message\": \"Results match previous scan\", \"file_path\": \"{}\"}}",
+                        output_dir
+                    );
+                }
             }
         } else {
             println!("{}", json);
