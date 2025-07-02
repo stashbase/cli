@@ -6,6 +6,7 @@ use crate::{
             ChangeRangeWithHash, DiffHunk, FileHunks, ScanConfig, StagedFileHunksPayload,
             StagedScanResponse,
         },
+        validation::{InputValidationError, ScanInputValidationError},
     },
     utils::scans::{
         filter_sha256_hashes, get_comment_prefix, is_binary_file, save_scan_results,
@@ -79,12 +80,22 @@ pub async fn handle_scan_staged_file_hunks(
         .into_iter()
         .collect::<Vec<_>>();
 
-    let staged_files = get_staged_file_hunks(
+    let staged_files_result = get_staged_file_hunks(
         CONTEXT_LINES,
         &IGNORE_COMMENT,
         &exclude,
         config_file_path.as_deref(),
-    )?;
+    );
+
+    if let Err(e) = staged_files_result {
+        let input_validation_error = InputValidationError::Scan(e);
+        let error_output = input_validation_error.format_error_output(json_format)?;
+
+        eprintln!("{}", error_output);
+        std::process::exit(1);
+    }
+
+    let staged_files = staged_files_result.unwrap();
 
     if staged_files.is_empty() {
         if json_format {
@@ -285,17 +296,55 @@ pub fn get_staged_file_hunks(
     ignore_line_comment: &str,
     exclude_patterns: &[String],
     config_file_path: Option<&str>,
-) -> Result<Vec<FileHunks>, anyhow::Error> {
-    let repo = Repository::open(".")?;
-    let repo_for_head = Repository::open(".")?;
-    let index = repo.index()?;
+) -> Result<Vec<FileHunks>, ScanInputValidationError> {
+    let repo = Repository::open(".").map_err(|e| {
+        if e.code() == git2::ErrorCode::NotFound {
+            ScanInputValidationError::GitRepositoryNotFound
+        } else {
+            ScanInputValidationError::GitRepositoryAccess {
+                message: e.message().to_string(),
+            }
+        }
+    })?;
+
+    let repo_for_head = Repository::open(".").map_err(|e| {
+        if e.code() == git2::ErrorCode::NotFound {
+            ScanInputValidationError::GitRepositoryNotFound
+        } else {
+            ScanInputValidationError::GitRepositoryAccess {
+                message: e.message().to_string(),
+            }
+        }
+    })?;
+
+    let index = repo
+        .index()
+        .map_err(|e| ScanInputValidationError::GitIndexAccess {
+            message: e.message().to_string(),
+        })?;
 
     let head_tree = match repo_for_head.head() {
-        Ok(head) => head.peel_to_tree()?,
+        Ok(head) => head
+            .peel_to_tree()
+            .map_err(|e| ScanInputValidationError::GitTreeAccess {
+                message: e.message().to_string(),
+            })?,
         Err(_) => {
-            let empty_tree = repo_for_head.treebuilder(None)?;
-            let oid = empty_tree.write()?;
-            repo_for_head.find_tree(oid)?
+            let empty_tree = repo_for_head.treebuilder(None).map_err(|e| {
+                ScanInputValidationError::GitTreeAccess {
+                    message: e.message().to_string(),
+                }
+            })?;
+            let oid = empty_tree
+                .write()
+                .map_err(|e| ScanInputValidationError::GitTreeAccess {
+                    message: e.message().to_string(),
+                })?;
+            repo_for_head
+                .find_tree(oid)
+                .map_err(|e| ScanInputValidationError::GitTreeAccess {
+                    message: e.message().to_string(),
+                })?
         }
     };
 
@@ -303,7 +352,11 @@ pub fn get_staged_file_hunks(
     diff_opts.context_lines(context_lines as u32);
     diff_opts.show_binary(false);
 
-    let diff = repo.diff_tree_to_index(Some(&head_tree), Some(&index), Some(&mut diff_opts))?;
+    let diff = repo
+        .diff_tree_to_index(Some(&head_tree), Some(&index), Some(&mut diff_opts))
+        .map_err(|e| ScanInputValidationError::GitDiffGeneration {
+            message: e.message().to_string(),
+        })?;
 
     let files_with_hunks = Rc::new(RefCell::new(HashMap::<String, Vec<DiffHunk>>::new()));
     // Track current change per file
@@ -700,7 +753,10 @@ pub fn get_staged_file_hunks(
             None,
             Some(&mut hunk_callback),
             Some(&mut line_callback),
-        )?;
+        )
+        .map_err(|e| ScanInputValidationError::GitDiffProcessing {
+            message: e.message().to_string(),
+        })?;
 
         // Don't forget to add the last change if there is one
         let current_changes = current_changes.borrow_mut();
