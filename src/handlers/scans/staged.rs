@@ -209,7 +209,7 @@ fn handle_output_scan_results(
                 if should_write_new_results(&output_dir, &json) {
                     let file_path = save_scan_results(&output_dir, &json);
                     eprintln!(
-                        "Potential secrets detected in your changes. Scan result saved to: {}",
+                        "Potential secrets detected in your changes. Scan results saved to: {}",
                         file_path
                     );
                 } else {
