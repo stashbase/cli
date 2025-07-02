@@ -168,15 +168,18 @@ fn handle_output_scan_results(
             } else {
                 if should_write_new_results(&output_dir, &json) {
                     let file_path = save_scan_results(&output_dir, &json);
-                    eprintln!(
-                        "{{\"message\": \"Scan results saved to: {}\", \"file_path\": \"{}\"}}",
-                        file_path, file_path
-                    );
+                    let message = serde_json::json!({
+                        "message": format!("Scan results saved to: {}", file_path),
+                        "file_path": file_path
+                    });
+                    eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
                 } else {
-                    eprintln!(
-                        "{{\"message\": \"Results match previous scan\", \"file_path\": \"{}\"}}",
-                        output_dir
-                    );
+                    let message = serde_json::json!({
+                        "message": "Results match previous scan",
+                        "file_path": output_dir
+                    });
+
+                    eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
                 }
             }
         } else {
