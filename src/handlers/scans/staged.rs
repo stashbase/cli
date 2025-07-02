@@ -206,12 +206,12 @@ fn handle_output_scan_results(
             } else {
                 println!("Potential secrets detected in your changes, please review the findings before committing:");
                 if let Some(skipped_files) = &results.skipped_files {
-                    println!("Skipped files: {:?}", skipped_files);
+                    println!("Skipped files: {}", skipped_files.join(", "));
                 }
                 println!(); // print empty line
 
                 for result in results.results {
-                    println!("{}", result.file_pah);
+                    println!("{}", result);
                 }
             }
         }
