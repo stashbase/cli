@@ -175,7 +175,10 @@ fn handle_output_scan_results(
 
         if let Some(output_dir) = output_dir {
             if is_empty {
-                eprintln!("{{\"message\": \"No secrets detected in staged changes!\"}}");
+                let message = serde_json::json!({
+                    "message": "No secrets detected in staged changes!"
+                });
+                eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
             } else {
                 if should_write_new_results(&output_dir, &json) {
                     let file_path = save_scan_results(&output_dir, &json);
@@ -189,7 +192,6 @@ fn handle_output_scan_results(
                         "message": "Results match previous scan",
                         "file_path": output_dir
                     });
-
                     eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
                 }
             }
@@ -198,28 +200,28 @@ fn handle_output_scan_results(
         }
     } else {
         if is_empty {
-            println!("No secrets detected in staged changes!");
+            eprintln!("No secrets detected in staged changes!");
         } else {
             let json = serde_json::to_string_pretty(&results).unwrap();
 
             if let Some(output_dir) = output_dir {
                 if should_write_new_results(&output_dir, &json) {
                     let file_path = save_scan_results(&output_dir, &json);
-                    println!(
+                    eprintln!(
                         "Potential secrets detected in your changes. Scan result saved to: {}",
                         file_path
                     );
                 } else {
-                    println!(
+                    eprintln!(
                         "Potential secrets detected in your changes. Results match previous scan."
                     );
                 }
             } else {
-                println!("Potential secrets detected in your changes, please review the findings before committing:");
+                eprintln!("Potential secrets detected in your changes, please review the findings before committing:");
                 if let Some(skipped_files) = &results.skipped_files {
-                    println!("Skipped files: {}", skipped_files.join(", "));
+                    eprintln!("Skipped files: {}", skipped_files.join(", "));
                 }
-                println!(); // print empty line
+                eprintln!();
 
                 for result in results.results {
                     println!("{}", result);
