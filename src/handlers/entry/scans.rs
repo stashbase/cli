@@ -18,6 +18,7 @@ pub async fn handle_scan_commands(
             let args = HandleScanStagedFileHunksArgs {
                 api_key,
                 json_format: raw_output,
+                exclude: args.exclude,
                 output_dir: args.output_dir,
                 config_file_path: args.config_file,
                 ignore_value_hashes: args.ignore_value_hashes,
@@ -29,6 +30,7 @@ pub async fn handle_scan_commands(
             let args = HandleScanUnpushedCommitHunksArgs {
                 api_key,
                 json_format: raw_output,
+                exclude: args.exclude,
                 output_dir: args.output_dir,
                 config_file_path: args.config_file,
                 ignore_value_hashes: args.ignore_value_hashes,
