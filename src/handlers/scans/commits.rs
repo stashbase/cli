@@ -18,6 +18,7 @@ use crate::{
             ChangeRangeWithHash, CommitChanges, CommitScanResponse, DiffHunk, FileHunks,
             PushCommitHunksPayload, ScanConfig,
         },
+        validation::{InputValidationError, ScanInputValidationError},
     },
     utils::scans::{
         filter_sha256_hashes, get_comment_prefix, is_binary_file, save_scan_results,
@@ -80,12 +81,22 @@ pub async fn handle_scan_unpushed_commit_hunks(
         .into_iter()
         .collect::<Vec<_>>();
 
-    let unpushed_commit_hunks = get_unpushed_commit_hunks(
+    let unpushed_commit_hunks_result = get_unpushed_commit_hunks(
         CONTEXT_LINES,
         &IGNORE_COMMENT,
         &exclude,
         config_file_path.as_deref(),
-    )?;
+    );
+
+    if let Err(e) = unpushed_commit_hunks_result {
+        let input_validation_error = InputValidationError::Scan(e);
+        let error_output = input_validation_error.format_error_output(json_format)?;
+
+        eprintln!("{}", error_output);
+        std::process::exit(1);
+    }
+
+    let unpushed_commit_hunks = unpushed_commit_hunks_result.unwrap();
 
     if unpushed_commit_hunks.is_empty() {
         if json_format {
@@ -283,14 +294,28 @@ pub fn get_unpushed_commit_hunks(
     ignore_line_comment: &str,
     exclude_patterns: &[String],
     config_file_path: Option<&str>,
-) -> Result<Vec<CommitChanges>, anyhow::Error> {
-    let repo = Repository::open(".")?;
+) -> Result<Vec<CommitChanges>, ScanInputValidationError> {
+    let repo = Repository::open(".").map_err(|e| {
+        if e.code() == git2::ErrorCode::NotFound {
+            ScanInputValidationError::GitRepositoryNotFound
+        } else {
+            ScanInputValidationError::GitRepositoryAccess {
+                message: e.message().to_string(),
+            }
+        }
+    })?;
 
     // Get the current branch
-    let head = repo.head()?;
-    let local_branch_name = head
-        .shorthand()
-        .ok_or_else(|| anyhow::anyhow!("Failed to get branch name"))?;
+    let head = repo
+        .head()
+        .map_err(|e| ScanInputValidationError::GitHeadAccess {
+            message: e.message().to_string(),
+        })?;
+    let local_branch_name =
+        head.shorthand()
+            .ok_or_else(|| ScanInputValidationError::GitBranchAccess {
+                message: "Failed to get branch name".to_string(),
+            })?;
 
     // Get the remote tracking branch
     let remote_branch = repo.find_branch(
@@ -298,10 +323,18 @@ pub fn get_unpushed_commit_hunks(
         git2::BranchType::Remote,
     );
 
-    let local_commit = head.peel_to_commit()?;
+    let local_commit =
+        head.peel_to_commit()
+            .map_err(|e| ScanInputValidationError::GitCommitAccess {
+                message: e.message().to_string(),
+            })?;
 
     let remote_commit = match remote_branch {
-        Ok(branch) => Some(branch.get().peel_to_commit()?),
+        Ok(branch) => Some(branch.get().peel_to_commit().map_err(|e| {
+            ScanInputValidationError::GitCommitAccess {
+                message: e.message().to_string(),
+            }
+        })?),
         Err(_) => None,
     };
 
@@ -350,18 +383,32 @@ pub fn get_unpushed_commit_hunks(
             let should_stop = stop_commit_id.map_or(false, |stop_id| stop_id == parent.id());
 
             // Get changes in this commit
-            let parent_tree = parent.tree()?;
-            let current_tree = current.tree()?;
+            let parent_tree =
+                parent
+                    .tree()
+                    .map_err(|e| ScanInputValidationError::GitTreeAccess {
+                        message: e.message().to_string(),
+                    })?;
+            let current_tree =
+                current
+                    .tree()
+                    .map_err(|e| ScanInputValidationError::GitTreeAccess {
+                        message: e.message().to_string(),
+                    })?;
 
             let mut diff_opts = git2::DiffOptions::new();
             diff_opts.context_lines(context_lines as u32);
             diff_opts.show_binary(false);
 
-            let diff = repo.diff_tree_to_tree(
-                Some(&parent_tree),
-                Some(&current_tree),
-                Some(&mut diff_opts),
-            )?;
+            let diff = repo
+                .diff_tree_to_tree(
+                    Some(&parent_tree),
+                    Some(&current_tree),
+                    Some(&mut diff_opts),
+                )
+                .map_err(|e| ScanInputValidationError::GitDiffGeneration {
+                    message: e.message().to_string(),
+                })?;
 
             let files_with_hunks = Rc::new(RefCell::new(HashMap::<String, Vec<DiffHunk>>::new()));
             // Track current change per file
@@ -824,7 +871,10 @@ pub fn get_unpushed_commit_hunks(
                     None,
                     Some(&mut hunk_callback),
                     Some(&mut line_callback),
-                )?;
+                )
+                .map_err(|e| ScanInputValidationError::GitDiffProcessing {
+                    message: e.message().to_string(),
+                })?;
 
                 if let Some((_file_path, Some(change))) =
                     current_changes.borrow_mut().iter_mut().find_map(|(k, v)| {
