@@ -170,7 +170,7 @@ fn output_scan_results(results: CommitScanResponse, json_format: bool, output_di
     let is_empty = results.results.is_empty();
 
     let json_value = serde_json::to_value(&results).unwrap();
-    let json = to_colored_json_auto(&json_value).unwrap();
+    let pretty_json = serde_json::to_string_pretty(&json_value).unwrap();
 
     if json_format {
         if let Some(output_dir) = output_dir {
@@ -180,8 +180,8 @@ fn output_scan_results(results: CommitScanResponse, json_format: bool, output_di
                 });
                 eprintln!("{}", to_colored_json_auto(&message).unwrap());
             } else {
-                if should_write_new_results(&output_dir, &json) {
-                    let file_path = save_scan_results(&output_dir, &json);
+                if should_write_new_results(&output_dir, &pretty_json) {
+                    let file_path = save_scan_results(&output_dir, &pretty_json);
                     let message = serde_json::json!({
                         "message": format!("Scan results saved to: {}", file_path),
                         "file_path": file_path
@@ -196,15 +196,20 @@ fn output_scan_results(results: CommitScanResponse, json_format: bool, output_di
                 }
             }
         } else {
-            println!("{}", json);
+            if std::io::stdout().is_terminal() {
+                let colored_json = to_colored_json_auto(&json_value).unwrap();
+                println!("{}", colored_json);
+            } else {
+                println!("{}", pretty_json);
+            }
         }
     } else {
         if is_empty {
             eprintln!("No secrets detected in unpushed commits!");
         } else {
             if let Some(output_dir) = output_dir {
-                if should_write_new_results(&output_dir, &json) {
-                    let file_path = save_scan_results(&output_dir, &json);
+                if should_write_new_results(&output_dir, &pretty_json) {
+                    let file_path = save_scan_results(&output_dir, &pretty_json);
                     eprintln!(
                         "Potential secrets detected in unpushed commits. Scan results saved to: {}",
                         file_path
