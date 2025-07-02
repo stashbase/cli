@@ -201,7 +201,12 @@ fn handle_output_scan_results(
                     );
                 }
             } else {
-                println!("Potential secrets detected in your changes.");
+                println!("Potential secrets detected in your changes:");
+                println!(); // print empty line
+
+                for result in results.results {
+                    println!("{}", result.file_path);
+                }
             }
 
             if let Some(skipped_files) = &results.skipped_files {
