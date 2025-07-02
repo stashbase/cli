@@ -129,3 +129,10 @@ pub fn save_scan_results(output_dir: &str, json_content: &str) -> String {
 
     file_path
 }
+
+pub fn filter_sha256_hashes(hashes: Vec<String>) -> Vec<String> {
+    hashes
+        .into_iter()
+        .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+        .collect::<Vec<_>>()
+}
