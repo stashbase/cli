@@ -3,8 +3,8 @@ use crate::{
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
         scans::{
-            ChangeRangeWithHash, DiffHunk, FileHunks, ScanConfig, ScanStagedFileHunksResponse,
-            StagedFileHunksPayload,
+            ChangeRangeWithHash, DiffHunk, FileHunks, ScanConfig, StagedFileHunksPayload,
+            StagedScanResponse,
         },
     },
     utils::scans::{
@@ -92,7 +92,7 @@ pub async fn handle_scan_staged_file_hunks(
     match response {
         RequestApiOptionResponse::Ok(res) => match res.text {
             Some(text) => {
-                let response = serde_json::from_str::<ScanStagedFileHunksResponse>(&text);
+                let response = serde_json::from_str::<StagedScanResponse>(&text);
 
                 match response {
                     Ok(data) => {
@@ -129,7 +129,7 @@ pub async fn handle_scan_staged_file_hunks(
 }
 
 // return exit code
-fn handle_scan_results(results: ScanStagedFileHunksResponse, output_dir: Option<String>) -> i32 {
+fn handle_scan_results(results: StagedScanResponse, output_dir: Option<String>) -> i32 {
     if results.results.is_empty() {
         println!("No secrets detected in staged changes!");
         return 0;
