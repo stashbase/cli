@@ -25,6 +25,10 @@ pub struct ScanStaged {
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
+    /// Git-like exclude patterns (files, folders) to ignore
+    #[clap(value_parser, short = 'e', long="exclude", num_args = 1..)]
+    pub exclude: Vec<String>,
+
     /// Output directory
     #[arg(value_enum, short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
@@ -40,6 +44,10 @@ pub struct ScanCommits {
     /// Relative path to a config file
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// Git-like exclude patterns (files, folders) to ignore
+    #[clap(value_parser, short = 'e', long="exclude", num_args = 1..)]
+    pub exclude: Vec<String>,
 
     /// Output directory
     #[arg(value_enum, short = 'o', long = "output-dir")]
