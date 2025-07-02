@@ -131,7 +131,7 @@ impl Display for ScanResult {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanStagedFileHunksResponse {
+pub struct StagedScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped_files: Option<Vec<String>>,
