@@ -5,6 +5,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 use std::{
     cell::RefCell,
     collections::HashMap,
+    io::IsTerminal,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -130,8 +131,14 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
                         spinner.stop_and_persist("", "");
 
-                        let exit_code = handle_scan_results(data, output_dir);
-                        std::process::exit(exit_code);
+                        let is_empty = data.results.is_empty();
+                        output_scan_results(data, json_format, output_dir);
+
+                        if is_empty {
+                            std::process::exit(0);
+                        } else {
+                            std::process::exit(1);
+                        }
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
@@ -159,40 +166,84 @@ pub async fn handle_scan_unpushed_commit_hunks(
     }
 }
 
-// return exit code
-fn handle_scan_results(results: CommitScanResponse, output_dir: Option<String>) -> i32 {
-    if results.results.is_empty() {
-        println!("No secrets detected in unpushed commits!");
-        return 0;
-    }
+fn output_scan_results(results: CommitScanResponse, json_format: bool, output_dir: Option<String>) {
+    let is_empty = results.results.is_empty();
 
-    // Serialize result to JSON
-    let json = serde_json::to_string_pretty(&results).unwrap();
+    let json_value = serde_json::to_value(&results).unwrap();
+    let json = to_colored_json_auto(&json_value).unwrap();
 
-    if let Some(output_dir) = output_dir {
-        if should_write_new_results(&output_dir, &json) {
-            let file_path = save_scan_results(&output_dir, &json);
-
-            println!(
-                "Potential secrets detected in your unpushed commits. Scan result saved to: {}",
-                file_path
-            );
+    if json_format {
+        if let Some(output_dir) = output_dir {
+            if is_empty {
+                let message = serde_json::json!({
+                    "message": "No secrets detected in unpushed commits!"
+                });
+                eprintln!("{}", to_colored_json_auto(&message).unwrap());
+            } else {
+                if should_write_new_results(&output_dir, &json) {
+                    let file_path = save_scan_results(&output_dir, &json);
+                    let message = serde_json::json!({
+                        "message": format!("Scan results saved to: {}", file_path),
+                        "file_path": file_path
+                    });
+                    eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                } else {
+                    let message = serde_json::json!({
+                        "message": "Results match previous scan.",
+                        "file_path": output_dir
+                    });
+                    eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                }
+            }
         } else {
-            println!(
-                "Potential secrets detected in your unpushed commits. Results match previous scan."
-            );
+            println!("{}", json);
         }
     } else {
-        println!("Potential secrets detected in your unpused commits.");
+        if is_empty {
+            eprintln!("No secrets detected in unpushed commits!");
+        } else {
+            if let Some(output_dir) = output_dir {
+                if should_write_new_results(&output_dir, &json) {
+                    let file_path = save_scan_results(&output_dir, &json);
+                    eprintln!(
+                        "Potential secrets detected in unpushed commits. Scan results saved to: {}",
+                        file_path
+                    );
+                } else {
+                    eprintln!(
+                        "Potential secrets detected in unpushed commits. Results match previous scan."
+                    );
+                }
+            } else {
+                eprintln!("Potential secrets detected in unpushed commits, please review the findings before pushing to remote.");
+
+                if let Some(skipped_commits) = &results.skipped_commits {
+                    eprintln!("Skipped commits: {}", skipped_commits.join(", "));
+                }
+                eprintln!();
+
+                if std::io::stdout().is_terminal() {
+                    let result_string = results
+                        .results
+                        .iter()
+                        .map(|result| result.get_colored_string())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    println!("{}", result_string);
+                } else {
+                    let result_string = results
+                        .results
+                        .iter()
+                        .map(|result| format!("{}", result))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+
+                    println!("{}", result_string);
+                }
+            }
+        }
     }
-
-    if let Some(skipped_commits) = results.skipped_commits {
-        println!("Skipped commits: {:?}", skipped_commits);
-    }
-
-    println!("Please review the findings before committing. If these are false positives, you can bypass this check with '--no-verify'");
-
-    return 1;
 }
 
 pub fn get_unpushed_commit_hunks(
