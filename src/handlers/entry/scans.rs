@@ -20,6 +20,7 @@ pub async fn handle_scan_commands(
                 json_format: raw_output,
                 output_dir: args.output_dir,
                 config_file_path: args.config_file,
+                ignore_value_hashes: args.ignore_value_hashes,
             };
 
             handle_scan_staged_file_hunks(args).await?;
@@ -30,6 +31,7 @@ pub async fn handle_scan_commands(
                 json_format: raw_output,
                 output_dir: args.output_dir,
                 config_file_path: args.config_file,
+                ignore_value_hashes: args.ignore_value_hashes,
             };
 
             handle_scan_unpushed_commit_hunks(args).await?;

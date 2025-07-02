@@ -33,6 +33,7 @@ pub struct HandleScanUnpushedCommitHunksArgs {
     pub json_format: bool,
     pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
+    pub ignore_value_hashes: Vec<String>,
 }
 
 pub async fn handle_scan_unpushed_commit_hunks(
@@ -43,6 +44,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         json_format,
         output_dir,
         config_file_path,
+        ignore_value_hashes: _,
     } = args;
 
     let config = match &config_file_path {
@@ -89,9 +91,25 @@ pub async fn handle_scan_unpushed_commit_hunks(
         std::process::exit(0);
     }
 
-    let ignore_value_hashes = config
-        .ignore_value_hashes
-        .map(|hashes| filter_sha256_hashes(hashes));
+    let ignore_value_hashes = {
+        let hashes = config
+            .ignore_value_hashes
+            .into_iter()
+            .flatten()
+            .chain(args.ignore_value_hashes.into_iter())
+            .flat_map(|hash| filter_sha256_hashes(vec![hash]))
+            .collect::<std::collections::HashSet<_>>();
+
+        if hashes.is_empty() {
+            None
+        } else {
+            let sorted = hashes.into_iter().collect::<Vec<_>>();
+            let mut sorted_hashes = sorted.clone();
+            sorted_hashes.sort();
+
+            Some(sorted_hashes)
+        }
+    };
 
     let data = PushCommitHunksPayload {
         ignore_value_hashes,
