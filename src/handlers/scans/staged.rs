@@ -7,16 +7,14 @@ use crate::{
             StagedFileHunksPayload,
         },
     },
-    utils::{
-        scans::{
-            get_comment_prefix, is_binary_file, save_scan_results, should_exclude_file,
-            should_skip_line, should_write_new_results,
-        },
-        spinner::request_spinner,
+    utils::scans::{
+        get_comment_prefix, is_binary_file, save_scan_results, should_exclude_file,
+        should_skip_line, should_write_new_results,
     },
 };
 use git2::Repository;
 use sha2::Digest;
+use spinoff::{spinners, Color, Spinner, Streams};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -72,7 +70,12 @@ pub async fn handle_scan_staged_file_hunks(
         files: staged_files,
     };
 
-    let mut spinner = request_spinner();
+    let mut spinner = Spinner::new_with_stream(
+        spinners::Dots,
+        "Scanning staged changes...",
+        Color::Cyan,
+        Streams::Stderr,
+    );
 
     let response = api::scans::scan_staged_hunks(api_key, &data).await;
 
