@@ -1,3 +1,4 @@
+use colored_json::to_colored_json_auto;
 use git2::Repository;
 use sha2::Digest;
 use spinoff::{spinners, Color, Spinner, Streams};
@@ -53,9 +54,12 @@ pub async fn handle_scan_unpushed_commit_hunks(
     if let Some(enabled) = enabled {
         if !enabled {
             if json_format {
-                println!("{{\"message\": \"Scans are disabled in the config file.\"}}");
+                let message = serde_json::json!({
+                    "message": "Scans are disabled in the config file."
+                });
+                eprintln!("{}", to_colored_json_auto(&message).unwrap());
             } else {
-                println!("Scans are disabled in the config file.");
+                eprintln!("Scans are disabled in the config file.");
             }
 
             std::process::exit(0);
@@ -72,6 +76,15 @@ pub async fn handle_scan_unpushed_commit_hunks(
     )?;
 
     if unpushed_commit_hunks.is_empty() {
+        if json_format {
+            let message = serde_json::json!({
+                "message": "No unpushed commits to scan."
+            });
+            eprintln!("{}", to_colored_json_auto(&message).unwrap());
+        } else {
+            eprintln!("No unpushed commits to scan.");
+        }
+
         std::process::exit(0);
     }
 
