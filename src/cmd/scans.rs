@@ -28,6 +28,10 @@ pub struct ScanStaged {
     /// Output directory
     #[arg(value_enum, short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
+
+    /// Value hashes of secrets to ignore
+    #[clap(value_parser, short = 'i', long="ignore-value-hashes", num_args = 1..)]
+    pub ignore_value_hashes: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -40,4 +44,8 @@ pub struct ScanCommits {
     /// Output directory
     #[arg(value_enum, short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
+
+    /// Value hashes of secrets to ignore
+    #[clap(value_parser, short = 'i', long="ignore-value-hashes", num_args = 1..)]
+    pub ignore_value_hashes: Vec<String>,
 }
