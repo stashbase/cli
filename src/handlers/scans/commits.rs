@@ -77,7 +77,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         Streams::Stderr,
     );
 
-    let response = api::scans::scan_push_commit_hunks(api_key, &data).await;
+    let response = api::scans::scan_commits(api_key, &data).await;
 
     if let Err(err) = response {
         spinner.stop_and_persist("", "");
