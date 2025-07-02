@@ -28,7 +28,7 @@ static CONTEXT_LINES: usize = 10;
 pub struct HandleScanStagedFileHunksArgs {
     pub api_key: String,
     //
-    pub config_file_path: String,
+    pub config_file_path: Option<String>,
 }
 
 pub async fn handle_scan_staged_file_hunks(
@@ -39,7 +39,11 @@ pub async fn handle_scan_staged_file_hunks(
         config_file_path,
     } = args;
 
-    let config = ScanConfig::load_from_file(&config_file_path).unwrap_or_default();
+    let config = match &config_file_path {
+        Some(path) => ScanConfig::load_from_file(path).unwrap_or_default(),
+        None => ScanConfig::default(),
+    };
+
     let enabled = config.enabled;
 
     if let Some(enabled) = enabled {
@@ -51,8 +55,12 @@ pub async fn handle_scan_staged_file_hunks(
 
     let exclude = config.exclude.unwrap_or(vec![]);
 
-    let staged_files =
-        get_staged_file_hunks(CONTEXT_LINES, &config_file_path, &IGNORE_COMMENT, &exclude)?;
+    let staged_files = get_staged_file_hunks(
+        CONTEXT_LINES,
+        &IGNORE_COMMENT,
+        &exclude,
+        config_file_path.as_deref(),
+    )?;
 
     if staged_files.is_empty() {
         std::process::exit(0);
@@ -164,9 +172,9 @@ fn handle_scan_results(results: StagedScanResponse, output_dir: Option<String>) 
 
 pub fn get_staged_file_hunks(
     context_lines: usize,
-    config_file_path: &str,
     ignore_line_comment: &str,
     exclude_patterns: &[String],
+    config_file_path: Option<&str>,
 ) -> Result<Vec<FileHunks>, anyhow::Error> {
     let repo = Repository::open(".")?;
     let repo_for_head = Repository::open(".")?;
@@ -221,8 +229,10 @@ pub fn get_staged_file_hunks(
                     return true;
                 }
 
-                if file_path == config_file_path {
-                    return true;
+                if let Some(config_file_path) = config_file_path {
+                    if file_path == config_file_path {
+                        return true;
+                    }
                 }
 
                 // Check if we've already determined if this file is excluded
@@ -280,8 +290,10 @@ pub fn get_staged_file_hunks(
             if let Some(new_file) = delta.new_file().path() {
                 let file_path = new_file.to_string_lossy().to_string();
 
-                if file_path == config_file_path {
-                    return true;
+                if let Some(config_file_path) = config_file_path {
+                    if file_path == config_file_path {
+                        return true;
+                    }
                 }
 
                 // Use cached exclusion result

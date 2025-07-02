@@ -17,7 +17,7 @@ pub async fn handle_scan_commands(
         ScanSubcommand::Staged(args) => {
             let args = HandleScanStagedFileHunksArgs {
                 api_key,
-                config_file_path: "stashbase-scan.yaml".to_string(),
+                config_file_path: args.config_file,
             };
 
             handle_scan_staged_file_hunks(args).await?;
@@ -25,7 +25,7 @@ pub async fn handle_scan_commands(
         ScanSubcommand::Commits(args) => {
             let args = HandleScanUnpushedCommitHunksArgs {
                 api_key,
-                config_file_path: "stashbase-scan.yaml".to_string(),
+                config_file_path: args.config_file,
             };
 
             handle_scan_unpushed_commit_hunks(args).await?;
