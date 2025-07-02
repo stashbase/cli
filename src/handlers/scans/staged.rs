@@ -116,8 +116,15 @@ pub async fn handle_scan_staged_file_hunks(
 
                         spinner.stop_and_persist("", "");
 
-                        let exit_code = handle_scan_results(data, json_format, output_dir);
-                        std::process::exit(exit_code);
+                        let is_empty = data.results.is_empty();
+
+                        handle_output_scan_results(data, json_format, output_dir);
+
+                        if is_empty {
+                            std::process::exit(0);
+                        } else {
+                            std::process::exit(1);
+                        }
                     }
                     Err(_) => {
                         spinner.stop_and_persist("", "");
@@ -145,13 +152,12 @@ pub async fn handle_scan_staged_file_hunks(
     }
 }
 
-// return exit code
-fn handle_scan_results(
+fn handle_output_scan_results(
     results: StagedScanResponse,
     json_format: bool,
     output_dir: Option<String>,
-) -> i32 {
-    let has_findings = !results.results.is_empty();
+) {
+    let is_empty = results.results.is_empty();
 
     if json_format {
         let json = serde_json::to_string_pretty(&results).unwrap();
@@ -173,7 +179,7 @@ fn handle_scan_results(
             println!("{}", json);
         }
     } else {
-        if !has_findings {
+        if is_empty {
             println!("No secrets detected in staged changes!");
         } else {
             let json = serde_json::to_string_pretty(&results).unwrap();
@@ -200,13 +206,6 @@ fn handle_scan_results(
 
             println!("Please review the findings before committing. If these are false positives, you can bypass this check with '--no-verify'");
         }
-    }
-
-    // Return 1 only if findings were detected
-    if has_findings {
-        1
-    } else {
-        0
     }
 }
 
