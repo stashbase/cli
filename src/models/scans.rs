@@ -1,6 +1,6 @@
-use std::fmt::Display;
-
+use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
+use std::{fmt::Display, iter::Scan};
 
 use crate::utils::scans::should_merge_hunks;
 
@@ -126,6 +126,33 @@ impl Display for ScanResult {
             result.push_str(&format!("\nCommit: {}", id));
         }
         write!(f, "{}", result)
+    }
+}
+
+impl ScanResult {
+    pub fn get_colored_string(&self) -> String {
+        let mut result = String::new();
+
+        let (start_line, end_line) = (self.range.start_line, self.range.end_line);
+        result.push_str(&format!("{} {}\n", "File:".green(), self.file_path));
+        result.push_str(&format!(
+            "{} {}-{}\n",
+            "Range:".green(),
+            start_line,
+            end_line
+        ));
+        result.push_str(&format!("{} {}\n", "Preview:".green(), self.preview));
+        result.push_str(&format!("{} {}\n", "Severity:".green(), self.severity));
+        result.push_str(&format!(
+            "{} {}\n",
+            "Value SHA256:".green(),
+            self.value_sha256
+        ));
+        if let Some(id) = &self.commit_id {
+            result.push_str(&format!("{} {}\n", "Commit ID:".green(), id));
+        }
+
+        result
     }
 }
 
