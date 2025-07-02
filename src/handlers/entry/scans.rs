@@ -2,7 +2,10 @@ use anyhow::Result;
 
 use crate::{
     cmd::scans::{ScanCommands, ScanSubcommand},
-    handlers::scans::staged::{handle_scan_staged_file_hunks, HandleScanStagedFileHunksArgs},
+    handlers::scans::{
+        commits::{handle_scan_unpushed_commit_hunks, HandleScanUnpushedCommitHunksArgs},
+        staged::{handle_scan_staged_file_hunks, HandleScanStagedFileHunksArgs},
+    },
 };
 
 pub async fn handle_scan_commands(
@@ -19,7 +22,14 @@ pub async fn handle_scan_commands(
 
             handle_scan_staged_file_hunks(args).await?;
         }
-        ScanSubcommand::Commits(scan_commits) => todo!(),
+        ScanSubcommand::Commits(args) => {
+            let args = HandleScanUnpushedCommitHunksArgs {
+                api_key,
+                config_file_path: "stashbase-scan.yaml".to_string(),
+            };
+
+            handle_scan_unpushed_commit_hunks(args).await?;
+        }
     }
 
     Ok(())
