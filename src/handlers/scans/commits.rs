@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    models::scans::{ChangeRange, ChangeRangeWithHash, CommitChanges, DiffHunk, FileHunks},
+    models::scans::{ChangeRangeWithHash, CommitChanges, DiffHunk, FileHunks},
     utils::scans::{get_comment_prefix, is_binary_file, should_exclude_file, should_skip_line},
 };
 
@@ -601,10 +601,12 @@ pub fn get_unpushed_commit_hunks(
 
             // Add commit metadata
             if !commit_changes.is_empty() {
-                all_commit_changes.push(CommitChanges {
+                let change = CommitChanges {
                     commit_id: current.id().to_string(),
                     files: commit_changes,
-                });
+                };
+
+                all_commit_changes.push(change);
             }
 
             if should_stop {
