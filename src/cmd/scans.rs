@@ -24,6 +24,10 @@ pub struct ScanStaged {
     /// Relative path to a config file
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// Output directory
+    #[arg(value_enum, short = 'o', long = "output-dir")]
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -32,4 +36,8 @@ pub struct ScanCommits {
     /// Relative path to a config file
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// Output directory
+    #[arg(value_enum, short = 'o', long = "output-dir")]
+    pub output_dir: Option<String>,
 }
