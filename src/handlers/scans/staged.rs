@@ -28,6 +28,7 @@ static CONTEXT_LINES: usize = 10;
 pub struct HandleScanStagedFileHunksArgs {
     pub api_key: String,
     //
+    pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
 }
 
@@ -36,6 +37,7 @@ pub async fn handle_scan_staged_file_hunks(
 ) -> Result<(), anyhow::Error> {
     let HandleScanStagedFileHunksArgs {
         api_key,
+        output_dir,
         config_file_path,
     } = args;
 
@@ -104,7 +106,11 @@ pub async fn handle_scan_staged_file_hunks(
 
                 match response {
                     Ok(data) => {
-                        let output_dir = config.output_dir;
+                        let output_dir = match output_dir {
+                            Some(dir) => Some(dir),
+                            None => config.output_dir,
+                        };
+
                         spinner.stop_and_persist("", "");
 
                         let exit_code = handle_scan_results(data, output_dir);

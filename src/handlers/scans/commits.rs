@@ -28,6 +28,7 @@ static IGNORE_COMMENT: &str = "@stashbase-ignore";
 
 pub struct HandleScanUnpushedCommitHunksArgs {
     pub api_key: String,
+    pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
 }
 
@@ -36,6 +37,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
 ) -> Result<(), anyhow::Error> {
     let HandleScanUnpushedCommitHunksArgs {
         api_key,
+        output_dir,
         config_file_path,
     } = args;
 
@@ -104,7 +106,11 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
                 match response {
                     Ok(data) => {
-                        let output_dir = config.output_dir;
+                        let output_dir = match output_dir {
+                            Some(dir) => Some(dir),
+                            None => config.output_dir,
+                        };
+
                         spinner.stop_and_persist("", "");
 
                         let exit_code = handle_scan_results(data, output_dir);
