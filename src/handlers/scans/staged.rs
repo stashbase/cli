@@ -201,19 +201,16 @@ fn handle_output_scan_results(
                     );
                 }
             } else {
-                println!("Potential secrets detected in your changes:");
+                println!("Potential secrets detected in your changes, please review the findings before committing:");
+                if let Some(skipped_files) = &results.skipped_files {
+                    println!("Skipped files: {:?}", skipped_files);
+                }
                 println!(); // print empty line
 
                 for result in results.results {
-                    println!("{}", result.file_path);
+                    println!("{}", result.file_pah);
                 }
             }
-
-            if let Some(skipped_files) = &results.skipped_files {
-                println!("Skipped files: {:?}", skipped_files);
-            }
-
-            println!("Please review the findings before committing. If these are false positives, you can bypass this check with '--no-verify'");
         }
     }
 }
