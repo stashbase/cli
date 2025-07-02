@@ -28,7 +28,7 @@ static IGNORE_COMMENT: &str = "@stashbase-ignore";
 
 pub struct HandleScanUnpushedCommitHunksArgs {
     pub api_key: String,
-    pub config_file_path: String,
+    pub config_file_path: Option<String>,
 }
 
 pub async fn handle_scan_unpushed_commit_hunks(
@@ -39,7 +39,11 @@ pub async fn handle_scan_unpushed_commit_hunks(
         config_file_path,
     } = args;
 
-    let config = ScanConfig::load_from_file(&config_file_path).unwrap_or_default();
+    let config = match &config_file_path {
+        Some(path) => ScanConfig::load_from_file(path).unwrap_or_default(),
+        None => ScanConfig::default(),
+    };
+
     let enabled = config.enabled;
 
     if let Some(enabled) = enabled {
@@ -51,8 +55,12 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
     let exclude = config.exclude.unwrap_or(vec![]);
 
-    let unpushed_commit_hunks =
-        get_unpushed_commit_hunks(CONTEXT_LINES, &config_file_path, &IGNORE_COMMENT, &exclude)?;
+    let unpushed_commit_hunks = get_unpushed_commit_hunks(
+        CONTEXT_LINES,
+        &IGNORE_COMMENT,
+        &exclude,
+        config_file_path.as_deref(),
+    )?;
 
     if unpushed_commit_hunks.is_empty() {
         std::process::exit(0);
@@ -166,9 +174,9 @@ fn handle_scan_results(results: CommitScanResponse, output_dir: Option<String>) 
 
 pub fn get_unpushed_commit_hunks(
     context_lines: usize,
-    config_file_path: &str,
     ignore_line_comment: &str,
     exclude_patterns: &[String],
+    config_file_path: Option<&str>,
 ) -> Result<Vec<CommitChanges>, anyhow::Error> {
     let repo = Repository::open(".")?;
 
@@ -287,8 +295,10 @@ pub fn get_unpushed_commit_hunks(
                             return true;
                         }
 
-                        if file_path.as_str() == config_file_path {
-                            return true;
+                        if let Some(config_file_path) = config_file_path {
+                            if file_path.as_str() == config_file_path {
+                                return true;
+                            }
                         }
 
                         let is_new_file = delta.status() == git2::Delta::Added;
@@ -326,8 +336,10 @@ pub fn get_unpushed_commit_hunks(
                     if let Some(new_file) = delta.new_file().path() {
                         let file_path = new_file.to_string_lossy().to_string();
 
-                        if file_path == config_file_path {
-                            return true;
+                        if let Some(config_file_path) = config_file_path {
+                            if file_path.as_str() == config_file_path {
+                                return true;
+                            }
                         }
 
                         // Use cached exclusion result
