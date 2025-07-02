@@ -1,5 +1,6 @@
 use git2::Repository;
 use sha2::Digest;
+use spinoff::{spinners, Color, Spinner, Streams};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -8,9 +9,160 @@ use std::{
 };
 
 use crate::{
-    models::scans::{ChangeRangeWithHash, CommitChanges, DiffHunk, FileHunks},
-    utils::scans::{get_comment_prefix, is_binary_file, should_exclude_file, should_skip_line},
+    api,
+    models::{
+        api_client::{OutputError, RequestApiOptionResponse},
+        scans::{
+            ChangeRangeWithHash, CommitChanges, DiffHunk, FileHunks, PushCommitHunksPayload,
+            ScanConfig, ScanPushCommitHunksResponse,
+        },
+    },
+    utils::scans::{
+        get_comment_prefix, is_binary_file, save_scan_results, should_exclude_file,
+        should_skip_line, should_write_new_results,
+    },
 };
+
+static CONTEXT_LINES: usize = 10;
+static IGNORE_COMMENT: &str = "@stashbase-ignore";
+
+pub struct HandleScanUnpushedCommitHunksArgs {
+    pub api_key: String,
+    pub config_file_path: String,
+}
+
+pub async fn handle_scan_unpushed_commit_hunks(
+    args: HandleScanUnpushedCommitHunksArgs,
+) -> Result<(), anyhow::Error> {
+    let HandleScanUnpushedCommitHunksArgs {
+        api_key,
+        config_file_path,
+    } = args;
+
+    let config = ScanConfig::load_from_file(&config_file_path).unwrap_or_default();
+    let enabled = config.enabled;
+
+    if let Some(enabled) = enabled {
+        if !enabled {
+            println!("Scans are disabled in the config file.");
+            std::process::exit(0);
+        }
+    }
+
+    let exclude = config.exclude.unwrap_or(vec![]);
+
+    let unpushed_commit_hunks =
+        get_unpushed_commit_hunks(CONTEXT_LINES, &config_file_path, &IGNORE_COMMENT, &exclude)?;
+
+    if unpushed_commit_hunks.is_empty() {
+        std::process::exit(0);
+    }
+
+    let ignore_value_hashes = config.ignore_value_hashes.map(|hashes| {
+        hashes
+            .into_iter()
+            .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
+            .collect::<Vec<_>>()
+    });
+
+    let data = PushCommitHunksPayload {
+        ignore_value_hashes,
+        commits: unpushed_commit_hunks,
+    };
+
+    let mut spinner = Spinner::new_with_stream(
+        spinners::Dots,
+        "Scanning unpushed commits...",
+        Color::Cyan,
+        Streams::Stderr,
+    );
+
+    let response = api::scans::scan_push_commit_hunks(api_key, &data).await;
+
+    if let Err(err) = response {
+        spinner.stop_and_persist("", "");
+
+        let error_output = err.format_error_output(false)?;
+        eprintln!("{}", error_output);
+        std::process::exit(1);
+    }
+
+    let response = response.unwrap();
+
+    match response {
+        RequestApiOptionResponse::Ok(res) => match res.text {
+            Some(text) => {
+                let response = serde_json::from_str::<ScanPushCommitHunksResponse>(&text);
+
+                match response {
+                    Ok(data) => {
+                        let output_dir = config.output_dir;
+                        spinner.stop_and_persist("", "");
+
+                        let exit_code = handle_scan_results(data, output_dir);
+                        std::process::exit(exit_code);
+                    }
+                    Err(_) => {
+                        spinner.stop_and_persist("", "");
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(false)?;
+
+                        eprintln!("{}", formatted_err);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            None => {
+                spinner.stop_and_persist("", "");
+                eprintln!("Something went wrong.");
+                std::process::exit(1);
+            }
+        },
+        RequestApiOptionResponse::Err(e) => {
+            spinner.stop_and_persist("", "");
+
+            let error_output = e.format_error_output(false)?;
+            eprintln!("{}", error_output);
+            std::process::exit(1);
+        }
+    }
+}
+
+// return exit code
+fn handle_scan_results(results: ScanPushCommitHunksResponse, output_dir: Option<String>) -> i32 {
+    if results.results.is_empty() {
+        println!("No secrets detected in unpushed commits!");
+        return 0;
+    }
+
+    // Serialize result to JSON
+    let json = serde_json::to_string_pretty(&results).unwrap();
+
+    if let Some(output_dir) = output_dir {
+        if should_write_new_results(&output_dir, &json) {
+            let file_path = save_scan_results(&output_dir, &json);
+
+            println!(
+                "Potential secrets detected in your unpushed commits. Scan result saved to: {}",
+                file_path
+            );
+        } else {
+            println!(
+                "Potential secrets detected in your unpushed commits. Results match previous scan."
+            );
+        }
+    } else {
+        println!("Potential secrets detected in your unpused commits.");
+    }
+
+    if let Some(skipped_commits) = results.skipped_commits {
+        println!("Skipped commits: {:?}", skipped_commits);
+    }
+
+    println!("Please review the findings before committing. If these are false positives, you can bypass this check with '--no-verify'");
+
+    return 1;
+}
 
 pub fn get_unpushed_commit_hunks(
     context_lines: usize,
