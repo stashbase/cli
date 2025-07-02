@@ -12,6 +12,7 @@ use crate::{
         should_exclude_file, should_skip_line, should_write_new_results,
     },
 };
+use colored_json::to_colored_json_auto;
 use git2::Repository;
 use sha2::Digest;
 use spinoff::{spinners, Color, Spinner, Streams};
@@ -56,7 +57,7 @@ pub async fn handle_scan_staged_file_hunks(
                 let message = serde_json::json!({
                     "message": "Scans are disabled in the config file."
                 });
-                eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
+                eprintln!("{}", to_colored_json_auto(&message).unwrap());
             } else {
                 eprintln!("Scans are disabled in the config file.");
             }
@@ -78,7 +79,7 @@ pub async fn handle_scan_staged_file_hunks(
             let message = serde_json::json!({
                 "message": "No staged changes to scan."
             });
-            eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
+            eprintln!("{}", to_colored_json_auto(&message).unwrap());
         } else {
             eprintln!("No staged changes to scan.");
         }
@@ -170,15 +171,16 @@ fn handle_output_scan_results(
 ) {
     let is_empty = results.results.is_empty();
 
-    if json_format {
-        let json = serde_json::to_string_pretty(&results).unwrap();
+    let json_value = serde_json::to_value(&results).unwrap();
+    let json = to_colored_json_auto(&json_value).unwrap();
 
+    if json_format {
         if let Some(output_dir) = output_dir {
             if is_empty {
                 let message = serde_json::json!({
                     "message": "No secrets detected in staged changes!"
                 });
-                eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
+                eprintln!("{}", to_colored_json_auto(&message).unwrap());
             } else {
                 if should_write_new_results(&output_dir, &json) {
                     let file_path = save_scan_results(&output_dir, &json);
@@ -186,13 +188,13 @@ fn handle_output_scan_results(
                         "message": format!("Scan results saved to: {}", file_path),
                         "file_path": file_path
                     });
-                    eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
+                    eprintln!("{}", to_colored_json_auto(&message).unwrap());
                 } else {
                     let message = serde_json::json!({
                         "message": "Results match previous scan",
                         "file_path": output_dir
                     });
-                    eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
+                    eprintln!("{}", to_colored_json_auto(&message).unwrap());
                 }
             }
         } else {
@@ -202,8 +204,6 @@ fn handle_output_scan_results(
         if is_empty {
             eprintln!("No secrets detected in staged changes!");
         } else {
-            let json = serde_json::to_string_pretty(&results).unwrap();
-
             if let Some(output_dir) = output_dir {
                 if should_write_new_results(&output_dir, &json) {
                     let file_path = save_scan_results(&output_dir, &json);
