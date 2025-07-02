@@ -18,8 +18,8 @@ use crate::{
         },
     },
     utils::scans::{
-        get_comment_prefix, is_binary_file, save_scan_results, should_exclude_file,
-        should_skip_line, should_write_new_results,
+        filter_sha256_hashes, get_comment_prefix, is_binary_file, save_scan_results,
+        should_exclude_file, should_skip_line, should_write_new_results,
     },
 };
 
@@ -70,12 +70,9 @@ pub async fn handle_scan_unpushed_commit_hunks(
         std::process::exit(0);
     }
 
-    let ignore_value_hashes = config.ignore_value_hashes.map(|hashes| {
-        hashes
-            .into_iter()
-            .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
-            .collect::<Vec<_>>()
-    });
+    let ignore_value_hashes = config
+        .ignore_value_hashes
+        .map(|hashes| filter_sha256_hashes(hashes));
 
     let data = PushCommitHunksPayload {
         ignore_value_hashes,
