@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    models::scans::{ChangeRange, ChangeRangeWithHash, CommitHunks, DiffHunk, FileHunks},
+    models::scans::{ChangeRange, ChangeRangeWithHash, CommitChanges, DiffHunk, FileHunks},
     utils::scans::{get_comment_prefix, is_binary_file, should_exclude_file, should_skip_line},
 };
 
@@ -17,7 +17,7 @@ pub fn get_unpushed_commit_hunks(
     config_file_path: &str,
     ignore_line_comment: &str,
     exclude_patterns: &[String],
-) -> Result<Vec<CommitHunks>, anyhow::Error> {
+) -> Result<Vec<CommitChanges>, anyhow::Error> {
     let repo = Repository::open(".")?;
 
     // Get the current branch
@@ -601,7 +601,7 @@ pub fn get_unpushed_commit_hunks(
 
             // Add commit metadata
             if !commit_changes.is_empty() {
-                all_commit_changes.push(CommitHunks {
+                all_commit_changes.push(CommitChanges {
                     commit_id: current.id().to_string(),
                     files: commit_changes,
                 });
