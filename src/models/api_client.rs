@@ -243,6 +243,7 @@ pub enum ApiErrorEntity {
     Project(ProjectError),
     Environment(EnvironmentError),
     Secret(SecretsError),
+    Scan(ScanError),
     Webhook(WebhookError),
 }
 
@@ -351,6 +352,15 @@ pub enum WebhookError {
 
     #[serde(rename = "quota.webhook_limit_reached")]
     WebhookLimitReached,
+}
+
+#[derive(Debug, Deserialize)]
+pub enum ScanError {
+    #[serde(rename = "quota.scan_limit_reached")]
+    ScanLimitReached,
+
+    #[serde(rename = "quota.scan_feature_not_available")]
+    ScanFeatureNotAvailable,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -802,6 +812,18 @@ impl From<ApiError> for OutputError {
                         secrets,
                     })
                 }
+            },
+            ApiErrorEntity::Scan(e) => match e {
+                ScanError::ScanLimitReached => OutputError::Generic(GenericOutputError {
+                    code: Some(format!("quota.scan_limit_reached")),
+                    message: format!("Workspace has reached the maximum number of scans allowed for its plan. Please enable pay-as-you-go scans to continue using scans or wait until the next billing cycle."),
+                    hint: None,
+                }),
+                ScanError::ScanFeatureNotAvailable => OutputError::Generic(GenericOutputError {
+                    code: Some(format!("quota.scan_feature_not_available")),
+                    message: format!("Scan feature is not available on the free plan. Please upgrade your workspace to a paid plan."),
+                    hint: None,
+                }),
             },
         }
     }
