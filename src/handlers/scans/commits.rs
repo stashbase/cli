@@ -14,7 +14,7 @@ use crate::{
         api_client::{OutputError, RequestApiOptionResponse},
         scans::{
             ChangeRangeWithHash, CommitChanges, DiffHunk, FileHunks, PushCommitHunksPayload,
-            ScanConfig, ScanPushCommitHunksResponse,
+            ScanCommitHunksResponse, ScanConfig,
         },
     },
     utils::scans::{
@@ -92,7 +92,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
     match response {
         RequestApiOptionResponse::Ok(res) => match res.text {
             Some(text) => {
-                let response = serde_json::from_str::<ScanPushCommitHunksResponse>(&text);
+                let response = serde_json::from_str::<ScanCommitHunksResponse>(&text);
 
                 match response {
                     Ok(data) => {
@@ -129,7 +129,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
 }
 
 // return exit code
-fn handle_scan_results(results: ScanPushCommitHunksResponse, output_dir: Option<String>) -> i32 {
+fn handle_scan_results(results: ScanCommitHunksResponse, output_dir: Option<String>) -> i32 {
     if results.results.is_empty() {
         println!("No secrets detected in unpushed commits!");
         return 0;
