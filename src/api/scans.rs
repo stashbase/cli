@@ -19,7 +19,7 @@ pub async fn scan_staged_hunks(
     client::post_request(args, Some(data)).await
 }
 
-pub async fn scan_push_commit_hunks(
+pub async fn scan_commits(
     api_key: String,
     data: &PushCommitHunksPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
