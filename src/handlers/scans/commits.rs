@@ -52,7 +52,12 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
     if let Some(enabled) = enabled {
         if !enabled {
-            println!("Scans are disabled in the config file.");
+            if json_format {
+                println!("{{\"message\": \"Scans are disabled in the config file.\"}}");
+            } else {
+                println!("Scans are disabled in the config file.");
+            }
+
             std::process::exit(0);
         }
     }
