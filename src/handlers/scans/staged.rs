@@ -53,9 +53,12 @@ pub async fn handle_scan_staged_file_hunks(
     if let Some(enabled) = enabled {
         if !enabled {
             if json_format {
-                println!("{{\"message\": \"Scans are disabled in the config file.\"}}");
+                let message = serde_json::json!({
+                    "message": "Scans are disabled in the config file."
+                });
+                eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
             } else {
-                println!("Scans are disabled in the config file.");
+                eprintln!("Scans are disabled in the config file.");
             }
             std::process::exit(0);
         }
@@ -71,6 +74,14 @@ pub async fn handle_scan_staged_file_hunks(
     )?;
 
     if staged_files.is_empty() {
+        if json_format {
+            let message = serde_json::json!({
+                "message": "No staged changes to scan."
+            });
+            eprintln!("{}", serde_json::to_string_pretty(&message).unwrap());
+        } else {
+            eprintln!("No staged changes to scan.");
+        }
         std::process::exit(0);
     }
 
