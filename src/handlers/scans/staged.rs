@@ -116,7 +116,7 @@ pub async fn handle_scan_staged_file_hunks(
 
                         spinner.stop_and_persist("", "");
 
-                        let exit_code = handle_scan_results(data, output_dir);
+                        let exit_code = handle_scan_results(data, json_format, output_dir);
                         std::process::exit(exit_code);
                     }
                     Err(_) => {
@@ -146,37 +146,68 @@ pub async fn handle_scan_staged_file_hunks(
 }
 
 // return exit code
-fn handle_scan_results(results: StagedScanResponse, output_dir: Option<String>) -> i32 {
-    if results.results.is_empty() {
-        println!("No secrets detected in staged changes!");
-        return 0;
-    }
+fn handle_scan_results(
+    results: StagedScanResponse,
+    json_format: bool,
+    output_dir: Option<String>,
+) -> i32 {
+    let has_findings = !results.results.is_empty();
 
-    // Serialize result to JSON
-    let json = serde_json::to_string_pretty(&results).unwrap();
+    if json_format {
+        let json = serde_json::to_string_pretty(&results).unwrap();
 
-    if let Some(output_dir) = output_dir {
-        if should_write_new_results(&output_dir, &json) {
-            let file_path = save_scan_results(&output_dir, &json);
-
-            println!(
-                "Potential secrets detected in your changes. Scan result saved to: {}",
-                file_path
-            );
+        if let Some(output_dir) = output_dir {
+            if should_write_new_results(&output_dir, &json) {
+                let file_path = save_scan_results(&output_dir, &json);
+                eprintln!(
+                    "{{\"message\": \"Scan results saved to: {}\", \"file_path\": \"{}\"}}",
+                    file_path, file_path
+                );
+            } else {
+                eprintln!(
+                    "{{\"message\": \"Results match previous scan\", \"file_path\": \"{}\"}}",
+                    output_dir
+                );
+            }
         } else {
-            println!("Potential secrets detected in your changes. Results match previous scan.");
+            println!("{}", json);
         }
     } else {
-        println!("Potential secrets detected in your changes.");
+        if !has_findings {
+            println!("No secrets detected in staged changes!");
+        } else {
+            let json = serde_json::to_string_pretty(&results).unwrap();
+
+            if let Some(output_dir) = output_dir {
+                if should_write_new_results(&output_dir, &json) {
+                    let file_path = save_scan_results(&output_dir, &json);
+                    println!(
+                        "Potential secrets detected in your changes. Scan result saved to: {}",
+                        file_path
+                    );
+                } else {
+                    println!(
+                        "Potential secrets detected in your changes. Results match previous scan."
+                    );
+                }
+            } else {
+                println!("Potential secrets detected in your changes.");
+            }
+
+            if let Some(skipped_files) = &results.skipped_files {
+                println!("Skipped files: {:?}", skipped_files);
+            }
+
+            println!("Please review the findings before committing. If these are false positives, you can bypass this check with '--no-verify'");
+        }
     }
 
-    if let Some(skipped_files) = results.skipped_files {
-        println!("Skipped files: {:?}", skipped_files);
+    // Return 1 only if findings were detected
+    if has_findings {
+        1
+    } else {
+        0
     }
-
-    println!("Please review the findings before committing. If these are false positives, you can bypass this check with '--no-verify'");
-
-    return 1;
 }
 
 pub fn get_staged_file_hunks(
