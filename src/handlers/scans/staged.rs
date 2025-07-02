@@ -27,6 +27,7 @@ static CONTEXT_LINES: usize = 10;
 
 pub struct HandleScanStagedFileHunksArgs {
     pub api_key: String,
+    pub json_format: bool,
     //
     pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
@@ -37,6 +38,7 @@ pub async fn handle_scan_staged_file_hunks(
 ) -> Result<(), anyhow::Error> {
     let HandleScanStagedFileHunksArgs {
         api_key,
+        json_format,
         output_dir,
         config_file_path,
     } = args;
@@ -92,7 +94,7 @@ pub async fn handle_scan_staged_file_hunks(
     if let Err(err) = response {
         spinner.stop_and_persist("", "");
 
-        let error_output = err.format_error_output(false)?;
+        let error_output = err.format_error_output(json_format)?;
         eprintln!("{}", error_output);
         std::process::exit(1);
     }
@@ -119,7 +121,7 @@ pub async fn handle_scan_staged_file_hunks(
                     Err(_) => {
                         spinner.stop_and_persist("", "");
                         let error = OutputError::failed_to_deserialize_response_body();
-                        let formatted_err = error.format_error_output(false)?;
+                        let formatted_err = error.format_error_output(json_format)?;
 
                         eprintln!("{}", formatted_err);
                         std::process::exit(1);
@@ -135,7 +137,7 @@ pub async fn handle_scan_staged_file_hunks(
         RequestApiOptionResponse::Err(e) => {
             spinner.stop_and_persist("", "");
 
-            let error_output = e.format_error_output(false)?;
+            let error_output = e.format_error_output(json_format)?;
             eprintln!("{}", error_output);
             std::process::exit(1);
         }

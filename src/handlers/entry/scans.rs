@@ -17,6 +17,7 @@ pub async fn handle_scan_commands(
         ScanSubcommand::Staged(args) => {
             let args = HandleScanStagedFileHunksArgs {
                 api_key,
+                json_format: raw_output,
                 output_dir: args.output_dir,
                 config_file_path: args.config_file,
             };
@@ -26,6 +27,7 @@ pub async fn handle_scan_commands(
         ScanSubcommand::Commits(args) => {
             let args = HandleScanUnpushedCommitHunksArgs {
                 api_key,
+                json_format: raw_output,
                 output_dir: args.output_dir,
                 config_file_path: args.config_file,
             };
