@@ -19,6 +19,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 use std::{
     cell::RefCell,
     collections::HashMap,
+    io::IsTerminal,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -223,8 +224,24 @@ fn handle_output_scan_results(
                 }
                 eprintln!();
 
-                for result in results.results {
-                    println!("{}", result);
+                if std::io::stdout().is_terminal() {
+                    let result_string = results
+                        .results
+                        .iter()
+                        .map(|result| result.get_colored_string())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    println!("{}", result_string);
+                } else {
+                    let result_string = results
+                        .results
+                        .iter()
+                        .map(|result| format!("{}", result))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+
+                    println!("{}", result_string);
                 }
             }
         }
