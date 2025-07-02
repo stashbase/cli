@@ -140,7 +140,7 @@ pub struct ScanStagedFileHunksResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanCommitHunksResponse {
+pub struct CommitScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped_commits: Option<Vec<String>>,
