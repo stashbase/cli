@@ -150,6 +150,8 @@ pub enum ScanInputValidationError {
     GitRepositoryAccess { message: String },
     GitIndexAccess { message: String },
     GitHeadAccess { message: String },
+    GitBranchAccess { message: String },
+    GitCommitAccess { message: String },
     GitTreeAccess { message: String },
     GitDiffGeneration { message: String },
     GitDiffProcessing { message: String },
@@ -897,6 +899,14 @@ impl ScanInputValidationError {
             ScanInputValidationError::GitHeadAccess { message: _ } => (
                 "Failed to access Git HEAD.",
                 Some("Check if the repository has commits or is in a valid state."),
+            ),
+            ScanInputValidationError::GitBranchAccess { message: _ } => (
+                "Failed to access Git branch.",
+                Some("Check if the branch exists and repository is in a valid state."),
+            ),
+            ScanInputValidationError::GitCommitAccess { message: _ } => (
+                "Failed to access Git commit.",
+                Some("Check if the commit exists and repository is in a valid state."),
             ),
             ScanInputValidationError::GitTreeAccess { message: _ } => (
                 "Failed to access Git tree.",
