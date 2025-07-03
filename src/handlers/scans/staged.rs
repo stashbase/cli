@@ -274,7 +274,7 @@ fn output_scan_results(results: StagedScanResponse, json_format: bool, output_di
                         let content_equals = file_content_equals(&file_path, &pretty_json);
 
                         if content_equals {
-                            eprintln!("Results match previous scan. File path: {}", file_path);
+                            eprintln!("Potential secrets detected in staged changes, results match previous scan. File path: {}", file_path);
                         } else {
                             let file_path = save_scan_results(&output_dir, &pretty_json);
                             eprintln!("Potential secrets detected in your changes. Scan results saved to: {}", file_path);
