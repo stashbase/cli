@@ -25,19 +25,19 @@ pub struct ScanStaged {
     #[arg(long = "baseline", name = "baseline")]
     pub baseline: Option<String>,
 
-    /// Relative path to a config file
+    /// Relative path to the config file
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// Git-like exclude patterns (files, folders) to ignore
+    /// Git-like patterns of files and folders to not scan
     #[clap(value_parser, short = 'e', long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
 
-    /// Output directory
+    /// Output directory for the scan results
     #[arg(value_enum, short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
 
-    /// Value hashes of secrets to ignore
+    /// Hashes of secret values to ignore
     #[clap(value_parser, short = 'i', long="ignore-value-hashes", num_args = 1..)]
     pub ignore_value_hashes: Vec<String>,
 }
@@ -49,19 +49,19 @@ pub struct ScanCommits {
     #[arg(long = "baseline", name = "baseline")]
     pub baseline: Option<String>,
 
-    /// Relative path to a config file
+    /// Relative path to the config file
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// Git-like exclude patterns (files, folders) to ignore
+    /// Git-like patterns of files and folders to not scan
     #[clap(value_parser, short = 'e', long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
 
-    /// Output directory
+    /// Output directory for the scan results
     #[arg(value_enum, short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
 
-    /// Value hashes of secrets to ignore
+    /// Hashes of secret values to ignore
     #[clap(value_parser, short = 'i', long="ignore-value-hashes", num_args = 1..)]
     pub ignore_value_hashes: Vec<String>,
 }
