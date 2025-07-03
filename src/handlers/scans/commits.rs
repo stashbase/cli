@@ -7,7 +7,7 @@ use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::PathBuf, rc
 use crate::{
     api,
     models::{
-        api_client::{OutputError, RequestApiOptionResponse},
+        api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             ChangeRangeWithHash, CommitChanges, CommitScanResponse, DiffHunk, FileHunks,
             PushCommitHunksPayload, ScanConfig,
@@ -184,7 +184,27 @@ pub async fn handle_scan_unpushed_commit_hunks(
             }
             None => {
                 spinner.stop_and_persist("", "");
-                eprintln!("Something went wrong.");
+
+                match json_format {
+                    true => {
+                        let error = OutputError::Generic(GenericOutputError {
+                            message: "Something went wrong.".to_string(),
+                            code: None,
+                            hint: Some("Please try again later.".to_string()),
+                        });
+                        let json_value = error.to_json_value().unwrap();
+
+                        if std::io::stdout().is_terminal() {
+                            eprintln!("\n{}", to_colored_json_auto(&json_value).unwrap());
+                        } else {
+                            eprintln!("{}", serde_json::to_string_pretty(&json_value).unwrap());
+                        }
+                    }
+                    false => {
+                        eprintln!("\nSomething went wrong.");
+                    }
+                }
+
                 std::process::exit(1);
             }
         },
