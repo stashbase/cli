@@ -228,7 +228,7 @@ fn output_scan_results(results: CommitScanResponse, json_format: bool, output_di
 
                         if content_equals {
                             let message = serde_json::json!({
-                                "message": "Results match previous scan.",
+                                "message": "Potential secrets detected in unpushed commits, results match previous scan.",
                                 "file_path": file_path
                             });
 
@@ -237,7 +237,7 @@ fn output_scan_results(results: CommitScanResponse, json_format: bool, output_di
                             let file_path = save_scan_results(&output_dir, &pretty_json);
 
                             let message = serde_json::json!({
-                                "message": "Scan results saved to file.",
+                                "message": "Potential secrets detected in unpushed commits. Scan results saved to file.",
                                 "file_path": file_path
                             });
                             eprintln!("{}", to_colored_json_auto(&message).unwrap());
@@ -247,7 +247,7 @@ fn output_scan_results(results: CommitScanResponse, json_format: bool, output_di
                         let file_path = save_scan_results(&output_dir, &pretty_json);
 
                         let message = serde_json::json!({
-                            "message": "Scan results saved to file.",
+                            "message": "Potential secrets detected in unpushed commits. Scan results saved to file.",
                             "file_path": file_path
                         });
                         eprintln!("{}", to_colored_json_auto(&message).unwrap());
