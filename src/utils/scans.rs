@@ -1,7 +1,10 @@
 use sha2::{Sha256, Digest};
-use std::{path::Path, fs};
+use std::{path::Path, fs, collections::HashSet};
 use ignore::gitignore::GitignoreBuilder;
-use crate::models::scans::DiffHunk;
+use crate::models::{
+    scans::{DiffHunk, StagedScanResponse, ScanResult},
+    validation::ScanInputValidationError,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) -> bool {
@@ -146,4 +149,59 @@ pub fn filter_sha256_hashes(hashes: Vec<String>) -> Vec<String> {
         .into_iter()
         .filter(|h| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit()))
         .collect::<Vec<_>>()
+}
+
+pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanResult>, ScanInputValidationError> {
+    let content = fs::read_to_string(baseline_path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ScanInputValidationError::BaselineFileNotFound {
+                path: baseline_path.to_string(),
+            }
+        } else {
+            ScanInputValidationError::BaselineFileRead {
+                path: baseline_path.to_string(),
+                message: e.to_string(),
+            }
+        }
+    })?;
+
+    let baseline_response: StagedScanResponse = serde_json::from_str(&content).map_err(|e| {
+        ScanInputValidationError::BaselineFileParse {
+            path: baseline_path.to_string(),
+            message: e.to_string(),
+        }
+    })?;
+
+    Ok(baseline_response.results)
+}
+
+pub fn compute_result_hash(result: &ScanResult) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(result.file_path.as_bytes());
+    hasher.update(result.range.start_line.to_string().as_bytes());
+    hasher.update(result.range.end_line.to_string().as_bytes());
+    hasher.update(result.value_sha256.as_bytes());
+    hasher.update(result.preview.as_bytes());
+    hasher.update(result.severity.as_bytes());
+    if let Some(commit_id) = &result.commit_id {
+        hasher.update(commit_id.as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+pub fn filter_new_results(
+    current_results: Vec<ScanResult>,
+    baseline_results: Vec<ScanResult>,
+) -> Vec<ScanResult> {
+    let baseline_hashes: HashSet<_> = baseline_results
+        .iter()
+        .map(|result| compute_result_hash(result))
+        .collect();
+    
+    current_results
+        .into_iter()
+        .filter(|result| {
+            !baseline_hashes.contains(&compute_result_hash(result))
+        })
+        .collect()
 }
