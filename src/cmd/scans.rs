@@ -21,6 +21,10 @@ pub enum ScanSubcommand {
 #[derive(Debug, Args)]
 #[command(override_usage = "scan staged [OPTIONS]")]
 pub struct ScanStaged {
+    /// Path to a baseline file; only report findings that are new compared to this baseline
+    #[arg(long = "baseline", name = "baseline")]
+    pub baseline: Option<String>,
+
     /// Relative path to a config file
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
@@ -41,6 +45,10 @@ pub struct ScanStaged {
 #[derive(Debug, Args)]
 #[command(override_usage = "scan commits [OPTIONS]")]
 pub struct ScanCommits {
+    /// Path to a baseline file; only report findings that are new compared to this baseline
+    #[arg(long = "baseline", name = "baseline")]
+    pub baseline: Option<String>,
+
     /// Relative path to a config file
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
