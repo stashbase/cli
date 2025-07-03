@@ -111,6 +111,17 @@ pub fn should_write_new_results(output_dir: &str, new_content: &str) -> bool {
     true // No existing file or couldn't read it, should write
 }
 
+pub fn file_content_equals(file_path: &str, new_content: &str) -> bool {
+    match fs::read_to_string(file_path) {
+        Ok(content) => {
+            let existing_hash = calculate_hash(&content);
+            let new_hash = calculate_hash(new_content);
+            new_hash == existing_hash
+        }
+        Err(_) => false,
+    }
+}
+
 pub fn save_scan_results(output_dir: &str, json_content: &str) -> String {
     // Create scan_results directory if it doesn't exist
     fs::create_dir_all(output_dir).unwrap();
