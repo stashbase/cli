@@ -1,12 +1,11 @@
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, iter::Scan};
+use std::fmt::Display;
 
 use crate::utils::scans::should_merge_hunks;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
-    pub enabled: Option<bool>,
     pub exclude: Option<Vec<String>>,
 
     #[serde(rename = "output-dir")]
@@ -19,7 +18,6 @@ pub struct ScanConfig {
 impl Default for ScanConfig {
     fn default() -> Self {
         Self {
-            enabled: None,
             exclude: None,
             output_dir: None,
             ignore_value_hashes: None,
