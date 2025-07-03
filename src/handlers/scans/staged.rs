@@ -9,8 +9,9 @@ use crate::{
         validation::{InputValidationError, ScanInputValidationError},
     },
     utils::scans::{
-        file_content_equals, filter_sha256_hashes, get_comment_prefix, get_latest_scan_file,
-        is_binary_file, save_scan_results, should_exclude_file, should_skip_line,
+        file_content_equals, filter_new_results, filter_sha256_hashes, get_comment_prefix,
+        get_latest_scan_file, is_binary_file, load_baseline_results, save_scan_results,
+        should_exclude_file, should_skip_line,
     },
 };
 use colored_json::to_colored_json_auto;
@@ -33,6 +34,7 @@ pub struct HandleScanStagedFileHunksArgs {
     pub json_format: bool,
     //
     pub exclude: Vec<String>,
+    pub baseline: Option<String>,
     pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
     pub ignore_value_hashes: Vec<String>,
@@ -44,6 +46,7 @@ pub async fn handle_scan_staged_file_hunks(
     let HandleScanStagedFileHunksArgs {
         api_key,
         json_format,
+        baseline,
         output_dir,
         config_file_path,
         ignore_value_hashes: _,
@@ -151,9 +154,33 @@ pub async fn handle_scan_staged_file_hunks(
 
                         spinner.stop_and_persist("", "");
 
-                        let is_empty = data.results.is_empty();
+                        // Apply baseline filtering if baseline is provided
+                        let filtered_data = if let Some(baseline_path) = baseline {
+                            match load_baseline_results(&baseline_path) {
+                                Ok(baseline_results) => {
+                                    let filtered_results =
+                                        filter_new_results(data.results, baseline_results);
+                                    StagedScanResponse {
+                                        skipped_files: data.skipped_files,
+                                        results: filtered_results,
+                                    }
+                                }
+                                Err(e) => {
+                                    let input_validation_error = InputValidationError::Scan(e);
+                                    let error_output =
+                                        input_validation_error.format_error_output(json_format)?;
 
-                        output_scan_results(data, json_format, output_dir);
+                                    eprintln!("\n{}", error_output);
+                                    std::process::exit(1);
+                                }
+                            }
+                        } else {
+                            data
+                        };
+
+                        let is_empty = filtered_data.results.is_empty();
+
+                        output_scan_results(filtered_data, json_format, output_dir);
 
                         if is_empty {
                             std::process::exit(0);
