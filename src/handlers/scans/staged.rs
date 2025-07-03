@@ -169,7 +169,7 @@ pub async fn handle_scan_staged_file_hunks(
 
                         let is_empty = data.results.is_empty();
 
-                        handle_output_scan_results(data, json_format, output_dir);
+                        output_scan_results(data, json_format, output_dir);
 
                         if is_empty {
                             std::process::exit(0);
@@ -203,11 +203,7 @@ pub async fn handle_scan_staged_file_hunks(
     }
 }
 
-fn handle_output_scan_results(
-    results: StagedScanResponse,
-    json_format: bool,
-    output_dir: Option<String>,
-) {
+fn output_scan_results(results: StagedScanResponse, json_format: bool, output_dir: Option<String>) {
     let is_empty = results.results.is_empty();
 
     let json_value = serde_json::to_value(&results).unwrap();
