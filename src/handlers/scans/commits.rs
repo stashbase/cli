@@ -49,23 +49,6 @@ pub async fn handle_scan_unpushed_commit_hunks(
         None => ScanConfig::default(),
     };
 
-    let enabled = config.enabled;
-
-    if let Some(enabled) = enabled {
-        if !enabled {
-            if json_format {
-                let message = serde_json::json!({
-                    "message": "Scans are disabled in the config file."
-                });
-                eprintln!("\n{}", to_colored_json_auto(&message).unwrap());
-            } else {
-                eprintln!("\nScans are disabled in the config file.");
-            }
-
-            std::process::exit(0);
-        }
-    }
-
     let exclude = config
         .exclude
         .into_iter()
