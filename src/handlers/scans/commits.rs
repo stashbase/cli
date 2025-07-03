@@ -2,13 +2,7 @@ use colored_json::to_colored_json_auto;
 use git2::Repository;
 use sha2::Digest;
 use spinoff::{spinners, Color, Spinner, Streams};
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    io::IsTerminal,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::PathBuf, rc::Rc};
 
 use crate::{
     api,
@@ -23,7 +17,6 @@ use crate::{
     utils::scans::{
         file_content_equals, filter_sha256_hashes, get_comment_prefix, get_latest_scan_file,
         is_binary_file, save_scan_results, should_exclude_file, should_skip_line,
-        should_write_new_results,
     },
 };
 
