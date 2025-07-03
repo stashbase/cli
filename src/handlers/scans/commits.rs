@@ -57,9 +57,9 @@ pub async fn handle_scan_unpushed_commit_hunks(
                 let message = serde_json::json!({
                     "message": "Scans are disabled in the config file."
                 });
-                eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                eprintln!("\n{}", to_colored_json_auto(&message).unwrap());
             } else {
-                eprintln!("Scans are disabled in the config file.");
+                eprintln!("\nScans are disabled in the config file.");
             }
 
             std::process::exit(0);
@@ -86,7 +86,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         let input_validation_error = InputValidationError::Scan(e);
         let error_output = input_validation_error.format_error_output(json_format)?;
 
-        eprintln!("{}", error_output);
+        eprintln!("\n{}", error_output);
         std::process::exit(1);
     }
 
@@ -97,9 +97,9 @@ pub async fn handle_scan_unpushed_commit_hunks(
             let message = serde_json::json!({
                 "message": "No unpushed commits to scan."
             });
-            eprintln!("{}", to_colored_json_auto(&message).unwrap());
+            eprintln!("\n{}", to_colored_json_auto(&message).unwrap());
         } else {
-            eprintln!("No unpushed commits to scan.");
+            eprintln!("\nNo unpushed commits to scan.");
         }
 
         std::process::exit(0);
@@ -143,7 +143,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         spinner.stop_and_persist("", "");
 
         let error_output = err.format_error_output(json_format)?;
-        eprintln!("{}", error_output);
+        eprintln!("\n{}", error_output);
         std::process::exit(1);
     }
 
