@@ -9,8 +9,8 @@ use crate::{
         validation::{InputValidationError, ScanInputValidationError},
     },
     utils::scans::{
-        filter_sha256_hashes, get_comment_prefix, is_binary_file, save_scan_results,
-        should_exclude_file, should_skip_line, should_write_new_results,
+        file_content_equals, filter_sha256_hashes, get_comment_prefix, get_latest_scan_file,
+        is_binary_file, save_scan_results, should_exclude_file, should_skip_line,
     },
 };
 use colored_json::to_colored_json_auto;
@@ -221,19 +221,40 @@ fn handle_output_scan_results(
                 });
                 eprintln!("{}", to_colored_json_auto(&message).unwrap());
             } else {
-                if should_write_new_results(&output_dir, &pretty_json) {
-                    let file_path = save_scan_results(&output_dir, &pretty_json);
-                    let message = serde_json::json!({
-                        "message": format!("Scan results saved to: {}", file_path),
-                        "file_path": file_path
-                    });
-                    eprintln!("{}", to_colored_json_auto(&message).unwrap());
-                } else {
-                    let message = serde_json::json!({
-                        "message": "Results match previous scan",
-                        "file_path": output_dir
-                    });
-                    eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                let latest_file = get_latest_scan_file(&output_dir);
+
+                match latest_file {
+                    Some(file) => {
+                        let file_path = file.path().to_string_lossy().to_string();
+                        let content_equals = file_content_equals(&file_path, &pretty_json);
+
+                        if content_equals {
+                            let message = serde_json::json!({
+                                "message": "Results match previous scan.",
+                                "file_path": file_path
+                            });
+
+                            eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                        } else {
+                            let file_path = save_scan_results(&output_dir, &pretty_json);
+
+                            let message = serde_json::json!({
+                                "message": "Scan results saved to file.",
+                                "file_path": file_path
+                            });
+                            eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                        }
+                    }
+                    None => {
+                        let file_path = save_scan_results(&output_dir, &pretty_json);
+
+                        let message = serde_json::json!({
+                            "message": "Scan results saved to file.",
+                            "file_path": file_path
+                        });
+                        eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                        //
+                    }
                 }
             }
         } else {
@@ -249,16 +270,28 @@ fn handle_output_scan_results(
             eprintln!("No secrets detected in staged changes!");
         } else {
             if let Some(output_dir) = output_dir {
-                if should_write_new_results(&output_dir, &pretty_json) {
-                    let file_path = save_scan_results(&output_dir, &pretty_json);
-                    eprintln!(
-                        "Potential secrets detected in your changes. Scan results saved to: {}",
-                        file_path
-                    );
-                } else {
-                    eprintln!(
-                        "Potential secrets detected in your changes. Results match previous scan."
-                    );
+                let latest_file = get_latest_scan_file(&output_dir);
+
+                match latest_file {
+                    Some(file) => {
+                        let file_path = file.path().to_string_lossy().to_string();
+                        let content_equals = file_content_equals(&file_path, &pretty_json);
+
+                        if content_equals {
+                            eprintln!("Results match previous scan. File path: {}", file_path);
+                        } else {
+                            let file_path = save_scan_results(&output_dir, &pretty_json);
+                            eprintln!("Potential secrets detected in your changes. Scan results saved to: {}", file_path);
+                        }
+                    }
+                    None => {
+                        let file_path = save_scan_results(&output_dir, &pretty_json);
+                        eprintln!(
+                            "Potential secrets detected in your changes. Scan results saved to: {}",
+                            file_path
+                        );
+                        //
+                    }
                 }
             } else {
                 eprintln!("Potential secrets detected in your changes, please review the findings before committing:");
