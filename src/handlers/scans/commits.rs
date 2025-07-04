@@ -1,6 +1,5 @@
 use colored_json::to_colored_json_auto;
 use git2::Repository;
-use sha2::Digest;
 use spinoff::{spinners, Color, Spinner, Streams};
 use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::PathBuf, rc::Rc};
 
@@ -15,9 +14,9 @@ use crate::{
         validation::{InputValidationError, ScanInputValidationError},
     },
     utils::scans::{
-        file_content_equals, filter_new_results, filter_sha256_hashes, get_comment_prefix,
-        get_latest_scan_file, is_binary_file, load_baseline_results, save_scan_results,
-        should_exclude_file, should_skip_line,
+        file_content_equals, filter_new_results, filter_sha256_hashes, get_latest_scan_file,
+        is_binary_file, load_baseline_results, process_diff_line, save_scan_results,
+        should_exclude_file,
     },
 };
 
@@ -628,298 +627,27 @@ pub fn get_unpushed_commit_hunks(
                                 .get(&file_path)
                                 .copied()
                                 .unwrap_or(false);
-                            let line_number = line.new_lineno().unwrap_or(0) as usize;
-                            let content = String::from_utf8_lossy(line.content()).to_string();
-
-                            let content_hash: [u8; 32] =
-                                sha2::Sha256::digest(content.as_bytes()).into();
-
-                            // Skip "No newline at end of file" messages
-                            if content.trim() == "\\ No newline at end of file" {
-                                return true;
-                            }
-
-                            let path = PathBuf::from(&file_path);
-                            let extension =
-                                path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
                             if let Some(hunks) =
                                 files_with_hunks_line.borrow_mut().get_mut(&file_path)
                             {
                                 if let Some(last_hunk) = hunks.last_mut() {
-                                    if (context_lines > 0 && line.origin() != '-')
-                                        || line.origin() == '+'
-                                    {
-                                        last_hunk.full_content.push_str(&content);
-                                    }
+                                    let mut current_changes = current_changes_clone.borrow_mut();
+                                    let mut current_change =
+                                        current_changes.entry(file_path.clone()).or_insert(None);
+                                    let mut prev_line_content = prev_line_clone.borrow_mut();
 
-                                    if is_new_file {
-                                        last_hunk.context_end_line = line_number;
-                                    }
-
-                                    // Check for removed ignore comments
-                                    if line.origin() == '-' {
-                                        if let Some(comment_prefix) = get_comment_prefix(extension)
-                                        {
-                                            let line_without_comment_prefix = content
-                                                .trim()
-                                                .trim_start_matches(comment_prefix)
-                                                .trim();
-
-                                            if line_without_comment_prefix
-                                                .starts_with(&ignore_line_comment_clone)
-                                            {
-                                                // This is a removed ignore comment - treat it as a change
-                                                let mut current_changes =
-                                                    current_changes_clone.borrow_mut();
-                                                let actual_line =
-                                                    line.old_lineno().unwrap_or(0) as usize;
-
-                                                match current_changes
-                                                    .entry(file_path.clone())
-                                                    .or_insert(None)
-                                                {
-                                                    Some(ref mut change) => {
-                                                        // For removed lines, we need to ensure proper line number tracking
-                                                        if actual_line >= change.start_line
-                                                            && actual_line <= change.end_line + 3
-                                                        {
-                                                            change.end_line = std::cmp::max(
-                                                                change.end_line,
-                                                                actual_line,
-                                                            );
-                                                            change.content_hash = content_hash;
-                                                        } else {
-                                                            // Check if this content already exists in the hunk's changes
-                                                            let content_exists = last_hunk
-                                                                .changes
-                                                                .iter()
-                                                                .any(|change| {
-                                                                    change.content_hash
-                                                                        == content_hash
-                                                                });
-
-                                                            if !content_exists {
-                                                                let change_clone = change.clone();
-                                                                last_hunk
-                                                                    .changes
-                                                                    .push(change_clone);
-
-                                                                let change_with_hash =
-                                                                    ChangeRangeWithHash {
-                                                                        start_line: actual_line,
-                                                                        end_line: actual_line,
-                                                                        content_hash: content_hash,
-                                                                    };
-
-                                                                *current_changes
-                                                                    .get_mut(&file_path)
-                                                                    .unwrap() =
-                                                                    Some(change_with_hash);
-                                                            }
-                                                        }
-                                                    }
-                                                    None => {
-                                                        // Check if this content already exists in the hunk's changes
-                                                        let content_exists = last_hunk
-                                                            .changes
-                                                            .iter()
-                                                            .any(|change| {
-                                                                change.content_hash == content_hash
-                                                            });
-
-                                                        if !content_exists {
-                                                            let change_with_hash =
-                                                                ChangeRangeWithHash {
-                                                                    start_line: actual_line,
-                                                                    end_line: actual_line,
-                                                                    content_hash: content_hash,
-                                                                };
-
-                                                            *current_changes
-                                                                .get_mut(&file_path)
-                                                                .unwrap() = Some(change_with_hash);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if line.origin() == '+' {
-                                        let should_skip = if let Some(comment_prefix) =
-                                            get_comment_prefix(extension)
-                                        {
-                                            let prev =
-                                                prev_line_clone.borrow().clone().trim().to_string();
-
-                                            let should_skip = should_skip_line(
-                                                &prev,
-                                                comment_prefix,
-                                                &ignore_line_comment_clone,
-                                            );
-
-                                            let line_without_comment_prefix = content
-                                                .trim()
-                                                .trim_start_matches(comment_prefix)
-                                                .trim();
-
-                                            should_skip
-                                                || line_without_comment_prefix
-                                                    .starts_with(&ignore_line_comment_clone)
-                                        } else {
-                                            false
-                                        };
-
-                                        let is_blank_line = content.trim().is_empty();
-
-                                        if !should_skip {
-                                            let mut current_changes =
-                                                current_changes_clone.borrow_mut();
-
-                                            // For new files, create a single change range
-                                            if is_new_file {
-                                                match current_changes
-                                                    .entry(file_path.clone())
-                                                    .or_insert(None)
-                                                {
-                                                    Some(ref mut change) => {
-                                                        // Continue existing change
-                                                        change.end_line = line_number;
-                                                        change.content_hash = content_hash;
-                                                    }
-                                                    None => {
-                                                        // Skip leading blank lines
-                                                        if !is_blank_line {
-                                                            // Check if this content already exists in the hunk's changes
-                                                            let content_exists = last_hunk
-                                                                .changes
-                                                                .iter()
-                                                                .any(|change| {
-                                                                    change.content_hash
-                                                                        == content_hash
-                                                                });
-
-                                                            if !content_exists {
-                                                                let change_with_hash =
-                                                                    ChangeRangeWithHash {
-                                                                        start_line: line_number,
-                                                                        end_line: line_number,
-                                                                        content_hash: content_hash,
-                                                                    };
-
-                                                                *current_changes
-                                                                    .get_mut(&file_path)
-                                                                    .unwrap() =
-                                                                    Some(change_with_hash);
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            } else {
-                                                // For modified files, handle normally
-                                                match current_changes
-                                                    .entry(file_path.clone())
-                                                    .or_insert(None)
-                                                {
-                                                    Some(ref mut change) => {
-                                                        // Continue existing change if it's within reasonable range
-                                                        if line_number <= change.end_line + 3 {
-                                                            // Always include the line if we're in the middle of a change
-                                                            // Ensure end_line is at least the current line_number
-                                                            change.end_line = std::cmp::max(
-                                                                change.end_line,
-                                                                line_number,
-                                                            );
-                                                            change.content_hash = content_hash;
-                                                        } else {
-                                                            // Check if this content already exists in the hunk's changes
-                                                            let content_exists = last_hunk
-                                                                .changes
-                                                                .iter()
-                                                                .any(|change| {
-                                                                    change.content_hash
-                                                                        == content_hash
-                                                                });
-
-                                                            if !content_exists {
-                                                                // Gap too large, create new change range
-                                                                let change_clone = change.clone();
-                                                                last_hunk
-                                                                    .changes
-                                                                    .push(change_clone);
-
-                                                                let change_with_hash =
-                                                                    ChangeRangeWithHash {
-                                                                        start_line: line_number,
-                                                                        end_line: line_number,
-                                                                        content_hash: content_hash,
-                                                                    };
-                                                                // Don't start new change if it's a blank line
-                                                                if !is_blank_line {
-                                                                    *current_changes
-                                                                        .get_mut(&file_path)
-                                                                        .unwrap() =
-                                                                        Some(change_with_hash);
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    None => {
-                                                        // Don't start new change if it's a blank line
-                                                        if !is_blank_line {
-                                                            // Check if this content already exists in the hunk's changes
-                                                            let content_exists = last_hunk
-                                                                .changes
-                                                                .iter()
-                                                                .any(|change| {
-                                                                    change.content_hash
-                                                                        == content_hash
-                                                                });
-
-                                                            if !content_exists {
-                                                                let change_with_hash =
-                                                                    ChangeRangeWithHash {
-                                                                        start_line: line_number,
-                                                                        end_line: line_number,
-                                                                        content_hash: content_hash,
-                                                                    };
-
-                                                                *current_changes
-                                                                    .get_mut(&file_path)
-                                                                    .unwrap() =
-                                                                    Some(change_with_hash);
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else if let Some((_file_path, Some(change))) =
-                                        current_changes_clone.borrow_mut().iter_mut().find_map(
-                                            |(k, v)| {
-                                                if v.is_some() {
-                                                    Some((k.clone(), v.take()))
-                                                } else {
-                                                    None
-                                                }
-                                            },
-                                        )
-                                    {
-                                        let adjusted_end_line = change.end_line;
-                                        let change_range = ChangeRangeWithHash {
-                                            start_line: change.start_line,
-                                            end_line: adjusted_end_line,
-                                            content_hash: content_hash,
-                                        };
-
-                                        last_hunk.changes.push(change_range);
-                                    }
+                                    process_diff_line(
+                                        line,
+                                        &file_path,
+                                        is_new_file,
+                                        &mut current_change,
+                                        last_hunk,
+                                        &mut prev_line_content,
+                                        &ignore_line_comment_clone,
+                                        context_lines,
+                                    );
                                 }
-                            }
-
-                            if line.origin() != '-' {
-                                *prev_line_clone.borrow_mut() = content;
                             }
                         }
                         true
