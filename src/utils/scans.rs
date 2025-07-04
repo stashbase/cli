@@ -2,10 +2,12 @@ use sha2::{Sha256, Digest};
 use std::{path::Path, fs, collections::HashSet};
 use ignore::gitignore::GitignoreBuilder;
 use crate::models::{
-    scans::{DiffHunk, StagedScanResponse, ScanResult},
+    scans::{DiffHunk, StagedScanResponse, ScanResult, ChangeRangeWithHash},
     validation::ScanInputValidationError,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
+use git2;
+
 
 pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) -> bool {
     // Only merge if they're close enough
@@ -204,4 +206,210 @@ pub fn filter_new_results(
             !baseline_hashes.contains(&compute_result_hash(result))
         })
         .collect()
+}
+
+pub fn process_diff_line(
+    line: git2::DiffLine,
+    file_path: &str,
+    is_new_file: bool,
+    current_changes: &mut Option<ChangeRangeWithHash>,
+    last_hunk: &mut DiffHunk,
+    prev_line: &mut String,
+    ignore_line_comment: &str,
+    context_lines: usize,
+) -> bool {
+    let line_number = line.new_lineno().unwrap_or(0) as usize;
+    let content = String::from_utf8_lossy(line.content()).to_string();
+    let content_hash: [u8; 32] = sha2::Sha256::digest(content.as_bytes()).into();
+
+    // Skip "No newline at end of file" messages
+    if content.trim() == "\\ No newline at end of file" {
+        return true;
+    }
+
+    let path = Path::new(file_path);
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+
+    // Add to full_content if it's a context line (not '-') or it's an addition
+    if (context_lines > 0 && line.origin() != '-') || line.origin() == '+' {
+        last_hunk.full_content.push_str(&content);
+    }
+
+    // For new files, update the end line number
+    if is_new_file {
+        last_hunk.context_end_line = line_number;
+    }
+
+    // Check for removed ignore comments
+    if line.origin() == '-' {
+        if let Some(comment_prefix) = get_comment_prefix(extension) {
+            let line_without_comment_prefix = content
+                .trim()
+                .trim_start_matches(comment_prefix)
+                .trim();
+
+            if line_without_comment_prefix.starts_with(ignore_line_comment) {
+                // This is a removed ignore comment - treat it as a change
+                let actual_line = line.old_lineno().unwrap_or(0) as usize;
+
+                match current_changes {
+                    Some(ref mut change) => {
+                        // For removed lines, we need to ensure proper line number tracking
+                        if actual_line >= change.start_line && actual_line <= change.end_line + 3 {
+                            change.end_line = std::cmp::max(change.end_line, actual_line);
+                            change.content_hash = content_hash;
+                        } else {
+                            // Check if this content already exists in the hunk's changes
+                            let content_exists = last_hunk
+                                .changes
+                                .iter()
+                                .any(|change| change.content_hash == content_hash);
+
+                            if !content_exists {
+                                let change_clone = change.clone();
+                                last_hunk.changes.push(change_clone);
+
+                                let change_range = ChangeRangeWithHash {
+                                    start_line: actual_line,
+                                    end_line: actual_line,
+                                    content_hash: content_hash,
+                                };
+
+                                *current_changes = Some(change_range);
+                            }
+                        }
+                    }
+                    None => {
+                        // Check if this content already exists in the hunk's changes
+                        let content_exists = last_hunk
+                            .changes
+                            .iter()
+                            .any(|change| change.content_hash == content_hash);
+
+                        if !content_exists {
+                            let change_range = ChangeRangeWithHash {
+                                start_line: actual_line,
+                                end_line: actual_line,
+                                content_hash: content_hash,
+                            };
+
+                            *current_changes = Some(change_range);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle changes
+    if line.origin() == '+' {
+        // Check if previous line has a skip comment
+        let should_skip = if let Some(comment_prefix) = get_comment_prefix(extension) {
+            let prev = prev_line.trim().to_string();
+
+            let should_skip = should_skip_line(&prev, comment_prefix, ignore_line_comment);
+
+            let line_without_comment_prefix = content.trim().trim_start_matches(comment_prefix).trim();
+
+            should_skip || line_without_comment_prefix.starts_with(ignore_line_comment)
+        } else {
+            false
+        };
+
+        let is_blank_line = content.trim().is_empty();
+
+        if !should_skip {
+            // For new files, create a single change range
+            if is_new_file {
+                match current_changes {
+                    Some(ref mut change) => {
+                        // Continue existing change
+                        change.end_line = std::cmp::max(change.end_line, line_number);
+                        change.content_hash = content_hash;
+                    }
+                    None => {
+                        // Skip leading blank lines
+                        if !is_blank_line {
+                            // Check if this content already exists in the hunk's changes
+                            let content_exists = last_hunk
+                                .changes
+                                .iter()
+                                .any(|change| change.content_hash == content_hash);
+
+                            if !content_exists {
+                                let change_range = ChangeRangeWithHash {
+                                    start_line: line_number,
+                                    end_line: line_number,
+                                    content_hash: content_hash,
+                                };
+
+                                *current_changes = Some(change_range);
+                            }
+                        }
+                    }
+                }
+            } else {
+                // For modified files, handle normally
+                match current_changes {
+                    Some(ref mut change) => {
+                        // Continue existing change if it's within reasonable range
+                        if line_number <= change.end_line + 3 {
+                            // Always include the line if we're in the middle of a change
+                            change.end_line = std::cmp::max(change.end_line, line_number);
+                            change.content_hash = content_hash;
+                        } else {
+                            // Check if this content already exists in the hunk's changes
+                            let content_exists = last_hunk
+                                .changes
+                                .iter()
+                                .any(|change| change.content_hash == content_hash);
+
+                            if !content_exists {
+                                // Gap too large, create new change range
+                                let change_clone = change.clone();
+                                last_hunk.changes.push(change_clone);
+                                // Don't start new change if it's a blank line
+                                if !is_blank_line {
+                                    let change_range = ChangeRangeWithHash {
+                                        start_line: line_number,
+                                        end_line: line_number,
+                                        content_hash: content_hash,
+                                    };
+
+                                    *current_changes = Some(change_range);
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // Don't start new change if it's a blank line
+                        if !is_blank_line {
+                            // Check if this content already exists in the hunk's changes
+                            let content_exists = last_hunk
+                                .changes
+                                .iter()
+                                .any(|change| change.content_hash == content_hash);
+
+                            if !content_exists {
+                                let change_range = ChangeRangeWithHash {
+                                    start_line: line_number,
+                                    end_line: line_number,
+                                    content_hash: content_hash,
+                                };
+
+                                *current_changes = Some(change_range);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Update previous line content
+    if line.origin() != '-' {
+        *prev_line = content;
+    }
+
+    true
 }
