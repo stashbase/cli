@@ -16,12 +16,9 @@ use crate::{
     utils::scans::{
         file_content_equals, filter_new_results, filter_sha256_hashes, get_latest_scan_file,
         is_binary_file, load_baseline_results, process_diff_line, save_scan_results,
-        should_exclude_file,
+        should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
     },
 };
-
-static CONTEXT_LINES: usize = 10;
-static IGNORE_COMMENT: &str = "@stashbase-ignore";
 
 pub struct HandleScanUnpushedCommitHunksArgs {
     pub api_key: String,
@@ -62,8 +59,8 @@ pub async fn handle_scan_unpushed_commit_hunks(
         .collect::<Vec<_>>();
 
     let unpushed_commit_hunks_result = get_unpushed_commit_hunks(
-        CONTEXT_LINES,
-        &IGNORE_COMMENT,
+        SCAN_CONTEXT_LINES,
+        &SCAN_IGNORE_LINE_COMMENT,
         &exclude,
         config_file_path.as_deref(),
     );

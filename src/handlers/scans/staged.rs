@@ -11,16 +11,13 @@ use crate::{
     utils::scans::{
         file_content_equals, filter_new_results, filter_sha256_hashes, get_latest_scan_file,
         is_binary_file, load_baseline_results, process_diff_line, save_scan_results,
-        should_exclude_file,
+        should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
     },
 };
 use colored_json::to_colored_json_auto;
 use git2::Repository;
 use spinoff::{spinners, Color, Spinner, Streams};
 use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::Path, rc::Rc};
-
-static IGNORE_COMMENT: &str = "@stashbase-ignore";
-static CONTEXT_LINES: usize = 10;
 
 pub struct HandleScanStagedFileHunksArgs {
     pub api_key: String,
@@ -61,8 +58,8 @@ pub async fn handle_scan_staged_file_hunks(
         .collect::<Vec<_>>();
 
     let staged_files_result = get_staged_file_hunks(
-        CONTEXT_LINES,
-        &IGNORE_COMMENT,
+        SCAN_CONTEXT_LINES,
+        &SCAN_IGNORE_LINE_COMMENT,
         &exclude,
         config_file_path.as_deref(),
     );
