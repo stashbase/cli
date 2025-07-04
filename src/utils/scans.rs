@@ -186,7 +186,7 @@ pub fn compute_result_hash(result: &ScanResult) -> String {
     hasher.update(result.range.end_line.to_string().as_bytes());
     hasher.update(result.value_sha256.as_bytes());
     hasher.update(result.preview.as_bytes());
-    hasher.update(result.severity.as_bytes());
+    hasher.update(result.severity.to_string().as_bytes());
     if let Some(commit_id) = &result.commit_id {
         hasher.update(commit_id.as_bytes());
     }

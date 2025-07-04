@@ -94,13 +94,33 @@ pub struct CommitChanges {
     pub files: Vec<FileHunks>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScanResultSeverity {
+    Low = 1,
+    Medium = 2,
+    High = 3,
+    Critical = 4,
+}
+
+impl Display for ScanResultSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScanResultSeverity::Low => write!(f, "low"),
+            ScanResultSeverity::Medium => write!(f, "medium"),
+            ScanResultSeverity::High => write!(f, "high"),
+            ScanResultSeverity::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub file_path: String,
     pub range: ChangeRange,
     pub preview: String,
-    pub severity: String,
+    pub severity: ScanResultSeverity,
 
     #[serde(rename = "valueSHA256")]
     pub value_sha256: String,
