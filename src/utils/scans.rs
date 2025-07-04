@@ -8,6 +8,8 @@ use crate::models::{
 use std::time::{SystemTime, UNIX_EPOCH};
 use git2;
 
+pub static SCAN_IGNORE_LINE_COMMENT: &str = "@stashbase-ignore";
+pub static SCAN_CONTEXT_LINES: usize = 10;
 
 pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) -> bool {
     // Only merge if they're close enough
