@@ -202,12 +202,22 @@ pub fn filter_new_results(
         .map(|result| compute_result_hash(result))
         .collect();
     
-    current_results
+   let filtered_results = current_results
         .into_iter()
         .filter(|result| {
             !baseline_hashes.contains(&compute_result_hash(result))
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    let mut sorted_results: Vec<_> = filtered_results.into_iter().collect();
+
+    sorted_results.sort_by(|a, b| {
+        (b.severity.clone() as i32).cmp(&(a.severity.clone() as i32)) // by severity, descending
+            .then(a.file_path.cmp(&b.file_path))      // then by file path
+            .then(a.range.start_line.cmp(&b.range.start_line)) // then by start line
+    });
+
+    sorted_results
 }
 
 pub fn process_diff_line(
