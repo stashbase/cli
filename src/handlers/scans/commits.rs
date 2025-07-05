@@ -660,18 +660,13 @@ pub fn get_unpushed_commit_hunks(
                     message: e.message().to_string(),
                 })?;
 
-                if let Some((_file_path, Some(change))) =
-                    current_changes.borrow_mut().iter_mut().find_map(|(k, v)| {
-                        if v.is_some() {
-                            Some((k.clone(), v.take()))
-                        } else {
-                            None
-                        }
-                    })
-                {
-                    if let Some(hunks) = files_with_hunks.borrow_mut().values_mut().last() {
-                        if let Some(last_hunk) = hunks.last_mut() {
-                            last_hunk.changes.push(change);
+                let current_changes = current_changes.borrow_mut();
+                for (file_path, change_opt) in current_changes.iter() {
+                    if let Some(change) = change_opt {
+                        if let Some(hunks) = files_with_hunks.borrow_mut().get_mut(file_path) {
+                            if let Some(last_hunk) = hunks.last_mut() {
+                                last_hunk.changes.push(change.clone());
+                            }
                         }
                     }
                 }
