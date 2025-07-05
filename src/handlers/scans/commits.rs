@@ -126,7 +126,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         spinner.stop_and_persist("", "");
 
         let error_output = err.format_error_output(json_format)?;
-        eprintln!("\n{}", error_output);
+        eprintln!("{}", error_output);
         std::process::exit(1);
     }
 
