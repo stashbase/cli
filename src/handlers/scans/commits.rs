@@ -719,5 +719,8 @@ pub fn get_unpushed_commit_hunks(
         }
     }
 
+    // go from the oldest commit first
+    all_commit_changes.reverse();
+
     Ok(all_commit_changes)
 }
