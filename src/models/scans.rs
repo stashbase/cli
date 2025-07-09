@@ -71,7 +71,7 @@ pub struct FileHunks {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanStagedFileChangesPayload {
+pub struct ScanFileChangesPayload {
     pub files: Vec<FileHunks>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,7 +80,7 @@ pub struct ScanStagedFileChangesPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanPushCommitChangesPayload {
+pub struct ScanCommitChangesPayload {
     pub commits: Vec<CommitChanges>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,7 +176,7 @@ impl ScanResult {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct StagedScanResponse {
+pub struct FileChangesScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped_files: Option<Vec<String>>,
@@ -185,7 +185,7 @@ pub struct StagedScanResponse {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct CommitScanResponse {
+pub struct CommitsScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped_commits: Option<Vec<String>>,

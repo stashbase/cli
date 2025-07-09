@@ -3,8 +3,8 @@ use crate::{
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
-            ChangeRangeWithHash, DiffHunk, FileHunks, ScanConfig, ScanStagedFileChangesPayload,
-            StagedScanResponse,
+            ChangeRangeWithHash, DiffHunk, FileChangesScanResponse, FileHunks, ScanConfig,
+            ScanFileChangesPayload,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -106,7 +106,7 @@ pub async fn handle_scan_staged_file_hunks(
         }
     };
 
-    let data = ScanStagedFileChangesPayload {
+    let data = ScanFileChangesPayload {
         ignore_value_hashes,
         files: staged_files,
     };
@@ -133,7 +133,7 @@ pub async fn handle_scan_staged_file_hunks(
     match response {
         RequestApiOptionResponse::Ok(res) => match res.text {
             Some(text) => {
-                let response = serde_json::from_str::<StagedScanResponse>(&text);
+                let response = serde_json::from_str::<FileChangesScanResponse>(&text);
 
                 match response {
                     Ok(data) => {
@@ -150,7 +150,7 @@ pub async fn handle_scan_staged_file_hunks(
                                 Ok(baseline_results) => {
                                     let filtered_results =
                                         filter_new_results(data.results, baseline_results);
-                                    StagedScanResponse {
+                                    FileChangesScanResponse {
                                         skipped_files: data.skipped_files,
                                         results: filtered_results,
                                     }
@@ -224,7 +224,11 @@ pub async fn handle_scan_staged_file_hunks(
     }
 }
 
-fn output_scan_results(results: StagedScanResponse, json_format: bool, output_dir: Option<String>) {
+fn output_scan_results(
+    results: FileChangesScanResponse,
+    json_format: bool,
+    output_dir: Option<String>,
+) {
     let is_empty = results.results.is_empty();
 
     let json_value = serde_json::to_value(&results).unwrap();
