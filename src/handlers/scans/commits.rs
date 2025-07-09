@@ -8,8 +8,8 @@ use crate::{
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
-            ChangeRangeWithHash, CommitChanges, CommitScanResponse, DiffHunk, FileHunks,
-            ScanConfig, ScanPushCommitChangesPayload,
+            ChangeRangeWithHash, CommitChanges, CommitsScanResponse, DiffHunk, FileHunks,
+            ScanCommitChangesPayload, ScanConfig,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -108,7 +108,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         }
     };
 
-    let data = ScanPushCommitChangesPayload {
+    let data = ScanCommitChangesPayload {
         ignore_value_hashes,
         commits: unpushed_commit_hunks,
     };
@@ -135,7 +135,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
     match response {
         RequestApiOptionResponse::Ok(res) => match res.text {
             Some(text) => {
-                let response = serde_json::from_str::<CommitScanResponse>(&text);
+                let response = serde_json::from_str::<CommitsScanResponse>(&text);
 
                 match response {
                     Ok(data) => {
@@ -153,7 +153,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
                                     let filtered_results =
                                         filter_new_results(data.results, baseline_results);
 
-                                    CommitScanResponse {
+                                    CommitsScanResponse {
                                         skipped_commits: data.skipped_commits,
                                         results: filtered_results,
                                     }
@@ -226,7 +226,11 @@ pub async fn handle_scan_unpushed_commit_hunks(
     }
 }
 
-fn output_scan_results(results: CommitScanResponse, json_format: bool, output_dir: Option<String>) {
+fn output_scan_results(
+    results: CommitsScanResponse,
+    json_format: bool,
+    output_dir: Option<String>,
+) {
     let is_empty = results.results.is_empty();
 
     let json_value = serde_json::to_value(&results).unwrap();

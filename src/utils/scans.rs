@@ -2,7 +2,7 @@ use sha2::{Sha256, Digest};
 use std::{path::Path, fs, collections::HashSet};
 use ignore::gitignore::GitignoreBuilder;
 use crate::models::{
-    scans::{DiffHunk, StagedScanResponse, ScanResult, ChangeRangeWithHash},
+    scans::{DiffHunk, FileChangesScanResponse, ScanResult, ChangeRangeWithHash},
     validation::ScanInputValidationError,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -169,7 +169,7 @@ pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanResult>, Sca
         }
     })?;
 
-    let baseline_response: StagedScanResponse = serde_json::from_str(&content).map_err(|e| {
+    let baseline_response: FileChangesScanResponse = serde_json::from_str(&content).map_err(|e| {
         ScanInputValidationError::BaselineFileParse {
             path: baseline_path.to_string(),
             message: e.to_string(),
