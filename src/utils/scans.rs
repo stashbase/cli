@@ -2,7 +2,7 @@ use sha2::{Sha256, Digest};
 use std::{path::Path, fs, collections::HashSet};
 use ignore::gitignore::GitignoreBuilder;
 use crate::models::{
-    scans::{DiffHunk, FileChangesScanResponse, ScanResult, ChangeRangeWithHash},
+    scans::{DiffHunk, FileChangesScanResponse, ScanFinding, ChangeRangeWithHash},
     validation::ScanInputValidationError,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -155,7 +155,7 @@ pub fn filter_sha256_hashes(hashes: Vec<String>) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
-pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanResult>, ScanInputValidationError> {
+pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanFinding>, ScanInputValidationError> {
     let content = fs::read_to_string(baseline_path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             ScanInputValidationError::BaselineFileNotFound {
@@ -176,48 +176,48 @@ pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanResult>, Sca
         }
     })?;
 
-    Ok(baseline_response.results)
+    Ok(baseline_response.findings)
 }
 
-pub fn compute_result_hash(result: &ScanResult) -> String {
+pub fn compute_finding_hash(finding: &ScanFinding) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(result.file_path.as_bytes());
-    hasher.update(result.range.start_line.to_string().as_bytes());
-    hasher.update(result.range.end_line.to_string().as_bytes());
-    hasher.update(result.value_sha256.as_bytes());
-    hasher.update(result.preview.as_bytes());
-    hasher.update(result.severity.to_string().as_bytes());
-    if let Some(commit_id) = &result.commit_id {
+    hasher.update(finding.file_path.as_bytes());
+    hasher.update(finding.range.start_line.to_string().as_bytes());
+    hasher.update(finding.range.end_line.to_string().as_bytes());
+    hasher.update(finding.value_sha256.as_bytes());
+    hasher.update(finding.preview.as_bytes());
+    hasher.update(finding.severity.to_string().as_bytes());
+    if let Some(commit_id) = &finding.commit_id {
         hasher.update(commit_id.as_bytes());
     }
     format!("{:x}", hasher.finalize())
 }
 
-pub fn filter_new_results(
-    current_results: Vec<ScanResult>,
-    baseline_results: Vec<ScanResult>,
-) -> Vec<ScanResult> {
-    let baseline_hashes: HashSet<_> = baseline_results
+pub fn filter_new_findings(
+    current_findings: Vec<ScanFinding>,
+    baseline_findings: Vec<ScanFinding>,
+) -> Vec<ScanFinding> {
+    let baseline_hashes: HashSet<_> = baseline_findings
         .iter()
-        .map(|result| compute_result_hash(result))
+        .map(|finding| compute_finding_hash(finding))
         .collect();
     
-   let filtered_results = current_results
+   let filtered_findings = current_findings
         .into_iter()
-        .filter(|result| {
-            !baseline_hashes.contains(&compute_result_hash(result))
+        .filter(|finding| {
+            !baseline_hashes.contains(&compute_finding_hash(finding))
         })
         .collect::<Vec<_>>();
 
-    let mut sorted_results: Vec<_> = filtered_results.into_iter().collect();
+    let mut sorted_findings: Vec<_> = filtered_findings.into_iter().collect();
 
-    sorted_results.sort_by(|a, b| {
+    sorted_findings.sort_by(|a, b| {
         (b.severity.clone() as i32).cmp(&(a.severity.clone() as i32)) // by severity, descending
             .then(a.file_path.cmp(&b.file_path))      // then by file path
             .then(a.range.start_line.cmp(&b.range.start_line)) // then by start line
     });
 
-    sorted_results
+    sorted_findings
 }
 
 pub fn process_diff_line(
