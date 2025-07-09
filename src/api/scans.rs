@@ -1,12 +1,12 @@
 use super::client;
 use crate::models::{
     api_client::{ApiPath, OutputError, RequestApiOptionResponse, RequestArgs},
-    scans::{PushCommitHunksPayload, StagedFileHunksPayload},
+    scans::{ScanCommitChangesPayload, ScanFileChangesPayload},
 };
 
 pub async fn scan_file_changes(
     api_key: String,
-    data: &StagedFileHunksPayload,
+    data: &ScanFileChangesPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Scan {
@@ -21,7 +21,7 @@ pub async fn scan_file_changes(
 
 pub async fn scan_commits(
     api_key: String,
-    data: &PushCommitHunksPayload,
+    data: &ScanCommitChangesPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Scan {
