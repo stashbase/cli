@@ -9,7 +9,7 @@ use crate::{
         validation::{InputValidationError, ScanInputValidationError},
     },
     utils::scans::{
-        file_content_equals, filter_new_results, filter_sha256_hashes, get_latest_scan_file,
+        file_content_equals, filter_new_findings, filter_sha256_hashes, get_latest_scan_file,
         is_binary_file, load_baseline_results, process_diff_line, save_scan_results,
         should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
     },
@@ -148,11 +148,11 @@ pub async fn handle_scan_staged_file_hunks(
                         let filtered_data = if let Some(baseline_path) = baseline {
                             match load_baseline_results(&baseline_path) {
                                 Ok(baseline_results) => {
-                                    let filtered_results =
-                                        filter_new_results(data.results, baseline_results);
+                                    let filtered_findings =
+                                        filter_new_findings(data.findings, baseline_results);
                                     FileChangesScanResponse {
                                         skipped_files: data.skipped_files,
-                                        results: filtered_results,
+                                        findings: filtered_findings,
                                     }
                                 }
                                 Err(e) => {
@@ -168,9 +168,9 @@ pub async fn handle_scan_staged_file_hunks(
                             data
                         };
 
-                        let is_empty = filtered_data.results.is_empty();
+                        let is_empty = filtered_data.findings.is_empty();
 
-                        output_scan_results(filtered_data, json_format, output_dir);
+                        output_scan_findings(filtered_data, json_format, output_dir);
 
                         if is_empty {
                             std::process::exit(0);
@@ -224,14 +224,14 @@ pub async fn handle_scan_staged_file_hunks(
     }
 }
 
-fn output_scan_results(
-    results: FileChangesScanResponse,
+fn output_scan_findings(
+    response: FileChangesScanResponse,
     json_format: bool,
     output_dir: Option<String>,
 ) {
-    let is_empty = results.results.is_empty();
+    let is_empty = response.findings.is_empty();
 
-    let json_value = serde_json::to_value(&results).unwrap();
+    let json_value = serde_json::to_value(&response).unwrap();
     let pretty_json = serde_json::to_string_pretty(&json_value).unwrap();
 
     if json_format {
@@ -316,29 +316,29 @@ fn output_scan_results(
                 }
             } else {
                 eprintln!("Potential secrets detected in your changes, please review the findings before committing:");
-                if let Some(skipped_files) = &results.skipped_files {
+                if let Some(skipped_files) = &response.skipped_files {
                     eprintln!("Skipped files: {}", skipped_files.join(", "));
                 }
                 eprintln!();
 
                 if std::io::stdout().is_terminal() {
-                    let result_string = results
-                        .results
+                    let findings_string = response
+                        .findings
                         .iter()
                         .map(|result| result.get_colored_string())
                         .collect::<Vec<_>>()
                         .join("\n");
 
-                    println!("{}", result_string);
+                    println!("{}", findings_string);
                 } else {
-                    let result_string = results
-                        .results
+                    let findings_string = response
+                        .findings
                         .iter()
                         .map(|result| format!("{}", result))
                         .collect::<Vec<_>>()
                         .join("\n\n");
 
-                    println!("{}", result_string);
+                    println!("{}", findings_string);
                 }
             }
         }
