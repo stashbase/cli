@@ -96,31 +96,31 @@ pub struct CommitChanges {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum ScanResultSeverity {
+pub enum ScanFindingSeverity {
     Low = 1,
     Medium = 2,
     High = 3,
     Critical = 4,
 }
 
-impl Display for ScanResultSeverity {
+impl Display for ScanFindingSeverity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScanResultSeverity::Low => write!(f, "low"),
-            ScanResultSeverity::Medium => write!(f, "medium"),
-            ScanResultSeverity::High => write!(f, "high"),
-            ScanResultSeverity::Critical => write!(f, "critical"),
+            ScanFindingSeverity::Low => write!(f, "low"),
+            ScanFindingSeverity::Medium => write!(f, "medium"),
+            ScanFindingSeverity::High => write!(f, "high"),
+            ScanFindingSeverity::Critical => write!(f, "critical"),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanResult {
+pub struct ScanFinding {
     pub file_path: String,
     pub range: ChangeRange,
     pub preview: String,
-    pub severity: ScanResultSeverity,
+    pub severity: ScanFindingSeverity,
 
     #[serde(rename = "valueSHA256")]
     pub value_sha256: String,
@@ -129,7 +129,7 @@ pub struct ScanResult {
     pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
 }
 
-impl Display for ScanResult {
+impl Display for ScanFinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         result.push_str(&format!("File: {}\n", self.file_path));
@@ -147,7 +147,7 @@ impl Display for ScanResult {
     }
 }
 
-impl ScanResult {
+impl ScanFinding {
     pub fn get_colored_string(&self) -> String {
         let mut result = String::new();
 
@@ -180,7 +180,7 @@ pub struct FileChangesScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped_files: Option<Vec<String>>,
-    pub results: Vec<ScanResult>,
+    pub findings: Vec<ScanFinding>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -189,7 +189,7 @@ pub struct CommitsScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped_commits: Option<Vec<String>>,
-    pub results: Vec<ScanResult>,
+    pub findings: Vec<ScanFinding>,
 }
 
 impl FileHunks {
