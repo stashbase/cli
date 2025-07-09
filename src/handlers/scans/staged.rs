@@ -118,7 +118,7 @@ pub async fn handle_scan_staged_file_hunks(
         Streams::Stderr,
     );
 
-    let response = api::scans::scan_staged_hunks(api_key, &data).await;
+    let response = api::scans::scan_file_changes(api_key, &data).await;
 
     if let Err(err) = response {
         spinner.stop_and_persist("", "");

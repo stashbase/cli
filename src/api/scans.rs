@@ -4,13 +4,13 @@ use crate::models::{
     scans::{PushCommitHunksPayload, StagedFileHunksPayload},
 };
 
-pub async fn scan_staged_hunks(
+pub async fn scan_file_changes(
     api_key: String,
     data: &StagedFileHunksPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
     let args = RequestArgs {
         path: ApiPath::Scan {
-            path: "hunks".to_string(),
+            path: "file-changes".to_string(),
         },
         query: None,
         api_key,
