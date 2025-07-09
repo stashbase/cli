@@ -3,7 +3,7 @@ use crate::{
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
-            ChangeRangeWithHash, DiffHunk, FileHunks, ScanConfig, StagedFileHunksPayload,
+            ChangeRangeWithHash, DiffHunk, FileHunks, ScanConfig, ScanStagedFileChangesPayload,
             StagedScanResponse,
         },
         validation::{InputValidationError, ScanInputValidationError},
@@ -106,7 +106,7 @@ pub async fn handle_scan_staged_file_hunks(
         }
     };
 
-    let data = StagedFileHunksPayload {
+    let data = ScanStagedFileChangesPayload {
         ignore_value_hashes,
         files: staged_files,
     };

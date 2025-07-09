@@ -9,7 +9,7 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             ChangeRangeWithHash, CommitChanges, CommitScanResponse, DiffHunk, FileHunks,
-            PushCommitHunksPayload, ScanConfig,
+            ScanConfig, ScanPushCommitChangesPayload,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -108,7 +108,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         }
     };
 
-    let data = PushCommitHunksPayload {
+    let data = ScanPushCommitChangesPayload {
         ignore_value_hashes,
         commits: unpushed_commit_hunks,
     };
