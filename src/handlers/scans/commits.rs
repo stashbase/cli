@@ -115,7 +115,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
     let mut spinner = Spinner::new_with_stream(
         spinners::Dots,
-        "Scanning unpushed commits...",
+        "Scanning commits...",
         Color::Cyan,
         Streams::Stderr,
     );
