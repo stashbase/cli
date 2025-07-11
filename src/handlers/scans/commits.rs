@@ -730,11 +730,14 @@ pub fn get_unpushed_commit_hunks(
             })
             .collect();
 
+            let mut sorted_files = commit_changes.clone();
+            sorted_files.sort_by_key(|file| file.file_path.clone());
+
             // Add commit metadata
-            if !commit_changes.is_empty() {
+            if !sorted_files.is_empty() {
                 let change = CommitChanges {
                     commit_id: current.id().to_string(),
-                    files: commit_changes,
+                    files: sorted_files,
                 };
 
                 all_commit_changes.push(change);

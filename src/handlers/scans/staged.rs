@@ -685,5 +685,8 @@ pub fn get_staged_file_hunks(
     })
     .collect();
 
-    Ok(result)
+    let mut sorted = result.into_iter().collect::<Vec<_>>();
+    sorted.sort_by_key(|file| file.file_path.clone());
+
+    Ok(sorted)
 }
