@@ -482,7 +482,7 @@ pub fn get_staged_file_hunks(
                     // Create a single hunk for the entire file
                     let hunk = DiffHunk {
                         full_content: String::new(), // Will be populated in line callback
-                        changes: Vec::new(),         // Will be populated in line callback
+                        changes: None,               // Will be populated in line callback
                         context_end_line: 2,         // Will be updated in line callback
                         context_start_line: 1,
                     };
@@ -535,7 +535,7 @@ pub fn get_staged_file_hunks(
 
                 let hunk_with_context = DiffHunk {
                     full_content: String::new(),
-                    changes: Vec::new(),
+                    changes: Some(Vec::new()),
                     context_start_line: hunk.new_start() as usize,
                     context_end_line: (hunk.new_start() + hunk.new_lines()) as usize,
                 };
@@ -638,7 +638,9 @@ pub fn get_staged_file_hunks(
                     if let Ok(hunk_index) = hunk_index_str.parse::<usize>() {
                         if let Some(hunks) = files_with_hunks.borrow_mut().get_mut(file_path) {
                             if let Some(target_hunk) = hunks.get_mut(hunk_index) {
-                                target_hunk.changes.push(change.clone());
+                                if let Some(changes) = &mut target_hunk.changes {
+                                    changes.push(change.clone());
+                                }
                             }
                         }
                     }
@@ -667,7 +669,11 @@ pub fn get_staged_file_hunks(
         let non_empty_hunks: Vec<DiffHunk> = file
             .hunks
             .iter()
-            .filter(|hunk| !hunk.changes.is_empty())
+            .filter(|hunk| {
+                hunk.changes
+                    .as_ref()
+                    .map_or(true, |changes| !changes.is_empty())
+            })
             .cloned()
             .collect();
 
@@ -679,7 +685,11 @@ pub fn get_staged_file_hunks(
         file.hunks = file
             .hunks
             .into_iter()
-            .filter(|hunk| !hunk.changes.is_empty())
+            .filter(|hunk| {
+                hunk.changes
+                    .as_ref()
+                    .map_or(true, |changes| !changes.is_empty())
+            })
             .collect();
         file
     })

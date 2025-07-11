@@ -52,8 +52,10 @@ pub struct ChangeRangeWithHash {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffHunk {
-    pub full_content: String,              // Hunks + context combined
-    pub changes: Vec<ChangeRangeWithHash>, // Individual change ranges
+    pub full_content: String, // Hunks + context combined
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changes: Option<Vec<ChangeRangeWithHash>>, // Individual change ranges; None for new files
 
     #[serde(rename = "startLine")]
     pub context_start_line: usize,
@@ -242,28 +244,42 @@ impl FileHunks {
                         current.full_content = combined_lines.join("\n");
                     }
 
-                    // Combine the changes arrays
-                    current.changes.extend(next.changes);
+                    // Combine the changes arrays if they exist
+                    match (current.changes, next.changes) {
+                        (Some(mut current_changes), Some(next_changes)) => {
+                            // Both hunks have changes, merge them
+                            current_changes.extend(next_changes);
 
-                    // Sort changes by start line and merge any that are consecutive
-                    current.changes.sort_by_key(|change| change.start_line);
-                    let mut merged_changes = Vec::new();
-                    let current_change = current.changes.get(0).cloned();
+                            // Sort changes by start line and merge any that are consecutive
+                            current_changes.sort_by_key(|change| change.start_line);
+                            let mut merged_changes = Vec::new();
 
-                    if let Some(mut current_change) = current_change {
-                        for next_change in current.changes.into_iter().skip(1) {
-                            if next_change.start_line == current_change.end_line + 1 {
-                                // Consecutive changes, merge them
-                                current_change.end_line = next_change.end_line;
-                            } else {
-                                // Non-consecutive changes, push current and start new
+                            if let Some(first_change) = current_changes.get(0).cloned() {
+                                let mut current_change = first_change;
+
+                                for next_change in current_changes.into_iter().skip(1) {
+                                    if next_change.start_line == current_change.end_line + 1 {
+                                        // Consecutive changes, merge them
+                                        current_change.end_line = next_change.end_line;
+                                    } else {
+                                        // Non-consecutive changes, push current and start new
+                                        merged_changes.push(current_change);
+                                        current_change = next_change;
+                                    }
+                                }
                                 merged_changes.push(current_change);
-                                current_change = next_change;
                             }
+                            current.changes = Some(merged_changes);
                         }
-                        merged_changes.push(current_change);
+                        (None, None) => {
+                            // Both hunks have no changes, keep it as None
+                            current.changes = None;
+                        }
+                        (Some(changes), None) | (None, Some(changes)) => {
+                            // If either hunk has changes, preserve them
+                            current.changes = Some(changes);
+                        }
                     }
-                    current.changes = merged_changes;
                 } else {
                     merged.push(current);
                     current = next;
