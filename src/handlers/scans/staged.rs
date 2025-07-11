@@ -642,25 +642,8 @@ pub fn get_staged_file_hunks(
         context_lines,
     )
     .into_iter()
-    // Filter out files that have no hunks with changes
-    .filter(|file| {
-        // Keep only hunks that have non-empty changes
-        let non_empty_hunks: Vec<DiffHunk> = file
-            .hunks
-            .iter()
-            .filter(|hunk| {
-                hunk.changes
-                    .as_ref()
-                    .map_or(true, |changes| !changes.is_empty())
-            })
-            .cloned()
-            .collect();
-
-        // Update the file's hunks to only include non-empty ones
-        !non_empty_hunks.is_empty()
-    })
-    .map(|mut file| {
-        // Update the file's hunks to only include non-empty ones
+    .filter_map(|mut file| {
+        // Filter hunks to only include non-empty ones
         file.hunks = file
             .hunks
             .into_iter()
@@ -670,7 +653,13 @@ pub fn get_staged_file_hunks(
                     .map_or(true, |changes| !changes.is_empty())
             })
             .collect();
-        file
+
+        // Only keep files that have non-empty hunks
+        if file.hunks.is_empty() {
+            None
+        } else {
+            Some(file)
+        }
     })
     .collect();
 
