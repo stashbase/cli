@@ -705,14 +705,8 @@ pub fn get_unpushed_commit_hunks(
                 context_lines,
             )
             .into_iter()
-            .filter(|file| {
-                file.hunks.iter().any(|hunk| {
-                    hunk.changes
-                        .as_ref()
-                        .map_or(true, |changes| !changes.is_empty())
-                })
-            })
-            .map(|mut file| {
+            .filter_map(|mut file| {
+                // Filter hunks to only include non-empty ones
                 file.hunks = file
                     .hunks
                     .into_iter()
@@ -722,9 +716,15 @@ pub fn get_unpushed_commit_hunks(
                             .map_or(true, |changes| !changes.is_empty())
                     })
                     .collect();
-                FileHunks {
-                    file_path: file.file_path,
-                    hunks: file.hunks,
+
+                // Only keep files that have remaining hunks after filtering
+                if file.hunks.is_empty() {
+                    None
+                } else {
+                    Some(FileHunks {
+                        file_path: file.file_path,
+                        hunks: file.hunks,
+                    })
                 }
             })
             .collect();
