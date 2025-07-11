@@ -247,9 +247,21 @@ pub fn process_diff_line(
         last_hunk.full_content.push_str(&content);
     }
 
-    // For new files, update the end line number
+    // For new files, update the end line number and ensure changes is None
     if is_new_file {
         last_hunk.context_end_line = line_number;
+        last_hunk.changes = None;
+        *current_changes = None;
+        // Update previous line content and return early for new files
+        if line.origin() != '-' {
+            *prev_line = content;
+        }
+        return true;
+    }
+
+    // Initialize changes as Vec if None (for modified files)
+    if last_hunk.changes.is_none() {
+        last_hunk.changes = Some(Vec::new());
     }
 
     // Check for removed ignore comments
@@ -274,12 +286,14 @@ pub fn process_diff_line(
                             // Check if this content already exists in the hunk's changes
                             let content_exists = last_hunk
                                 .changes
-                                .iter()
-                                .any(|change| change.content_hash == content_hash);
+                                .as_ref()
+                                .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                                .unwrap_or(false);
 
                             if !content_exists {
-                                let change_clone = change.clone();
-                                last_hunk.changes.push(change_clone);
+                                if let Some(changes) = &mut last_hunk.changes {
+                                    changes.push(change.clone());
+                                }
 
                                 let change_range = ChangeRangeWithHash {
                                     start_line: actual_line,
@@ -295,8 +309,9 @@ pub fn process_diff_line(
                         // Check if this content already exists in the hunk's changes
                         let content_exists = last_hunk
                             .changes
-                            .iter()
-                            .any(|change| change.content_hash == content_hash);
+                            .as_ref()
+                            .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                            .unwrap_or(false);
 
                         if !content_exists {
                             let change_range = ChangeRangeWithHash {
@@ -313,7 +328,7 @@ pub fn process_diff_line(
         }
     }
 
-    // Handle changes
+    // Handle changes for modified files
     if line.origin() == '+' {
         // Check if previous line has a skip comment
         let should_skip = if let Some(comment_prefix) = get_comment_prefix(extension) {
@@ -331,24 +346,28 @@ pub fn process_diff_line(
         let is_blank_line = content.trim().is_empty();
 
         if !should_skip {
-            // For new files, create a single change range
-            if is_new_file {
-                match current_changes {
-                    Some(ref mut change) => {
-                        // Continue existing change
+            match current_changes {
+                Some(ref mut change) => {
+                    // Continue existing change if it's within reasonable range
+                    if line_number <= change.end_line + 3 {
+                        // Always include the line if we're in the middle of a change
                         change.end_line = std::cmp::max(change.end_line, line_number);
                         change.content_hash = content_hash;
-                    }
-                    None => {
-                        // Skip leading blank lines
-                        if !is_blank_line {
-                            // Check if this content already exists in the hunk's changes
-                            let content_exists = last_hunk
-                                .changes
-                                .iter()
-                                .any(|change| change.content_hash == content_hash);
+                    } else {
+                        // Check if this content already exists in the hunk's changes
+                        let content_exists = last_hunk
+                            .changes
+                            .as_ref()
+                            .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                            .unwrap_or(false);
 
-                            if !content_exists {
+                        if !content_exists {
+                            // Gap too large, create new change range
+                            if let Some(changes) = &mut last_hunk.changes {
+                                changes.push(change.clone());
+                            }
+                            // Don't start new change if it's a blank line
+                            if !is_blank_line {
                                 let change_range = ChangeRangeWithHash {
                                     start_line: line_number,
                                     end_line: line_number,
@@ -360,57 +379,24 @@ pub fn process_diff_line(
                         }
                     }
                 }
-            } else {
-                // For modified files, handle normally
-                match current_changes {
-                    Some(ref mut change) => {
-                        // Continue existing change if it's within reasonable range
-                        if line_number <= change.end_line + 3 {
-                            // Always include the line if we're in the middle of a change
-                            change.end_line = std::cmp::max(change.end_line, line_number);
-                            change.content_hash = content_hash;
-                        } else {
-                            // Check if this content already exists in the hunk's changes
-                            let content_exists = last_hunk
-                                .changes
-                                .iter()
-                                .any(|change| change.content_hash == content_hash);
+                None => {
+                    // Don't start new change if it's a blank line
+                    if !is_blank_line {
+                        // Check if this content already exists in the hunk's changes
+                        let content_exists = last_hunk
+                            .changes
+                            .as_ref()
+                            .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                            .unwrap_or(false);
 
-                            if !content_exists {
-                                // Gap too large, create new change range
-                                let change_clone = change.clone();
-                                last_hunk.changes.push(change_clone);
-                                // Don't start new change if it's a blank line
-                                if !is_blank_line {
-                                    let change_range = ChangeRangeWithHash {
-                                        start_line: line_number,
-                                        end_line: line_number,
-                                        content_hash: content_hash,
-                                    };
+                        if !content_exists {
+                            let change_range = ChangeRangeWithHash {
+                                start_line: line_number,
+                                end_line: line_number,
+                                content_hash: content_hash,
+                            };
 
-                                    *current_changes = Some(change_range);
-                                }
-                            }
-                        }
-                    }
-                    None => {
-                        // Don't start new change if it's a blank line
-                        if !is_blank_line {
-                            // Check if this content already exists in the hunk's changes
-                            let content_exists = last_hunk
-                                .changes
-                                .iter()
-                                .any(|change| change.content_hash == content_hash);
-
-                            if !content_exists {
-                                let change_range = ChangeRangeWithHash {
-                                    start_line: line_number,
-                                    end_line: line_number,
-                                    content_hash: content_hash,
-                                };
-
-                                *current_changes = Some(change_range);
-                            }
+                            *current_changes = Some(change_range);
                         }
                     }
                 }
