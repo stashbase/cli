@@ -164,12 +164,12 @@ impl ScanFinding {
         result.push_str(&format!("{} {}\n", "Preview:".green(), self.preview));
         result.push_str(&format!("{} {}\n", "Severity:".green(), self.severity));
         result.push_str(&format!(
-            "{} {}\n",
+            "{} {}",
             "Value SHA256:".green(),
             self.value_sha256
         ));
         if let Some(id) = &self.commit_id {
-            result.push_str(&format!("{} {}\n", "Commit ID:".green(), id));
+            result.push_str(&format!("\n{} {}", "Commit ID:".green(), id));
         }
 
         result

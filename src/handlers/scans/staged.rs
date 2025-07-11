@@ -327,9 +327,9 @@ fn output_scan_findings(
                         .iter()
                         .map(|result| result.get_colored_string())
                         .collect::<Vec<_>>()
-                        .join("\n");
+                        .join("\n\n");
 
-                    println!("{}", findings_string);
+                    print!("{}", findings_string);
                 } else {
                     let findings_string = response
                         .findings
