@@ -472,7 +472,7 @@ pub fn get_unpushed_commit_hunks(
             let files_with_hunks = Rc::new(RefCell::new(HashMap::<String, Vec<DiffHunk>>::new()));
             // Track current change per hunk (file_path + hunk_index)
             let current_changes = Rc::new(RefCell::new(HashMap::<
-                String,
+                (String, usize),
                 Option<ChangeRangeWithHash>,
             >::new()));
             let prev_line = Rc::new(RefCell::new(String::new()));
@@ -652,8 +652,8 @@ pub fn get_unpushed_commit_hunks(
                                     if let Some(target_hunk) = hunks.get_mut(hunk_index) {
                                         let mut current_changes =
                                             current_changes_clone.borrow_mut();
-                                        // Create a unique key per hunk to track changes separately
-                                        let hunk_key = format!("{}:{}", file_path, hunk_index);
+                                        // Create a unique key per hunk using a tuple
+                                        let hunk_key = (file_path.clone(), hunk_index);
                                         let mut current_change =
                                             current_changes.entry(hunk_key).or_insert(None);
                                         let mut prev_line_content = prev_line_clone.borrow_mut();
@@ -686,19 +686,12 @@ pub fn get_unpushed_commit_hunks(
                 })?;
 
                 let current_changes = current_changes.borrow_mut();
-                for (hunk_key, change_opt) in current_changes.iter() {
+                for ((file_path, hunk_index), change_opt) in current_changes.iter() {
                     if let Some(change) = change_opt {
-                        // Parse the hunk key to get file_path and hunk_index
-                        if let Some((file_path, hunk_index_str)) = hunk_key.split_once(':') {
-                            if let Ok(hunk_index) = hunk_index_str.parse::<usize>() {
-                                if let Some(hunks) =
-                                    files_with_hunks.borrow_mut().get_mut(file_path)
-                                {
-                                    if let Some(target_hunk) = hunks.get_mut(hunk_index) {
-                                        if let Some(changes) = &mut target_hunk.changes {
-                                            changes.push(change.clone());
-                                        }
-                                    }
+                        if let Some(hunks) = files_with_hunks.borrow_mut().get_mut(file_path) {
+                            if let Some(target_hunk) = hunks.get_mut(*hunk_index) {
+                                if let Some(changes) = &mut target_hunk.changes {
+                                    changes.push(change.clone());
                                 }
                             }
                         }
