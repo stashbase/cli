@@ -1,14 +1,14 @@
 use colored_json::to_colored_json_auto;
 use git2::Repository;
 use spinoff::{spinners, Color, Spinner, Streams};
-use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, io::IsTerminal, path::PathBuf, rc::Rc};
 
 use crate::{
     api,
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
-            ChangeRangeWithHash, CommitChanges, CommitsScanResponse, DiffHunk, FileHunks,
+            CommitChanges, CommitsScanResponse, DiffHunk, DiffProcessingState, FileHunks,
             ScanCommitChangesPayload, ScanConfig,
         },
         validation::{InputValidationError, ScanInputValidationError},
@@ -469,36 +469,23 @@ pub fn get_unpushed_commit_hunks(
                     message: e.message().to_string(),
                 })?;
 
-            let files_with_hunks = Rc::new(RefCell::new(HashMap::<String, Vec<DiffHunk>>::new()));
-            // Track current change per hunk (file_path + hunk_index)
-            let current_changes = Rc::new(RefCell::new(HashMap::<
-                (String, usize),
-                Option<ChangeRangeWithHash>,
-            >::new()));
-            let prev_line = Rc::new(RefCell::new(String::new()));
-
-            let excluded_files = Rc::new(RefCell::new(HashMap::<String, bool>::new()));
-            let new_files = Rc::new(RefCell::new(HashMap::<String, bool>::new()));
-
+            let state = Rc::new(RefCell::new(DiffProcessingState::new()));
             let ignore_line_comment = ignore_line_comment.to_string();
 
             {
-                let excluded_files_ref = Rc::clone(&excluded_files);
-                let files_with_hunks_ref = Rc::clone(&files_with_hunks);
-                let new_files_ref = Rc::clone(&new_files);
-                // let current_changes_ref = Rc::clone(&current_changes);
+                let state_ref = Rc::clone(&state);
                 let mut file_callback = |delta: git2::DiffDelta, _progress: f32| {
                     if let Some(new_file) = delta.new_file().path() {
                         let file_path = new_file.to_string_lossy().to_string();
 
+                        let mut state = state_ref.borrow_mut();
                         let should_exclude = {
-                            let mut cache = excluded_files_ref.borrow_mut();
-                            if let Some(&is_excluded) = cache.get(&file_path) {
+                            if let Some(&is_excluded) = state.excluded_files.get(&file_path) {
                                 is_excluded
                             } else {
                                 let is_excluded =
                                     should_exclude_file(&file_path, &exclude_patterns);
-                                cache.insert(file_path.clone(), is_excluded);
+                                state.excluded_files.insert(file_path.clone(), is_excluded);
                                 is_excluded
                             }
                         };
@@ -514,13 +501,13 @@ pub fn get_unpushed_commit_hunks(
                         }
 
                         let is_new_file = delta.status() == git2::Delta::Added;
-                        new_files_ref
-                            .borrow_mut()
-                            .insert(file_path.clone(), is_new_file);
+                        state.new_files.insert(file_path.clone(), is_new_file);
 
                         if is_new_file {
-                            let mut files = files_with_hunks_ref.borrow_mut();
-                            let hunks = files.entry(file_path).or_insert_with(Vec::new);
+                            let hunks = state
+                                .files_with_hunks
+                                .entry(file_path)
+                                .or_insert_with(Vec::new);
 
                             let hunk = DiffHunk {
                                 full_content: String::new(),
@@ -531,8 +518,8 @@ pub fn get_unpushed_commit_hunks(
 
                             hunks.push(hunk);
                         } else {
-                            files_with_hunks_ref
-                                .borrow_mut()
+                            state
+                                .files_with_hunks
                                 .entry(file_path)
                                 .or_insert_with(Vec::new);
                         }
@@ -540,10 +527,7 @@ pub fn get_unpushed_commit_hunks(
                     true
                 };
 
-                let files_with_hunks_hunk = Rc::clone(&files_with_hunks);
-                let excluded_files_hunk = Rc::clone(&excluded_files);
-                let new_files_hunk = Rc::clone(&new_files);
-                // let current_changes_hunk = Rc::clone(&current_changes);
+                let state_hunk = Rc::clone(&state);
                 let mut hunk_callback = move |delta: git2::DiffDelta, hunk: git2::DiffHunk| {
                     if let Some(new_file) = delta.new_file().path() {
                         let file_path = new_file.to_string_lossy().to_string();
@@ -554,9 +538,10 @@ pub fn get_unpushed_commit_hunks(
                             }
                         }
 
+                        let state = state_hunk.borrow();
                         // Use cached exclusion result
-                        if excluded_files_hunk
-                            .borrow()
+                        if state
+                            .excluded_files
                             .get(&file_path)
                             .copied()
                             .unwrap_or(false)
@@ -565,14 +550,10 @@ pub fn get_unpushed_commit_hunks(
                         }
 
                         // Skip hunk creation for new files as we create a single hunk in file_callback
-                        if new_files_hunk
-                            .borrow()
-                            .get(&file_path)
-                            .copied()
-                            .unwrap_or(false)
-                        {
+                        if state.new_files.get(&file_path).copied().unwrap_or(false) {
                             return true;
                         }
+                        drop(state);
 
                         let hunk_with_context = DiffHunk {
                             full_content: String::new(),
@@ -581,8 +562,9 @@ pub fn get_unpushed_commit_hunks(
                             context_end_line: (hunk.new_start() + hunk.new_lines()) as usize,
                         };
 
-                        files_with_hunks_hunk
+                        state_hunk
                             .borrow_mut()
+                            .files_with_hunks
                             .entry(file_path)
                             .or_insert_with(Vec::new)
                             .push(hunk_with_context);
@@ -590,11 +572,7 @@ pub fn get_unpushed_commit_hunks(
                     true
                 };
 
-                let current_changes_clone = Rc::clone(&current_changes);
-                let files_with_hunks_line = Rc::clone(&files_with_hunks);
-                let prev_line_clone = Rc::clone(&prev_line);
-                let excluded_files_line = Rc::clone(&excluded_files);
-                let new_files_line = Rc::clone(&new_files);
+                let state_line = Rc::clone(&state);
                 let ignore_line_comment_clone = ignore_line_comment.clone();
 
                 let mut line_callback =
@@ -614,8 +592,9 @@ pub fn get_unpushed_commit_hunks(
                                 return true;
                             }
 
-                            if excluded_files_line
-                                .borrow()
+                            let state = state_line.borrow();
+                            if state
+                                .excluded_files
                                 .get(&file_path)
                                 .copied()
                                 .unwrap_or(false)
@@ -623,25 +602,19 @@ pub fn get_unpushed_commit_hunks(
                                 return true;
                             }
 
-                            let is_new_file = new_files_line
-                                .borrow()
-                                .get(&file_path)
-                                .copied()
-                                .unwrap_or(false);
+                            let is_new_file =
+                                state.new_files.get(&file_path).copied().unwrap_or(false);
+                            drop(state);
 
-                            if let Some(hunks) =
-                                files_with_hunks_line.borrow_mut().get_mut(&file_path)
-                            {
-                                // Find the correct hunk based on line number instead of always using the last one
+                            let mut state = state_line.borrow_mut();
+                            if let Some(hunks) = state.files_with_hunks.get_mut(&file_path) {
                                 let line_number =
                                     line.new_lineno().unwrap_or(line.old_lineno().unwrap_or(0))
                                         as usize;
 
                                 let target_hunk_index = if is_new_file {
-                                    // For new files, always use the first (and only) hunk
                                     Some(0)
                                 } else {
-                                    // For modified files, find the hunk that contains this line number
                                     hunks.iter().position(|hunk| {
                                         line_number >= hunk.context_start_line
                                             && line_number <= hunk.context_end_line
@@ -649,25 +622,37 @@ pub fn get_unpushed_commit_hunks(
                                 };
 
                                 if let Some(hunk_index) = target_hunk_index {
-                                    if let Some(target_hunk) = hunks.get_mut(hunk_index) {
-                                        let mut current_changes =
-                                            current_changes_clone.borrow_mut();
-                                        // Create a unique key per hunk using a tuple
-                                        let hunk_key = (file_path.clone(), hunk_index);
-                                        let mut current_change =
-                                            current_changes.entry(hunk_key).or_insert(None);
-                                        let mut prev_line_content = prev_line_clone.borrow_mut();
+                                    let hunk_key = (file_path.clone(), hunk_index);
 
-                                        process_diff_line(
-                                            line,
-                                            &file_path,
-                                            is_new_file,
-                                            &mut current_change,
-                                            target_hunk,
-                                            &mut prev_line_content,
-                                            &ignore_line_comment_clone,
-                                            context_lines,
-                                        );
+                                    // Drop the mutable borrow of state to get values
+                                    drop(state);
+                                    let mut state = state_line.borrow_mut();
+
+                                    let mut current_change = state
+                                        .current_changes
+                                        .get(&hunk_key)
+                                        .cloned()
+                                        .unwrap_or(None);
+                                    let mut prev_line = state.prev_line.clone();
+
+                                    // Get a new mutable borrow for hunks
+                                    if let Some(hunks) = state.files_with_hunks.get_mut(&file_path)
+                                    {
+                                        if let Some(target_hunk) = hunks.get_mut(hunk_index) {
+                                            process_diff_line(
+                                                line,
+                                                &file_path,
+                                                is_new_file,
+                                                &mut current_change,
+                                                target_hunk,
+                                                &mut prev_line,
+                                                &ignore_line_comment_clone,
+                                                context_lines,
+                                            );
+
+                                            state.prev_line = prev_line;
+                                            state.current_changes.insert(hunk_key, current_change);
+                                        }
                                     }
                                 }
                             }
@@ -685,23 +670,32 @@ pub fn get_unpushed_commit_hunks(
                     message: e.message().to_string(),
                 })?;
 
-                let current_changes = current_changes.borrow_mut();
-                for ((file_path, hunk_index), change_opt) in current_changes.iter() {
-                    if let Some(change) = change_opt {
-                        if let Some(hunks) = files_with_hunks.borrow_mut().get_mut(file_path) {
-                            if let Some(target_hunk) = hunks.get_mut(*hunk_index) {
-                                if let Some(changes) = &mut target_hunk.changes {
-                                    changes.push(change.clone());
-                                }
+                let mut state = state.borrow_mut();
+                let current_changes: Vec<_> = state
+                    .current_changes
+                    .iter()
+                    .filter_map(|((file_path, hunk_index), change_opt)| {
+                        change_opt
+                            .as_ref()
+                            .map(|change| (file_path.clone(), *hunk_index, change.clone()))
+                    })
+                    .collect();
+
+                for (file_path, hunk_index, change) in current_changes {
+                    if let Some(hunks) = state.files_with_hunks.get_mut(&file_path) {
+                        if let Some(target_hunk) = hunks.get_mut(hunk_index) {
+                            if let Some(changes) = &mut target_hunk.changes {
+                                changes.push(change);
                             }
                         }
                     }
                 }
             }
 
+            let state = state.borrow();
             let commit_changes: Vec<FileHunks> = FileHunks::merge_overlapping_hunks(
-                files_with_hunks
-                    .borrow()
+                state
+                    .files_with_hunks
                     .iter()
                     .map(|(file_path, hunks)| FileHunks {
                         file_path: file_path.clone(),

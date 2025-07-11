@@ -1,6 +1,6 @@
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::utils::scans::should_merge_hunks;
 
@@ -295,5 +295,26 @@ impl FileHunks {
         }
 
         result
+    }
+}
+
+pub struct DiffProcessingState {
+    pub files_with_hunks: HashMap<String, Vec<DiffHunk>>,
+    // key: (file_path, hunk_index)
+    pub current_changes: HashMap<(String, usize), Option<ChangeRangeWithHash>>,
+    pub prev_line: String,
+    pub excluded_files: HashMap<String, bool>,
+    pub new_files: HashMap<String, bool>,
+}
+
+impl DiffProcessingState {
+    pub fn new() -> Self {
+        Self {
+            files_with_hunks: HashMap::new(),
+            current_changes: HashMap::new(),
+            prev_line: String::new(),
+            excluded_files: HashMap::new(),
+            new_files: HashMap::new(),
+        }
     }
 }
