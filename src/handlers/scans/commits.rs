@@ -524,7 +524,7 @@ pub fn get_unpushed_commit_hunks(
 
                             let hunk = DiffHunk {
                                 full_content: String::new(),
-                                changes: Vec::new(),
+                                changes: None,
                                 context_start_line: 1,
                                 context_end_line: 2,
                             };
@@ -576,7 +576,7 @@ pub fn get_unpushed_commit_hunks(
 
                         let hunk_with_context = DiffHunk {
                             full_content: String::new(),
-                            changes: Vec::new(),
+                            changes: Some(Vec::new()),
                             context_start_line: hunk.new_start() as usize,
                             context_end_line: (hunk.new_start() + hunk.new_lines()) as usize,
                         };
@@ -695,7 +695,9 @@ pub fn get_unpushed_commit_hunks(
                                     files_with_hunks.borrow_mut().get_mut(file_path)
                                 {
                                     if let Some(target_hunk) = hunks.get_mut(hunk_index) {
-                                        target_hunk.changes.push(change.clone());
+                                        if let Some(changes) = &mut target_hunk.changes {
+                                            changes.push(change.clone());
+                                        }
                                     }
                                 }
                             }
@@ -716,12 +718,22 @@ pub fn get_unpushed_commit_hunks(
                 context_lines,
             )
             .into_iter()
-            .filter(|file| !file.hunks.iter().all(|hunk| hunk.changes.is_empty()))
+            .filter(|file| {
+                file.hunks.iter().any(|hunk| {
+                    hunk.changes
+                        .as_ref()
+                        .map_or(true, |changes| !changes.is_empty())
+                })
+            })
             .map(|mut file| {
                 file.hunks = file
                     .hunks
                     .into_iter()
-                    .filter(|hunk| !hunk.changes.is_empty())
+                    .filter(|hunk| {
+                        hunk.changes
+                            .as_ref()
+                            .map_or(true, |changes| !changes.is_empty())
+                    })
                     .collect();
                 FileHunks {
                     file_path: file.file_path,
