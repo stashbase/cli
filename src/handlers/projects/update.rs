@@ -24,13 +24,17 @@ pub async fn handle_update_project(
     new_name: Option<String>,
     new_description: Option<String>,
     json_format: bool,
+    silent: bool,
 ) -> anyhow::Result<()> {
     let validation_res = validate_input(&name, &new_name, &new_description);
 
     if let Err(e) = validation_res {
         let error_output = e.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -47,12 +51,19 @@ pub async fn handle_update_project(
         description: new_description,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let project_res = projects::update_project(api_key, name, &data).await;
 
     if let Err(err) = project_res {
-        // eprintln!();
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
+
         error!("{:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -64,14 +75,23 @@ pub async fn handle_update_project(
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
-                println!("{{}}");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
+
+                if !silent {
+                    println!("{{}}");
+                }
             } else {
-                spinner.stop_with_message("Project updated.");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Project updated.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);
