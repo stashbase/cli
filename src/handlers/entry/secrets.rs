@@ -37,6 +37,7 @@ pub async fn handle_secrets_commands(
     api_key: String,
     raw_output: bool,
     expand_refs: Option<bool>,
+    silent: bool,
     default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
     if let SecretSubcommand::Search(args) = cmd.subcommand {
@@ -59,6 +60,7 @@ pub async fn handle_secrets_commands(
         let args = HandleSearchSecretsArgs {
             api_key,
             format,
+            silent,
             project: args.project,
             name: args.name,
             value: args.value,
@@ -99,6 +101,7 @@ pub async fn handle_secrets_commands(
                 api_key,
                 project,
                 format,
+                silent,
                 environment,
                 only_names: args.only_names,
                 expand_refs: args.expand_refs.unwrap_or(expand_refs.unwrap_or(false)),
@@ -112,6 +115,7 @@ pub async fn handle_secrets_commands(
             let args = HandleGetSecretsArgs {
                 api_key,
                 format,
+                silent,
                 project,
                 environment,
                 names: args.names,
@@ -123,6 +127,7 @@ pub async fn handle_secrets_commands(
         SecretSubcommand::Delete(args) => {
             let args = HandleDeleteSecretsArgs {
                 api_key,
+                silent,
                 project,
                 environment,
                 names: args.names,
@@ -135,6 +140,7 @@ pub async fn handle_secrets_commands(
         SecretSubcommand::Set(args) => {
             let args = HandleSetSecretsArgs {
                 api_key,
+                silent,
                 project,
                 environment,
                 values: args.secrets,
@@ -152,6 +158,7 @@ pub async fn handle_secrets_commands(
 
             let args = HandleCreateSecretsArgs {
                 api_key,
+                silent,
                 project,
                 environment,
                 values: args.secrets,
@@ -164,6 +171,7 @@ pub async fn handle_secrets_commands(
         SecretSubcommand::Update(args) => {
             let args = HandleUpdateSecretsArgs {
                 api_key,
+                silent,
                 project,
                 environment,
                 new_names: args.new_names,
@@ -177,6 +185,7 @@ pub async fn handle_secrets_commands(
         SecretSubcommand::Upload(args) => {
             let args = HandleUploadSecretsArgs {
                 api_key,
+                silent,
                 project,
                 environment,
                 format: args.format,
