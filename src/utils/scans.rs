@@ -14,13 +14,13 @@ pub static SCAN_CONTEXT_LINES: usize = 10;
 
 pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) -> bool {
     // Only merge if they're close enough
-    if (hunk2.context_start_line as i64 - hunk1.context_end_line as i64).abs() > max_gap as i64 {
+    if (hunk2.start_line as i64 - hunk1.end_line as i64).abs() > max_gap as i64 {
         return false;
     }
 
     // Check for context overlap
-    hunk1.context_end_line >= hunk2.context_start_line
-        || (hunk2.context_start_line - hunk1.context_end_line) <= max_gap
+    hunk1.end_line >= hunk2.start_line
+        || (hunk2.start_line - hunk1.end_line) <= max_gap
 }
 
 pub fn get_comment_prefix(extension: &str) -> Option<&'static str> {
@@ -246,7 +246,7 @@ pub fn process_diff_line(
 
     // For new files, update the end line number and ensure changes is None
     if is_new_file {
-        last_hunk.context_end_line = line_number;
+        last_hunk.end_line = line_number;
         last_hunk.changes = None;
         *current_changes = None;
         // Update previous line content and return early for new files
