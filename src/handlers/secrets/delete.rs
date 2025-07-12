@@ -24,6 +24,7 @@ pub struct HandleDeleteSecretsArgs {
     pub names: Vec<String>,
     pub delete_all: bool,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 // ✓
@@ -35,6 +36,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
         delete_all,
         names,
         json_format,
+        silent,
     } = args;
 
     if names.is_empty() && !delete_all {
@@ -43,7 +45,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
 
         let error_output = input_error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -52,7 +57,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
     if let Err(e) = validation_res {
         let error_output = e.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -71,14 +79,21 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
     }
     debug!("deleting secrets...:");
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     match delete_all {
         true => {
             let res = secrets::delete_all(api_key, project, environment).await;
 
             if let Err(err) = res {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
+
                 error!("{:#?}", &err);
 
                 let error_output = err.format_error_output(json_format)?;
@@ -99,30 +114,54 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                     if json_format {
                                         let json_str = get_colored_json(&d).unwrap();
 
-                                        spinner.stop_and_persist("", "");
-                                        println!("{}", json_str);
-                                    } else {
-                                        match d.deleted_count {
-                                            0 => {
-                                                spinner.stop_with_message("No secrets to delete.");
-                                            }
-                                            _ => {
-                                                let msg = format!(
-                                                    "All secrets ({}) deleted.",
-                                                    d.deleted_count
-                                                );
+                                        if let Some(mut spinner) = spinner {
+                                            spinner.stop_and_persist("", "");
+                                        }
 
-                                                spinner.stop_with_message(&format!(
-                                                    "{} {}",
-                                                    "✓".green(),
-                                                    msg
-                                                ));
+                                        if !silent {
+                                            println!("{}", json_str);
+                                        }
+                                    } else {
+                                        if !silent {
+                                            match d.deleted_count {
+                                                0 => {
+                                                    if let Some(mut spinner) = spinner {
+                                                        spinner.stop_with_message(
+                                                            "No secrets to delete.",
+                                                        );
+                                                    } else {
+                                                        eprintln!("No secrets to delete.");
+                                                    }
+                                                }
+                                                _ => {
+                                                    let msg = format!(
+                                                        "All secrets ({}) deleted.",
+                                                        d.deleted_count
+                                                    );
+
+                                                    if let Some(mut spinner) = spinner {
+                                                        spinner.stop_with_message(&format!(
+                                                            "{} {}",
+                                                            "✓".green(),
+                                                            msg
+                                                        ));
+                                                    } else {
+                                                        eprintln!("{}", msg);
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            // Silent mode: just stop spinner if any
+                                            if let Some(mut spinner) = spinner {
+                                                spinner.stop_and_persist("", "");
                                             }
                                         }
                                     }
                                 }
                                 Err(_) => {
-                                    spinner.stop_and_persist("", "");
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_and_persist("", "");
+                                    }
 
                                     let error = OutputError::failed_to_deserialize_response_body();
                                     let formatted_err = error.format_error_output(json_format)?;
@@ -132,7 +171,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                             }
                         }
                         None => {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
 
                             let error = OutputError::failed_to_deserialize_response_body();
                             let formatted_err = error.format_error_output(json_format)?;
@@ -142,7 +183,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
+
                     let formatted_err = e.format_error_output(json_format)?;
 
                     bail!(formatted_err);
@@ -153,7 +197,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
             let res = secrets::delete(api_key, project, environment, &names).await;
 
             if let Err(err) = res {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 let formatted_err = err.format_error_output(json_format)?;
                 bail!(formatted_err);
@@ -174,7 +220,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                     if json_format {
                                         let json_str = get_colored_json(&data).unwrap();
 
-                                        spinner.stop_and_persist("", "");
+                                        if let Some(mut spinner) = spinner {
+                                            spinner.stop_and_persist("", "");
+                                        }
+
                                         println!("{}", json_str);
 
                                         return Ok(());
@@ -186,25 +235,28 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                     debug!("{:#?}", not_found_secrets);
 
                                     if not_found_len > 0 {
-                                        spinner.stop_and_persist("", "");
+                                        if let Some(mut spinner) = spinner {
+                                            spinner.stop_and_persist("", "");
+                                        }
 
-                                        let info_msg = format!(
-                                            "{} {}",
-                                            format!(
-                                                "{} {} {}",
-                                                "Secrets".red(),
-                                                format!("({})", not_found_len).red(),
-                                                "not found:".red()
-                                            ),
-                                            not_found_secrets.join(", ")
-                                        );
+                                        if !silent {
+                                            let info_msg = format!(
+                                                "{} {}",
+                                                format!(
+                                                    "{} {} {}",
+                                                    "Secrets".red(),
+                                                    format!("({})", not_found_len).red(),
+                                                    "not found:".red()
+                                                ),
+                                                not_found_secrets.join(", ")
+                                            );
 
-                                        //
-                                        eprintln!("{}", info_msg);
+                                            eprintln!("{}", info_msg);
+                                        }
 
                                         let deleted_count = data.deleted_count;
 
-                                        if deleted_count > 0 {
+                                        if deleted_count > 0 && !silent {
                                             let secrets_deleted: Vec<_> = names
                                                 .into_iter()
                                                 .filter(|k| {
@@ -229,12 +281,24 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                             println!("{}", msg);
                                         }
                                     } else {
-                                        // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
-                                        spinner.stop_with_message("Selected secrets deleted.");
+                                        if !silent {
+                                            if let Some(mut spinner) = spinner {
+                                                spinner
+                                                    .stop_with_message("Selected secrets deleted.");
+                                            } else {
+                                                eprintln!("Selected secrets deleted.");
+                                            }
+                                        } else {
+                                            if let Some(mut spinner) = spinner {
+                                                spinner.stop_and_persist("", "");
+                                            }
+                                        }
                                     }
                                 }
                                 Err(_) => {
-                                    spinner.stop_and_persist("", "");
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_and_persist("", "");
+                                    }
 
                                     let error = OutputError::failed_to_deserialize_response_body();
                                     let formatted_err = error.format_error_output(json_format)?;
@@ -244,7 +308,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                             }
                         }
                         None => {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
 
                             let error = OutputError::failed_to_deserialize_response_body();
                             let formatted_err = error.format_error_output(json_format)?;
@@ -254,7 +320,9 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                     }
                 }
                 RequestApiOptionResponse::Err(e) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     let error_output = e.format_error_output(json_format)?;
                     bail!(error_output);
