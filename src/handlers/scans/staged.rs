@@ -302,14 +302,43 @@ fn output_scan_findings(
                             eprintln!("Potential secrets detected in staged changes, results match previous scan. File path: {}", file_path);
                         } else {
                             let file_path = save_scan_results(&output_dir, &pretty_json);
-                            eprintln!("Potential secrets detected in your changes. Scan results saved to: {}", file_path);
+
+                            if let Err(e) = file_path {
+                                let scan_error =
+                                    ScanInputValidationError::FailedToSaveScanResults {
+                                        path: file_path.unwrap(),
+                                        message: e.to_string(),
+                                    };
+
+                                let error = InputValidationError::Scan(scan_error);
+                                let error_output = error.format_error_output(json_format).unwrap();
+
+                                eprintln!("{}", error_output);
+                                std::process::exit(1);
+                            }
+
+                            eprintln!("Potential secrets detected in your changes. Scan results saved to: {}", file_path.unwrap());
                         }
                     }
                     None => {
                         let file_path = save_scan_results(&output_dir, &pretty_json);
+
+                        if let Err(e) = file_path {
+                            let scan_error = ScanInputValidationError::FailedToSaveScanResults {
+                                path: file_path.unwrap(),
+                                message: e.to_string(),
+                            };
+
+                            let error = InputValidationError::Scan(scan_error);
+                            let error_output = error.format_error_output(json_format).unwrap();
+
+                            eprintln!("{}", error_output);
+                            std::process::exit(1);
+                        }
+
                         eprintln!(
                             "Potential secrets detected in your changes. Scan results saved to: {}",
-                            file_path
+                            file_path.unwrap()
                         );
                         //
                     }
