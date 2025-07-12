@@ -486,45 +486,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_vault_cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "chrono-humanize",
- "clap",
- "colored_json",
- "ctrlc",
- "dialoguer",
- "directories",
- "duct",
- "env_logger",
- "git2",
- "ignore",
- "linked-hash-map",
- "linked_hash_set",
- "log",
- "once_cell",
- "owo-colors",
- "regex",
- "reqwest",
- "reqwest-middleware",
- "reqwest-retry",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "short-uuid",
- "spinoff",
- "tabled",
- "terminal_size",
- "thiserror",
- "tokio",
- "toml",
- "webbrowser",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1977,6 +1938,45 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "stashbase"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "chrono-humanize",
+ "clap",
+ "colored_json",
+ "ctrlc",
+ "dialoguer",
+ "directories",
+ "duct",
+ "env_logger",
+ "git2",
+ "ignore",
+ "linked-hash-map",
+ "linked_hash_set",
+ "log",
+ "once_cell",
+ "owo-colors",
+ "regex",
+ "reqwest",
+ "reqwest-middleware",
+ "reqwest-retry",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "short-uuid",
+ "spinoff",
+ "tabled",
+ "terminal_size",
+ "thiserror",
+ "tokio",
+ "toml",
+ "webbrowser",
+]
 
 [[package]]
 name = "strsim"
