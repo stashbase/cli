@@ -1,3 +1,4 @@
+use anyhow::Result;
 use colored_json::to_colored_json_auto;
 use git2::Repository;
 use spinoff::{spinners, Color, Spinner, Streams};
@@ -181,7 +182,21 @@ pub async fn handle_scan_unpushed_commit_hunks(
                         };
 
                         let is_empty = filtered_data.findings.is_empty();
-                        output_scan_findings(filtered_data, json_format, output_dir);
+                        let output_res =
+                            output_scan_findings(filtered_data, json_format, &output_dir);
+
+                        if let Err(e) = output_res {
+                            let scan_error = ScanInputValidationError::FailedToSaveScanResults {
+                                output_dir: output_dir.unwrap_or(String::new()),
+                                message: e.to_string(),
+                            };
+
+                            let error = InputValidationError::Scan(scan_error);
+                            let error_output = error.format_error_output(json_format).unwrap();
+
+                            eprintln!("{}", error_output);
+                            std::process::exit(1);
+                        }
 
                         if is_empty {
                             std::process::exit(0);
@@ -238,8 +253,8 @@ pub async fn handle_scan_unpushed_commit_hunks(
 fn output_scan_findings(
     response: CommitsScanResponse,
     json_format: bool,
-    output_dir: Option<String>,
-) {
+    output_dir: &Option<String>,
+) -> Result<()> {
     let is_empty = response.findings.is_empty();
 
     let json_value = serde_json::to_value(&response).unwrap();
@@ -253,7 +268,7 @@ fn output_scan_findings(
                 });
                 eprintln!("{}", to_colored_json_auto(&message).unwrap());
             } else {
-                let latest_file = get_latest_scan_file(&output_dir);
+                let latest_file = get_latest_scan_file(output_dir);
 
                 match latest_file {
                     Some(file) => {
@@ -268,36 +283,23 @@ fn output_scan_findings(
 
                             eprintln!("{}", to_colored_json_auto(&message).unwrap());
                         } else {
-                            let file_path_res = save_scan_results(&output_dir, &pretty_json);
+                            let file_path = save_scan_results(output_dir, &pretty_json)?;
 
-                            if let Err(e) = file_path_res {
-                                let scan_error =
-                                    ScanInputValidationError::FailedToSaveScanResults {
-                                        output_dir: output_dir.clone(),
-                                        message: e.to_string(),
-                                    };
-
-                                let error = InputValidationError::Scan(scan_error);
-                                let error_output = error.format_error_output(json_format).unwrap();
-                                eprintln!("{}", error_output);
-                                std::process::exit(1);
-                            }
                             let message = serde_json::json!({
                                 "message": "Potential secrets detected in unpushed commits. Scan results saved to file.",
-                                "file_path": file_path_res.unwrap()
+                                "file_path": file_path
                             });
                             eprintln!("{}", to_colored_json_auto(&message).unwrap());
                         }
                     }
                     None => {
-                        let file_path_res = save_scan_results(&output_dir, &pretty_json);
+                        let file_path = save_scan_results(output_dir, &pretty_json)?;
 
                         let message = serde_json::json!({
                             "message": "Potential secrets detected in unpushed commits. Scan results saved to file.",
-                            "file_path": file_path_res.unwrap()
+                            "file_path": file_path
                         });
                         eprintln!("{}", to_colored_json_auto(&message).unwrap());
-                        //
                     }
                 }
             }
@@ -314,7 +316,7 @@ fn output_scan_findings(
             eprintln!("No secrets detected in unpushed commits!");
         } else {
             if let Some(output_dir) = output_dir {
-                let latest_file = get_latest_scan_file(&output_dir);
+                let latest_file = get_latest_scan_file(output_dir);
 
                 match latest_file {
                     Some(file) => {
@@ -324,46 +326,17 @@ fn output_scan_findings(
                         if content_equals {
                             eprintln!("Potential secrets detected in unpushed commits, results match previous scan. File path: {}", file_path);
                         } else {
-                            let file_path_res = save_scan_results(&output_dir, &pretty_json);
-
-                            if let Err(e) = file_path_res {
-                                let scan_error =
-                                    ScanInputValidationError::FailedToSaveScanResults {
-                                        output_dir: output_dir.clone(),
-                                        message: e.to_string(),
-                                    };
-
-                                let error = InputValidationError::Scan(scan_error);
-                                let error_output = error.format_error_output(json_format).unwrap();
-
-                                eprintln!("{}", error_output);
-                                std::process::exit(1);
-                            }
-
-                            eprintln!("Potential secrets detected in unpushed commits. Scan results saved to: {}", file_path_res.unwrap());
+                            let file_path = save_scan_results(output_dir, &pretty_json)?;
+                            eprintln!("Potential secrets detected in unpushed commits. Scan results saved to: {}", file_path);
                         }
                     }
                     None => {
-                        let file_path_res = save_scan_results(&output_dir, &pretty_json);
-
-                        if let Err(e) = file_path_res {
-                            let scan_error = ScanInputValidationError::FailedToSaveScanResults {
-                                output_dir: output_dir.clone(),
-                                message: e.to_string(),
-                            };
-
-                            let error = InputValidationError::Scan(scan_error);
-                            let error_output = error.format_error_output(json_format).unwrap();
-
-                            eprintln!("{}", error_output);
-                            std::process::exit(1);
-                        }
+                        let file_path = save_scan_results(output_dir, &pretty_json)?;
 
                         eprintln!(
                             "Potential secrets detected in unpushed commits. Scan results saved to: {}",
-                            file_path_res.unwrap()
+                            file_path
                         );
-                        //
                     }
                 }
             } else {
@@ -396,6 +369,8 @@ fn output_scan_findings(
             }
         }
     }
+
+    Ok(())
 }
 
 pub fn get_unpushed_commit_hunks(
