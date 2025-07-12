@@ -321,9 +321,7 @@ pub fn process_diff_line(
         // Check if previous line has a skip comment
         let should_skip = if let Some(comment_prefix) = get_comment_prefix(extension) {
             let prev = prev_line.trim().to_string();
-
             let should_skip = should_skip_line(&prev, comment_prefix, ignore_line_comment);
-
             let line_without_comment_prefix = content.trim().trim_start_matches(comment_prefix).trim();
 
             should_skip || line_without_comment_prefix.starts_with(ignore_line_comment)
