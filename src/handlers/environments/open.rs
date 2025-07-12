@@ -19,6 +19,7 @@ pub async fn handle_open_environment(
     project: String,
     environment: String,
     json_format: bool,
+    silent: bool,
 ) -> Result<()> {
     let input_validation_res =
         validate_project_environment_identifier(&project, &environment, true);
@@ -32,11 +33,18 @@ pub async fn handle_open_environment(
 
     // OK
     // send request
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let project_res = environments::get_url(api_key, project, environment).await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let formatted_err = err.format_error_output(json_format)?;
         bail!(formatted_err);
@@ -51,26 +59,33 @@ pub async fn handle_open_environment(
             match data {
                 Ok(data) => {
                     let url = data.dashboard_url;
-                    spinner.stop_with_message(&format!("Opening URL: {}", url));
+
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_with_message(&format!("Opening URL: {}", url));
+                    }
 
                     if let Err(err) = webbrowser::open(&url) {
-                        spinner.stop_with_message(&format!("Error opening URL: {}", err));
+                        eprintln!("Error opening URL: {}", err);
                     }
                 }
                 Err(e) => {
                     error!("{:#?}", e);
-                    spinner.stop_and_persist("", "");
+
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(json_format)?;
 
-                    eprintln!();
                     bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let formatted_err = e.format_error_output(json_format)?;
             bail!(formatted_err);
