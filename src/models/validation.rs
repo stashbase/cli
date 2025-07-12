@@ -161,6 +161,9 @@ pub enum ScanInputValidationError {
     GitDiffProcessing { message: String },
     InvalidExcludePattern { pattern: String, message: String },
     GitignoreBuilderError { message: String },
+    ConfigFileNotFound { path: String },
+    ConfigFileRead { path: String, message: String },
+    ConfigFileParse { path: String, message: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -949,6 +952,18 @@ impl ScanInputValidationError {
             ScanInputValidationError::GitignoreBuilderError { message: _ } => (
                 "Failed to build gitignore matcher.",
                 Some("Check if your exclude patterns are valid."),
+            ),
+            ScanInputValidationError::ConfigFileNotFound { path: _ } => (
+                "Scan configuration file not found.",
+                Some("Check that the config file path is correct and the file exists."),
+            ),
+            ScanInputValidationError::ConfigFileRead { path: _ , message: _ } => (
+                "Failed to read scan configuration file.",
+                Some("Check file permissions and ensure the file is accessible."),
+            ),
+            ScanInputValidationError::ConfigFileParse { path: _ , message: _ } => (
+                "Failed to parse scan configuration file.",
+                Some("Ensure the config file contains valid YAML format."),
             ),
         }
     }
