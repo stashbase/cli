@@ -45,7 +45,16 @@ pub async fn handle_scan_unpushed_commit_hunks(
     } = args;
 
     let config = match &config_file_path {
-        Some(path) => ScanConfig::load_from_file(path).unwrap_or_default(),
+        Some(path) => match ScanConfig::load_from_file(path) {
+            Ok(config) => config,
+            Err(e) => {
+                let error = InputValidationError::Scan(e);
+                let error_output = error.format_error_output(json_format).unwrap();
+                eprintln!("\n{}", error_output);
+
+                std::process::exit(1);
+            }
+        },
         None => ScanConfig::default(),
     };
 

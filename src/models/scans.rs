@@ -2,7 +2,7 @@ use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
 
-use crate::utils::scans::should_merge_hunks;
+use crate::{models::validation::ScanInputValidationError, utils::scans::should_merge_hunks};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
@@ -26,11 +26,24 @@ impl Default for ScanConfig {
 }
 
 impl ScanConfig {
-    pub fn load_from_file(config_path: &str) -> Result<Self, anyhow::Error> {
-        let file = std::fs::File::open(config_path)?;
-        let config: ScanConfig = serde_yaml::from_reader(file)?;
+    pub fn load_from_file(config_path: &str) -> Result<Self, ScanInputValidationError> {
+        let file = std::fs::File::open(config_path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ScanInputValidationError::ConfigFileNotFound {
+                    path: config_path.to_string(),
+                }
+            } else {
+                ScanInputValidationError::ConfigFileRead {
+                    path: config_path.to_string(),
+                    message: e.to_string(),
+                }
+            }
+        })?;
 
-        Ok(config)
+        serde_yaml::from_reader(file).map_err(|e| ScanInputValidationError::ConfigFileParse {
+            path: config_path.to_string(),
+            message: e.to_string(),
+        })
     }
 }
 
