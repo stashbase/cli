@@ -70,11 +70,8 @@ pub struct DiffHunk {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub changes: Option<Vec<ChangeRangeWithHash>>, // Individual change ranges; None for new files
 
-    #[serde(rename = "startLine")]
-    pub context_start_line: usize,
-
-    #[serde(rename = "endLine")]
-    pub context_end_line: usize,
+    pub start_line: usize,
+    pub end_line: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,7 +228,7 @@ impl FileHunks {
             }
 
             let mut sorted_hunks = hunks;
-            sorted_hunks.sort_by_key(|h| h.context_start_line);
+            sorted_hunks.sort_by_key(|h| h.start_line);
 
             let mut merged = Vec::new();
             let mut current = sorted_hunks[0].clone();
@@ -239,7 +236,7 @@ impl FileHunks {
             for next in sorted_hunks.into_iter().skip(1) {
                 if should_merge_hunks(&current, &next, context_line_count) {
                     // Extend the current hunk's context boundaries
-                    current.context_end_line = current.context_end_line.max(next.context_end_line);
+                    current.end_line = current.end_line.max(next.end_line);
 
                     // Merge the full content intelligently to avoid duplication
                     let mut combined_lines: Vec<String> =
