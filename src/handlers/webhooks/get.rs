@@ -20,6 +20,7 @@ pub struct GetWebhookArgs {
     pub webhook_id: String,
     pub with_secret: bool,
     pub format: OutputFormat,
+    pub silent: bool,
 }
 
 impl From<GetWebhookArgs> for webhooks::GetArgs {
@@ -39,14 +40,21 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
     debug!("listing env webhooks...");
 
     let format = args.format.clone();
+    let silent = args.silent;
     let args: webhooks::GetArgs = args.into();
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = webhooks::get(args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
@@ -64,7 +72,9 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
 
             match webhook {
                 Ok(webhook) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     match format {
                         OutputFormat::List => {
@@ -92,7 +102,9 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                     }
                 }
                 Err(e) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
                     error!("{}", e);
 
                     let error = OutputError::failed_to_deserialize_response_body();
@@ -134,7 +146,9 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
             // }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
             bail!(error_output);
