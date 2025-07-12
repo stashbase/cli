@@ -266,21 +266,47 @@ fn output_scan_findings(
 
                             eprintln!("{}", to_colored_json_auto(&message).unwrap());
                         } else {
-                            let file_path = save_scan_results(&output_dir, &pretty_json);
+                            let file_path_res = save_scan_results(&output_dir, &pretty_json);
+
+                            if let Err(e) = file_path_res {
+                                let scan_error =
+                                    ScanInputValidationError::FailedToSaveScanResults {
+                                        output_dir: output_dir.clone(),
+                                        message: e.to_string(),
+                                    };
+
+                                let error = InputValidationError::Scan(scan_error);
+                                let error_output = error.format_error_output(json_format).unwrap();
+                                eprintln!("{}", error_output);
+
+                                std::process::exit(1);
+                            }
 
                             let message = serde_json::json!({
                                 "message": "Potential secrets detected in staged changes. Scan results saved to file.",
-                                "file_path": file_path
+                                "file_path": file_path_res.unwrap()
                             });
                             eprintln!("{}", to_colored_json_auto(&message).unwrap());
                         }
                     }
                     None => {
-                        let file_path = save_scan_results(&output_dir, &pretty_json);
+                        let file_path_res = save_scan_results(&output_dir, &pretty_json);
+
+                        if let Err(e) = file_path_res {
+                            let scan_error = ScanInputValidationError::FailedToSaveScanResults {
+                                output_dir: output_dir.clone(),
+                                message: e.to_string(),
+                            };
+
+                            let error = InputValidationError::Scan(scan_error);
+                            let error_output = error.format_error_output(json_format).unwrap();
+                            eprintln!("{}", error_output);
+                            std::process::exit(1);
+                        }
 
                         let message = serde_json::json!({
                             "message": "Potential secrets detected in staged changes. Scan results saved to file.",
-                            "file_path": file_path
+                            "file_path": file_path_res.unwrap()
                         });
                         eprintln!("{}", to_colored_json_auto(&message).unwrap());
                         //
@@ -310,12 +336,12 @@ fn output_scan_findings(
                         if content_equals {
                             eprintln!("Potential secrets detected in staged changes, results match previous scan. File path: {}", file_path);
                         } else {
-                            let file_path = save_scan_results(&output_dir, &pretty_json);
+                            let file_path_res = save_scan_results(&output_dir, &pretty_json);
 
-                            if let Err(e) = file_path {
+                            if let Err(e) = file_path_res {
                                 let scan_error =
                                     ScanInputValidationError::FailedToSaveScanResults {
-                                        path: file_path.unwrap(),
+                                        output_dir: output_dir.clone(),
                                         message: e.to_string(),
                                     };
 
@@ -326,15 +352,15 @@ fn output_scan_findings(
                                 std::process::exit(1);
                             }
 
-                            eprintln!("Potential secrets detected in your changes. Scan results saved to: {}", file_path.unwrap());
+                            eprintln!("Potential secrets detected in your changes. Scan results saved to: {}", file_path_res.unwrap());
                         }
                     }
                     None => {
-                        let file_path = save_scan_results(&output_dir, &pretty_json);
+                        let file_path_res = save_scan_results(&output_dir, &pretty_json);
 
-                        if let Err(e) = file_path {
+                        if let Err(e) = file_path_res {
                             let scan_error = ScanInputValidationError::FailedToSaveScanResults {
-                                path: file_path.unwrap(),
+                                output_dir: output_dir.clone(),
                                 message: e.to_string(),
                             };
 
@@ -347,7 +373,7 @@ fn output_scan_findings(
 
                         eprintln!(
                             "Potential secrets detected in your changes. Scan results saved to: {}",
-                            file_path.unwrap()
+                            file_path_res.unwrap()
                         );
                         //
                     }
