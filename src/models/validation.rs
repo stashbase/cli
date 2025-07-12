@@ -146,7 +146,7 @@ pub enum LoadEnvironmentInputValidationError {
 
 #[derive(Debug, Serialize)]
 pub enum ScanInputValidationError {
-    FailedToSaveScanResults { path: String, message: String },  
+    FailedToSaveScanResults { output_dir: String, message: String },  
     BaselineFileNotFound { path: String },
     BaselineFileRead { path: String, message: String },
     BaselineFileParse { path: String, message: String },
@@ -893,7 +893,7 @@ impl RunInputValidationError {
 impl ScanInputValidationError {
     pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
         match self {
-            ScanInputValidationError::FailedToSaveScanResults { path: _, message: _ } => (
+            ScanInputValidationError::FailedToSaveScanResults { output_dir: _, message: _ } => (
                 "Failed to save scan results.",
                 Some("Check file permissions for the output directory."),
             ),
