@@ -159,6 +159,8 @@ pub enum ScanInputValidationError {
     GitTreeAccess { message: String },
     GitDiffGeneration { message: String },
     GitDiffProcessing { message: String },
+    InvalidExcludePattern { pattern: String, message: String },
+    GitignoreBuilderError { message: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -939,6 +941,14 @@ impl ScanInputValidationError {
             ScanInputValidationError::GitDiffProcessing { message: _ } => (
                 "Failed to process Git diff.",
                 Some("Check if the diff format is valid."),
+            ),
+            ScanInputValidationError::InvalidExcludePattern { pattern: _, message: _ } => (
+                "Invalid exclude pattern provided.",
+                Some("Check the syntax of your exclude pattern."),
+            ),
+            ScanInputValidationError::GitignoreBuilderError { message: _ } => (
+                "Failed to build gitignore matcher.",
+                Some("Check if your exclude patterns are valid."),
             ),
         }
     }
