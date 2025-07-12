@@ -5,6 +5,7 @@ pub mod pull;
 pub mod push;
 pub mod root;
 pub mod run;
+pub mod scans;
 pub mod secrets;
 pub mod shared;
 pub mod webhooks;
