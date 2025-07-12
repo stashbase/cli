@@ -514,8 +514,14 @@ pub fn get_unpushed_commit_hunks(
                             } else {
                                 let is_excluded =
                                     should_exclude_file(&file_path, &exclude_patterns);
-                                state.excluded_files.insert(file_path.clone(), is_excluded);
-                                is_excluded
+
+                                match is_excluded {
+                                    Ok(is_excluded) => {
+                                        state.excluded_files.insert(file_path.clone(), is_excluded);
+                                        is_excluded
+                                    }
+                                    Err(_) => false,
+                                }
                             }
                         };
 
