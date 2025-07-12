@@ -18,19 +18,31 @@ pub struct GetCurrentAuthDetailsRequestArgs {
     pub format: OutputFormat,
 }
 
-pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Result<()> {
+pub async fn handle_whoami_command(
+    args: GetCurrentAuthDetailsRequestArgs,
+    silent: bool,
+) -> Result<()> {
     let args = GetCurrentAuthDetailsRequestArgs {
         api_key: args.api_key,
         format: args.format,
     };
 
     let json_format = args.format == OutputFormat::Json;
-    let mut spinner = request_spinner();
+
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let response = get_current_auth_details(args.api_key).await;
 
     if let Err(err) = response {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        } else {
+            eprintln!();
+        }
 
         let formatted_err = err.format_error_output(json_format)?;
 
@@ -43,7 +55,11 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
     match response {
         GetRequestApiResponse::Ok(data) => {
             let auth_details = serde_json::from_str::<CurrentAuthResponse>(&data.text);
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            } else {
+                eprintln!();
+            }
 
             match auth_details {
                 Ok(auth_details) => match args.format {
@@ -68,7 +84,12 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
             }
         }
         GetRequestApiResponse::Err(err) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            } else {
+                eprintln!();
+            }
+
             let formatted_err = err.format_error_output(json_format)?;
 
             bail!(formatted_err);
