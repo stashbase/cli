@@ -893,10 +893,12 @@ impl RunInputValidationError {
 impl ScanInputValidationError {
     pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
         match self {
-            ScanInputValidationError::FailedToSaveScanResults { output_dir: _, message: _ } => (
-                "Failed to save scan results.",
-                Some("Check file permissions for the output directory."),
-            ),
+            ScanInputValidationError::FailedToSaveScanResults { output_dir, message: _ } => {
+                (
+                    "Failed to save scan results",
+                    Some(Box::leak(format!("Check file permissions for the output directory '{}'.", output_dir).into_boxed_str()))
+                )
+            },
             ScanInputValidationError::BaselineFileNotFound { path: _ } => (
                 "Baseline file not found.",
                 Some("Check that the baseline file path is correct and the file exists."),
