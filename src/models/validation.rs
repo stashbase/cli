@@ -14,6 +14,7 @@ pub enum InputValidationError {
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PushPullEnvironment(PushPullInputValidationError),
     Webhook(WebhookInputValidationError),
+    Scan(ScanInputValidationError),
 }
 
 #[derive(Debug, Serialize)]
@@ -141,6 +142,28 @@ pub enum LoadEnvironmentInputValidationError {
     SetSecretNamesFormat(Vec<String>),
     SetSecretNamesTooShort(Vec<String>),
     SetSecretNamesTooLong(Vec<String>),
+}
+
+#[derive(Debug, Serialize)]
+pub enum ScanInputValidationError {
+    FailedToSaveScanResults { output_dir: String, message: String },  
+    BaselineFileNotFound { path: String },
+    BaselineFileRead { path: String, message: String },
+    BaselineFileParse { path: String, message: String },
+    GitRepositoryNotFound,
+    GitRepositoryAccess { message: String },
+    GitIndexAccess { message: String },
+    GitHeadAccess { message: String },
+    GitBranchAccess { message: String },
+    GitCommitAccess { message: String },
+    GitTreeAccess { message: String },
+    GitDiffGeneration { message: String },
+    GitDiffProcessing { message: String },
+    InvalidExcludePattern { pattern: String, message: String },
+    GitignoreBuilderError { message: String },
+    ConfigFileNotFound { path: String },
+    ConfigFileRead { path: String, message: String },
+    ConfigFileParse { path: String, message: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -291,6 +314,21 @@ impl fmt::Display for RunInputValidationError {
     }
 }
 
+impl fmt::Display for ScanInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (msg, hint) = self.message_and_hint();
+
+        if let Some(hint) = hint {
+            writeln!(f, "{}", format!("  Message: {}", msg))?;
+            write!(f, "{}", format!("  Hint: {}", hint))?;
+        } else {
+            write!(f, "{}", format!("  Message: {}", msg))?;
+        }
+
+        Ok(())
+    }
+}
+
 impl fmt::Display for YamlEnvConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
@@ -321,6 +359,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
             InputValidationError::Run(inner) => write!(f, "{}", inner),
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
+            InputValidationError::Scan(inner) => write!(f, "{}", inner),
         }
     }
 }
@@ -851,6 +890,87 @@ impl RunInputValidationError {
     }
 }
 
+impl ScanInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            ScanInputValidationError::FailedToSaveScanResults { output_dir, message: _ } => {
+                (
+                    "Failed to save scan results",
+                    Some(Box::leak(format!("Check file permissions for the output directory '{}'.", output_dir).into_boxed_str()))
+                )
+            },
+            ScanInputValidationError::BaselineFileNotFound { path: _ } => (
+                "Baseline file not found.",
+                Some("Check that the baseline file path is correct and the file exists."),
+            ),
+            ScanInputValidationError::BaselineFileRead { path: _, message: _ } => (
+                "Failed to read baseline file.",
+                Some("Check file permissions and ensure the file is accessible."),
+            ),
+            ScanInputValidationError::BaselineFileParse { path: _, message: _ } => (
+                "Failed to parse baseline file.",
+                Some("Ensure the baseline file contains valid JSON scan results."),
+            ),
+            ScanInputValidationError::GitRepositoryNotFound => (
+                "Git repository not found.",
+                Some("Make sure you are in a Git repository directory."),
+            ),
+            ScanInputValidationError::GitRepositoryAccess { message: _ } => (
+                "Failed to access Git repository.",
+                Some("Check repository permissions and try again."),
+            ),
+            ScanInputValidationError::GitIndexAccess { message: _ } => (
+                "Failed to access Git index.",
+                Some("Check if the repository is in a valid state."),
+            ),
+            ScanInputValidationError::GitHeadAccess { message: _ } => (
+                "Failed to access Git HEAD.",
+                Some("Check if the repository has commits or is in a valid state."),
+            ),
+            ScanInputValidationError::GitBranchAccess { message: _ } => (
+                "Failed to access Git branch.",
+                Some("Check if the branch exists and repository is in a valid state."),
+            ),
+            ScanInputValidationError::GitCommitAccess { message: _ } => (
+                "Failed to access Git commit.",
+                Some("Check if the commit exists and repository is in a valid state."),
+            ),
+            ScanInputValidationError::GitTreeAccess { message: _ } => (
+                "Failed to access Git tree.",
+                Some("Check if the repository structure is valid."),
+            ),
+            ScanInputValidationError::GitDiffGeneration { message: _ } => (
+                "Failed to generate Git diff.",
+                Some("Check if there are valid changes to process."),
+            ),
+            ScanInputValidationError::GitDiffProcessing { message: _ } => (
+                "Failed to process Git diff.",
+                Some("Check if the diff format is valid."),
+            ),
+            ScanInputValidationError::InvalidExcludePattern { pattern: _, message: _ } => (
+                "Invalid exclude pattern provided.",
+                Some("Check the syntax of your exclude pattern."),
+            ),
+            ScanInputValidationError::GitignoreBuilderError { message: _ } => (
+                "Failed to build gitignore matcher.",
+                Some("Check if your exclude patterns are valid."),
+            ),
+            ScanInputValidationError::ConfigFileNotFound { path: _ } => (
+                "Scan configuration file not found.",
+                Some("Check that the config file path is correct and the file exists."),
+            ),
+            ScanInputValidationError::ConfigFileRead { path: _ , message: _ } => (
+                "Failed to read scan configuration file.",
+                Some("Check file permissions and ensure the file is accessible."),
+            ),
+            ScanInputValidationError::ConfigFileParse { path: _ , message: _ } => (
+                "Failed to parse scan configuration file.",
+                Some("Ensure the config file contains valid YAML format."),
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct MessageHint {
     message: &'static str,
@@ -896,6 +1016,10 @@ impl InputValidationError {
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
             InputValidationError::Webhook(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::Scan(inner) => {
                 let (m, h) = inner.message_and_hint();
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
