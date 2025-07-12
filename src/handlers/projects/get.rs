@@ -20,7 +20,12 @@ use crate::{
     },
 };
 
-pub async fn handle_get_project(api_key: String, format: OutputFormat, name: String) -> Result<()> {
+pub async fn handle_get_project(
+    api_key: String,
+    format: OutputFormat,
+    name: String,
+    silent: bool,
+) -> Result<()> {
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
@@ -30,12 +35,20 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
         bail!(error_output);
     }
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let project_res = projects::get_project(api_key, name).await;
 
     if let Err(err) = project_res {
         error!("{:#?}", &err);
-        spinner.stop_and_persist("", "");
+
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
         bail!(error_output);
@@ -46,7 +59,10 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
     match project_res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-            spinner.stop_and_persist("", "");
+
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let project = serde_json::from_str::<SingleProject>(&data.text);
 
@@ -54,36 +70,38 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
                 Ok(project) => {
                     debug!("{:#?}", &project);
 
-                    match format {
-                        OutputFormat::List => {
-                            print!("{}", project);
-                        }
-                        OutputFormat::Json => {
-                            let value = serde_json::to_value(&project).unwrap();
-                            let pretty = to_colored_json_auto(&value).unwrap();
-                            println!("{}", pretty);
-                        }
-                        OutputFormat::Table => match &project.description {
-                            Some(_) => {
-                                let project_item: SingleProjectTable = project.into();
-
-                                let table = tables::build::build_table(&Vec::from([project_item]));
-                                println!("{}", table);
+                    if !silent {
+                        match format {
+                            OutputFormat::List => {
+                                print!("{}", project);
                             }
-                            None => {
-                                let without_description: SingleProjectWithCountNoDescriptionTable =
-                                    project.into();
-
-                                let table =
-                                    tables::build::build_table(&Vec::from([without_description]));
-                                println!("{}", table);
+                            OutputFormat::Json => {
+                                let value = serde_json::to_value(&project).unwrap();
+                                let pretty = to_colored_json_auto(&value).unwrap();
+                                println!("{}", pretty);
                             }
-                        },
+                            OutputFormat::Table => match &project.description {
+                                Some(_) => {
+                                    let project_item: SingleProjectTable = project.into();
+
+                                    let table =
+                                        tables::build::build_table(&Vec::from([project_item]));
+                                    println!("{}", table);
+                                }
+                                None => {
+                                    let without_description: SingleProjectWithCountNoDescriptionTable =
+                                        project.into();
+
+                                    let table = tables::build::build_table(&Vec::from([
+                                        without_description,
+                                    ]));
+                                    println!("{}", table);
+                                }
+                            },
+                        }
                     }
                 }
                 Err(_) => {
-                    spinner.stop_and_persist("", "");
-
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
 
@@ -92,7 +110,9 @@ pub async fn handle_get_project(api_key: String, format: OutputFormat, name: Str
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
             bail!(error_output);
