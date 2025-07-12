@@ -22,6 +22,7 @@ pub struct HandleCreateSecretsArgs {
     pub values: Vec<String>,
     pub comments: Vec<String>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> {
@@ -32,13 +33,17 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
         values,
         comments,
         json_format,
+        silent,
     } = args;
 
     if values.is_empty() {
         let error = InputValidationError::Secrets(SecretsInputValidationError::NoSecretsToCreate);
         let error_output = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -47,7 +52,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     debug!("{:#?}", name_value_pairs);
 
     if let Err(_) = name_value_pairs {
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
 
         let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
         let error_output = error.format_error_output(json_format)?;
@@ -64,7 +71,10 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
         let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
         let error_output = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -101,27 +111,42 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     if let Err(err) = payload.validate() {
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
-    let reference_warnings = payload.get_reference_warnings();
+    if !silent {
+        eprintln!();
 
-    if !reference_warnings.is_empty() {
-        eprint!("{}", reference_warnings);
+        let reference_warnings = payload.get_reference_warnings();
 
-        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+        if !reference_warnings.is_empty() {
+            eprint!("{}", reference_warnings);
 
-        if confirm.is_none() || (confirm.unwrap() == false) {
-            return Ok(());
+            let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+
+            if confirm.is_none() || (confirm.unwrap() == false) {
+                return Ok(());
+            }
         }
     }
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let res = secrets::create_secrets(api_key, project, environment, &payload).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
+
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -140,9 +165,11 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                         if json_format {
                             let json_str = get_colored_json(&data).unwrap();
 
-                            spinner.stop_and_persist("", "");
-                            println!("{}", json_str);
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
 
+                            println!("{}", json_str);
                             return Ok(());
                         }
 
@@ -151,7 +178,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
                         if duplicate_secrets.len() > 0 {
                             if created_count > 0 {
-                                spinner.stop_and_persist("", "");
+                                if let Some(mut spinner) = spinner {
+                                    spinner.stop_and_persist("", "");
+                                }
 
                                 let secrets_created: Vec<_> = payload
                                     .into_iter()
@@ -178,11 +207,17 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                 println!("{}", msg);
                             } else {
                                 if created_count == 0 && duplicate_secrets.len() == 0 {
-                                    spinner.stop_and_persist("No secrets created.", "");
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_and_persist("No secrets created.", "");
+                                    }
                                 } else {
-                                    spinner.stop_and_persist("", "");
-                                    let msg = format!("No secrets created.");
-                                    println!("{}", msg);
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_and_persist("", "");
+                                    }
+
+                                    if !silent {
+                                        println!("No secrets created.");
+                                    }
                                 }
                             }
 
@@ -201,11 +236,15 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                             eprintln!("{}", info_msg);
                         } else {
                             // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
-                            spinner.stop_with_message("Secrets created.");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_with_message("Secrets created.");
+                            }
                         }
                     }
                     Err(_) => {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         let error = OutputError::failed_to_deserialize_response_body();
                         let formatted_err = error.format_error_output(json_format)?;
@@ -215,7 +254,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                 }
             }
             None => {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 let error = OutputError::failed_to_deserialize_response_body();
                 let formatted_err = error.format_error_output(json_format)?;
@@ -226,7 +267,10 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
         },
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
-            spinner.stop_and_persist("", "");
+
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);
