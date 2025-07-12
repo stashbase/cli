@@ -20,9 +20,14 @@ pub async fn handle_open_environment_webhook(
     environment: String,
     webhook_id: Option<String>,
     json_format: bool,
+    silent: bool,
 ) -> Result<()> {
     // send request
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let request_res = match &webhook_id {
         Some(id) => webhooks::get_dashboard_url(api_key, project, environment, id).await,
@@ -30,7 +35,9 @@ pub async fn handle_open_environment_webhook(
     };
 
     if let Err(err) = request_res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let formatted_err = err.format_error_output(json_format)?;
         bail!(formatted_err);
@@ -49,14 +56,24 @@ pub async fn handle_open_environment_webhook(
                         None => format!("{}/webhooks", data.dashboard_url),
                     };
 
-                    spinner.stop_with_message(&format!("Opening URL: {}", url));
+                    if !silent {
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_with_message(&format!("Opening URL: {}", url));
+                        }
+                    } else {
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+                    }
 
                     if let Err(err) = webbrowser::open(&url) {
-                        spinner.stop_with_message(&format!("Error opening URL: {}", err));
+                        eprintln!("Error opening URL: {}", err);
                     }
                 }
                 Err(e) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
                     error!("{}", e);
 
                     let error = OutputError::failed_to_deserialize_response_body();
@@ -67,7 +84,9 @@ pub async fn handle_open_environment_webhook(
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let formatted_err = e.format_error_output(json_format)?;
             bail!(formatted_err);
