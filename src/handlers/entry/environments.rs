@@ -21,6 +21,7 @@ pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
     api_key: String,
     raw_output: bool,
+    silent: bool,
     default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     let project = cmd.try_get_project()?;
@@ -32,6 +33,7 @@ pub async fn handle_environment_commands(
             let args = HandleListEnvironmentsArgs {
                 api_key,
                 project,
+                silent,
                 search: args.search,
                 sort_by: args.sort_by,
                 descending: args.descending,
@@ -44,10 +46,10 @@ pub async fn handle_environment_commands(
 
         EnvironmentSubcommand::Get(args) => {
             let format = get_output_format(raw_output, default_output_format, args.format);
-            handle_get_environment(api_key, format, project, args.identifier).await?;
+            handle_get_environment(api_key, format, silent, project, args.identifier).await?;
         }
         EnvironmentSubcommand::Open(args) => {
-            handle_open_environment(api_key, project, args.identifier, raw_output).await?;
+            handle_open_environment(api_key, project, args.identifier, raw_output, silent).await?;
         }
         EnvironmentSubcommand::Create(args) => {
             let args = HandleCreateEnvironmentArgs {
@@ -60,13 +62,15 @@ pub async fn handle_environment_commands(
                 format: args.file_format,
                 file_path: args.file_path,
                 json_format: raw_output,
+                silent,
             };
 
             handle_create_environment(args).await?;
         }
 
         EnvironmentSubcommand::Delete(args) => {
-            handle_delete_environment(api_key, project, args.identifier, raw_output).await?;
+            handle_delete_environment(api_key, project, args.identifier, raw_output, silent)
+                .await?;
         }
         EnvironmentSubcommand::Update(args) => {
             handle_update_environment(
@@ -77,6 +81,7 @@ pub async fn handle_environment_commands(
                 args.description,
                 args.is_production,
                 raw_output,
+                silent,
             )
             .await?
         }
@@ -88,6 +93,7 @@ pub async fn handle_environment_commands(
                 environment_2: args.identifier_2,
                 only_names: args.only_names,
                 json_format: raw_output,
+                silent,
             };
 
             handle_compare_environments(handler_args).await?;
