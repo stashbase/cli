@@ -28,6 +28,7 @@ pub struct HandleListProjectsArgs {
     pub page: Option<usize>,
     pub limit: Option<usize>,
     pub format: OutputFormat,
+    pub silent: bool,
 }
 
 pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
@@ -39,6 +40,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         format,
         page,
         limit,
+        silent,
     } = args;
 
     // validate search
@@ -48,7 +50,10 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         if let Err(err) = search_validation_res {
             let error_output = err.format_error_output(format == OutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
             bail!(error_output);
         }
     }
@@ -58,7 +63,10 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidLimit);
             let error_output = error.format_error_output(format == OutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
             bail!(error_output);
         }
     }
@@ -68,14 +76,22 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
             let error = InputValidationError::Projects(ProjectInputValidationError::InvalidPage);
             let error_output = error.format_error_output(format == OutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
             bail!(error_output);
         }
     }
 
     debug!("listing projects...:");
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let project_res = projects::list_projects(
         api_key,
         search,
@@ -88,7 +104,10 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
 
     if let Err(err) = project_res {
         error!("{:#?}", &err);
-        spinner.stop_and_persist("", "");
+
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
         bail!(error_output);
@@ -106,37 +125,55 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                     debug!("{:#?}", &data);
 
                     if let OutputFormat::Json = format {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         output_json(&data);
                         return Ok(());
                     }
 
-                    let mut projects = data.data;
+                    let projects = data.data;
                     let pagination = data.pagination;
 
                     if projects.is_empty() {
-                        spinner.stop_with_message("No projects found.");
-                        eprintln!("\n{}", pagination);
-                    } else {
-                        spinner.stop_and_persist("", "");
+                        if !silent {
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_with_message("No projects found.");
+                            }
 
-                        match format {
-                            OutputFormat::List => {
-                                output_list(projects, pagination);
+                            eprintln!("\n{}", pagination);
+                        } else {
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
                             }
-                            OutputFormat::Table => {
-                                // reverse because returned fro list -> last is first (for
-                                // lists)
-                                output_table(projects, pagination);
+                        }
+                    } else {
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        if !silent {
+                            match format {
+                                OutputFormat::List => {
+                                    output_list(projects, pagination);
+                                }
+                                OutputFormat::Table => {
+                                    // reverse because returned fro list -> last is first (for
+                                    // lists)
+                                    output_table(projects, pagination);
+                                }
+                                OutputFormat::Json => unreachable!(),
                             }
-                            OutputFormat::Json => unreachable!(),
                         }
                     }
                 }
                 Err(e) => {
                     debug!("{:#?}", &e);
-                    spinner.stop_and_persist("", "");
+
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
@@ -147,7 +184,9 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
             bail!(error_output);
@@ -155,50 +194,6 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     }
 
     Ok(())
-    //
-    // let project_res = projects::list_projects(api_key).await;
-    // spinner.stop_and_persist("", "");
-    //
-    // if let Err(err) = &project_res {
-    //     error!("{:#?}", &err);
-    //     bail!("Could not connect to API")
-    // }
-    //
-    // let project_res = project_res.unwrap();
-    //
-    // let status = project_res.status();
-    //
-    // if status == 401 {
-    //     bail!("Unauthorized")
-    // }
-    //
-    // let response_text = project_res.text().await;
-    // debug!("{:#?}", &response_text);
-    //
-    // match response_text {
-    //     Ok(text) => {
-    //         let projects = serde_json::from_str::<Vec<Project>>(&text);
-    //
-    //         match projects {
-    //             Ok(projects) => {
-    //                 debug!("{:#?}", &projects);
-    //                 let value = serde_json::to_value(&projects).unwrap();
-    //                 let pretty = to_colored_json_auto(&value).unwrap();
-    //
-    //                 println!("{}", pretty);
-    //             }
-    //             Err(e) => {
-    //                 error!("{:#?}", &e);
-    //                 bail!("Something went wrong")
-    //             }
-    //         }
-    //     }
-    //     Err(err) => {
-    //         bail!("Could not parse response: {:?}", err);
-    //     }
-    // }
-    //
-    // Ok(())
 }
 
 fn output_list(projects: Vec<SingleListProject>, pagination: PaginationMetadata) {
