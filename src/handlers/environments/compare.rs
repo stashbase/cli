@@ -81,8 +81,6 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
     if let Err(err) = res {
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
-        } else {
-            eprintln!();
         }
 
         let error_output = err.format_error_output(args.json_format)?;
@@ -102,16 +100,13 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                     if data.is_empty() && !args.json_format {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_with_message("No secrets to compare.");
-                        } else {
-                            eprintln!();
                         }
+
                         return Ok(());
                     }
 
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
-                    } else {
-                        eprintln!();
                     }
 
                     let print_string = format_comparison(
@@ -127,8 +122,6 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                 Err(_) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
-                    } else {
-                        eprintln!();
                     }
 
                     let error = OutputError::failed_to_deserialize_response_body();
@@ -141,8 +134,6 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         GetRequestApiResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
-            } else {
-                eprintln!();
             }
 
             let error_output = e.format_error_output(args.json_format)?;

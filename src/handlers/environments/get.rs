@@ -46,8 +46,6 @@ pub async fn handle_get_environment(
     if let Err(err) = res {
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
-        } else {
-            eprintln!();
         }
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
@@ -62,8 +60,6 @@ pub async fn handle_get_environment(
 
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
-            } else {
-                eprintln!();
             }
 
             let environment = serde_json::from_str::<Environment>(&data.text);
@@ -109,8 +105,6 @@ pub async fn handle_get_environment(
         GetRequestApiResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
-            } else {
-                eprintln!();
             }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
