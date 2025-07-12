@@ -11,22 +11,52 @@ use crate::{
     utils::{interaction, output::get_colored_json, spinner::request_spinner},
 };
 
-pub type RotateWebhookSecretArgs = webhooks::RotateArgs;
+pub struct RotateWebhookSecretArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub webhook_id: String,
+    pub json_format: bool,
+    pub silent: bool,
+}
+
+impl From<RotateWebhookSecretArgs> for webhooks::RotateArgs {
+    fn from(args: RotateWebhookSecretArgs) -> webhooks::RotateArgs {
+        webhooks::RotateArgs {
+            api_key: args.api_key,
+            project: args.project,
+            environment: args.environment,
+            webhook_id: args.webhook_id,
+            json_format: args.json_format,
+        }
+    }
+}
 
 pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Result<()> {
-    let i = interaction::confirm_opt("Are you sure you want to rotate signing secret?");
+    let json_format = args.json_format;
+    let silent = args.silent;
 
-    if i.is_none() || (i.unwrap() == false) {
-        return Ok(());
+    if !silent {
+        let i = interaction::confirm_opt("Are you sure you want to rotate signing secret?");
+
+        if i.is_none() || (i.unwrap() == false) {
+            return Ok(());
+        }
     }
 
-    let json_format = args.json_format;
-    let mut spinner = request_spinner();
+    let args: webhooks::RotateArgs = args.into();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = webhooks::rotate_secret(args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -46,15 +76,27 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
                         if json_format {
                             let json_str = get_colored_json(&data).unwrap();
 
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             println!("{}", json_str);
                         } else {
-                            spinner.stop_with_message("Webhook secret rotated.");
-                            println!("\nSigning secret: {}", &data.signing_secret);
+                            if !silent {
+                                if let Some(mut spinner) = spinner {
+                                    spinner.stop_with_message("Webhook secret rotated.");
+                                }
+                                println!("\nSigning secret: {}", &data.signing_secret);
+                            } else {
+                                if let Some(mut spinner) = spinner {
+                                    spinner.stop_and_persist("", "");
+                                }
+                            }
                         }
                     }
                     Err(e) => {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
                         error!("{}", e);
 
                         let error = OutputError::failed_to_deserialize_response_body();
@@ -69,7 +111,9 @@ pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Resu
         }
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);
