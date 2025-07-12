@@ -47,6 +47,7 @@ pub async fn handle_cli(args: Cli) {
         };
 
         let raw_output = args.raw;
+        let silent = args.silent;
 
         let result = match args.entity_type {
             EntityType::Whoami => {
@@ -61,21 +62,23 @@ pub async fn handle_cli(args: Cli) {
 
                 let args = GetCurrentAuthDetailsRequestArgs { api_key, format };
 
-                handle_whoami_command(args).await
+                handle_whoami_command(args, silent).await
             }
             EntityType::Project(cmd) => {
                 let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_project_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_project_commands(cmd, api_key, raw_output, silent, default_output_format)
+                    .await
             }
             EntityType::Environment(cmd) => {
                 let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_environment_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_environment_commands(cmd, api_key, raw_output, silent, default_output_format)
+                    .await
             }
             EntityType::Config(_) => {
                 unreachable!()

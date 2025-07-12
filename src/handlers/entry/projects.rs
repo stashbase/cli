@@ -20,6 +20,7 @@ pub async fn handle_project_commands(
     cmd: ProjectCommands,
     api_key: String,
     raw_output: bool,
+    silent: bool,
     default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
     match cmd.subcommand {
@@ -33,6 +34,7 @@ pub async fn handle_project_commands(
                 descending: args.descending,
                 page: args.page,
                 limit: args.limit,
+                silent,
                 format,
             };
 
@@ -41,17 +43,17 @@ pub async fn handle_project_commands(
 
         ProjectSubcommand::Get(args) => {
             let format = get_output_format(raw_output, default_output_format, args.format);
-            handle_get_project(api_key, format, args.identifier).await?;
+            handle_get_project(api_key, format, args.identifier, silent).await?;
         }
 
         ProjectSubcommand::Create(args) => {
-            handle_create_project(api_key, args.name, args.description, raw_output).await?;
+            handle_create_project(api_key, args.name, args.description, raw_output, silent).await?;
         }
         ProjectSubcommand::Delete(args) => {
-            handle_delete_project(api_key, args.identifier, raw_output).await?;
+            handle_delete_project(api_key, args.identifier, raw_output, silent).await?;
         }
         ProjectSubcommand::Open(args) => {
-            handle_open_project(api_key, args.identifier, raw_output).await?;
+            handle_open_project(api_key, args.identifier, raw_output, silent).await?;
         }
         ProjectSubcommand::Update(args) => {
             handle_update_project(
@@ -60,6 +62,7 @@ pub async fn handle_project_commands(
                 args.new_name,
                 args.description,
                 raw_output,
+                silent,
             )
             .await?;
         }
