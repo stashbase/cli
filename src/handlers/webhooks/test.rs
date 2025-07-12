@@ -18,6 +18,7 @@ pub struct TestWebhookArgs {
     pub environment: String,
     pub webhook_id: String,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
@@ -29,16 +30,19 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
         environment,
         webhook_id,
         json_format,
+        silent,
     } = args;
 
-    let msg = "Test webhook event will be sent the webhook URL.";
-    eprintln!("{}", msg.yellow());
+    if !silent {
+        let msg = "Test webhook event will be sent the webhook URL.";
+        eprintln!("{}", msg.yellow());
 
-    // eprintln!();
-    let i = interaction::confirm_opt("Are you sure?");
+        // eprintln!();
+        let i = interaction::confirm_opt("Are you sure?");
 
-    if i.is_none() || (i.unwrap() == false) {
-        return Ok(());
+        if i.is_none() || (i.unwrap() == false) {
+            return Ok(());
+        }
     }
 
     let args = webhooks::TestArgs {
@@ -48,12 +52,18 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
         webhook_id,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = webhooks::test(args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_str = err.format_error_output(json_format)?;
@@ -76,16 +86,22 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
                         if json_format {
                             let json_str = get_colored_json(&test_res).unwrap();
 
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             println!("{}", json_str);
                         } else {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             print!("{}", &test_res);
                         }
                     }
                     Err(e) => {
                         debug!("{}", e);
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         let error = OutputError::failed_to_deserialize_response_body();
                         let formatted_err = error.format_error_output(json_format)?;
@@ -94,7 +110,9 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
                     }
                 }
             } else {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 let error = OutputError::failed_to_deserialize_response_body();
                 let formatted_err = error.format_error_output(json_format)?;
@@ -104,7 +122,9 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
             //
         }
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_str = e.format_error_output(json_format)?;
             bail!(error_str);
