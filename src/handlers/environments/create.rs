@@ -177,8 +177,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     if let Err(err) = project_res {
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
-        } else {
-            eprintln!();
         }
 
         let error_output = err.format_error_output(json_format)?;
@@ -201,8 +199,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
-                            } else {
-                                eprintln!();
                             }
 
                             println!("{}", json_str);
@@ -212,8 +208,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
                         if let Some(mut spinner) = spinner {
                             spinner.stop_with_message("Environment created.");
-                        } else {
-                            eprintln!();
                         }
 
                         if !silent {
@@ -236,8 +230,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                     Err(_) => {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
-                        } else {
-                            eprintln!();
                         }
 
                         let error = OutputError::failed_to_deserialize_response_body();
@@ -251,8 +243,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         RequestApiOptionResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
-            } else {
-                eprintln!();
             }
 
             let error_output = e.format_error_output(json_format)?;

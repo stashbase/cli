@@ -84,8 +84,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     if let Err(err) = env_res {
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
-        } else {
-            eprintln!();
         }
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
@@ -105,8 +103,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                     if let OutputFormat::Json = format {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
-                        } else {
-                            eprintln!();
                         }
 
                         let value = serde_json::to_value(&envs).unwrap();
@@ -117,16 +113,12 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                         if envs.is_empty() && format != OutputFormat::Json {
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_with_message("No environments found.");
-                            } else {
-                                eprintln!();
                             }
 
                             return Ok(());
                         } else {
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
-                            } else {
-                                eprintln!();
                             }
                         }
 
@@ -168,8 +160,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                 Err(e) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
-                    } else {
-                        eprintln!();
                     }
 
                     let error = OutputError::failed_to_deserialize_response_body();
@@ -183,8 +173,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         GetRequestApiResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
-            } else {
-                eprintln!();
             }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;

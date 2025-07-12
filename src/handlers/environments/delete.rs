@@ -64,8 +64,6 @@ pub async fn handle_delete_environment(
             if json_format {
                 if let Some(mut spinner) = spinner {
                     spinner.stop_and_persist("", "");
-                } else {
-                    eprintln!();
                 }
 
                 if !silent {
@@ -75,8 +73,6 @@ pub async fn handle_delete_environment(
                 if !silent {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_with_message("Environment deleted.");
-                    } else {
-                        eprintln!();
                     }
                 }
             }
@@ -84,8 +80,6 @@ pub async fn handle_delete_environment(
         DeleteRequestApiResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
-            } else {
-                eprintln!();
             }
 
             let error_output = e.format_error_output(json_format)?;
