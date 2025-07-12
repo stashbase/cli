@@ -78,7 +78,9 @@ pub async fn handle_secrets_commands(
     if let Err(err) = project_env_res {
         let formatted_err = err.format_error_output(raw_output)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -89,7 +91,9 @@ pub async fn handle_secrets_commands(
     if let Err(err) = validation_res {
         let formatted_err = err.format_error_output(raw_output)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
