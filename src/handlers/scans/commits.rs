@@ -568,8 +568,8 @@ pub fn get_unpushed_commit_hunks(
                             let hunk = DiffHunk {
                                 full_content: String::new(),
                                 changes: None,
-                                context_start_line: 1,
-                                context_end_line: 2,
+                                start_line: 1,
+                                end_line: 2,
                             };
 
                             hunks.push(hunk);
@@ -614,8 +614,8 @@ pub fn get_unpushed_commit_hunks(
                         let hunk_with_context = DiffHunk {
                             full_content: String::new(),
                             changes: Some(Vec::new()),
-                            context_start_line: hunk.new_start() as usize,
-                            context_end_line: (hunk.new_start() + hunk.new_lines()) as usize,
+                            start_line: hunk.new_start() as usize,
+                            end_line: (hunk.new_start() + hunk.new_lines()) as usize,
                         };
 
                         state_hunk
@@ -672,8 +672,8 @@ pub fn get_unpushed_commit_hunks(
                                     Some(0)
                                 } else {
                                     hunks.iter().position(|hunk| {
-                                        line_number >= hunk.context_start_line
-                                            && line_number <= hunk.context_end_line
+                                        line_number >= hunk.start_line
+                                            && line_number <= hunk.end_line
                                     })
                                 };
 
