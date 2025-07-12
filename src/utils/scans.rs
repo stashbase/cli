@@ -106,18 +106,6 @@ pub fn get_latest_scan_file(output_dir: &str) -> Option<std::fs::DirEntry> {
         .max_by_key(|entry| entry.path())
 }
 
-pub fn should_write_new_results(output_dir: &str, new_content: &str) -> bool {
-    if let Some(latest_file) = get_latest_scan_file(output_dir) {
-        // Read and hash the content of the latest file
-        if let Ok(content) = fs::read_to_string(latest_file.path()) {
-            let existing_hash = calculate_hash(&content);
-            let new_hash = calculate_hash(new_content);
-            return new_hash != existing_hash;
-        }
-    }
-    true // No existing file or couldn't read it, should write
-}
-
 pub fn file_content_equals(file_path: &str, new_content: &str) -> bool {
     match fs::read_to_string(file_path) {
         Ok(content) => {
