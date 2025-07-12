@@ -322,9 +322,9 @@ impl DiffProcessingState {
         Self {
             files_with_hunks: HashMap::new(),
             current_changes: HashMap::new(),
-            prev_line: String::new(),
             excluded_files: HashMap::new(),
             new_files: HashMap::new(),
+            prev_line: String::new(),
         }
     }
 }
