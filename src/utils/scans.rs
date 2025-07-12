@@ -1,4 +1,5 @@
 use sha2::{Sha256, Digest};
+use anyhow::{Result};
 use std::{path::Path, fs, collections::HashSet};
 use ignore::gitignore::GitignoreBuilder;
 use crate::models::{
@@ -117,9 +118,9 @@ pub fn file_content_equals(file_path: &str, new_content: &str) -> bool {
     }
 }
 
-pub fn save_scan_results(output_dir: &str, json_content: &str) -> String {
+pub fn save_scan_results(output_dir: &str, json_content: &str) -> Result<String> {
     // Create scan_results directory if it doesn't exist
-    fs::create_dir_all(output_dir).unwrap();
+    fs::create_dir_all(output_dir)?;
 
     // Get current timestamp
     let timestamp = SystemTime::now()
@@ -131,9 +132,9 @@ pub fn save_scan_results(output_dir: &str, json_content: &str) -> String {
     let file_path = format!("{}/{}.json", output_dir, timestamp);
 
     // Write to file
-    fs::write(&file_path, json_content).unwrap();
+    fs::write(&file_path, json_content)?;
 
-    file_path
+    Ok(file_path)
 }
 
 pub fn filter_sha256_hashes(hashes: Vec<String>) -> Vec<String> {
