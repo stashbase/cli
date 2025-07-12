@@ -12,11 +12,13 @@ pub async fn handle_scan_commands(
     cmd: ScanCommands,
     api_key: String,
     raw_output: bool,
+    silent: bool,
 ) -> Result<()> {
     match cmd.subcommand {
         ScanSubcommand::Staged(args) => {
             let args = HandleScanStagedFileHunksArgs {
                 api_key,
+                silent,
                 json_format: raw_output,
                 exclude: args.exclude,
                 baseline: args.baseline,
@@ -30,6 +32,7 @@ pub async fn handle_scan_commands(
         ScanSubcommand::Commits(args) => {
             let args = HandleScanUnpushedCommitHunksArgs {
                 api_key,
+                silent,
                 json_format: raw_output,
                 exclude: args.exclude,
                 baseline: args.baseline,
