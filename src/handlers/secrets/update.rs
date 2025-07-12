@@ -25,6 +25,7 @@ pub struct HandleUpdateSecretsArgs {
     pub values: Vec<String>,
     pub comment: Vec<String>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> {
@@ -36,13 +37,16 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
         comment,
         values,
         json_format,
+        silent,
     } = args;
 
     if values.is_empty() && new_names.is_empty() && comment.is_empty() {
         let error = InputValidationError::Secrets(SecretsInputValidationError::NoUpdatesProvided);
         let error_output = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -59,7 +63,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
             let error_output = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
 
@@ -90,7 +96,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
             let error_output = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
 
@@ -121,7 +129,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
             let error_output = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
 
@@ -156,15 +166,23 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     if let Err(err) = payload.validate() {
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
     let res = secrets::update_secrets(api_key, project, environment, &payload).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -184,7 +202,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                         if json_format {
                             let json_str = get_colored_json(&data).unwrap();
 
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             println!("{}", json_str);
 
                             return Ok(());
@@ -194,41 +214,61 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                         let not_found_secrets = data.not_found_secrets;
 
                         if updated_count > 0 {
-                            spinner.stop_and_persist("", "");
-                            let secrets_updated: Vec<_> = payload
-                                .into_iter()
-                                .filter(|k| {
-                                    not_found_secrets.iter().find(|s| *s == &k.name).is_none()
-                                })
-                                .collect();
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
 
-                            let msg = format!(
-                                "{} {}",
-                                format!(
-                                    "{} {} {}",
-                                    "Secrets".green(),
-                                    "updated".green(),
-                                    format!("({}):", updated_count).green(),
-                                ),
-                                secrets_updated
-                                    .iter()
-                                    .map(|s| s.name.clone())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            );
+                            if !silent {
+                                let secrets_updated: Vec<_> = payload
+                                    .into_iter()
+                                    .filter(|k| {
+                                        not_found_secrets.iter().find(|s| *s == &k.name).is_none()
+                                    })
+                                    .collect();
 
-                            println!("{}", msg);
+                                let msg = format!(
+                                    "{} {}",
+                                    format!(
+                                        "{} {} {}",
+                                        "Secrets".green(),
+                                        "updated".green(),
+                                        format!("({}):", updated_count).green(),
+                                    ),
+                                    secrets_updated
+                                        .iter()
+                                        .map(|s| s.name.clone())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                );
+
+                                println!("{}", msg);
+                            }
                         } else {
                             if updated_count == 0 && not_found_secrets.len() == 0 {
-                                spinner.stop_and_persist("No secrets updated (no changes).", "");
+                                if let Some(mut spinner) = spinner {
+                                    if !silent {
+                                        spinner.stop_and_persist(
+                                            "No secrets updated (no changes).",
+                                            "",
+                                        );
+                                    } else {
+                                        spinner.stop_and_persist("", "");
+                                    }
+                                } else if !silent {
+                                    println!("No secrets updated (no changes).");
+                                }
                             } else {
-                                spinner.stop_and_persist("", "");
-                                let msg = format!("No secrets updated (no changes).");
-                                println!("{}", msg);
+                                if let Some(mut spinner) = spinner {
+                                    spinner.stop_and_persist("", "");
+                                }
+                                if !silent {
+                                    let msg = format!("No secrets updated (no changes).");
+                                    println!("{}", msg);
+                                }
                             }
                         }
 
-                        if not_found_secrets.len() > 0 {
+                        if not_found_secrets.len() > 0 && !silent {
                             let info_msg = format!(
                                 "{} {}",
                                 format!(
@@ -240,12 +280,13 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                 not_found_secrets.join(", ")
                             );
 
-                            //
                             println!("{}", info_msg);
                         }
                     }
                     Err(_) => {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         let error = OutputError::failed_to_deserialize_response_body();
                         let formatted_err = error.format_error_output(json_format)?;
@@ -255,7 +296,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                 }
             }
             None => {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 let error = OutputError::failed_to_deserialize_response_body();
                 let formatted_err = error.format_error_output(json_format)?;
@@ -264,7 +307,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
             }
         },
         RequestApiOptionResponse::Err(err) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
             debug!("Error: {:#?}", &err);
 
             let error_output = err.format_error_output(json_format)?;
