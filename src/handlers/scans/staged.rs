@@ -473,9 +473,15 @@ pub fn get_staged_file_hunks(
                     if let Some(&is_excluded) = state.excluded_files.get(&file_path) {
                         is_excluded
                     } else {
-                        let is_excluded = should_exclude_file(&file_path, &exclude_patterns);
-                        state.excluded_files.insert(file_path.clone(), is_excluded);
-                        is_excluded
+                        let is_excluded_res = should_exclude_file(&file_path, &exclude_patterns);
+
+                        match is_excluded_res {
+                            Ok(is_excluded) => {
+                                state.excluded_files.insert(file_path.clone(), is_excluded);
+                                is_excluded
+                            }
+                            Err(_) => false,
+                        }
                     }
                 };
 
