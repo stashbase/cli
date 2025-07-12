@@ -26,6 +26,7 @@ pub async fn handle_update_environment(
     new_description: Option<String>,
     new_is_production: Option<bool>,
     json_format: bool,
+    silent: bool,
 ) -> anyhow::Result<()> {
     // validation
     let input_valid_res = validate_input(
@@ -58,11 +59,19 @@ pub async fn handle_update_environment(
         is_production: new_is_production,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let project_res = environments::update(api_key, project, environment, &data).await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
+
         error!("{:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -74,14 +83,23 @@ pub async fn handle_update_environment(
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
-                println!("{{}}");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
+
+                if !silent {
+                    println!("{{}}");
+                }
             } else {
-                spinner.stop_with_message("Environment updated.");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Environment updated.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);
