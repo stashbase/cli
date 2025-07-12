@@ -82,15 +82,23 @@ pub fn is_binary_file(extension: &str) -> bool {
     }
 }
 
-pub fn should_exclude_file(file_path: &str, exclude_patterns: &[String]) -> bool {
-    let mut builder = GitignoreBuilder::new("/"); // Root directory
-    for pattern in exclude_patterns {
-        builder.add_line(None, pattern).unwrap();
-    }
-    let gitignore = builder.build().unwrap();
-    gitignore.matched(Path::new(file_path), false).is_ignore()
-}
 
+pub fn should_exclude_file(file_path: &str, exclude_patterns: &[String]) -> Result<bool, ScanInputValidationError> {
+    let mut builder = GitignoreBuilder::new("/"); // Root directory
+    
+    for pattern in exclude_patterns {
+        builder.add_line(None, pattern).map_err(|e| ScanInputValidationError::InvalidExcludePattern { 
+            pattern: pattern.clone(),
+            message: e.to_string()
+        })?;
+    }
+    
+    let gitignore = builder.build().map_err(|e| ScanInputValidationError::GitignoreBuilderError {
+        message: e.to_string()
+    })?;
+    
+    Ok(gitignore.matched(Path::new(file_path), false).is_ignore())
+}
 
 pub fn calculate_hash(content: &str) -> Vec<u8> {
     let mut hasher = Sha256::new();
