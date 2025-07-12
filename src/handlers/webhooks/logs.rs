@@ -22,6 +22,7 @@ pub struct ListWebhookLogsArgs {
     pub page: Option<usize>,
     pub format: OutputFormat,
     pub limit: Option<usize>,
+    pub silent: bool,
 }
 
 pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
@@ -33,6 +34,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
         page,
         format,
         limit,
+        silent,
     } = args;
 
     if let Some(limit) = limit {
@@ -42,7 +44,9 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
             let webhook_error = WebhookInputValidationError::InvalidLimit;
             let err = InputValidationError::Webhook(webhook_error);
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(err);
         }
     }
@@ -54,7 +58,9 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
             let webhook_error = WebhookInputValidationError::InvalidPage;
             let err = InputValidationError::Webhook(webhook_error);
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(err);
         }
     }
@@ -68,12 +74,18 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
         limit,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = webhooks::list_logs(args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
@@ -94,7 +106,9 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
                     match format {
                         OutputFormat::List => {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             // if webhook_logs.data == 0 {
                             //     eprintln!("No logs");
                             //     return Ok(());
@@ -103,18 +117,31 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                             print!("{}", webhook_logs);
                         }
                         OutputFormat::Json => {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             let value = serde_json::to_value(&webhook_logs).unwrap();
                             let pretty = to_colored_json_auto(&value).unwrap();
                             println!("{}", pretty);
                         }
                         OutputFormat::Table => {
                             if webhook_logs.data.is_empty() {
-                                spinner.stop_with_message("No change.\n");
-                                eprintln!("{}", webhook_logs.pagination);
+                                if let Some(mut spinner) = spinner {
+                                    if !silent {
+                                        spinner.stop_with_message("No change.\n");
+                                        eprintln!("{}", webhook_logs.pagination);
+                                    } else {
+                                        spinner.stop_and_persist("", "");
+                                    }
+                                } else if !silent {
+                                    println!("No change.\n");
+                                    eprintln!("{}", webhook_logs.pagination);
+                                }
                                 // return Ok(());
                             } else {
-                                spinner.stop_and_persist("", "");
+                                if let Some(mut spinner) = spinner {
+                                    spinner.stop_and_persist("", "");
+                                }
                                 let table_logs = webhook_logs
                                     .data
                                     .into_iter()
@@ -126,13 +153,17 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
                                 let table = tables::build::build_table(&table_logs);
                                 println!("{}", table);
-                                eprintln!("\n{}", webhook_logs.pagination);
+                                if !silent {
+                                    eprintln!("\n{}", webhook_logs.pagination);
+                                }
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
                     error!("{}", e);
 
                     let error = OutputError::failed_to_deserialize_response_body();
@@ -143,7 +174,9 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
             bail!(error_output);
