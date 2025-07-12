@@ -1,4 +1,4 @@
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "scan <COMMAND> [OPTIONS]")]
