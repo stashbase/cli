@@ -17,6 +17,7 @@ pub async fn handle_delete_environment(
     project: String,
     environment: String,
     json_format: bool,
+    silent: bool,
 ) -> Result<()> {
     let input_valid = validate_project_environment_identifier(&project, &environment, true);
 
@@ -39,11 +40,18 @@ pub async fn handle_delete_environment(
 
     debug!("deleting enironment...:");
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let res = environments::delete(api_key, project, environment).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(json_format)?;
         bail!(error_output);
@@ -54,14 +62,31 @@ pub async fn handle_delete_environment(
     match res {
         DeleteRequestApiResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
-                println!("{{}}");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                } else {
+                    eprintln!();
+                }
+
+                if !silent {
+                    println!("{{}}");
+                }
             } else {
-                spinner.stop_with_message("Environment deleted.");
+                if !silent {
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_with_message("Environment deleted.");
+                    } else {
+                        eprintln!();
+                    }
+                }
             }
         }
         DeleteRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            } else {
+                eprintln!();
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);
