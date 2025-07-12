@@ -12,6 +12,7 @@ use crate::{
             config::handle_config_commands,
             environments::handle_environment_commands,
             projects::handle_project_commands,
+            scans::handle_scan_commands,
             secrets::handle_secrets_commands,
             webhooks::handle_webhook_commands,
         },
@@ -163,6 +164,7 @@ pub async fn handle_cli(args: Cli) {
 
                 handle_push(args).await
             }
+            EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output).await,
             EntityType::Open => handle_open_dashboard(api_key).await,
         };
 

@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+use crate::cmd::scans::ScanCommands;
+
 use super::{
     config::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
     pull::PullCommand, push::PushCommand, run::RunCommand, secrets::SecretArgs,
@@ -69,6 +71,10 @@ pub enum EntityType {
     /// Manage secrets
     #[clap(name = "secrets", aliases = &["s", "sec"])]
     Secret(SecretArgs),
+
+    /// Scan for hardcoded secrets
+    #[clap(name = "scan")]
+    Scan(ScanCommands),
 
     /// Manage webhooks
     #[clap(name = "webhooks", aliases = &["w", "web"])]
