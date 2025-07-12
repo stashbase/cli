@@ -69,6 +69,7 @@ fn validate_input(
 pub async fn handle_webhook_commands(
     cmd: WebhookCommand,
     api_key: String,
+    silent: bool,
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
 ) -> anyhow::Result<()> {
@@ -78,7 +79,9 @@ pub async fn handle_webhook_commands(
     if let Err(err) = project_env_res {
         let formatted_err = err.format_error_output(raw_output)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -90,7 +93,9 @@ pub async fn handle_webhook_commands(
     if let Err(err) = validation_res {
         let formatted_err = err.format_error_output(raw_output)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -103,6 +108,7 @@ pub async fn handle_webhook_commands(
                 project,
                 environment,
                 format,
+                silent,
             };
 
             handle_list_webhooks(args).await?;
@@ -117,6 +123,7 @@ pub async fn handle_webhook_commands(
                 webhook_id: args.webhook_id,
                 with_secret: args.with_secret,
                 format,
+                silent,
             };
 
             handle_get_webhook(args).await?;
@@ -128,6 +135,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 json_format: raw_output,
                 webhook_id: cmd_args.webhook_id,
+                silent,
             };
 
             handle_delete_webhook(fn_args).await?;
@@ -142,6 +150,7 @@ pub async fn handle_webhook_commands(
                 return_secret: cmd_args.return_secret,
                 enable: cmd_args.enable,
                 json_format: raw_output,
+                silent,
             };
 
             handle_create_webhook(fn_args).await?;
@@ -155,6 +164,7 @@ pub async fn handle_webhook_commands(
                 description: cmd_args.description,
                 webhook_id: cmd_args.webhook_id,
                 json_format: raw_output,
+                silent,
             };
 
             handle_update_webhook(fn_args).await?;
@@ -168,6 +178,7 @@ pub async fn handle_webhook_commands(
                 webhook_id: cmd_args.webhook_id,
                 enabled: false,
                 json_format: raw_output,
+                silent,
             };
 
             handle_update_webhook_status(fn_args).await?;
@@ -180,6 +191,7 @@ pub async fn handle_webhook_commands(
                 webhook_id: cmd_args.webhook_id,
                 enabled: true,
                 json_format: raw_output,
+                silent,
             };
 
             handle_update_webhook_status(fn_args).await?;
@@ -191,6 +203,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: cmd_args.webhook_id,
                 json_format: raw_output,
+                silent,
             };
 
             handle_test_webhook(fn_args).await?;
@@ -207,6 +220,7 @@ pub async fn handle_webhook_commands(
                 page: cmd_args.page,
                 limit: cmd_args.limit,
                 format,
+                silent,
             };
 
             handle_list_webhook_logs(fn_args).await?;
@@ -218,6 +232,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 cmd_args.webhook_id,
                 raw_output,
+                silent,
             )
             .await?;
         }
@@ -228,6 +243,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: cmd_args.webhook_id,
                 json_format: raw_output,
+                silent,
             };
 
             handle_rotate_webhook_secret(fn_args).await?;
@@ -239,6 +255,7 @@ pub async fn handle_webhook_commands(
                 environment,
                 webhook_id: cmd_args.webhook_id,
                 json_format: raw_output,
+                silent,
             };
 
             handle_get_webhook_secret(fn_args).await?;

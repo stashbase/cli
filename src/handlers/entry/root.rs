@@ -116,7 +116,8 @@ pub async fn handle_cli(args: Cli) {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_webhook_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
+                    .await
             }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
