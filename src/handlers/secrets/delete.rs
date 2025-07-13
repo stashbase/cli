@@ -118,42 +118,26 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                             spinner.stop_and_persist("", "");
                                         }
 
-                                        if !silent {
-                                            println!("{}", json_str);
-                                        }
+                                        println!("{}", json_str);
                                     } else {
-                                        if !silent {
+                                        if let Some(mut spinner) = spinner {
+                                            spinner.stop_and_persist("", "");
+                                        }
+
+                                        if silent {
+                                            println!("Deleted: {}", d.deleted_count);
+                                        } else {
                                             match d.deleted_count {
                                                 0 => {
-                                                    if let Some(mut spinner) = spinner {
-                                                        spinner.stop_with_message(
-                                                            "No secrets to delete.",
-                                                        );
-                                                    } else {
-                                                        eprintln!("No secrets to delete.");
-                                                    }
+                                                    println!("No secrets to delete.");
                                                 }
                                                 _ => {
                                                     let msg = format!(
                                                         "All secrets ({}) deleted.",
                                                         d.deleted_count
                                                     );
-
-                                                    if let Some(mut spinner) = spinner {
-                                                        spinner.stop_with_message(&format!(
-                                                            "{} {}",
-                                                            "✓".green(),
-                                                            msg
-                                                        ));
-                                                    } else {
-                                                        eprintln!("{}", msg);
-                                                    }
+                                                    println!("{} {}", "✓".green(), msg);
                                                 }
-                                            }
-                                        } else {
-                                            // Silent mode: just stop spinner if any
-                                            if let Some(mut spinner) = spinner {
-                                                spinner.stop_and_persist("", "");
                                             }
                                         }
                                     }
@@ -239,59 +223,67 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                             spinner.stop_and_persist("", "");
                                         }
 
-                                        if !silent {
-                                            let info_msg = format!(
-                                                "{} {}",
-                                                format!(
-                                                    "{} {} {}",
-                                                    "Secrets".red(),
-                                                    format!("({})", not_found_len).red(),
-                                                    "not found:".red()
-                                                ),
-                                                not_found_secrets.join(", ")
-                                            );
-
-                                            eprintln!("{}", info_msg);
-                                        }
-
                                         let deleted_count = data.deleted_count;
 
-                                        if deleted_count > 0 && !silent {
-                                            let secrets_deleted: Vec<_> = names
-                                                .into_iter()
-                                                .filter(|k| {
-                                                    not_found_secrets
-                                                        .iter()
-                                                        .find(|s| *s == k)
-                                                        .is_none()
-                                                })
-                                                .collect();
-
-                                            let msg = format!(
-                                                "{} {}",
-                                                format!(
-                                                    "{} {} {}",
-                                                    "Secrets".green(),
-                                                    format!("({})", deleted_count).green(),
-                                                    "deleted:".green()
-                                                ),
-                                                secrets_deleted.join(", ")
-                                            );
-
-                                            println!("{}", msg);
-                                        }
-                                    } else {
-                                        if !silent {
-                                            if let Some(mut spinner) = spinner {
-                                                spinner
-                                                    .stop_with_message("Selected secrets deleted.");
-                                            } else {
-                                                eprintln!("Selected secrets deleted.");
+                                        if silent {
+                                            println!("Deleted: {}", deleted_count);
+                                            if not_found_len > 0 {
+                                                println!(
+                                                    "Not found: {}",
+                                                    not_found_secrets.join(", ")
+                                                );
                                             }
                                         } else {
-                                            if let Some(mut spinner) = spinner {
-                                                spinner.stop_and_persist("", "");
+                                            if not_found_len > 0 {
+                                                let info_msg = format!(
+                                                    "{} {}",
+                                                    format!(
+                                                        "{} {} {}",
+                                                        "Secrets".red(),
+                                                        format!("({})", not_found_len).red(),
+                                                        "not found:".red()
+                                                    ),
+                                                    not_found_secrets.join(", ")
+                                                );
+
+                                                eprintln!("{}", info_msg);
                                             }
+
+                                            if deleted_count > 0 {
+                                                let secrets_deleted: Vec<_> = names
+                                                    .into_iter()
+                                                    .filter(|k| {
+                                                        not_found_secrets
+                                                            .iter()
+                                                            .find(|s| *s == k)
+                                                            .is_none()
+                                                    })
+                                                    .collect();
+
+                                                let msg = format!(
+                                                    "{} {}",
+                                                    format!(
+                                                        "{} {} {}",
+                                                        "Secrets".green(),
+                                                        format!("({})", deleted_count).green(),
+                                                        "deleted:".green()
+                                                    ),
+                                                    secrets_deleted.join(", ")
+                                                );
+
+                                                println!("{}", msg);
+                                            }
+                                        }
+                                    } else {
+                                        // All secrets found and deleted successfully
+                                        if let Some(mut spinner) = spinner {
+                                            spinner.stop_and_persist("", "");
+                                        }
+
+                                        if silent {
+                                            println!("Deleted: {}", data.deleted_count);
+                                        } else {
+                                            println!("Selected secrets deleted.");
                                         }
                                     }
                                 }
