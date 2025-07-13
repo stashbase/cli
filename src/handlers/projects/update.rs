@@ -18,14 +18,27 @@ use crate::{
     },
 };
 
-pub async fn handle_update_project(
-    api_key: String,
-    name: String,
-    new_name: Option<String>,
-    new_description: Option<String>,
-    json_format: bool,
-    silent: bool,
-) -> anyhow::Result<()> {
+pub struct HandleUpdateProjectArgs {
+    pub api_key: String,
+    pub name: String,
+    pub new_name: Option<String>,
+    pub new_description: Option<String>,
+    pub json_format: bool,
+    pub silent: bool,
+    pub force: bool,
+}
+
+pub async fn handle_update_project(args: HandleUpdateProjectArgs) -> anyhow::Result<()> {
+    let HandleUpdateProjectArgs {
+        api_key,
+        name,
+        new_name,
+        new_description,
+        json_format,
+        silent,
+        force,
+    } = args;
+
     let validation_res = validate_input(&name, &new_name, &new_description);
 
     if let Err(e) = validation_res {
@@ -40,10 +53,12 @@ pub async fn handle_update_project(
 
     debug!("updating project...:");
 
-    let i = interaction::confirm_opt("Are you sure?");
+    if !force {
+        let i = interaction::confirm_opt("Are you sure?");
 
-    if i.is_none() || (i.unwrap() == false) {
-        return Ok(());
+        if i.is_none() || (i.unwrap() == false) {
+            return Ok(());
+        }
     }
 
     let data = UpdateProjectPayload {
