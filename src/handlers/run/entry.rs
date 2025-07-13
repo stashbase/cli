@@ -386,9 +386,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
-        if let Some(ref mut spinner) = spinner {
+        if let Some(mut spinner) = spinner {
             spinner.stop_with_message(&err.to_string());
-        } else if !silent {
+        } else {
             eprintln!("{}", err.to_string());
         }
 
