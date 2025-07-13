@@ -66,14 +66,10 @@ pub async fn handle_delete_environment(
                     spinner.stop_and_persist("", "");
                 }
 
-                if !silent {
-                    println!("{{}}");
-                }
+                println!("{{}}");
             } else {
-                if !silent {
-                    if let Some(mut spinner) = spinner {
-                        spinner.stop_with_message("Environment deleted.");
-                    }
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Environment deleted.");
                 }
             }
         }
