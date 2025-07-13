@@ -62,7 +62,6 @@ pub async fn handle_environment_commands(
                 format: args.file_format,
                 file_path: args.file_path,
                 json_format: raw_output,
-                force: args.force,
                 silent,
             };
 
