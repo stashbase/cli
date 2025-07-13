@@ -67,7 +67,7 @@ pub enum ConfigSubcommand {
     /// Print current config
     Print,
     /// Reset config file
-    Reset,
+    Reset(ResetConfig),
 }
 
 #[derive(Debug, Args)]
@@ -164,4 +164,12 @@ pub enum ExpandRefsSubcommand {
 #[command(override_usage = "config expand-refs set <ENABLED> [OPTIONS]")]
 pub struct SetExpandRefs {
     pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config reset [OPTIONS]")]
+pub struct ResetConfig {
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }

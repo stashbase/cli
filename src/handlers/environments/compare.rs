@@ -29,16 +29,22 @@ pub struct HandleCompareEnvironmentsArgs {
     pub environment_2: String,
     pub only_names: bool,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) -> Result<()> {
+    let silent = args.silent;
+
     let validation_res =
         validate_project_environment_identifier(&args.project, &args.environment_1, false);
 
     if let Err(err) = validation_res {
         let formatted_err = err.format_error_output(args.json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -47,7 +53,10 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
     if let Err(err) = env_identifier_validation_res {
         let formatted_err = err.format_error_output(args.json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -55,13 +64,19 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         let err =
             InputValidationError::Environments(EnvironmentsInputValidationError::SelfComparison);
 
-        eprintln!();
-        let formatted_err = err.format_error_output(args.json_format)?;
+        if !silent {
+            eprintln!();
+        }
 
+        let formatted_err = err.format_error_output(args.json_format)?;
         bail!(formatted_err);
     }
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let req_args = CompareEnvironmentsRequestArgs {
         api_key: args.api_key,
@@ -74,7 +89,9 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
     let res = environments::compare(req_args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(args.json_format)?;
         bail!(error_output);
@@ -91,11 +108,16 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                     debug!("{:#?}", &data);
 
                     if data.is_empty() && !args.json_format {
-                        spinner.stop_with_message("No secrets to compare.");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_with_message("No secrets to compare.");
+                        }
+
                         return Ok(());
                     }
 
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     let print_string = format_comparison(
                         args.environment_1,
@@ -108,7 +130,9 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                     println!("{}", print_string);
                 }
                 Err(_) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(args.json_format)?;
@@ -118,7 +142,9 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(args.json_format)?;
             bail!(error_output);

@@ -14,6 +14,8 @@ pub struct DeleteWebhookArgs {
     pub environment: String,
     pub webhook_id: String,
     pub json_format: bool,
+    pub silent: bool,
+    pub force: bool,
 }
 
 pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
@@ -23,16 +25,19 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
         environment,
         webhook_id,
         json_format,
+        silent,
+        force,
     } = args;
 
-    // confirmation
-    eprintln!("{}", "Do you really want to delete this webhook?".red());
+    if !force {
+        eprintln!("{}", "Do you really want to delete this webhook?".red());
 
-    let i = interaction::input("Type 'DELETE' to confirm.");
+        let i = interaction::input("Type 'DELETE' to confirm.");
 
-    if i != "DELETE" {
-        println!("Input does not match, action aborted.");
-        return Ok(());
+        if i != "DELETE" {
+            println!("Input does not match, action aborted.");
+            return Ok(());
+        }
     }
 
     let args = webhooks::DeleteArgs {
@@ -42,12 +47,18 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
         webhook_id,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = webhooks::delete(args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(json_format)?;
         bail!(error_output);
@@ -60,14 +71,20 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
     match res {
         DeleteRequestApiResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
                 println!("{{}}");
             } else {
-                spinner.stop_with_message("Webhook deleted.");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Webhook deleted.");
+                }
             }
         }
         DeleteRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);

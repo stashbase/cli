@@ -21,6 +21,7 @@ use crate::{
 };
 
 pub struct HandleGetSecretsArgs {
+    pub silent: bool,
     pub api_key: String,
     pub project: String,
     pub environment: String,
@@ -31,6 +32,7 @@ pub struct HandleGetSecretsArgs {
 
 pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()> {
     let HandleGetSecretsArgs {
+        silent,
         api_key,
         project,
         environment,
@@ -44,13 +46,21 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
     if let Err(e) = validation_res {
         let error_output = e.format_error_output(format == SecretsOutputFormat::Json)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
     debug!("listing secrets...:");
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let res = secrets::list(
         api_key,
         project,
@@ -61,7 +71,9 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
     )
     .await;
 
-    spinner.stop_and_persist("", "");
+    if let Some(mut spinner) = spinner {
+        spinner.stop_and_persist("", "");
+    }
 
     if let Err(err) = res {
         let error_output = err.format_error_output(format == SecretsOutputFormat::Json)?;
@@ -78,12 +90,11 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
                 Ok(secrets) => {
                     if format == SecretsOutputFormat::Json {
                         let json_str = get_colored_json(&secrets).unwrap();
-
                         println!("{}", json_str);
                         return Ok(());
                     }
 
-                    if secrets.len() < names.len() {
+                    if secrets.len() < names.len() && !silent {
                         let names_set: HashSet<String> = names.into_iter().collect();
 
                         let secrets_not_found: Vec<_> = names_set
@@ -107,11 +118,6 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
                     if !secrets.is_empty() {
                         let print_string = format_secrets(secrets, &format);
                         println!("{}", print_string);
-
-                        // if format == SecretsFromat::List {
-                        //     print!("{}", print_string);
-                        // } else {
-                        // }
                     }
                 }
                 Err(e) => {

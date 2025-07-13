@@ -19,6 +19,7 @@ pub struct HandleSetSecretsArgs {
     pub values: Vec<String>,
     pub comment: Vec<String>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 // NOTE: for now must have at least one value -> validate length
@@ -30,6 +31,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         values,
         comment,
         json_format,
+        silent,
     } = args;
 
     if values.is_empty() {
@@ -37,7 +39,9 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         let input_error = InputValidationError::Secrets(secrets_error);
         let error_output = input_error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -51,7 +55,9 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
         let error_output = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -64,7 +70,9 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
         let error_output = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -102,28 +110,38 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     if let Err(err) = payload.validate() {
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
-    let reference_warnings = payload.get_reference_warnings();
+    if !silent {
+        let reference_warnings = payload.get_reference_warnings();
 
-    if !reference_warnings.is_empty() {
-        eprintln!();
-        eprint!("{}", reference_warnings);
+        if !reference_warnings.is_empty() {
+            eprintln!();
+            eprint!("{}", reference_warnings);
 
-        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+            let confirm = interaction::confirm_opt("Are you sure you want to continue?");
 
-        if confirm.is_none() || (confirm.unwrap() == false) {
-            return Ok(());
+            if confirm.is_none() || (confirm.unwrap() == false) {
+                return Ok(());
+            }
         }
     }
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
     let res = secrets::set_sercrets(api_key, project, environment, &payload).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_str = err.format_error_output(json_format)?;
         bail!(error_str);
@@ -134,15 +152,21 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     match res {
         RequestApiOptionResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
                 println!("{{}}");
             } else {
-                spinner.stop_with_message("Secrets set.");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Secrets set.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_str = e.format_error_output(json_format)?;
             bail!(error_str);

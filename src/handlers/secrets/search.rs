@@ -35,6 +35,7 @@ pub struct HandleSearchSecretsArgs {
     pub value: Option<String>,
     pub show_values: bool,
     pub with_ids: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> {
@@ -46,6 +47,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         value,
         show_values,
         with_ids,
+        silent,
     } = args;
 
     if let Some(project) = &project {
@@ -55,7 +57,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
             let error_output =
                 err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
     }
@@ -65,7 +69,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         let err = InputValidationError::Secrets(search_error);
         let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -74,7 +80,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         let err = InputValidationError::Secrets(search_error);
         let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -85,7 +93,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
             let error_output =
                 err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
 
@@ -95,7 +105,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
             let error_output =
                 err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
     }
@@ -107,7 +119,9 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
             let error_output =
                 err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         } else if value.len() > 1000 {
             let search_error = SecretsInputValidationError::SearchValueTooLong;
@@ -115,19 +129,27 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
             let error_output =
                 err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
     }
 
     let search_by_name = name.is_some();
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
     let res =
         secrets::search_secrets(api_key, &project, &name, &value, show_values, with_ids).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
@@ -142,25 +164,27 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
                 true => handle_search_secrets_response::<
                     ProjectSecretSearchedByName,
                     ProjectSecretSearchedByNameTable,
-                >(&mut spinner, format, data)?,
+                >(spinner, format, data, silent)?,
                 false => handle_search_secrets_response::<
                     ProjectSecretSearchedByValue,
                     ProjectSecretSearchedByValueTable,
-                >(&mut spinner, format, data)?,
+                >(spinner, format, data, silent)?,
             },
             None => match search_by_name {
                 true => handle_search_secrets_response::<
                     WorkspaceSecretSearchedByName,
                     WorkspaceSecretSearchedByNameTable,
-                >(&mut spinner, format, data)?,
+                >(spinner, format, data, silent)?,
                 false => handle_search_secrets_response::<
                     WorkspaceSecretSearchedByValue,
                     WorkspaceSecretSearchedByValueTable,
-                >(&mut spinner, format, data)?,
+                >(spinner, format, data, silent)?,
             },
         },
         GetRequestApiResponse::Err(err) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output =
                 err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
@@ -172,9 +196,10 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
 }
 
 fn handle_search_secrets_response<SecretType, TableType>(
-    spinner: &mut Spinner,
+    spinner: Option<Spinner>,
     format: SecretsSearchOutputFormat,
     data: GetApiResponseOk,
+    silent: bool,
 ) -> Result<()>
 where
     SecretType: DeserializeOwned + Serialize + Display,
@@ -185,7 +210,9 @@ where
     match secrets {
         Ok(secrets) => {
             if let SecretsSearchOutputFormat::Json = format {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 let value = serde_json::to_value(&secrets).unwrap();
                 let pretty = to_colored_json_auto(&value).unwrap();
@@ -193,18 +220,30 @@ where
 
                 return Ok(());
             } else if let SecretsSearchOutputFormat::Yaml = format {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 let value = serde_yaml::to_string(&secrets).unwrap();
                 print!("{}", value);
 
                 return Ok(());
             } else if secrets.is_empty() {
-                spinner.stop_with_message("No secrets found.");
+                if let Some(mut spinner) = spinner {
+                    if !silent {
+                        spinner.stop_with_message("No secrets found.");
+                    } else {
+                        spinner.stop_and_persist("", "");
+                    }
+                } else if !silent {
+                    println!("No secrets found.");
+                }
                 return Ok(());
             }
 
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             match format {
                 SecretsSearchOutputFormat::List => {
@@ -229,7 +268,9 @@ where
             }
         }
         Err(_) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error = OutputError::failed_to_deserialize_response_body();
             let formatted_err =

@@ -169,6 +169,10 @@ pub struct DeleteSecrets {
     /// Delete all secrets
     #[arg(name = "all", value_enum, long = "all")]
     pub delete_all: bool,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

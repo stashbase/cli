@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
-use log::debug;
 
 use crate::{
     api::auth::get_current_auth_details,
@@ -16,25 +15,32 @@ use crate::{
 pub struct GetCurrentAuthDetailsRequestArgs {
     pub api_key: String,
     pub format: OutputFormat,
+    pub silent: bool,
 }
 
 pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Result<()> {
-    let args = GetCurrentAuthDetailsRequestArgs {
-        api_key: args.api_key,
-        format: args.format,
+    let GetCurrentAuthDetailsRequestArgs {
+        api_key,
+        format,
+        silent,
+    } = args;
+
+    let json_format = format == OutputFormat::Json;
+
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
     };
 
-    let json_format = args.format == OutputFormat::Json;
-    let mut spinner = request_spinner();
-
-    let response = get_current_auth_details(args.api_key).await;
+    let response = get_current_auth_details(api_key).await;
 
     if let Err(err) = response {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let formatted_err = err.format_error_output(json_format)?;
-
-        eprintln!();
         bail!(formatted_err);
     }
 
@@ -43,10 +49,12 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
     match response {
         GetRequestApiResponse::Ok(data) => {
             let auth_details = serde_json::from_str::<CurrentAuthResponse>(&data.text);
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             match auth_details {
-                Ok(auth_details) => match args.format {
+                Ok(auth_details) => match format {
                     OutputFormat::Json => {
                         let value = serde_json::to_value(&auth_details).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
@@ -68,9 +76,11 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
             }
         }
         GetRequestApiResponse::Err(err) => {
-            spinner.stop_and_persist("", "");
-            let formatted_err = err.format_error_output(json_format)?;
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
+            let formatted_err = err.format_error_output(json_format)?;
             bail!(formatted_err);
         }
     }
