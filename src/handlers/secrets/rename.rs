@@ -167,6 +167,8 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                                 );
 
                                 eprintln!("{}", info_msg);
+                            } else {
+                                eprintln!("Not found: {}", not_found_secrets.join(", "));
                             }
 
                             let names_len = payload.len();
@@ -202,6 +204,8 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                                     );
 
                                     println!("{}", msg);
+                                } else {
+                                    println!("Renamed: {}", renamed_len);
                                 }
                             }
                         } else {
