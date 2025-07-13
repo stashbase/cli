@@ -73,35 +73,31 @@ pub async fn handle_get_project(
                 Ok(project) => {
                     debug!("{:#?}", &project);
 
-                    if !silent {
-                        match format {
-                            OutputFormat::List => {
-                                print!("{}", project);
-                            }
-                            OutputFormat::Json => {
-                                let value = serde_json::to_value(&project).unwrap();
-                                let pretty = to_colored_json_auto(&value).unwrap();
-                                println!("{}", pretty);
-                            }
-                            OutputFormat::Table => match &project.description {
-                                Some(_) => {
-                                    let project_item: SingleProjectTable = project.into();
-
-                                    let table =
-                                        tables::build::build_table(&Vec::from([project_item]));
-                                    println!("{}", table);
-                                }
-                                None => {
-                                    let without_description: SingleProjectWithCountNoDescriptionTable =
-                                        project.into();
-
-                                    let table = tables::build::build_table(&Vec::from([
-                                        without_description,
-                                    ]));
-                                    println!("{}", table);
-                                }
-                            },
+                    match format {
+                        OutputFormat::List => {
+                            print!("{}", project);
                         }
+                        OutputFormat::Json => {
+                            let value = serde_json::to_value(&project).unwrap();
+                            let pretty = to_colored_json_auto(&value).unwrap();
+                            println!("{}", pretty);
+                        }
+                        OutputFormat::Table => match &project.description {
+                            Some(_) => {
+                                let project_item: SingleProjectTable = project.into();
+
+                                let table = tables::build::build_table(&Vec::from([project_item]));
+                                println!("{}", table);
+                            }
+                            None => {
+                                let without_description: SingleProjectWithCountNoDescriptionTable =
+                                    project.into();
+
+                                let table =
+                                    tables::build::build_table(&Vec::from([without_description]));
+                                println!("{}", table);
+                            }
+                        },
                     }
                 }
                 Err(_) => {
