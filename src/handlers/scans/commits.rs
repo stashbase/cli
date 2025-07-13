@@ -252,7 +252,11 @@ pub async fn handle_scan_unpushed_commit_hunks(
                         let json_value = error.to_json_value().unwrap();
 
                         if std::io::stdout().is_terminal() {
-                            eprintln!("\n{}", to_colored_json_auto(&json_value).unwrap());
+                            if !silent {
+                                eprintln!("\n{}", to_colored_json_auto(&json_value).unwrap());
+                            } else {
+                                eprintln!("{}", to_colored_json_auto(&json_value).unwrap());
+                            }
                         } else {
                             eprintln!("{}", serde_json::to_string_pretty(&json_value).unwrap());
                         }
