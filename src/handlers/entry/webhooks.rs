@@ -133,9 +133,10 @@ pub async fn handle_webhook_commands(
                 api_key,
                 project,
                 environment,
+                silent,
+                force: cmd_args.force,
                 json_format: raw_output,
                 webhook_id: cmd_args.webhook_id,
-                silent,
             };
 
             handle_delete_webhook(fn_args).await?;
