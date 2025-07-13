@@ -27,7 +27,10 @@ pub async fn handle_open_environment(
     if let Err(err) = input_validation_res {
         let formatted_err = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
