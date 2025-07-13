@@ -116,16 +116,18 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
         bail!(error_output);
     }
 
-    let reference_warnings = payload.get_reference_warnings();
+    if !silent {
+        let reference_warnings = payload.get_reference_warnings();
 
-    if !reference_warnings.is_empty() && !silent {
-        eprintln!();
-        eprint!("{}", reference_warnings);
+        if !reference_warnings.is_empty() {
+            eprintln!();
+            eprint!("{}", reference_warnings);
 
-        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+            let confirm = interaction::confirm_opt("Are you sure you want to continue?");
 
-        if confirm.is_none() || (confirm.unwrap() == false) {
-            return Ok(());
+            if confirm.is_none() || (confirm.unwrap() == false) {
+                return Ok(());
+            }
         }
     }
 
