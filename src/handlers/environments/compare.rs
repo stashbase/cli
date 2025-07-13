@@ -33,13 +33,18 @@ pub struct HandleCompareEnvironmentsArgs {
 }
 
 pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) -> Result<()> {
+    let silent = args.silent;
+
     let validation_res =
         validate_project_environment_identifier(&args.project, &args.environment_1, false);
 
     if let Err(err) = validation_res {
         let formatted_err = err.format_error_output(args.json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -48,7 +53,10 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
     if let Err(err) = env_identifier_validation_res {
         let formatted_err = err.format_error_output(args.json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -56,9 +64,11 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         let err =
             InputValidationError::Environments(EnvironmentsInputValidationError::SelfComparison);
 
-        eprintln!();
-        let formatted_err = err.format_error_output(args.json_format)?;
+        if !silent {
+            eprintln!();
+        }
 
+        let formatted_err = err.format_error_output(args.json_format)?;
         bail!(formatted_err);
     }
 
