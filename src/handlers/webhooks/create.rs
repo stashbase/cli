@@ -89,12 +89,12 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                             }
 
                             if !silent {
-                                let msg = match enable {
-                                    true => "Webhook created and enabled.",
-                                    false => "Webhook created.",
-                                };
-
                                 if let Some(mut spinner) = spinner {
+                                    let msg = match enable {
+                                        true => "Webhook created and enabled.",
+                                        false => "Webhook created.",
+                                    };
+
                                     spinner.stop_with_message(msg);
                                 }
                                 eprint!("Id: ");
