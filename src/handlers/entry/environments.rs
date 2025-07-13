@@ -8,7 +8,7 @@ use crate::{
     handlers::environments::{
         compare::{handle_compare_environments, HandleCompareEnvironmentsArgs},
         create::{handle_create_environment, HandleCreateEnvironmentArgs},
-        delete::handle_delete_environment,
+        delete::{handle_delete_environment, HandleDeleteEnvironmentArgs},
         get::handle_get_environment,
         list::{handle_list_environments, HandleListEnvironmentsArgs},
         open::handle_open_environment,
@@ -69,9 +69,18 @@ pub async fn handle_environment_commands(
         }
 
         EnvironmentSubcommand::Delete(args) => {
-            handle_delete_environment(api_key, project, args.identifier, raw_output, silent)
-                .await?;
+            let args = HandleDeleteEnvironmentArgs {
+                api_key,
+                project,
+                environment: args.identifier,
+                json_format: raw_output,
+                silent,
+                force: args.force,
+            };
+
+            handle_delete_environment(args).await?;
         }
+
         EnvironmentSubcommand::Update(args) => {
             handle_update_environment(
                 api_key,
