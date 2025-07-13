@@ -60,9 +60,13 @@ pub async fn handle_cli(args: Cli) {
                     _ => OutputFormat::List,
                 };
 
-                let args = GetCurrentAuthDetailsRequestArgs { api_key, format };
+                let args = GetCurrentAuthDetailsRequestArgs {
+                    api_key,
+                    format,
+                    silent,
+                };
 
-                handle_whoami_command(args, silent).await
+                handle_whoami_command(args).await
             }
             EntityType::Project(cmd) => {
                 let default_output_format = match config.ouput_format {
