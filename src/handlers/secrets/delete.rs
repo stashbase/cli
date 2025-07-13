@@ -25,6 +25,7 @@ pub struct HandleDeleteSecretsArgs {
     pub delete_all: bool,
     pub json_format: bool,
     pub silent: bool,
+    pub force: bool,
 }
 
 // ✓
@@ -37,6 +38,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
         names,
         json_format,
         silent,
+        force,
     } = args;
 
     if names.is_empty() && !delete_all {
@@ -64,8 +66,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
         bail!(error_output);
     }
 
-    // op
-    if delete_all {
+    if delete_all && !force {
         eprintln!(
             "{}",
             "All secrets in selected environment will be deleted.".red()

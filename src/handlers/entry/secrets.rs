@@ -134,6 +134,7 @@ pub async fn handle_secrets_commands(
                 silent,
                 project,
                 environment,
+                force: args.force,
                 names: args.names,
                 delete_all: args.delete_all,
                 json_format: raw_output,
