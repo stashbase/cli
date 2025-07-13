@@ -119,6 +119,10 @@ pub struct UpdateProject {
     /// Project description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

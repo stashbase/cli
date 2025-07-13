@@ -11,7 +11,7 @@ use crate::{
         get::handle_get_project,
         list::{handle_list_projects, HandleListProjectsArgs},
         open::handle_open_project,
-        update::handle_update_project,
+        update::{handle_update_project, HandleUpdateProjectArgs},
     },
     utils::output::get_output_format,
 };
@@ -64,15 +64,17 @@ pub async fn handle_project_commands(
             handle_open_project(api_key, args.identifier, raw_output, silent).await?;
         }
         ProjectSubcommand::Update(args) => {
-            handle_update_project(
+            let args = HandleUpdateProjectArgs {
                 api_key,
-                args.identifier,
-                args.new_name,
-                args.description,
-                raw_output,
+                name: args.identifier,
+                new_name: args.new_name,
+                new_description: args.description,
+                json_format: raw_output,
+                force: args.force,
                 silent,
-            )
-            .await?;
+            };
+
+            handle_update_project(args).await?;
         }
     }
 
