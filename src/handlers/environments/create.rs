@@ -60,7 +60,10 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     if let Err(err) = input_valid {
         let formatted_err = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -79,11 +82,18 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 });
                 let pretty = to_colored_json_auto(&error_json).unwrap();
 
-                eprintln!();
+                if !silent {
+                    eprintln!();
+                }
+
                 bail!(pretty);
             } else {
                 let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
-                eprintln!();
+
+                if !silent {
+                    eprintln!();
+                }
+
                 bail!(err_msg);
             }
         }
@@ -108,10 +118,11 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
             Ok(values) => {
                 debug!("{:#?}", values);
 
-                if values.is_empty() {
+                if values.is_empty() && !silent {
                     if !silent {
                         let msg =
                             format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
+
                         eprintln!("{}", msg);
 
                         let confirm =
@@ -151,7 +162,10 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 ));
                 let formatted_err = error.format_error_output(json_format)?;
 
-                eprintln!();
+                if !silent {
+                    eprintln!();
+                }
+
                 bail!(formatted_err);
             }
         }
@@ -210,12 +224,8 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                             spinner.stop_with_message("Environment created.");
                         }
 
-                        if !silent {
-                            eprint!("Id: ");
-                            print!("{}\n", data.id);
-                        } else {
-                            eprintln!("{}", data.id);
-                        }
+                        eprint!("Id: ");
+                        print!("{}\n", data.id);
 
                         if !silent {
                             if let Some(dashboard_url) = data.dashboard_url {
