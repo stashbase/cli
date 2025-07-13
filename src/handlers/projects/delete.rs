@@ -66,9 +66,7 @@ pub async fn handle_delete_project(
                     spinner.stop_and_persist("", "");
                 }
 
-                if !silent {
-                    println!("{{}}");
-                }
+                println!("{{}}");
             } else {
                 if let Some(mut spinner) = spinner {
                     spinner.stop_with_message("Project deleted.");
