@@ -12,7 +12,7 @@ use crate::{
         get::handle_get_environment,
         list::{handle_list_environments, HandleListEnvironmentsArgs},
         open::handle_open_environment,
-        update::handle_update_environment,
+        update::{handle_update_environment, HandleUpdateEnvironmentArgs},
     },
     utils::output::get_output_format,
 };
@@ -83,17 +83,19 @@ pub async fn handle_environment_commands(
         }
 
         EnvironmentSubcommand::Update(args) => {
-            handle_update_environment(
+            let args = HandleUpdateEnvironmentArgs {
                 api_key,
                 project,
-                args.identifier,
-                args.new_name,
-                args.description,
-                args.is_production,
-                raw_output,
+                environment: args.identifier,
+                new_name: args.new_name,
+                new_description: args.description,
+                new_is_production: args.is_production,
+                json_format: raw_output,
+                force: args.force,
                 silent,
-            )
-            .await?
+            };
+
+            handle_update_environment(args).await?;
         }
         EnvironmentSubcommand::Compare(args) => {
             let handler_args = HandleCompareEnvironmentsArgs {
