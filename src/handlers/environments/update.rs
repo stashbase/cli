@@ -18,16 +18,31 @@ use crate::{
     },
 };
 
-pub async fn handle_update_environment(
-    api_key: String,
-    project: String,
-    environment: String,
-    new_name: Option<String>,
-    new_description: Option<String>,
-    new_is_production: Option<bool>,
-    json_format: bool,
-    silent: bool,
-) -> anyhow::Result<()> {
+pub struct HandleUpdateEnvironmentArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub new_name: Option<String>,
+    pub new_description: Option<String>,
+    pub new_is_production: Option<bool>,
+    pub json_format: bool,
+    pub silent: bool,
+    pub force: bool,
+}
+
+pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> anyhow::Result<()> {
+    let HandleUpdateEnvironmentArgs {
+        api_key,
+        project,
+        environment,
+        new_name,
+        new_description,
+        new_is_production,
+        json_format,
+        silent,
+        force,
+    } = args;
+
     // validation
     let input_valid_res = validate_input(
         &project,
@@ -50,10 +65,12 @@ pub async fn handle_update_environment(
     // OK
     debug!("updating project...:");
 
-    let i = interaction::confirm_opt("Are you sure?");
+    if !force {
+        let i = interaction::confirm_opt("Are you sure?");
 
-    if i.is_none() || (i.unwrap() == false) {
-        return Ok(());
+        if i.is_none() || (i.unwrap() == false) {
+            return Ok(());
+        }
     }
 
     let data = UpdateEnvironmentPayload {
