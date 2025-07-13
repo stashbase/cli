@@ -47,6 +47,7 @@ pub struct HandlePullArgs {
     pub expand_refs: Option<bool>,
     pub overwrite_file: bool,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
@@ -62,6 +63,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut expand_refs,
         overwrite_file,
         json_format,
+        silent,
     } = args;
 
     let project: Option<String>;
@@ -90,7 +92,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
             let formatted_err = err.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
             bail!(formatted_err);
         }
 
@@ -173,7 +178,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     if let Err(e) = validation_res {
         let formatted_err = e.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -184,7 +192,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
         let formatted_err = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -196,7 +207,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             let error = InputValidationError::LoadEnvironment(mapped_err);
             let formatted_err = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
             bail!(formatted_err);
         }
     }
@@ -209,7 +223,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             let error = InputValidationError::LoadEnvironment(mapped_err);
             let formatted_err = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
             bail!(formatted_err);
         }
     }
@@ -226,7 +243,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             Err(e) => {
                 let formatted_err = e.format_error_output(json_format)?;
 
-                eprintln!();
+                if !silent {
+                    eprintln!();
+                }
+
                 bail!(formatted_err);
             }
         }
@@ -249,12 +269,16 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
     // eprintln!();
 
-    let mut spinner = Spinner::new_with_stream(
-        spinners::Dots,
-        "Pulling environment...",
-        Color::Cyan,
-        Streams::Stderr,
-    );
+    let mut spinner = if !silent {
+        Some(Spinner::new_with_stream(
+            spinners::Dots,
+            "Pulling environment...",
+            Color::Cyan,
+            Streams::Stderr,
+        ))
+    } else {
+        None
+    };
 
     let res = secrets::pull(
         api_key,
@@ -268,7 +292,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     .await;
 
     if let Err(err) = res {
-        spinner.stop_with_message(&err.to_string());
+        if let Some(ref mut spinner) = spinner {
+            spinner.stop_with_message(&err.to_string());
+        }
         debug!("Error: {:#?}", &err);
 
         let formatted_err = err.format_error_output(json_format)?;
@@ -284,6 +310,10 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             match secrets {
                 Ok(mut secrets) => {
                     if secrets.is_empty() && setted_secrets.is_empty() {
+                        if let Some(ref mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
                         let msg = if only_len == 0 {
                             format!("{}\n{}", "Error".red(), "  Message: No secrets found.")
                         } else {
@@ -294,27 +324,32 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                 only_len
                             )
                         };
-
-                        spinner.stop_and_persist("", "");
                         eprintln!("{}", msg);
                         return Ok(());
                     }
 
                     if only_len > 0 && secrets.len() < only_len {
-                        let mut msg = format!(
-                            "{} {} Secret(s) found, {} secret(s) requested.",
-                            "Error:".red(),
-                            secrets.len(),
-                            only_len
-                        );
+                        if let Some(ref mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
-                        msg.insert_str(0, "\n");
+                        if !silent {
+                            let mut msg = format!(
+                                "{} {} Secret(s) found, {} secret(s) requested.",
+                                "Error:".red(),
+                                secrets.len(),
+                                only_len
+                            );
 
-                        spinner.stop_and_persist("", "");
-                        eprintln!("{}", msg);
+                            msg.insert_str(0, "\n");
+                            eprintln!("{}", msg);
+                        }
 
-                        let confirmation =
-                            interaction::confirm_opt("Do you still want to proceed?");
+                        let confirmation = if !silent {
+                            interaction::confirm_opt("Do you still want to proceed?")
+                        } else {
+                            Some(true) // Auto-proceed in silent mode
+                        };
 
                         if let Some(true) = confirmation {
                             if print_secrets {
@@ -338,10 +373,18 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             let output_path = target_file.clone().unwrap();
 
                             if fs::metadata(&output_path).is_ok() && overwrite_file != true {
-                                eprintln!("{}", &format!("File '{}' already exists.", output_path));
+                                if !silent {
+                                    eprintln!(
+                                        "{}",
+                                        &format!("File '{}' already exists.", output_path)
+                                    );
+                                }
 
-                                let confirmation =
-                                    interaction::confirm_opt("Do you want to overwrite the file?");
+                                let confirmation = if !silent {
+                                    interaction::confirm_opt("Do you want to overwrite the file?")
+                                } else {
+                                    Some(true) // Auto-proceed in silent mode
+                                };
 
                                 if let Some(true) = confirmation {
                                     // continue
@@ -385,10 +428,17 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             let file_res = write_file(&output_path, file_string);
 
                             match file_res {
-                                Ok(_) => println!(
-                                    "{}",
-                                    &format!("File '{}' successfully created.", output_path)
-                                ),
+                                Ok(_) => {
+                                    if !silent {
+                                        println!(
+                                            "{}",
+                                            &format!(
+                                                "File '{}' successfully created.",
+                                                output_path
+                                            )
+                                        );
+                                    }
+                                }
                                 Err(e) => {
                                     bail!(e)
                                 }
@@ -413,12 +463,18 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         let file_exists = fs::metadata(&output_path).is_ok();
 
                         if file_exists && overwrite_file != true {
-                            spinner.stop_with_message(&format!(
-                                "File '{}' already exists.",
-                                output_path
-                            ));
-                            let confirmation =
-                                interaction::confirm_opt("Do you want to overwrite the file?");
+                            if let Some(ref mut spinner) = spinner {
+                                spinner.stop_with_message(&format!(
+                                    "File '{}' already exists.",
+                                    output_path
+                                ));
+                            }
+
+                            let confirmation = if !silent {
+                                interaction::confirm_opt("Do you want to overwrite the file?")
+                            } else {
+                                Some(true) // Auto-proceed in silent mode
+                            };
 
                             if let Some(true) = confirmation {
                                 // continue
@@ -461,20 +517,29 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         match file_res {
                             Ok(_) => {
                                 if !file_exists {
-                                    spinner.stop_with_message(&format!(
-                                        "File '{}' successfully created.",
-                                        output_path
-                                    ));
+                                    if let Some(ref mut spinner) = spinner {
+                                        spinner.stop_with_message(&format!(
+                                            "File '{}' successfully created.",
+                                            output_path
+                                        ));
+                                    }
                                 } else {
-                                    println!(
-                                        "{}",
-                                        &format!("File '{}' successfully created.", output_path)
-                                    );
+                                    if !silent {
+                                        println!(
+                                            "{}",
+                                            &format!(
+                                                "File '{}' successfully created.",
+                                                output_path
+                                            )
+                                        );
+                                    }
                                 }
                             }
                             Err(e) => {
                                 if !file_exists {
-                                    spinner.stop_and_persist("", "");
+                                    if let Some(ref mut spinner) = spinner {
+                                        spinner.stop_and_persist("", "");
+                                    }
                                 }
                                 bail!(e)
                             }
@@ -482,18 +547,21 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                     }
                 }
                 Err(_) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(ref mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(json_format)?;
 
-                    eprintln!();
                     bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(ref mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let formatted_err = e.format_error_output(json_format)?;
             bail!(formatted_err);
