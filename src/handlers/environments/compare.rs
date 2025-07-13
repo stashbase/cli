@@ -72,7 +72,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         bail!(formatted_err);
     }
 
-    let spinner = if !args.silent {
+    let spinner = if !silent {
         Some(request_spinner())
     } else {
         None
