@@ -136,6 +136,7 @@ pub async fn handle_cli(args: Cli) {
                     expand_refs: args.expand_refs,
                     print_secrets: args.print_secrets,
                     json_format: raw_output,
+                    silent,
                 };
 
                 handle_load_env_run(args).await
