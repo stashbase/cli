@@ -78,19 +78,12 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
                 }
                 println!("{{}}");
             } else {
-                if !silent {
+                if let Some(mut spinner) = spinner {
                     let msg = match enabled {
                         true => "Webhook enabled.",
                         false => "Webhook disabled.",
                     };
-
-                    if let Some(mut spinner) = spinner {
-                        spinner.stop_with_message(msg);
-                    }
-                } else {
-                    if let Some(mut spinner) = spinner {
-                        spinner.stop_and_persist("", "");
-                    }
+                    spinner.stop_with_message(msg);
                 }
             }
         }
