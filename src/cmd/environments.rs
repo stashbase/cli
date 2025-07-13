@@ -287,4 +287,8 @@ pub struct CreateEnvironment {
     /// Open environment in browser
     #[arg(value_enum, long = "open")]
     pub open: bool,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }

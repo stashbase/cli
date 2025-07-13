@@ -39,6 +39,7 @@ pub struct HandleCreateEnvironmentArgs {
     pub format: Option<SecretsFileFormat>,
     pub json_format: bool,
     pub silent: bool,
+    pub force: bool,
 }
 
 pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Result<()> {
@@ -53,6 +54,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         open,
         json_format,
         silent,
+        force,
     } = args;
 
     let input_valid = validate_project_environment(&project, &name, true);
@@ -118,8 +120,16 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
             Ok(values) => {
                 debug!("{:#?}", values);
 
-                if values.is_empty() && !silent {
-                    if !silent {
+                if values.is_empty() {
+                    if force {
+                        // Force: proceed anyway
+                    } else if silent {
+                        // Silent mode: fail with suggestion to use --force
+                        bail!(
+                            "No secrets found in file. Use --force to create environment anyway."
+                        );
+                    } else {
+                        // Interactive mode: show warning and ask
                         let msg =
                             format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
 
@@ -133,7 +143,14 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         }
                     }
                 } else {
-                    if !silent {
+                    // Non-empty file: always confirm when creating secrets
+                    if force {
+                        // Force: proceed anyway
+                    } else if silent {
+                        // Silent mode: fail with suggestion to use --force
+                        bail!("Creating environment with secrets. Use --force to proceed anyway.");
+                    } else {
+                        // Interactive mode: show info and ask
                         let validation_msg = validate_secrets_input(&values);
 
                         if let Some(msg) = validation_msg {
