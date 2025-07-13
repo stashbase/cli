@@ -44,8 +44,11 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let project_identifier_vlidation_result = validate_project_identifier(&project, false);
 
     if let Err(err) = project_identifier_vlidation_result {
-        eprintln!();
         let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+        if !silent {
+            eprintln!();
+        }
 
         bail!(formatted_err);
     }
@@ -55,8 +58,11 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         let search_validation_res = validate_env_search(&search);
 
         if let Err(err) = search_validation_res {
-            eprintln!();
             let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+            if !silent {
+                eprintln!();
+            }
 
             bail!(formatted_err);
         }
@@ -165,7 +171,6 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
 
-                    eprintln!();
                     bail!(formatted_err);
                 }
             }
