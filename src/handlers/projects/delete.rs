@@ -12,12 +12,23 @@ use crate::{
     },
 };
 
-pub async fn handle_delete_project(
-    api_key: String,
-    name: String,
-    json_format: bool,
-    silent: bool,
-) -> Result<()> {
+pub struct HandleDeleteProjectArgs {
+    pub api_key: String,
+    pub name: String,
+    pub json_format: bool,
+    pub silent: bool,
+    pub force: bool,
+}
+
+pub async fn handle_delete_project(args: HandleDeleteProjectArgs) -> Result<()> {
+    let HandleDeleteProjectArgs {
+        api_key,
+        name,
+        json_format,
+        silent,
+        force,
+    } = args;
+
     let identifier_is_valid = validate_project_identifier(&name, true);
 
     if let Err(err) = identifier_is_valid {
@@ -27,16 +38,16 @@ pub async fn handle_delete_project(
         bail!(error_output);
     }
 
-    eprintln!("{}", "All environments and secrets will be deleted.".red());
+    if !force {
+        eprintln!("{}", "All environments and secrets will be deleted.".red());
 
-    let i = interaction::input(&format!("Type '{}' to confirm.", name));
+        let i = interaction::input(&format!("Type '{}' to confirm.", name));
 
-    if i != name {
-        eprintln!("Input does not match, action aborted.");
-        return Ok(());
+        if i != name {
+            eprintln!("Input does not match, action aborted.");
+            return Ok(());
+        }
     }
-
-    debug!("deleting project...:");
 
     let spinner = if !silent {
         Some(request_spinner())
