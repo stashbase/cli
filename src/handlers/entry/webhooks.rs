@@ -242,9 +242,10 @@ pub async fn handle_webhook_commands(
                 api_key,
                 project,
                 environment,
+                silent,
                 webhook_id: cmd_args.webhook_id,
                 json_format: raw_output,
-                silent,
+                force: cmd_args.force,
             };
 
             handle_rotate_webhook_secret(fn_args).await?;
