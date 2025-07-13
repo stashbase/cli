@@ -15,6 +15,7 @@ pub struct DeleteWebhookArgs {
     pub webhook_id: String,
     pub json_format: bool,
     pub silent: bool,
+    pub force: bool,
 }
 
 pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
@@ -25,10 +26,10 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
         webhook_id,
         json_format,
         silent,
+        force,
     } = args;
 
-    // confirmation
-    if !silent {
+    if !force {
         eprintln!("{}", "Do you really want to delete this webhook?".red());
 
         let i = interaction::input("Type 'DELETE' to confirm.");

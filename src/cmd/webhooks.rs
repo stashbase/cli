@@ -215,6 +215,10 @@ pub struct DeleteWebhook {
 
     /// Id of webhook
     pub webhook_id: String,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
