@@ -18,6 +18,7 @@ pub struct RotateWebhookSecretArgs {
     pub webhook_id: String,
     pub json_format: bool,
     pub silent: bool,
+    pub force: bool,
 }
 
 impl From<RotateWebhookSecretArgs> for webhooks::RotateArgs {
@@ -35,8 +36,9 @@ impl From<RotateWebhookSecretArgs> for webhooks::RotateArgs {
 pub async fn handle_rotate_webhook_secret(args: RotateWebhookSecretArgs) -> Result<()> {
     let json_format = args.json_format;
     let silent = args.silent;
+    let force = args.force;
 
-    if !silent {
+    if !force {
         let i = interaction::confirm_opt("Are you sure you want to rotate signing secret?");
 
         if i.is_none() || (i.unwrap() == false) {
