@@ -7,7 +7,7 @@ use crate::{
     },
     handlers::projects::{
         create::handle_create_project,
-        delete::handle_delete_project,
+        delete::{handle_delete_project, HandleDeleteProjectArgs},
         get::handle_get_project,
         list::{handle_list_projects, HandleListProjectsArgs},
         open::handle_open_project,
@@ -50,7 +50,15 @@ pub async fn handle_project_commands(
             handle_create_project(api_key, args.name, args.description, raw_output, silent).await?;
         }
         ProjectSubcommand::Delete(args) => {
-            handle_delete_project(api_key, args.identifier, raw_output, silent).await?;
+            let args = HandleDeleteProjectArgs {
+                api_key,
+                silent,
+                force: args.force,
+                name: args.identifier,
+                json_format: raw_output,
+            };
+
+            handle_delete_project(args).await?;
         }
         ProjectSubcommand::Open(args) => {
             handle_open_project(api_key, args.identifier, raw_output, silent).await?;
