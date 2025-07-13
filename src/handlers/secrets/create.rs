@@ -187,7 +187,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                     })
                                     .collect();
 
-                                if !silent {
+                                if silent {
+                                    println!("Created: {}", created_count);
+                                } else {
                                     let msg = format!(
                                         "{} {}",
                                         format!(
@@ -208,20 +210,29 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                             } else {
                                 if created_count == 0 && duplicate_secrets.len() == 0 {
                                     if let Some(mut spinner) = spinner {
-                                        spinner.stop_and_persist("No secrets created.", "");
+                                        spinner.stop_and_persist("", "");
+                                    }
+                                    if silent {
+                                        println!("Created: 0");
+                                    } else {
+                                        println!("No secrets created.");
                                     }
                                 } else {
                                     if let Some(mut spinner) = spinner {
                                         spinner.stop_and_persist("", "");
                                     }
 
-                                    if !silent {
+                                    if silent {
+                                        println!("Created: 0");
+                                    } else {
                                         println!("No secrets created.");
                                     }
                                 }
                             }
 
-                            if !silent {
+                            if silent {
+                                println!("Already exist: {}", duplicate_secrets.join(", "));
+                            } else {
                                 let info_msg = format!(
                                     "{} {}",
                                     format!(
@@ -235,9 +246,14 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                 eprintln!("{}", info_msg);
                             }
                         } else {
-                            // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
+                            // All secrets created successfully, no duplicates
                             if let Some(mut spinner) = spinner {
-                                spinner.stop_with_message("Secrets created.");
+                                spinner.stop_and_persist("", "");
+                            }
+                            if silent {
+                                println!("Created: {}", created_count);
+                            } else {
+                                println!("Secrets created.");
                             }
                         }
                     }
