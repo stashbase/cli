@@ -127,16 +127,9 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                         OutputFormat::Table => {
                             if webhook_logs.data.is_empty() {
                                 if let Some(mut spinner) = spinner {
-                                    if !silent {
-                                        spinner.stop_with_message("No change.\n");
-                                        eprintln!("{}", webhook_logs.pagination);
-                                    } else {
-                                        spinner.stop_and_persist("", "");
-                                    }
-                                } else if !silent {
-                                    println!("No change.\n");
-                                    eprintln!("{}", webhook_logs.pagination);
+                                    spinner.stop_with_message("No logs.\n");
                                 }
+                                eprintln!("{}", webhook_logs.pagination);
                                 // return Ok(());
                             } else {
                                 if let Some(mut spinner) = spinner {
@@ -153,9 +146,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
 
                                 let table = tables::build::build_table(&table_logs);
                                 println!("{}", table);
-                                if !silent {
-                                    eprintln!("\n{}", webhook_logs.pagination);
-                                }
+                                eprintln!("\n{}", webhook_logs.pagination);
                             }
                         }
                     }
