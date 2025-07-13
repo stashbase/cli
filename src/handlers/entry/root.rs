@@ -170,6 +170,7 @@ pub async fn handle_cli(args: Cli) {
                     set: args.set,
                     expand_refs: args.expand_refs,
                     json_format: raw_output,
+                    silent,
                 };
 
                 handle_push(args).await
