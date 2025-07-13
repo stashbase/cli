@@ -187,22 +187,24 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                     })
                                     .collect();
 
-                                let msg = format!(
-                                    "{} {}",
-                                    format!(
-                                        "{} {} {}",
-                                        "Secrets".green(),
-                                        "created".green(),
-                                        format!("({}):", created_count).green(),
-                                    ),
-                                    secrets_created
-                                        .iter()
-                                        .map(|s| s.name.clone())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                );
+                                if !silent {
+                                    let msg = format!(
+                                        "{} {}",
+                                        format!(
+                                            "{} {} {}",
+                                            "Secrets".green(),
+                                            "created".green(),
+                                            format!("({}):", created_count).green(),
+                                        ),
+                                        secrets_created
+                                            .iter()
+                                            .map(|s| s.name.clone())
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    );
 
-                                println!("{}", msg);
+                                    println!("{}", msg);
+                                }
                             } else {
                                 if created_count == 0 && duplicate_secrets.len() == 0 {
                                     if let Some(mut spinner) = spinner {
@@ -219,19 +221,19 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                 }
                             }
 
-                            let info_msg = format!(
-                                "{} {}",
-                                format!(
-                                    "{} {} {}",
-                                    "Secrets".red(),
-                                    "already exist".red(),
-                                    format!("({}):", duplicate_secrets.len()).red(),
-                                ),
-                                duplicate_secrets.join(", ")
-                            );
-
-                            //
-                            eprintln!("{}", info_msg);
+                            if !silent {
+                                let info_msg = format!(
+                                    "{} {}",
+                                    format!(
+                                        "{} {} {}",
+                                        "Secrets".red(),
+                                        "already exist".red(),
+                                        format!("({}):", duplicate_secrets.len()).red(),
+                                    ),
+                                    duplicate_secrets.join(", ")
+                                );
+                                eprintln!("{}", info_msg);
+                            }
                         } else {
                             // spinner.stop_with_message("🗑️ Selected secrets have been deleted!");
                             if let Some(mut spinner) = spinner {
