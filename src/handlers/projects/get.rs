@@ -31,7 +31,10 @@ pub async fn handle_get_project(
     if let Err(err) = identifier_is_valid {
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
