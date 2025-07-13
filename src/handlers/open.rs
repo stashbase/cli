@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use log::error;
 use serde::Deserialize;
 
 use crate::{
@@ -12,14 +11,20 @@ struct OpenDashboardResponse {
     dashboard_url: String,
 }
 
-pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
-    let mut spinner = request_spinner();
+pub async fn handle_open_dashboard(api_key: String, silent: bool) -> Result<()> {
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let response = workspace::get_url(api_key).await;
 
     if let Err(err) = response {
-        spinner.stop_and_persist("", "");
-        error!("{:#?}", &err);
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
+
         bail!(err);
     }
 
@@ -32,21 +37,29 @@ pub async fn handle_open_dashboard(api_key: String) -> Result<()> {
             match data {
                 Ok(data) => {
                     let url = data.dashboard_url;
-                    spinner.stop_with_message(&format!("Opening URL: {}", url));
+
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_with_message(&format!("Opening URL: {}", url));
+                    }
 
                     if let Err(err) = webbrowser::open(&url) {
-                        spinner.stop_with_message(&format!("Error opening URL: {}", err));
+                        eprintln!("Error opening URL: {}", err);
                     }
                 }
                 Err(e) => {
-                    error!("{:#?}", e);
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
+
                     bail!("Something went wrong.");
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
+
             bail!(e);
         }
     }
