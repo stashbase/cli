@@ -213,12 +213,14 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                         let updated_count = data.updated_count;
                         let not_found_secrets = data.not_found_secrets;
 
-                        if updated_count > 0 {
-                            if let Some(mut spinner) = spinner {
-                                spinner.stop_and_persist("", "");
-                            }
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
-                            if !silent {
+                        if updated_count > 0 {
+                            if silent {
+                                println!("Updated: {}", updated_count);
+                            } else {
                                 let secrets_updated: Vec<_> = payload
                                     .into_iter()
                                     .filter(|k| {
@@ -244,33 +246,30 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                 println!("{}", msg);
                             }
                         } else {
-                            if updated_count == 0 && not_found_secrets.len() == 0 {
-                                if let Some(mut spinner) = spinner {
-                                    spinner
-                                        .stop_and_persist("No secrets updated (no changes).", "");
-                                }
+                            if silent {
+                                println!("Updated: 0");
                             } else {
-                                if let Some(mut spinner) = spinner {
-                                    spinner.stop_and_persist("", "");
-                                    let msg = format!("No secrets updated (no changes).");
-                                    println!("{}", msg);
-                                }
+                                println!("No secrets updated (no changes).");
                             }
                         }
 
-                        if not_found_secrets.len() > 0 && !silent {
-                            let info_msg = format!(
-                                "{} {}",
-                                format!(
-                                    "{} {} {}",
-                                    "Secrets".red(),
-                                    "not found".red(),
-                                    format!("({}):", not_found_secrets.len()).red(),
-                                ),
-                                not_found_secrets.join(", ")
-                            );
+                        if not_found_secrets.len() > 0 {
+                            if silent {
+                                println!("Not found: {}", not_found_secrets.join(", "));
+                            } else {
+                                let info_msg = format!(
+                                    "{} {}",
+                                    format!(
+                                        "{} {} {}",
+                                        "Secrets".red(),
+                                        "not found".red(),
+                                        format!("({}):", not_found_secrets.len()).red(),
+                                    ),
+                                    not_found_secrets.join(", ")
+                                );
 
-                            println!("{}", info_msg);
+                                println!("{}", info_msg);
+                            }
                         }
                     }
                     Err(_) => {
