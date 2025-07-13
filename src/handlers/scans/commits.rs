@@ -24,6 +24,7 @@ use crate::{
 pub struct HandleScanUnpushedCommitHunksArgs {
     pub api_key: String,
     pub json_format: bool,
+    pub silent: bool,
 
     pub exclude: Vec<String>,
     pub baseline: Option<String>,
@@ -38,6 +39,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
     let HandleScanUnpushedCommitHunksArgs {
         api_key,
         json_format,
+        silent,
         baseline,
         output_dir,
         config_file_path,
@@ -51,7 +53,12 @@ pub async fn handle_scan_unpushed_commit_hunks(
             Err(e) => {
                 let error = InputValidationError::Scan(e);
                 let error_output = error.format_error_output(json_format).unwrap();
-                eprintln!("\n{}", error_output);
+
+                if !silent {
+                    eprintln!("\n{}", error_output);
+                } else {
+                    eprintln!("{}", error_output);
+                }
 
                 std::process::exit(1);
             }
@@ -79,13 +86,18 @@ pub async fn handle_scan_unpushed_commit_hunks(
         let input_validation_error = InputValidationError::Scan(e);
         let error_output = input_validation_error.format_error_output(json_format)?;
 
-        eprintln!("\n{}", error_output);
+        if !silent {
+            eprintln!("\n{}", error_output);
+        } else {
+            eprintln!("{}", error_output);
+        }
+
         std::process::exit(1);
     }
 
     let unpushed_commit_hunks = unpushed_commit_hunks_result.unwrap();
 
-    if unpushed_commit_hunks.is_empty() {
+    if unpushed_commit_hunks.is_empty() && !silent {
         if json_format {
             let message = serde_json::json!({
                 "message": "No unpushed commits to scan."
@@ -123,17 +135,23 @@ pub async fn handle_scan_unpushed_commit_hunks(
         commits: unpushed_commit_hunks,
     };
 
-    let mut spinner = Spinner::new_with_stream(
-        spinners::Dots,
-        "Scanning commits...",
-        Color::Cyan,
-        Streams::Stderr,
-    );
+    let spinner = if !silent {
+        Some(Spinner::new_with_stream(
+            spinners::Dots,
+            "Scanning commits...",
+            Color::Cyan,
+            Streams::Stderr,
+        ))
+    } else {
+        None
+    };
 
     let response = api::scans::scan_commits(api_key, &data).await;
 
     if let Err(err) = response {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(json_format)?;
         eprintln!("{}", error_output);
@@ -154,7 +172,9 @@ pub async fn handle_scan_unpushed_commit_hunks(
                             None => config.output_dir,
                         };
 
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         // Apply baseline filtering if baseline is provided
                         let filtered_data = if let Some(baseline_path) = baseline {
@@ -205,7 +225,10 @@ pub async fn handle_scan_unpushed_commit_hunks(
                         }
                     }
                     Err(_) => {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
                         let error = OutputError::failed_to_deserialize_response_body();
                         let formatted_err = error.format_error_output(json_format)?;
 
@@ -215,7 +238,9 @@ pub async fn handle_scan_unpushed_commit_hunks(
                 }
             }
             None => {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 match json_format {
                     true => {
@@ -227,7 +252,11 @@ pub async fn handle_scan_unpushed_commit_hunks(
                         let json_value = error.to_json_value().unwrap();
 
                         if std::io::stdout().is_terminal() {
-                            eprintln!("\n{}", to_colored_json_auto(&json_value).unwrap());
+                            if !silent {
+                                eprintln!("\n{}", to_colored_json_auto(&json_value).unwrap());
+                            } else {
+                                eprintln!("{}", to_colored_json_auto(&json_value).unwrap());
+                            }
                         } else {
                             eprintln!("{}", serde_json::to_string_pretty(&json_value).unwrap());
                         }
@@ -241,7 +270,9 @@ pub async fn handle_scan_unpushed_commit_hunks(
             }
         },
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             eprintln!("{}", error_output);

@@ -23,6 +23,7 @@ pub struct HandleListSecretsArgs {
     pub format: SecretsOutputFormat,
     pub only_names: bool,
     pub expand_refs: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
@@ -33,6 +34,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         format,
         only_names,
         expand_refs,
+        silent,
     } = args;
 
     // if let Some(search) = &search {
@@ -45,11 +47,18 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
 
     debug!("listing secrets...:");
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let res = secrets::list(api_key, project, enironment, only_names, None, expand_refs).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(format == SecretsOutputFormat::Json)?;
@@ -69,16 +78,28 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                             if format == SecretsOutputFormat::Json {
                                 let json_str = get_colored_json(&secrets).unwrap();
 
-                                spinner.stop_and_persist("", "");
+                                if let Some(mut spinner) = spinner {
+                                    spinner.stop_and_persist("", "");
+                                }
                                 println!("{}", json_str);
                             } else {
-                                spinner.stop_with_message("No secrets found.");
+                                if !silent {
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_with_message("No secrets found.");
+                                    }
+                                } else {
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_and_persist("", "");
+                                    }
+                                }
                             }
                         } else {
                             let names = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
                             let print_string = format_secret_names(names, &format);
 
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
 
                             println!("{}", print_string);
                         }
@@ -88,7 +109,9 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         let formatted_err =
                             error.format_error_output(format == SecretsOutputFormat::Json)?;
 
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
                         bail!(formatted_err);
                     }
                 }
@@ -104,25 +127,30 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                             if format == SecretsOutputFormat::Json {
                                 let json_str = get_colored_json(&secrets).unwrap();
 
-                                spinner.stop_and_persist("", "");
+                                if let Some(mut spinner) = spinner {
+                                    spinner.stop_and_persist("", "");
+                                }
                                 println!("{}", json_str);
                             } else {
-                                spinner.stop_with_message("No secrets found.");
+                                if !silent {
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_with_message("No secrets found.");
+                                    }
+                                }
                             }
                         } else {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             let print_string = format_secrets(secrets, &format);
 
                             println!("{}", print_string);
-
-                            //     if format == SecretsFromat::List {
-                            //     } else {
-                            //         println!("{}", print_string);
-                            //     }
                         }
                     }
                     Err(_) => {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         let error = OutputError::failed_to_deserialize_response_body();
                         let formatted_err =
@@ -134,7 +162,9 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
             }
         },
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == SecretsOutputFormat::Json)?;
             bail!(error_output);

@@ -19,6 +19,7 @@ use crate::{
 pub async fn handle_get_environment(
     api_key: String,
     format: OutputFormat,
+    silent: bool,
     project: String,
     environment: String,
 ) -> Result<()> {
@@ -27,18 +28,28 @@ pub async fn handle_get_environment(
     if let Err(err) = input_valid {
         let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
     // OK
     debug!("getting env...");
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let res = environments::get(api_key, project, environment).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
         bail!(error_output);
@@ -49,7 +60,10 @@ pub async fn handle_get_environment(
     match res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);
-            spinner.stop_and_persist("", "");
+
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let environment = serde_json::from_str::<Environment>(&data.text);
 
@@ -86,13 +100,18 @@ pub async fn handle_get_environment(
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
 
-                    eprintln!();
+                    if !silent {
+                        eprintln!();
+                    }
+
                     bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
             bail!(error_output);

@@ -24,6 +24,7 @@ pub struct HandleRenameSecretsArgs {
     pub environment: String,
     pub secrets: Vec<String>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 // TODO: input error - at least one item
@@ -34,6 +35,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
         environment,
         secrets,
         json_format,
+        silent,
     } = args;
 
     if secrets.is_empty() {
@@ -43,7 +45,10 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
             "No secrets to rename provided."
         );
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(msg);
     }
 
@@ -51,7 +56,10 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
     debug!("{:#?}", name_value_pairs);
 
     if let Err(err) = name_value_pairs {
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!("{} {}", format!("Input error:").red(), err);
     }
 
@@ -62,7 +70,10 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
     if let Err(e) = validation_res {
         let error_output = e.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -78,7 +89,10 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
             duplicate_new_names,
         ));
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(err);
     }
 
@@ -92,12 +106,19 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
         })
         .collect();
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = secrets::rename_secrets(api_key, project, environment, &payload).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
+
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -117,7 +138,9 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                         if json_format {
                             let json_str = get_colored_json(&data).unwrap();
 
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                             println!("{}", json_str);
 
                             return Ok(());
@@ -127,21 +150,26 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                         let not_found_len = not_found_secrets.len();
 
                         if not_found_len > 0 {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
 
-                            let info_msg = format!(
-                                "{} {}",
-                                format!(
-                                    "{} {} {}",
-                                    "Secrets".red(),
-                                    format!("({})", not_found_len).red(),
-                                    "not found:".red()
-                                ),
-                                not_found_secrets.join(", ")
-                            );
+                            if !silent {
+                                let info_msg = format!(
+                                    "{} {}",
+                                    format!(
+                                        "{} {} {}",
+                                        "Secrets".red(),
+                                        format!("({})", not_found_len).red(),
+                                        "not found:".red()
+                                    ),
+                                    not_found_secrets.join(", ")
+                                );
 
-                            //
-                            eprintln!("{}", info_msg);
+                                eprintln!("{}", info_msg);
+                            } else {
+                                eprintln!("Not found: {}", not_found_secrets.join(", "));
+                            }
 
                             let names_len = payload.len();
 
@@ -163,21 +191,27 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                                     })
                                     .collect();
 
-                                let msg = format!(
-                                    "{} {}",
-                                    format!(
-                                        "{} {} {}",
-                                        "Secrets".green(),
-                                        format!("({})", renamed_len).green(),
-                                        "renamed:".green()
-                                    ),
-                                    secrets_renamed.join(", ")
-                                );
+                                if !silent {
+                                    let msg = format!(
+                                        "{} {}",
+                                        format!(
+                                            "{} {} {}",
+                                            "Secrets".green(),
+                                            format!("({})", renamed_len).green(),
+                                            "renamed:".green()
+                                        ),
+                                        secrets_renamed.join(", ")
+                                    );
 
-                                println!("{}", msg);
+                                    println!("{}", msg);
+                                } else {
+                                    println!("Renamed: {}", renamed_len);
+                                }
                             }
                         } else {
-                            spinner.stop_with_message("Selected secrets renamed.");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_with_message("Selected secrets renamed.");
+                            }
                         }
                     }
                     Err(e) => {
@@ -192,7 +226,9 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
         },
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
-            spinner.stop_with_message(&format!("{}", e));
+            if let Some(mut spinner) = spinner {
+                spinner.stop_with_message(&format!("{}", e));
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);

@@ -20,13 +20,17 @@ pub async fn handle_create_project(
     name: String,
     description: Option<String>,
     json_format: bool,
+    silent: bool,
 ) -> Result<()> {
     let name_is_valid = validate_project_name(&name, false, true);
 
     if let Err(err) = name_is_valid {
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -36,7 +40,10 @@ pub async fn handle_create_project(
         let error = InputValidationError::Projects(ProjectInputValidationError::NameUsingIdFormat);
         let error_output = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
@@ -44,13 +51,20 @@ pub async fn handle_create_project(
 
     let data = CreateProjectPayload { name, description };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let project_res = projects::create_project(api_key, &data).await;
 
     if let Err(err) = project_res {
         error!("{:#?}", &err);
-        spinner.stop_and_persist("", "");
+
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(json_format)?;
         bail!(error_output);
@@ -71,18 +85,25 @@ pub async fn handle_create_project(
                         if json_format {
                             let json_str = get_colored_json(&data).unwrap();
 
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
+
                             println!("{}", json_str);
                         } else {
-                            let msg = format!("Project created.");
-                            spinner.stop_with_message(&msg);
+                            if let Some(mut spinner) = spinner {
+                                let msg = format!("Project created.");
+                                spinner.stop_with_message(&msg);
+                            }
 
-                            eprint!("Id: ");
-                            print!("{}\n", data.id);
+                            println!("Id: {}", data.id);
                         }
                     }
                     Err(e) => {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
                         let error = OutputError::failed_to_deserialize_response_body();
                         let formatted_err = error.format_error_output(json_format)?;
 
@@ -91,12 +112,17 @@ pub async fn handle_create_project(
                 }
             }
             None => {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
+
                 bail!("Something went wrong.");
             }
         },
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);

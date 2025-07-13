@@ -21,6 +21,7 @@ pub struct UpdateWebhookArgs {
     // data
     pub url: Option<String>,
     pub description: Option<String>,
+    pub silent: bool,
 }
 
 pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> anyhow::Result<()> {
@@ -34,6 +35,7 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> anyhow::Result<()
         url,
         description,
         json_format,
+        silent,
     } = args;
 
     let validation_res = validate_input(&url, &description);
@@ -41,7 +43,9 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> anyhow::Result<()
     if let Err(e) = validation_res {
         let formatted_err = e.format_error_output(false)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -53,12 +57,18 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> anyhow::Result<()
         data: UpdateWebhookPayload { url, description },
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = webhooks::update(args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_str = err.format_error_output(json_format)?;
@@ -72,15 +82,21 @@ pub async fn handle_update_webhook(args: UpdateWebhookArgs) -> anyhow::Result<()
         RequestApiOptionResponse::Ok(_) => {
             // println!("Project has been deleted");
             if json_format {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
                 println!("{{}}");
             } else {
-                spinner.stop_with_message("Webhook updated.");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Webhook updated.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {
             // eprintln!("{}", e);
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_str = e.format_error_output(json_format)?;
             bail!(error_str);

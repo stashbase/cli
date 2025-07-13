@@ -44,6 +44,7 @@ pub struct HandleRunArgs {
     pub file: Option<String>,
     pub expand_refs: Option<bool>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
@@ -59,6 +60,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         mut expand_refs,
         mut print_secrets,
         json_format,
+        silent,
     } = args;
 
     if file.is_some() && (project.is_some() || environment.is_some()) {
@@ -67,7 +69,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         );
         let formatted_err = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -75,7 +79,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         let error = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
         let formatted_err = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -92,7 +98,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         );
         let formatted_err = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     } else if let Some(_) = environment {
         // missing project error
@@ -101,7 +109,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         );
         let formatted_err = error.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     } else {
         let config_action_command = ConfigActionCommand::Run;
@@ -169,8 +179,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             project = Some(config.project);
             environment = Some(config.environment);
         } else {
-            eprintln!("\nRun command exited");
-            // eprintln!("Run command exited");
+            if !silent {
+                eprintln!("\nRun command exited");
+            }
             return Ok(());
         }
     }
@@ -184,7 +195,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     if let Err(e) = validation_res {
         let formatted_err = e.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -195,7 +208,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
         let formatted_err = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(formatted_err);
     }
 
@@ -207,7 +222,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             let error = InputValidationError::LoadEnvironment(mapped_err);
             let formatted_err = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(formatted_err);
         }
     }
@@ -220,7 +237,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             let error = InputValidationError::LoadEnvironment(mapped_err);
             let formatted_err = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(formatted_err);
         }
     }
@@ -237,7 +256,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             Err(e) => {
                 let formatted_err = e.format_error_output(json_format)?;
 
-                eprintln!();
+                if !silent {
+                    eprintln!();
+                }
                 bail!(formatted_err);
             }
         }
@@ -256,7 +277,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             let error = InputValidationError::Run(run_error);
             let formatted_err = error.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(formatted_err);
         }
     }
@@ -290,16 +313,20 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     let only_len = only.len();
 
-    if is_from_file {
+    if is_from_file && !silent {
         eprintln!();
     }
 
-    let mut spinner = Spinner::new_with_stream(
-        spinners::Dots,
-        "Loading environment...",
-        Color::Cyan,
-        Streams::Stderr,
-    );
+    let mut spinner = if !silent {
+        Some(Spinner::new_with_stream(
+            spinners::Dots,
+            "Loading environment...",
+            Color::Cyan,
+            Streams::Stderr,
+        ))
+    } else {
+        None
+    };
 
     // let payload = match only.is_empty() && exclude.is_empty() && setted_secrets.is_empty() {
     //     true => None,
@@ -359,7 +386,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
-        spinner.stop_with_message(&err.to_string());
+        if let Some(mut spinner) = spinner {
+            spinner.stop_with_message(&err.to_string());
+        } else {
+            eprintln!("{}", err.to_string());
+        }
 
         return Ok(());
     }
@@ -385,7 +416,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         )
                     };
 
-                    spinner.stop_with_message(&msg);
+                    if let Some(ref mut spinner) = spinner {
+                        spinner.stop_with_message(&msg);
+                    } else if !silent {
+                        eprintln!("{}", msg);
+                    }
                     return Ok(());
                 }
 
@@ -401,10 +436,19 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         msg.insert_str(0, "\n");
                     }
 
-                    spinner.stop_and_persist("", "");
-                    eprintln!("{}", msg);
+                    if let Some(ref mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
-                    let confirmation = interaction::confirm_opt("Do you still want to proceed?");
+                    if !silent {
+                        eprintln!("{}", msg);
+                    }
+
+                    let confirmation = if !silent {
+                        interaction::confirm_opt("Do you still want to proceed?")
+                    } else {
+                        Some(true) // Auto-proceed in silent mode
+                    };
 
                     if let Some(true) = confirmation {
                         if print_secrets {
@@ -426,8 +470,15 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             s.value = format_env_variable_value(s.value.to_string());
                         }
 
-                        handle_run(&mut None, command, print_secrets, secrets, is_from_file)
-                            .await?;
+                        handle_run(
+                            &mut spinner,
+                            command,
+                            print_secrets,
+                            secrets,
+                            is_from_file,
+                            silent,
+                        )
+                        .await?;
                     } else {
                         return Ok(());
                     }
@@ -444,16 +495,19 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     }
 
                     handle_run(
-                        &mut Some(spinner),
+                        &mut spinner,
                         command,
                         print_secrets,
                         secrets,
                         is_from_file,
+                        silent,
                     )
                     .await?;
                 }
             } else {
-                spinner.stop_and_persist("", "");
+                if let Some(ref mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
 
                 let error = OutputError::failed_to_deserialize_response_body();
                 let formatted_err = error.format_error_output(json_format)?;
@@ -462,7 +516,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(ref mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
             bail!(e);
         }
     }
@@ -476,38 +532,43 @@ async fn handle_run(
     print_secrets: bool,
     secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
+    silent: bool,
 ) -> anyhow::Result<()> {
-    let mut success_msg = format!(
-        "{} {} ({} {})",
-        "✓".green(),
-        "Environment loaded",
-        secrets.len(),
-        if secrets.len() == 1 {
-            "secret"
-        } else {
-            "secrets"
-        }
-    );
+    if !silent {
+        let mut success_msg = format!(
+            "{} {} ({} {})",
+            "✓".green(),
+            "Environment loaded",
+            secrets.len(),
+            if secrets.len() == 1 {
+                "secret"
+            } else {
+                "secrets"
+            }
+        );
 
-    if print_secrets && !is_from_file {
-        success_msg.insert_str(0, "\n");
-        if let Some(spinner) = spinner {
-            spinner.stop_with_message(&success_msg);
+        if print_secrets && !is_from_file {
+            success_msg.insert_str(0, "\n");
+            if let Some(spinner) = spinner {
+                spinner.stop_with_message(&success_msg);
+            } else {
+                println!("{}", success_msg);
+            }
         } else {
-            println!("{}", success_msg);
+            if let Some(spinner) = spinner {
+                spinner.stop_with_message(&success_msg);
+            } else {
+                println!("{}", success_msg);
+            }
         }
-    } else {
-        if let Some(spinner) = spinner {
-            spinner.stop_with_message(&success_msg);
-        } else {
-            println!("{}", success_msg);
-        }
+    } else if let Some(spinner) = spinner {
+        spinner.stop_and_persist("", "");
     }
     // success msg
 
     debug!("{:#?}", &secrets);
 
-    if print_secrets {
+    if print_secrets && !silent {
         print_table(&secrets);
     }
 

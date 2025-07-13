@@ -18,15 +18,31 @@ use crate::{
     },
 };
 
-pub async fn handle_update_environment(
-    api_key: String,
-    project: String,
-    environment: String,
-    new_name: Option<String>,
-    new_description: Option<String>,
-    new_is_production: Option<bool>,
-    json_format: bool,
-) -> anyhow::Result<()> {
+pub struct HandleUpdateEnvironmentArgs {
+    pub api_key: String,
+    pub project: String,
+    pub environment: String,
+    pub new_name: Option<String>,
+    pub new_description: Option<String>,
+    pub new_is_production: Option<bool>,
+    pub json_format: bool,
+    pub silent: bool,
+    pub force: bool,
+}
+
+pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> anyhow::Result<()> {
+    let HandleUpdateEnvironmentArgs {
+        api_key,
+        project,
+        environment,
+        new_name,
+        new_description,
+        new_is_production,
+        json_format,
+        silent,
+        force,
+    } = args;
+
     // validation
     let input_valid_res = validate_input(
         &project,
@@ -39,17 +55,22 @@ pub async fn handle_update_environment(
     if let Err(err) = input_valid_res {
         let error = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error);
     }
 
     // OK
     debug!("updating project...:");
 
-    let i = interaction::confirm_opt("Are you sure?");
+    if !force {
+        let i = interaction::confirm_opt("Are you sure?");
 
-    if i.is_none() || (i.unwrap() == false) {
-        return Ok(());
+        if i.is_none() || (i.unwrap() == false) {
+            return Ok(());
+        }
     }
 
     let data = UpdateEnvironmentPayload {
@@ -58,11 +79,19 @@ pub async fn handle_update_environment(
         is_production: new_is_production,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
+
     let project_res = environments::update(api_key, project, environment, &data).await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
+
         error!("{:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -74,14 +103,21 @@ pub async fn handle_update_environment(
     match project_res {
         RequestApiOptionResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
+
                 println!("{{}}");
             } else {
-                spinner.stop_with_message("Environment updated.");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Environment updated.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);

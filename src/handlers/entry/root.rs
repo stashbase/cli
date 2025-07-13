@@ -47,6 +47,7 @@ pub async fn handle_cli(args: Cli) {
         };
 
         let raw_output = args.raw;
+        let silent = args.silent;
 
         let result = match args.entity_type {
             EntityType::Whoami => {
@@ -59,7 +60,11 @@ pub async fn handle_cli(args: Cli) {
                     _ => OutputFormat::List,
                 };
 
-                let args = GetCurrentAuthDetailsRequestArgs { api_key, format };
+                let args = GetCurrentAuthDetailsRequestArgs {
+                    api_key,
+                    format,
+                    silent,
+                };
 
                 handle_whoami_command(args).await
             }
@@ -68,14 +73,16 @@ pub async fn handle_cli(args: Cli) {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_project_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_project_commands(cmd, api_key, raw_output, silent, default_output_format)
+                    .await
             }
             EntityType::Environment(cmd) => {
                 let default_output_format = match config.ouput_format {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_environment_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_environment_commands(cmd, api_key, raw_output, silent, default_output_format)
+                    .await
             }
             EntityType::Config(_) => {
                 unreachable!()
@@ -103,6 +110,7 @@ pub async fn handle_cli(args: Cli) {
                     api_key,
                     raw_output,
                     config.expand_refs,
+                    silent,
                     default_secrets_output_format,
                 )
                 .await
@@ -112,7 +120,8 @@ pub async fn handle_cli(args: Cli) {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_webhook_commands(cmd, api_key, raw_output, default_output_format).await
+                handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
+                    .await
             }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
@@ -127,6 +136,7 @@ pub async fn handle_cli(args: Cli) {
                     expand_refs: args.expand_refs,
                     print_secrets: args.print_secrets,
                     json_format: raw_output,
+                    silent,
                 };
 
                 handle_load_env_run(args).await
@@ -144,6 +154,7 @@ pub async fn handle_cli(args: Cli) {
                     print_secrets: args.print_secrets,
                     overwrite_file: args.overwrite,
                     json_format: raw_output,
+                    silent,
                 };
 
                 handle_pull(args).await
@@ -160,12 +171,13 @@ pub async fn handle_cli(args: Cli) {
                     set: args.set,
                     expand_refs: args.expand_refs,
                     json_format: raw_output,
+                    silent,
                 };
 
                 handle_push(args).await
             }
-            EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output).await,
-            EntityType::Open => handle_open_dashboard(api_key).await,
+            EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent).await,
+            EntityType::Open => handle_open_dashboard(api_key, silent).await,
         };
 
         if let Err(err) = result {
@@ -173,7 +185,7 @@ pub async fn handle_cli(args: Cli) {
         }
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
-            if let ConfigSubcommand::Reset = cmd.subcommand {
+            if let ConfigSubcommand::Reset(_) = cmd.subcommand {
                 if let Err(e) = handle_config_commands(cmd, &Config::new()) {
                     eprintln!("{:?}", e);
                 }

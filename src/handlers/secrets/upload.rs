@@ -23,6 +23,7 @@ pub struct HandleUploadSecretsArgs {
     pub file_path: String,
     pub format: Option<SecretsFileFormat>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> {
@@ -33,6 +34,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         file_path,
         format,
         json_format,
+        silent,
     } = args;
 
     let path = Path::new(&file_path);
@@ -69,7 +71,9 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -89,9 +93,6 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
             eprintln!();
             println!("{}", json);
-        } else {
-            let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
-            eprintln!("{}", msg);
         }
 
         return Ok(());
@@ -99,7 +100,9 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
     // validate secrets
     if let Err(err) = secrets.validate() {
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         let error_output = err.format_error_output(json_format)?;
 
         bail!(error_output);
@@ -107,27 +110,35 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
 
     let reference_warnings = secrets.get_reference_warnings();
 
-    if !reference_warnings.is_empty() {
+    if !reference_warnings.is_empty() && !silent {
         eprint!("{}", reference_warnings);
     }
 
-    let info = format!("Number of secrets to upload: {}", secrets.len());
-    eprintln!("{}", info);
+    if !silent {
+        let info = format!("Number of secrets to upload: {}", secrets.len());
+        eprintln!("{}", info);
 
-    let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+        let confirm = interaction::confirm_opt("Are you sure you want to continue?");
 
-    if confirm.is_none() || (confirm.unwrap() == false) {
-        return Ok(());
+        if confirm.is_none() || (confirm.unwrap() == false) {
+            return Ok(());
+        }
+
+        eprintln!();
     }
 
-    eprintln!();
-
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
     let res = secrets::set_sercrets(api_key, project, environment, &secrets).await;
     debug!("{:#?}", res);
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -139,15 +150,21 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     match res {
         RequestApiOptionResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
                 println!("{{}}");
             } else {
-                spinner.stop_with_message("Secrets uploaded.");
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_with_message("Secrets uploaded.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);

@@ -22,6 +22,10 @@ pub struct Cli {
     #[arg(long = "api-key", global = true)]
     pub api_key: Option<String>,
 
+    /// Suppress non-essential output
+    #[arg(long = "silent", global = true)]
+    pub silent: bool,
+
     // /// Output data as raw json
     // #[arg(long = "raw", global = true)]
     // pub raw: bool,

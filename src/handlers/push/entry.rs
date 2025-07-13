@@ -41,6 +41,7 @@ pub struct HandlePushArgs {
     pub exclude: Vec<String>,
     pub expand_refs: Option<bool>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
@@ -54,6 +55,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         mut format,
         mut target_file,
         json_format,
+        silent,
     } = args;
 
     let config_action_command = ConfigActionCommand::Push;
@@ -82,7 +84,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             );
             let error_output = err.format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
 
@@ -147,7 +151,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             "file does not exist."
         );
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(err_msg);
     }
 
@@ -177,7 +183,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -191,7 +199,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     if let Err(e) = validation_res {
         let error_output = e.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -205,7 +215,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(error_output);
     }
 
@@ -219,7 +231,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             let error_output = InputValidationError::LoadEnvironment(mapped_err)
                 .format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
 
@@ -236,7 +250,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             let error_output = InputValidationError::LoadEnvironment(mapped_err)
                 .format_error_output(json_format)?;
 
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
             bail!(error_output);
         }
 
@@ -247,8 +263,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     }
 
     if secrets.is_empty() {
-        let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
-        eprintln!("{}", msg);
+        if !silent {
+            let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
+            eprintln!("{}", msg);
+        }
 
         return Ok(());
     }
@@ -277,7 +295,9 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                 }
             }
             Err(e) => {
-                eprintln!();
+                if !silent {
+                    eprintln!();
+                }
                 bail!(e);
             }
         }
@@ -288,25 +308,36 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     // validate secrets
     if let Err(err) = secrets.validate() {
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
         bail!(err);
     }
 
     let reference_warnings = secrets.get_reference_warnings();
 
-    if !reference_warnings.is_empty() {
+    if !reference_warnings.is_empty() && !silent {
         eprint!("{}", reference_warnings);
     }
 
-    let info = format!("Number of secrets to push: {}", secrets.len());
-    eprintln!("{}", info);
+    if !silent {
+        let info = format!("Number of secrets to push: {}", secrets.len());
+        eprintln!("{}", info);
+    }
 
-    let confirm = interaction::confirm_opt("Are you sure you want to continue?");
+    let confirm = if !silent {
+        interaction::confirm_opt("Are you sure you want to continue?")
+    } else {
+        Some(true) // Auto-proceed in silent mode
+    };
 
     if confirm.is_none() || (confirm.unwrap() == false) {
         return Ok(());
     }
-    eprintln!();
+
+    if !silent {
+        eprintln!();
+    }
 
     if let Some(expand_refs) = expand_refs {
         if expand_refs == true {
@@ -314,18 +345,24 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         }
     }
 
-    let mut spinner = Spinner::new_with_stream(
-        spinners::Dots,
-        "Pushing secrets...",
-        Color::Cyan,
-        Streams::Stderr,
-    );
+    let mut spinner = if !silent {
+        Some(Spinner::new_with_stream(
+            spinners::Dots,
+            "Pushing secrets...",
+            Color::Cyan,
+            Streams::Stderr,
+        ))
+    } else {
+        None
+    };
 
     // file
     let res = secrets::set_sercrets(api_key, project, environment, &secrets).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(ref mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
@@ -337,15 +374,23 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     match res {
         RequestApiOptionResponse::Ok(_) => {
             if json_format {
-                spinner.stop_and_persist("", "");
+                if let Some(ref mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
                 println!("{{}}");
             } else {
-                spinner.stop_with_message("Secrets pushed.");
+                if let Some(ref mut spinner) = spinner {
+                    spinner.stop_with_message("Secrets pushed.");
+                } else if !silent {
+                    println!("Secrets pushed.");
+                }
             }
         }
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
-            spinner.stop_and_persist("", "");
+            if let Some(ref mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);

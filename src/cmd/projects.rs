@@ -119,6 +119,10 @@ pub struct UpdateProject {
     /// Project description
     #[arg(value_enum, short = 'd', long = "description")]
     pub description: Option<String>,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -139,6 +143,10 @@ pub struct DeleteProject {
     /// Project name or id
     #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
