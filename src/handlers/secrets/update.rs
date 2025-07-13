@@ -246,22 +246,12 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                         } else {
                             if updated_count == 0 && not_found_secrets.len() == 0 {
                                 if let Some(mut spinner) = spinner {
-                                    if !silent {
-                                        spinner.stop_and_persist(
-                                            "No secrets updated (no changes).",
-                                            "",
-                                        );
-                                    } else {
-                                        spinner.stop_and_persist("", "");
-                                    }
-                                } else if !silent {
-                                    println!("No secrets updated (no changes).");
+                                    spinner
+                                        .stop_and_persist("No secrets updated (no changes).", "");
                                 }
                             } else {
                                 if let Some(mut spinner) = spinner {
                                     spinner.stop_and_persist("", "");
-                                }
-                                if !silent {
                                     let msg = format!("No secrets updated (no changes).");
                                     println!("{}", msg);
                                 }
