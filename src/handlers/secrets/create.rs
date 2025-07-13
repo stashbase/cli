@@ -119,8 +119,6 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     }
 
     if !silent {
-        eprintln!();
-
         let reference_warnings = payload.get_reference_warnings();
 
         if !reference_warnings.is_empty() {
