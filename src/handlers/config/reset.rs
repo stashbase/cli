@@ -4,12 +4,14 @@ use crate::{
 };
 use anyhow::Result;
 
-pub fn reset_config() -> Result<()> {
-    eprintln!("\nContent of the config file will be lost.");
-    let i = interaction::confirm_opt("Are you sure?");
+pub fn reset_config(force: bool) -> Result<()> {
+    if !force {
+        eprintln!("\nContent of the config file will be lost.");
+        let i = interaction::confirm_opt("Are you sure?");
 
-    if i.is_none() || (i.unwrap() == false) {
-        return Ok(());
+        if i.is_none() || (i.unwrap() == false) {
+            return Ok(());
+        }
     }
 
     let config_path = get_config_path()?;

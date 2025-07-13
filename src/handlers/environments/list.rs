@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub struct HandleListEnvironmentsArgs {
+    pub silent: bool,
     pub api_key: String,
     pub project: String,
     pub search: Option<String>,
@@ -28,6 +29,7 @@ pub struct HandleListEnvironmentsArgs {
 
 pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Result<()> {
     let HandleListEnvironmentsArgs {
+        silent,
         api_key,
         project,
         search,
@@ -42,8 +44,11 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let project_identifier_vlidation_result = validate_project_identifier(&project, false);
 
     if let Err(err) = project_identifier_vlidation_result {
-        eprintln!();
         let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+        if !silent {
+            eprintln!();
+        }
 
         bail!(formatted_err);
     }
@@ -53,8 +58,11 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         let search_validation_res = validate_env_search(&search);
 
         if let Err(err) = search_validation_res {
-            eprintln!();
             let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+
+            if !silent {
+                eprintln!();
+            }
 
             bail!(formatted_err);
         }
@@ -62,7 +70,11 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
 
     debug!("listing environments...:");
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let args = ListEnvsRequestArgs {
         api_key,
@@ -76,7 +88,9 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
     let env_res = environments::list(args).await;
 
     if let Err(err) = env_res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
         bail!(error_output);
@@ -93,17 +107,25 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                     debug!("{:#?}", &envs);
 
                     if let OutputFormat::Json = format {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
                         let value = serde_json::to_value(&envs).unwrap();
                         let pretty = to_colored_json_auto(&value).unwrap();
 
                         println!("{}", pretty);
                     } else {
                         if envs.is_empty() && format != OutputFormat::Json {
-                            spinner.stop_with_message("No environments found.");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_with_message("No environments found.");
+                            }
+
                             return Ok(());
                         } else {
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
                         }
 
                         match format {
@@ -142,18 +164,21 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                     }
                 }
                 Err(e) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
 
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
 
-                    eprintln!();
                     bail!(formatted_err);
                 }
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
             bail!(error_output);

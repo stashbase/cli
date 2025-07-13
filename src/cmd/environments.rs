@@ -184,6 +184,10 @@ pub struct DeleteEnvironment {
     /// Project name or id
     #[arg(value_name = "NAME_OR_ID")]
     pub identifier: String,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -218,6 +222,10 @@ pub struct UpdateEnvironment {
     /// Whether the environment is production or not, defaults to false
     #[arg(value_enum, name = "production", alias = "prod", long = "production")]
     pub is_production: Option<bool>,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

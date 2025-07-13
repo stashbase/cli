@@ -38,6 +38,7 @@ pub struct HandleCreateEnvironmentArgs {
     pub file_path: Option<String>,
     pub format: Option<SecretsFileFormat>,
     pub json_format: bool,
+    pub silent: bool,
 }
 
 pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Result<()> {
@@ -51,6 +52,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         format,
         open,
         json_format,
+        silent,
     } = args;
 
     let input_valid = validate_project_environment(&project, &name, true);
@@ -58,7 +60,10 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
     if let Err(err) = input_valid {
         let formatted_err = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -77,11 +82,18 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 });
                 let pretty = to_colored_json_auto(&error_json).unwrap();
 
-                eprintln!();
+                if !silent {
+                    eprintln!();
+                }
+
                 bail!(pretty);
             } else {
                 let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
-                eprintln!();
+
+                if !silent {
+                    eprintln!();
+                }
+
                 bail!(err_msg);
             }
         }
@@ -107,31 +119,37 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 debug!("{:#?}", values);
 
                 if values.is_empty() {
-                    let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
-                    eprintln!("{}", msg);
+                    if !silent {
+                        // Show warning and ask for confirmation in interactive mode
+                        let msg =
+                            format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
+                        eprintln!("{}", msg);
 
-                    let confirm = interaction::confirm_opt("Are you sure you want to continue?");
-
-                    if confirm.is_none() || (confirm.unwrap() == false) {
-                        return Ok(());
+                        let confirm =
+                            interaction::confirm_opt("Are you sure you want to continue?");
+                        if confirm.is_none() || !confirm.unwrap() {
+                            return Ok(());
+                        }
                     }
                 } else {
-                    let validation_msg = validate_secrets_input(&values);
+                    if !silent {
+                        // Show validation warnings and count in interactive mode
+                        let validation_msg = validate_secrets_input(&values);
+                        if let Some(msg) = validation_msg {
+                            eprintln!("{}", msg);
+                        }
 
-                    if let Some(msg) = validation_msg {
-                        eprintln!("{}", msg);
+                        let info = format!("Number of secrets to create: {}", values.len());
+                        eprintln!("{}", info);
+
+                        let confirm =
+                            interaction::confirm_opt("Are you sure you want to continue?");
+                        if confirm.is_none() || !confirm.unwrap() {
+                            return Ok(());
+                        }
+
+                        eprintln!();
                     }
-
-                    let info = format!("Number of secrets to create: {}", values.len());
-                    eprintln!("{}", info);
-
-                    let confirm = interaction::confirm_opt("Are you sure you want to continue?");
-
-                    if confirm.is_none() || (confirm.unwrap() == false) {
-                        return Ok(());
-                    }
-
-                    eprintln!();
                 }
 
                 secrets = Some(values);
@@ -142,7 +160,10 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 ));
                 let formatted_err = error.format_error_output(json_format)?;
 
-                eprintln!();
+                if !silent {
+                    eprintln!();
+                }
+
                 bail!(formatted_err);
             }
         }
@@ -157,12 +178,18 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         secrets,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let project_res = environments::create(api_key, project, open, &data).await;
 
     if let Err(err) = project_res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
 
         let error_output = err.format_error_output(json_format)?;
         bail!(error_output);
@@ -182,26 +209,36 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         if json_format {
                             let json_str = get_colored_json(&data).unwrap();
 
-                            spinner.stop_and_persist("", "");
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
+
                             println!("{}", json_str);
 
                             return Ok(());
                         }
 
-                        spinner.stop_with_message("Environment created.");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_with_message("Environment created.");
+                        }
+
                         eprint!("Id: ");
                         print!("{}\n", data.id);
 
-                        if let Some(dashboard_url) = data.dashboard_url {
-                            eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
+                        if !silent {
+                            if let Some(dashboard_url) = data.dashboard_url {
+                                eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
 
-                            if let Err(err) = webbrowser::open(&dashboard_url) {
-                                eprintln!("{}", &format!("Error opening URL: {}", err));
+                                if let Err(err) = webbrowser::open(&dashboard_url) {
+                                    eprintln!("{}", &format!("Error opening URL: {}", err));
+                                }
                             }
                         }
                     }
                     Err(_) => {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         let error = OutputError::failed_to_deserialize_response_body();
                         let formatted_err = error.format_error_output(json_format)?;
@@ -212,7 +249,9 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
             }
         }
         RequestApiOptionResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);
@@ -227,14 +266,14 @@ fn validate_secrets_input(secrets: &Vec<Secret>) -> Option<String> {
     let mut print_str = String::new();
 
     if !refs_validation.self_referenced_secrets.is_empty() {
+        print_str.push_str(&format!("  Message: Found self referencing secrets.\n"));
         print_str.push_str(&format!(
-            "  Message: Found self referencing secrets.\n"
+            "  Secrets: {} \n",
+            refs_validation.self_referenced_secrets.join(", ")
         ));
-        print_str.push_str(&format!("  Secrets: {} \n", refs_validation.self_referenced_secrets.join(", ")));
     }
 
     if !refs_validation.invalid_format.is_empty() || !refs_validation.not_found.is_empty() {
-
         if !refs_validation.invalid_format.is_empty() {
             let hint_str = refs_validation
                 .invalid_format

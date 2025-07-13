@@ -19,6 +19,7 @@ pub struct ListWebhooksArgs {
     pub environment: String,
     // TODO: rename type
     pub format: OutputFormat,
+    pub silent: bool,
 }
 
 pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
@@ -29,6 +30,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
         project,
         environment,
         format,
+        silent,
     } = args;
 
     debug!("listing env webhooks...");
@@ -39,12 +41,18 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
         environment,
     };
 
-    let mut spinner = request_spinner();
+    let spinner = if !silent {
+        Some(request_spinner())
+    } else {
+        None
+    };
 
     let res = webhooks::list(args).await;
 
     if let Err(err) = res {
-        spinner.stop_and_persist("", "");
+        if let Some(mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
         debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
@@ -63,9 +71,19 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
             match webhooks {
                 Ok(webhooks) => {
                     if webhooks.is_empty() {
-                        spinner.stop_with_message("No webhooks found.");
+                        if let Some(mut spinner) = spinner {
+                            if !silent {
+                                spinner.stop_with_message("No webhooks found.");
+                            } else {
+                                spinner.stop_and_persist("", "");
+                            }
+                        } else if !silent {
+                            println!("No webhooks found.");
+                        }
                     } else {
-                        spinner.stop_and_persist("", "");
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
                         match format {
                             OutputFormat::List => {
@@ -91,7 +109,9 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                     }
                 }
                 Err(e) => {
-                    spinner.stop_and_persist("", "");
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
                     error!("{}", e);
 
                     let error = OutputError::failed_to_deserialize_response_body();
@@ -102,7 +122,9 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
             }
         }
         GetRequestApiResponse::Err(e) => {
-            spinner.stop_and_persist("", "");
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
 
             let error_output = e.format_error_output(format == OutputFormat::Json)?;
             bail!(error_output);
