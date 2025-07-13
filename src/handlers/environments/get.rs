@@ -28,7 +28,10 @@ pub async fn handle_get_environment(
     if let Err(err) = input_valid {
         let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(formatted_err);
     }
 
@@ -97,7 +100,10 @@ pub async fn handle_get_environment(
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
 
-                    eprintln!();
+                    if !silent {
+                        eprintln!();
+                    }
+
                     bail!(formatted_err);
                 }
             }
