@@ -56,14 +56,8 @@ pub async fn handle_open_environment_webhook(
                         None => format!("{}/webhooks", data.dashboard_url),
                     };
 
-                    if !silent {
-                        if let Some(mut spinner) = spinner {
-                            spinner.stop_with_message(&format!("Opening URL: {}", url));
-                        }
-                    } else {
-                        if let Some(mut spinner) = spinner {
-                            spinner.stop_and_persist("", "");
-                        }
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_with_message(&format!("Opening URL: {}", url));
                     }
 
                     if let Err(err) = webbrowser::open(&url) {
