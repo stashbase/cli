@@ -40,7 +40,10 @@ pub async fn handle_update_environment(
     if let Err(err) = input_valid_res {
         let error = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error);
     }
 
@@ -87,9 +90,7 @@ pub async fn handle_update_environment(
                     spinner.stop_and_persist("", "");
                 }
 
-                if !silent {
-                    println!("{{}}");
-                }
+                println!("{{}}");
             } else {
                 if let Some(mut spinner) = spinner {
                     spinner.stop_with_message("Environment updated.");
