@@ -71,14 +71,13 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
             "{}",
             "All secrets in selected environment will be deleted.".red()
         );
-    }
 
-    let i = interaction::confirm_opt("Are you sure you want to continue?");
+        let i = interaction::confirm_opt("Are you sure you want to continue?");
 
-    if i.is_none() || (i.unwrap() == false) {
-        return Ok(());
+        if i.is_none() || (i.unwrap() == false) {
+            return Ok(());
+        }
     }
-    debug!("deleting secrets...:");
 
     let spinner = if !silent {
         Some(request_spinner())
