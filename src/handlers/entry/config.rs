@@ -78,10 +78,8 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 }
             }
         }
-        ConfigSubcommand::Reset => {
-            if let Err(e) = reset_config() {
-                return Err(e);
-            };
+        ConfigSubcommand::Reset(r) => {
+            reset_config(r.force)?;
         }
         ConfigSubcommand::ExpandRefs(r) => match r.subcommand {
             ExpandRefsSubcommand::Set(args) => {
