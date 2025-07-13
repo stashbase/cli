@@ -153,6 +153,7 @@ pub async fn handle_cli(args: Cli) {
                     print_secrets: args.print_secrets,
                     overwrite_file: args.overwrite,
                     json_format: raw_output,
+                    silent,
                 };
 
                 handle_pull(args).await
