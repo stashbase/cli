@@ -83,21 +83,16 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     secrets.format();
 
     if secrets.is_empty() {
-        if !silent {
-            if json_format {
-                let error_json = serde_json::json!({
-                    "error": {
-                        "message": "Nothing to upload: no secrets found."
-                    }
-                });
-                let json = to_colored_json_auto(&error_json).unwrap();
+        if json_format {
+            let error_json = serde_json::json!({
+                "error": {
+                    "message": "Nothing to upload: no secrets found."
+                }
+            });
+            let json = to_colored_json_auto(&error_json).unwrap();
 
-                eprintln!();
-                println!("{}", json);
-            } else {
-                let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
-                eprintln!("{}", msg);
-            }
+            eprintln!();
+            println!("{}", json);
         }
 
         return Ok(());
