@@ -153,18 +153,16 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                             spinner.stop_and_persist("", "");
                         }
 
-                        if !silent {
-                            match format {
-                                OutputFormat::List => {
-                                    output_list(projects, pagination);
-                                }
-                                OutputFormat::Table => {
-                                    // reverse because returned fro list -> last is first (for
-                                    // lists)
-                                    output_table(projects, pagination);
-                                }
-                                OutputFormat::Json => unreachable!(),
+                        match format {
+                            OutputFormat::List => {
+                                output_list(projects, pagination);
                             }
+                            OutputFormat::Table => {
+                                // reverse because returned fro list -> last is first (for
+                                // lists)
+                                output_table(projects, pagination);
+                            }
+                            OutputFormat::Json => unreachable!(),
                         }
                     }
                 }
