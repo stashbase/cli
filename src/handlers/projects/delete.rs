@@ -34,7 +34,10 @@ pub async fn handle_delete_project(args: HandleDeleteProjectArgs) -> Result<()> 
     if let Err(err) = identifier_is_valid {
         let error_output = err.format_error_output(json_format)?;
 
-        eprintln!();
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
