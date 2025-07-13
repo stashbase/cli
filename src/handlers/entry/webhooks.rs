@@ -176,9 +176,10 @@ pub async fn handle_webhook_commands(
                 api_key,
                 project,
                 environment,
-                webhook_id: cmd_args.webhook_id,
                 enabled: false,
+                webhook_id: cmd_args.webhook_id,
                 json_format: raw_output,
+                force: cmd_args.force,
                 silent,
             };
 
@@ -189,9 +190,10 @@ pub async fn handle_webhook_commands(
                 api_key,
                 project,
                 environment,
-                webhook_id: cmd_args.webhook_id,
                 enabled: true,
+                webhook_id: cmd_args.webhook_id,
                 json_format: raw_output,
+                force: cmd_args.force,
                 silent,
             };
 

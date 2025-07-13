@@ -304,13 +304,19 @@ pub struct OpenWebhooks {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks enable/disable <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT>")]
+#[command(
+    override_usage = "webhooks enable/disable <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
+)]
 pub struct SetEnableStatus {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
     /// Id of webhook
     pub webhook_id: String,
+
+    /// Proceed without confirmation
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
