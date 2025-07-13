@@ -91,25 +91,12 @@ pub async fn handle_create_project(
 
                             println!("{}", json_str);
                         } else {
-                            if !silent {
-                                if let Some(mut spinner) = spinner {
-                                    let msg = format!("Project created.");
-                                    spinner.stop_with_message(&msg);
-                                }
-
-                                if !silent {
-                                    println!("Id: {}", data.id);
-                                } else {
-                                    println!("{}", data.id);
-                                }
-                            } else {
-                                if let Some(mut spinner) = spinner {
-                                    spinner.stop_and_persist("", "");
-                                }
-
-                                // Even in silent mode, output just the ID for scripting
-                                println!("{}", data.id);
+                            if let Some(mut spinner) = spinner {
+                                let msg = format!("Project created.");
+                                spinner.stop_with_message(&msg);
                             }
+
+                            println!("Id: {}", data.id);
                         }
                     }
                     Err(e) => {
