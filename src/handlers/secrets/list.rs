@@ -136,10 +136,6 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                                     if let Some(mut spinner) = spinner {
                                         spinner.stop_with_message("No secrets found.");
                                     }
-                                } else {
-                                    if let Some(mut spinner) = spinner {
-                                        spinner.stop_and_persist("", "");
-                                    }
                                 }
                             }
                         } else {
