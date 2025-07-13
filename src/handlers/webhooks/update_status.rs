@@ -16,6 +16,7 @@ pub struct UpdateWebhookStatusArgs {
     pub enabled: bool,
     pub json_format: bool,
     pub silent: bool,
+    pub force: bool,
 }
 
 impl From<UpdateWebhookStatusArgs> for webhooks::UpdateStatusArgs {
@@ -36,8 +37,9 @@ pub async fn handle_update_webhook_status(args: UpdateWebhookStatusArgs) -> Resu
     let enabled = args.enabled;
     let json_format = args.json_format;
     let silent = args.silent;
+    let force = args.force;
 
-    if !silent {
+    if !force {
         let i = interaction::confirm_opt("Are you sure?");
 
         if i.is_none() || (i.unwrap() == false) {
