@@ -5,7 +5,7 @@ use crate::{
     api::environments,
     models::api_client::DeleteRequestApiResponse,
     utils::{
-        interaction, output::ColorizeIfTerminal, spinner::request_spinner,
+        interaction, output::ColorizeIfTerminalColor, spinner::request_spinner,
         validation::validate_project_environment_identifier,
     },
 };

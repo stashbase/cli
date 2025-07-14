@@ -11,7 +11,7 @@ use crate::{
     cmd::config::SecretsOutputFormat,
     utils::{
         self,
-        output::{is_color_enabled, ColorizeIfTerminal},
+        output::{is_color_enabled, ColorizeIfTerminalColor},
     },
 };
 

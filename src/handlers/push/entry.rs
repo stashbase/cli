@@ -15,7 +15,7 @@ use crate::{
     },
     utils::{
         self, interaction,
-        output::ColorizeIfTerminal,
+        output::ColorizeIfTerminalColor,
         secrets::read_secrets_from_file,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
