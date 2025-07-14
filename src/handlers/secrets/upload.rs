@@ -13,7 +13,7 @@ use crate::{
     },
     utils::{
         interaction,
-        output::{get_formatted_json_string, ColorizeIfTerminalColor},
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::read_secrets_from_file,
         spinner::request_spinner,
     },

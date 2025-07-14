@@ -10,7 +10,7 @@ use crate::{
     },
     utils::{
         interaction,
-        output::{get_formatted_json_string, ColorizeIfTerminalColor},
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::format_secret_comment,
         separator,
         spinner::request_spinner,

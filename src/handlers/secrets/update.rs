@@ -14,7 +14,7 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        output::{get_formatted_json_string, ColorizeIfTerminalColor},
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         separator,
         spinner::request_spinner,
     },

@@ -1,6 +1,6 @@
 // use anyhow::Result;
 
-use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfTerminalColor};
+use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfColoredOutput};
 
 pub fn set_api_key(api_key: String) {
     let res = config::update_config(UpdateConfig {

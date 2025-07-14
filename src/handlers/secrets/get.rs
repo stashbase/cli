@@ -12,7 +12,7 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        output::{get_formatted_json_string, ColorizeIfTerminalColor},
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::format_secrets,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
