@@ -7,7 +7,10 @@ use crate::{
         api_client::{OutputError, RequestApiOptionResponse},
         webhooks::{CreateWebhookPayload, CreateWebhookResponse},
     },
-    utils::{output::get_colored_json, spinner::request_spinner},
+    utils::{
+        output::{get_formatted_json_string, ColorizeIfTerminal},
+        spinner::request_spinner,
+    },
 };
 
 pub struct CreateWebhookArgs {
@@ -78,11 +81,11 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                     match webhook {
                         Ok(webhook) => {
                             if json_format {
-                                let json_str = get_colored_json(&webhook).unwrap();
-
                                 if let Some(mut spinner) = spinner {
                                     spinner.stop_and_persist("", "");
                                 }
+
+                                let json_str = get_formatted_json_string(&webhook, true).unwrap();
                                 println!("{}", json_str);
 
                                 return Ok(());
