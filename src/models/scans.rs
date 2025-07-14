@@ -155,7 +155,7 @@ impl Display for ScanFinding {
         result.push_str(&format!("Severity: {}\n", self.severity));
         result.push_str(&format!("Value SHA256: {}", self.value_sha256));
         if let Some(id) = &self.commit_id {
-            result.push_str(&format!("\nCommit: {}", id));
+            result.push_str(&format!("\nCommit ID: {}", id));
         }
         write!(f, "{}", result)
     }
