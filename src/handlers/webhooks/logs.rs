@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::{debug, error};
 
 use crate::{
@@ -10,7 +9,11 @@ use crate::{
         validation::{InputValidationError, WebhookInputValidationError},
         webhooks::{TableWebhookLog, WebhookLogList},
     },
-    utils::{spinner::request_spinner, tables},
+    utils::{
+        output::{get_formatted_json_string, ColorizeIfTerminal},
+        spinner::request_spinner,
+        tables,
+    },
 };
 
 #[derive(Debug)]
@@ -120,8 +123,8 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
-                            let value = serde_json::to_value(&webhook_logs).unwrap();
-                            let pretty = to_colored_json_auto(&value).unwrap();
+
+                            let pretty = get_formatted_json_string(&webhook_logs, true).unwrap();
                             println!("{}", pretty);
                         }
                         OutputFormat::Table => {

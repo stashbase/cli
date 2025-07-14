@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::{debug, error};
 
 use crate::{
@@ -9,7 +8,7 @@ use crate::{
         api_client::{GetRequestApiResponse, OutputError},
         webhooks::ListWebhook,
     },
-    utils::{spinner::request_spinner, tables},
+    utils::{output::get_formatted_json_string, spinner::request_spinner, tables},
 };
 
 #[derive(Debug)]
@@ -96,9 +95,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                                 }
                             }
                             OutputFormat::Json => {
-                                let value = serde_json::to_value(&webhooks).unwrap();
-                                let pretty = to_colored_json_auto(&value).unwrap();
-
+                                let pretty = get_formatted_json_string(&webhooks, true).unwrap();
                                 println!("{}", pretty);
                             }
                             OutputFormat::Table => {
