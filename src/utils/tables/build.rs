@@ -3,7 +3,7 @@ use tabled::{
     Table, Tabled,
 };
 
-use crate::utils::term_size::get_terminal_size;
+use crate::utils::{output::is_terminal, term_size::get_terminal_size};
 
 pub fn build_table<T>(secrets: &Vec<T>) -> Table
 where
@@ -11,18 +11,26 @@ where
 {
     let (width, _) = get_terminal_size();
 
-    let term_size_settings = Settings::default()
-        // .with(Style::modern())
-        .with(Style::rounded())
-        .with(Width::wrap(width).priority::<PriorityMax>())
-        .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
-    // .with(Width::increase(width))
-    // .with(Height::limit(height))
-    // .with(Height::increase(height));
-    // .with(Width::list([width / 3, width / 3]));
+    if is_terminal() {
+        let term_size_settings = Settings::default()
+            // .with(Style::modern())
+            .with(Style::rounded())
+            .with(Width::wrap(width).priority::<PriorityMax>())
+            .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
 
-    let mut table = Table::new(secrets);
-    table.with(term_size_settings);
+        let mut table = Table::new(secrets);
+        table.with(term_size_settings);
 
-    table
+        table
+    } else {
+        let term_size_settings = Settings::default()
+            // .with(Style::modern())
+            .with(Style::rounded())
+            .with(Width::wrap(width).priority::<PriorityMax>());
+
+        let mut table = Table::new(secrets);
+        table.with(term_size_settings);
+
+        table
+    }
 }
