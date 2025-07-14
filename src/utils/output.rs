@@ -69,10 +69,12 @@ pub fn get_formatted_json_string<T: serde::Serialize>(
     }
 }
 
+/// Check if stdout is a terminal
 pub fn is_terminal() -> bool {
     std::io::stdout().is_terminal()
 }
 
+/// Check if stderr is a terminal
 pub fn is_terminal_stderr() -> bool {
     std::io::stderr().is_terminal()
 }
@@ -97,6 +99,8 @@ pub fn is_color_enabled(stdout: bool) -> bool {
         ColorChoice::Never => false,
     }
 }
+
+/// Trait to colorize text if stdout/stderr is a terminal and color is enabled
 pub trait ColorizeIfTerminal {
     fn green_if_tty(self) -> String;
     fn red_if_tty(self) -> String;
@@ -110,6 +114,7 @@ pub trait ColorizeIfTerminal {
     fn blue_if_tty_stderr(self) -> String;
 }
 
+/// Implementation of the ColorizeIfTerminal trait
 impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     fn green_if_tty(self) -> String {
         if is_color_enabled(true) {
