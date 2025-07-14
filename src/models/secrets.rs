@@ -7,7 +7,13 @@ use std::{collections::HashSet, fmt::Display};
 use owo_colors::OwoColorize;
 use tabled::Tabled;
 
-use crate::{cmd::config::SecretsOutputFormat, utils, utils::output::is_terminal_stderr};
+use crate::{
+    cmd::config::SecretsOutputFormat,
+    utils::{
+        self,
+        output::{is_color_enabled, ColorizeIfTerminal},
+    },
+};
 
 use super::validation::InputValidationError;
 
@@ -99,13 +105,18 @@ impl Display for Secret {
         // writeln!(f, "{} {}", "Value:".green(), self.value)?;
 
         if let Some(comment) = &self.comment {
-            writeln!(f, "{}", comment.blue())?;
-            writeln!(f, "{}", "-".repeat(self.name.len()).blue())?;
+            writeln!(f, "{}", comment.blue_if_tty())?;
+            writeln!(f, "{}", "-".repeat(self.name.len()).blue_if_tty())?;
 
             // writeln!(f, "{} {}", "- comment:".blue(), comment)?;
         }
 
-        write!(f, "{} {}", format!("{}:", self.name).green(), self.value)?;
+        write!(
+            f,
+            "{} {}",
+            format!("{}:", self.name).green_if_tty(),
+            self.value
+        )?;
 
         // if self.comment.is_some() {
         //     writeln!(f, "")?;
@@ -557,7 +568,7 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            if is_terminal_stderr() {
+            if is_color_enabled(false) {
                 writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
             } else {
                 writeln!(f, "{}", format!("{}", "Input warning"))?;
@@ -575,7 +586,7 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            if is_terminal_stderr() {
+            if is_color_enabled(false) {
                 writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
             } else {
                 writeln!(f, "{}", format!("{}", "Input warning"))?;
@@ -593,7 +604,7 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            if is_terminal_stderr() {
+            if is_color_enabled(false) {
                 writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
             } else {
                 writeln!(f, "{}", format!("{}", "Input warning"))?;
@@ -614,7 +625,7 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            if is_terminal_stderr() {
+            if is_color_enabled(false) {
                 writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
             } else {
                 writeln!(f, "{}", format!("{}", "Input warning"))?;
