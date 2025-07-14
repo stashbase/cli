@@ -372,7 +372,7 @@ impl fmt::Display for InputValidationError {
 impl InputValidationError {
     pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
         if json_format {
-            let json_err = self.to_colored_json()?;
+            let json_err = get_formatted_json_string(&self, false)?;
             Ok(json_err)
         } else {
             Ok(self.to_string())
