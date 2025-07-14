@@ -177,7 +177,10 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
 
-                    eprintln!();
+                    if !silent {
+                        eprintln!();
+                    }
+
                     bail!(formatted_err);
                 }
             }
