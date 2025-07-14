@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
