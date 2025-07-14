@@ -1,9 +1,8 @@
-use owo_colors::OwoColorize;
-
 use crate::{
     cmd::config::SecretsOutputFormat,
     config::config,
     models::config::{OutputFormatConfig, UpdateConfig},
+    utils::output::ColorizeIfTerminal,
 };
 
 pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
@@ -17,7 +16,7 @@ pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
     });
 
     if let Err(err) = res {
-        eprintln!("{} {}", "Error:".red(), err);
+        eprintln!("{} {}", "Error:".red_if_tty_stderr(), err);
     } else {
         let msg = format!("Default secrets output format set.");
         eprintln!("{}", msg);
