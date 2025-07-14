@@ -16,6 +16,7 @@ use crate::{
         validation::{EnvironmentsInputValidationError, InputValidationError},
     },
     utils::{
+        output::is_terminal,
         spinner::request_spinner,
         term_size::get_terminal_size,
         validation::{validate_environment_identifier, validate_project_environment_identifier},
@@ -182,14 +183,22 @@ fn format_comparison(
 
         let (width, _) = get_terminal_size();
 
-        let term_size_settings = Settings::default()
-            .with(Style::rounded())
-            .with(Width::wrap(width).priority::<PriorityMax>())
-            .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
+        if is_terminal() {
+            let term_size_settings = Settings::default()
+                .with(Style::rounded())
+                .with(Width::wrap(width).priority::<PriorityMax>())
+                .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
 
-        table.with(term_size_settings);
+            table.with(term_size_settings);
+            return format!("{table}");
+        } else {
+            let term_size_settings = Settings::default()
+                .with(Style::rounded())
+                .with(Width::wrap(width).priority::<PriorityMax>());
 
-        return format!("{table}");
+            table.with(term_size_settings);
+            return format!("{table}");
+        }
     }
 }
 
