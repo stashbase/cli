@@ -1,5 +1,4 @@
 use anyhow::Result;
-use colored_json::to_colored_json_auto;
 use git2::Repository;
 use spinoff::{spinners, Color, Spinner, Streams};
 use std::{cell::RefCell, io::IsTerminal, path::PathBuf, rc::Rc};
@@ -14,10 +13,13 @@ use crate::{
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
-    utils::scans::{
-        file_content_equals, filter_new_findings, filter_sha256_hashes, get_latest_scan_file,
-        is_binary_file, load_baseline_results, process_diff_line, save_scan_results,
-        should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
+    utils::{
+        output::get_formatted_json_string,
+        scans::{
+            file_content_equals, filter_new_findings, filter_sha256_hashes, get_latest_scan_file,
+            is_binary_file, load_baseline_results, process_diff_line, save_scan_results,
+            should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
+        },
     },
 };
 
@@ -102,7 +104,8 @@ pub async fn handle_scan_unpushed_commit_hunks(
             let message = serde_json::json!({
                 "message": "No unpushed commits to scan."
             });
-            eprintln!("\n{}", to_colored_json_auto(&message).unwrap());
+            let pretty = get_formatted_json_string(&message, false).unwrap();
+            eprintln!("\n{}", pretty);
         } else {
             eprintln!("\nNo unpushed commits to scan.");
         }
@@ -249,16 +252,13 @@ pub async fn handle_scan_unpushed_commit_hunks(
                             code: None,
                             hint: Some("Please try again later.".to_string()),
                         });
-                        let json_value = error.to_json_value().unwrap();
 
-                        if std::io::stdout().is_terminal() {
-                            if !silent {
-                                eprintln!("\n{}", to_colored_json_auto(&json_value).unwrap());
-                            } else {
-                                eprintln!("{}", to_colored_json_auto(&json_value).unwrap());
-                            }
+                        let pretty = get_formatted_json_string(&error, false).unwrap();
+
+                        if !silent {
+                            eprintln!("\n{}", pretty);
                         } else {
-                            eprintln!("{}", serde_json::to_string_pretty(&json_value).unwrap());
+                            eprintln!("{}", pretty);
                         }
                     }
                     false => {
@@ -297,7 +297,9 @@ fn output_scan_findings(
                 let message = serde_json::json!({
                     "message": "No secrets detected in unpushed commits!"
                 });
-                eprintln!("{}", to_colored_json_auto(&message).unwrap());
+
+                let pretty = get_formatted_json_string(&message, false).unwrap();
+                eprintln!("{}", pretty);
             } else {
                 let latest_file = get_latest_scan_file(output_dir);
 
@@ -312,7 +314,8 @@ fn output_scan_findings(
                                 "file_path": file_path
                             });
 
-                            eprintln!("{}", to_colored_json_auto(&message).unwrap());
+                            let pretty = get_formatted_json_string(&message, false).unwrap();
+                            eprintln!("{}", pretty);
                         } else {
                             let file_path = save_scan_results(output_dir, &pretty_json)?;
 
@@ -320,7 +323,9 @@ fn output_scan_findings(
                                 "message": "Potential secrets detected in unpushed commits. Scan results saved to file.",
                                 "file_path": file_path
                             });
-                            eprintln!("{}", to_colored_json_auto(&message).unwrap());
+
+                            let pretty = get_formatted_json_string(&message, false).unwrap();
+                            eprintln!("{}", pretty);
                         }
                     }
                     None => {
@@ -330,17 +335,15 @@ fn output_scan_findings(
                             "message": "Potential secrets detected in unpushed commits. Scan results saved to file.",
                             "file_path": file_path
                         });
-                        eprintln!("{}", to_colored_json_auto(&message).unwrap());
+
+                        let pretty = get_formatted_json_string(&message, false).unwrap();
+                        eprintln!("{}", pretty);
                     }
                 }
             }
         } else {
-            if std::io::stdout().is_terminal() {
-                let colored_json = to_colored_json_auto(&json_value).unwrap();
-                println!("{}", colored_json);
-            } else {
-                println!("{}", pretty_json);
-            }
+            let pretty = get_formatted_json_string(&json_value, false).unwrap();
+            println!("{}", pretty);
         }
     } else {
         if is_empty {
