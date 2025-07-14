@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::{debug, error};
 
 use crate::{
@@ -15,8 +14,8 @@ use crate::{
         validation::{InputValidationError, ProjectInputValidationError},
     },
     utils::{
-        human_datetime::get_human_datetime, spinner::request_spinner, tables,
-        validation::validate_project_search,
+        human_datetime::get_human_datetime, output::get_formatted_json_string,
+        spinner::request_spinner, tables, validation::validate_project_search,
     },
 };
 
@@ -207,8 +206,7 @@ fn output_list(projects: Vec<SingleListProject>, pagination: PaginationMetadata)
 }
 
 fn output_json(data: &ProjectList) {
-    let value = serde_json::to_value(data).unwrap();
-    let pretty = to_colored_json_auto(&value).unwrap();
+    let pretty = get_formatted_json_string(data, true).unwrap();
 
     println!("{}", pretty);
 }
