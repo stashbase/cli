@@ -44,7 +44,7 @@ pub struct CreateProjectResponse {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SingleListProject {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Name", order = 1)]
@@ -71,7 +71,7 @@ pub struct SingleListProject {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SingleListProjectWithoutDescription {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Name", order = 1)]
@@ -100,7 +100,7 @@ pub struct ProjectList {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SingleProjectTable {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Name", order = 1)]
@@ -145,7 +145,7 @@ pub struct SingleProject {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SingleProjectWithCountNoDescriptionTable {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Name", order = 1)]
@@ -247,7 +247,7 @@ impl Display for SingleListProject {
             relative
         )?;
 
-        writeln!(f, "{} {}", "Id".green_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "ID".green_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Project name:".green_if_tty(), self.name)?;
 
         if let Some(description) = &self.description {
@@ -286,7 +286,7 @@ impl Display for SingleProject {
             formatted,
             relative
         )?;
-        writeln!(f, "{} {}", "Id:".green_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "ID:".green_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
 
         if let Some(full_access) = &self.full_access {
