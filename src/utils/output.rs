@@ -1,4 +1,7 @@
-use crate::cmd::config::OutputFormat;
+use crate::{
+    cmd::{config::OutputFormat, root::ColorChoice},
+    COLOR_CHOICE,
+};
 use anyhow::Result;
 use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
@@ -51,6 +54,26 @@ pub fn is_terminal_stderr() -> bool {
     std::io::stderr().is_terminal()
 }
 
+/// Check if colors should be enabled
+/// - `stdout`: true for stdout detection, false for stderr detection
+pub fn is_color_enabled(stdout: bool) -> bool {
+    let color_choice = COLOR_CHOICE.get().unwrap_or(&ColorChoice::Auto);
+
+    match color_choice {
+        ColorChoice::Always => true,
+        ColorChoice::Auto => {
+            if std::env::var("NO_COLOR").is_ok() || std::env::var("NOCOLOR").is_ok() {
+                return false;
+            }
+            if stdout {
+                is_terminal()
+            } else {
+                is_terminal_stderr()
+            }
+        }
+        ColorChoice::Never => false,
+    }
+}
 pub trait ColorizeIfTerminal {
     fn green_if_tty(self) -> String;
     fn red_if_tty(self) -> String;
@@ -66,7 +89,7 @@ pub trait ColorizeIfTerminal {
 
 impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     fn green_if_tty(self) -> String {
-        if is_terminal() {
+        if is_color_enabled(true) {
             format!("{}", self.green())
         } else {
             format!("{}", self)
@@ -74,7 +97,7 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     }
 
     fn red_if_tty(self) -> String {
-        if is_terminal() {
+        if is_color_enabled(true) {
             format!("{}", self.red())
         } else {
             format!("{}", self)
@@ -82,7 +105,7 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     }
 
     fn yellow_if_tty(self) -> String {
-        if is_terminal() {
+        if is_color_enabled(true) {
             format!("{}", self.yellow())
         } else {
             format!("{}", self)
@@ -90,7 +113,7 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     }
 
     fn blue_if_tty(self) -> String {
-        if is_terminal() {
+        if is_color_enabled(true) {
             format!("{}", self.blue())
         } else {
             format!("{}", self)
@@ -99,7 +122,7 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
 
     // stderr
     fn green_if_tty_stderr(self) -> String {
-        if is_terminal_stderr() {
+        if is_color_enabled(false) {
             format!("{}", self.green())
         } else {
             format!("{}", self)
@@ -107,7 +130,7 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     }
 
     fn red_if_tty_stderr(self) -> String {
-        if is_terminal_stderr() {
+        if is_color_enabled(false) {
             format!("{}", self.red())
         } else {
             format!("{}", self)
@@ -115,7 +138,7 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     }
 
     fn yellow_if_tty_stderr(self) -> String {
-        if is_terminal_stderr() {
+        if is_color_enabled(false) {
             format!("{}", self.yellow())
         } else {
             format!("{}", self)
@@ -123,7 +146,7 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
     }
 
     fn blue_if_tty_stderr(self) -> String {
-        if is_terminal_stderr() {
+        if is_color_enabled(false) {
             format!("{}", self.blue())
         } else {
             format!("{}", self)
