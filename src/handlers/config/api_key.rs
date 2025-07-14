@@ -1,7 +1,6 @@
 // use anyhow::Result;
-use owo_colors::OwoColorize;
 
-use crate::{config::config, models::config::UpdateConfig};
+use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfTerminal};
 
 pub fn set_api_key(api_key: String) {
     let res = config::update_config(UpdateConfig {
@@ -11,7 +10,7 @@ pub fn set_api_key(api_key: String) {
     });
 
     if let Err(err) = res {
-        eprintln!("{} {}", "Error:".red(), err);
+        eprintln!("{} {}", "Error:".red_if_tty(), err);
     } else {
         let msg = format!("API Key set.");
         eprintln!("{}", msg);
