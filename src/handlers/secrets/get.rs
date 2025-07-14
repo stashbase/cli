@@ -12,7 +12,7 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        output::{get_colored_json, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminal},
         secrets::format_secrets,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
@@ -88,7 +88,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
             match secrets {
                 Ok(secrets) => {
                     if format == SecretsOutputFormat::Json {
-                        let json_str = get_colored_json(&secrets).unwrap();
+                        let json_str = get_formatted_json_string(&secrets, true).unwrap();
                         println!("{}", json_str);
                         return Ok(());
                     }
