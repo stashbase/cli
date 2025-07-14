@@ -2,7 +2,7 @@ use crate::{
     cmd::config::OutputFormat,
     config::config,
     models::config::{OutputFormatConfig, UpdateConfig},
-    utils::output::ColorizeIfTerminal,
+    utils::output::ColorizeIfTerminalColor,
 };
 
 pub fn set_default_output_format(output_format: OutputFormat) {

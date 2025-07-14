@@ -8,7 +8,7 @@ use crate::{
         webhooks::{CreateWebhookPayload, CreateWebhookResponse},
     },
     utils::{
-        output::{get_formatted_json_string, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminalColor},
         spinner::request_spinner,
     },
 };

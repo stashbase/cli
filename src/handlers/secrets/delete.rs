@@ -10,7 +10,7 @@ use crate::{
     },
     utils::{
         interaction,
-        output::{get_formatted_json_string, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminalColor},
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },

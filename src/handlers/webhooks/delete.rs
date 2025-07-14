@@ -4,7 +4,7 @@ use log::debug;
 use crate::{
     api::webhooks,
     models::api_client::DeleteRequestApiResponse,
-    utils::{interaction, output::ColorizeIfTerminal, spinner::request_spinner},
+    utils::{interaction, output::ColorizeIfTerminalColor, spinner::request_spinner},
 };
 
 pub struct DeleteWebhookArgs {

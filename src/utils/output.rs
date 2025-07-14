@@ -101,7 +101,7 @@ pub fn is_color_enabled(stdout: bool) -> bool {
 }
 
 /// Trait to colorize text if stdout/stderr is a terminal and color is enabled
-pub trait ColorizeIfTerminal {
+pub trait ColorizeIfTerminalColor {
     fn green_if_tty(self) -> String;
     fn red_if_tty(self) -> String;
     fn yellow_if_tty(self) -> String;
@@ -115,7 +115,7 @@ pub trait ColorizeIfTerminal {
 }
 
 /// Implementation of the ColorizeIfTerminal trait
-impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
+impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminalColor for T {
     fn green_if_tty(self) -> String {
         if is_color_enabled(true) {
             format!("{}", self.green())

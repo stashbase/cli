@@ -24,7 +24,7 @@ use crate::{
     },
     utils::{
         interaction::{self, select},
-        output::ColorizeIfTerminal,
+        output::ColorizeIfTerminalColor,
         secrets::format_secrets,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
