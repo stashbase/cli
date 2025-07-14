@@ -1,11 +1,10 @@
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::webhooks,
     models::api_client::DeleteRequestApiResponse,
-    utils::{interaction, spinner::request_spinner},
+    utils::{interaction, output::ColorizeIfTerminal, spinner::request_spinner},
 };
 
 pub struct DeleteWebhookArgs {
@@ -30,7 +29,10 @@ pub async fn handle_delete_webhook(args: DeleteWebhookArgs) -> Result<()> {
     } = args;
 
     if !force {
-        eprintln!("{}", "Do you really want to delete this webhook?".red());
+        eprintln!(
+            "{}",
+            "Do you really want to delete this webhook?".red_if_tty_stderr()
+        );
 
         let i = interaction::input("Type 'DELETE' to confirm.");
 
