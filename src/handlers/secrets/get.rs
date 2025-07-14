@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use anyhow::bail;
 use log::{debug, error};
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
@@ -13,7 +12,7 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        output::get_colored_json,
+        output::{get_colored_json, ColorizeIfTerminal},
         secrets::format_secrets,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
@@ -105,7 +104,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
                         if !secrets_not_found.is_empty() {
                             eprintln!(
                                 "{} {}",
-                                "Secrets not found:".red(),
+                                "Secrets not found:".red_if_tty_stderr(),
                                 secrets_not_found.join(", ")
                             )
                         }
