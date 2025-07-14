@@ -54,7 +54,10 @@ pub fn get_colored_json<T: serde::Serialize>(data: &T) -> Result<String> {
 ///
 /// ### Returns
 /// * `Result<String>` - The formatted JSON string, with colors if enabled
-pub fn get_formatted_json_string<T: serde::Serialize>(data: &T, stdout: bool) -> Result<String> {
+pub fn get_formatted_json_string<T: serde::Serialize>(
+    data: &T,
+    stdout: bool,
+) -> Result<String, serde_json::Error> {
     let value = serde_json::to_value(data)?;
 
     if is_color_enabled(stdout) {
