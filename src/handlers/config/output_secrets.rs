@@ -19,7 +19,7 @@ pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
         eprintln!("{} {}", "Error:".red_if_tty_stderr(), err);
     } else {
         let msg = format!("Default secrets output format set.");
-        eprintln!("{}", msg);
+        println!("{}", msg);
     }
 }
 
