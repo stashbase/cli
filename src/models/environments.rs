@@ -50,7 +50,7 @@ pub struct Environment {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableEnvironment {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Name", order = 1)]
@@ -79,7 +79,7 @@ pub struct TableEnvironment {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableEnvironmentWithoutDescription {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Name", order = 1)]
@@ -162,7 +162,7 @@ impl Display for Environment {
             relative
         )?;
 
-        writeln!(f, "{} {}", "Id:".green_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "ID:".green_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
         writeln!(f, "{} {}", "Production:".green_if_tty(), self.is_production)?;
 

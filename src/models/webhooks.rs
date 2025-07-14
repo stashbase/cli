@@ -10,7 +10,7 @@ use super::shared::PaginationMetadata;
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct ListWebhook {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     id: String,
 
     #[tabled(rename = "URL", order = 1)]
@@ -28,7 +28,7 @@ impl Display for ListWebhook {
             writeln!(f, "{} {}", "Enabled:", "false".red_if_tty())?;
         }
 
-        writeln!(f, "{} {}", "Id:", self.id)?;
+        writeln!(f, "{} {}", "ID:", self.id)?;
         writeln!(f, "{} {}", "URL:", self.url)?;
 
         Ok(())
@@ -52,7 +52,7 @@ pub struct Webhook {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableWebhook {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Enabled", order = 1)]
@@ -71,7 +71,7 @@ pub struct TableWebhook {
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct TableWebhookNoDescription {
-    #[tabled(rename = "Id", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
     pub id: String,
 
     #[tabled(rename = "Enabled", order = 1)]
