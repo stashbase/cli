@@ -14,7 +14,7 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        output::{get_colored_json, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminal},
         separator,
         spinner::request_spinner,
     },
@@ -203,7 +203,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                 match json_data {
                     Ok(data) => {
                         if json_format {
-                            let json_str = get_colored_json(&data).unwrap();
+                            let json_str = get_formatted_json_string(&data, true).unwrap();
 
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");

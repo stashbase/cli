@@ -9,7 +9,7 @@ use crate::{
         secrets::{Secret, SecretOptional},
     },
     utils::{
-        output::get_colored_json,
+        output::{get_formatted_json_string, ColorizeIfTerminal},
         secrets::{format_secret_names, format_secrets},
         spinner::request_spinner,
     },
@@ -76,7 +76,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                     Ok(secrets) => {
                         if secrets.is_empty() {
                             if format == SecretsOutputFormat::Json {
-                                let json_str = get_colored_json(&secrets).unwrap();
+                                let json_str = get_formatted_json_string(&secrets, true).unwrap();
 
                                 if let Some(mut spinner) = spinner {
                                     spinner.stop_and_persist("", "");
@@ -125,7 +125,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
 
                         if secrets.is_empty() {
                             if format == SecretsOutputFormat::Json {
-                                let json_str = get_colored_json(&secrets).unwrap();
+                                let json_str = get_formatted_json_string(&secrets, true).unwrap();
 
                                 if let Some(mut spinner) = spinner {
                                     spinner.stop_and_persist("", "");

@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 
 use crate::{
@@ -13,7 +12,9 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        interaction, output::ColorizeIfTerminal, secrets::read_secrets_from_file,
+        interaction,
+        output::{get_formatted_json_string, ColorizeIfTerminal},
+        secrets::read_secrets_from_file,
         spinner::request_spinner,
     },
 };
@@ -95,10 +96,10 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
                     "message": "Nothing to upload: no secrets found."
                 }
             });
-            let json = to_colored_json_auto(&error_json).unwrap();
+            let json = get_formatted_json_string(&error_json, false).unwrap();
 
             eprintln!();
-            println!("{}", json);
+            eprintln!("{}", json);
         }
 
         return Ok(());
