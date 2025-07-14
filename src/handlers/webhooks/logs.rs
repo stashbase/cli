@@ -9,11 +9,7 @@ use crate::{
         validation::{InputValidationError, WebhookInputValidationError},
         webhooks::{TableWebhookLog, WebhookLogList},
     },
-    utils::{
-        output::{get_formatted_json_string, ColorizeIfColoredOutput},
-        spinner::request_spinner,
-        tables,
-    },
+    utils::{output::get_formatted_json_string, spinner::request_spinner, tables},
 };
 
 #[derive(Debug)]
