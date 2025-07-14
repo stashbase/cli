@@ -10,6 +10,7 @@ where
     T: Tabled,
 {
     let (width, _) = get_terminal_size();
+    let mut table = Table::new(secrets);
 
     if is_color_enabled(true) {
         let term_size_settings = Settings::default()
@@ -18,19 +19,15 @@ where
             .with(Width::wrap(width).priority::<PriorityMax>())
             .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
 
-        let mut table = Table::new(secrets);
         table.with(term_size_settings);
-
-        table
     } else {
         let term_size_settings = Settings::default()
             // .with(Style::modern())
             .with(Style::rounded())
             .with(Width::wrap(width).priority::<PriorityMax>());
 
-        let mut table = Table::new(secrets);
         table.with(term_size_settings);
-
-        table
     }
+
+    table
 }
