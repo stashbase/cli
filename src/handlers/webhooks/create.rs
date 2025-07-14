@@ -7,10 +7,7 @@ use crate::{
         api_client::{OutputError, RequestApiOptionResponse},
         webhooks::{CreateWebhookPayload, CreateWebhookResponse},
     },
-    utils::{
-        output::{get_formatted_json_string, ColorizeIfColoredOutput},
-        spinner::request_spinner,
-    },
+    utils::{output::get_formatted_json_string, spinner::request_spinner},
 };
 
 pub struct CreateWebhookArgs {
