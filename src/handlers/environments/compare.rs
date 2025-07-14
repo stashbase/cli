@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 
 use tabled::{
@@ -16,7 +15,7 @@ use crate::{
         validation::{EnvironmentsInputValidationError, InputValidationError},
     },
     utils::{
-        output::is_terminal,
+        output::{get_formatted_json_string, is_terminal},
         spinner::request_spinner,
         term_size::get_terminal_size,
         validation::{validate_environment_identifier, validate_project_environment_identifier},
@@ -163,8 +162,7 @@ fn format_comparison(
     only_names: bool,
 ) -> String {
     if json_format {
-        let value = serde_json::to_value(&data).unwrap();
-        let pretty = to_colored_json_auto(&value).unwrap();
+        let pretty = get_formatted_json_string(&data, true).unwrap();
         return pretty;
     } else {
         let mut table_data = vec![vec![String::from("Name"), environment_1, environment_2]];
