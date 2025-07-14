@@ -97,15 +97,10 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
 
                                     spinner.stop_with_message(msg);
                                 }
-                                eprint!("Id: ");
-                                print!("{}\n", webhook.id);
-
-                                eprint!("Signing secret: ");
-                                print!("{}\n", webhook.signing_secret);
-                            } else {
-                                eprintln!("Id: {}", webhook.id);
-                                eprintln!("Signing secret: {}", webhook.signing_secret);
                             }
+
+                            println!("Id: {}", webhook.id);
+                            println!("Signing secret: {}", webhook.signing_secret);
                         }
                         Err(_) => {
                             if let Some(mut spinner) = spinner {
