@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
