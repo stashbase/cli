@@ -143,7 +143,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                                 spinner.stop_with_message("No projects found.");
                             }
 
-                            eprintln!("\n{}", pagination);
+                            println!("\n{}", pagination);
                         } else {
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
@@ -204,7 +204,7 @@ fn output_list(projects: Vec<SingleListProject>, pagination: PaginationMetadata)
         }
     }
 
-    eprintln!("\n\n{}", pagination);
+    println!("\n\n{}", pagination);
 }
 
 fn output_table(projects: Vec<SingleListProject>, pagination: PaginationMetadata) {
@@ -235,5 +235,5 @@ fn output_table(projects: Vec<SingleListProject>, pagination: PaginationMetadata
         println!("{}", table);
     }
 
-    eprintln!("\n{}", pagination);
+    println!("\n{}", pagination);
 }
