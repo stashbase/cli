@@ -1,13 +1,11 @@
 use core::fmt;
 
-use colored_json::to_colored_json_auto;
-use log::debug;
 use owo_colors::OwoColorize;
-use reqwest::{header::HeaderValue, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::utils::{
-    output::{get_colored_json, write_indented},
+    output::{get_formatted_json_string, is_color_enabled},
     validation::SECRET_VALUE_MAX_LENGTH,
 };
 
@@ -452,7 +450,7 @@ impl OutputError {
 
     pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
         if json_format {
-            let json_err = self.to_colored_json()?;
+            let json_err = self.to_formatted_json_string()?;
             Ok(json_err)
         } else {
             Ok(self.to_string())
@@ -484,9 +482,8 @@ impl OutputError {
         serde_json::to_value(&wrapper)
     }
 
-    pub fn to_colored_json(&self) -> Result<String, serde_json::Error> {
-        let json_value = self.to_json_value()?;
-        let json_str = to_colored_json_auto(&json_value)?;
+    pub fn to_formatted_json_string(&self) -> Result<String, serde_json::Error> {
+        let json_str = get_formatted_json_string(&self, false)?;
 
         Ok(json_str)
     }
@@ -836,7 +833,12 @@ impl fmt::Display for OutputError {
         //     "{}",
         //     "Error".if_supports_color(Stream::Stderr, |text| text.red())
         // )?;
-        writeln!(f, "{}", "API Error".red().bold())?;
+
+        if is_color_enabled(false) {
+            writeln!(f, "{}", "API Error".red().bold())?;
+        } else {
+            writeln!(f, "{}", "API Error")?;
+        }
 
         let message = self.get_message();
         let hint = self.get_hint();

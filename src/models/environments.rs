@@ -1,10 +1,9 @@
 use std::fmt::Display;
 
-use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::utils::human_datetime::get_human_datetime;
+use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfColoredOutput};
 
 use super::secrets::Secret;
 
@@ -155,21 +154,32 @@ impl Display for Environment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
-        writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Created at:".green_if_tty(),
+            formatted,
+            relative
+        )?;
 
-        writeln!(f, "{} {}", "Id:".green(), self.id)?;
-        writeln!(f, "{} {}", "Name:".green(), self.name)?;
-        writeln!(f, "{} {}", "Production:".green(), self.is_production)?;
+        writeln!(f, "{} {}", "Id:".green_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "Production:".green_if_tty(), self.is_production)?;
 
         if let Some(user_role) = &self.user_role {
-            writeln!(f, "{} {}", "User role:".green(), user_role)?;
+            writeln!(f, "{} {}", "User role:".green_if_tty(), user_role)?;
         }
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green(), description)?;
+            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
         }
 
-        writeln!(f, "{} {}", "Secret count:".green(), self.secret_count)?;
+        writeln!(
+            f,
+            "{} {}",
+            "Secret count:".green_if_tty(),
+            self.secret_count
+        )?;
 
         Ok(())
     }

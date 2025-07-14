@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::webhooks,
@@ -8,7 +7,11 @@ use crate::{
         api_client::{OutputError, RequestApiOptionResponse},
         webhooks::TestWebhookResponse,
     },
-    utils::{interaction, output::get_colored_json, spinner::request_spinner},
+    utils::{
+        interaction,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        spinner::request_spinner,
+    },
 };
 
 #[derive(Debug)]
@@ -35,7 +38,7 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
 
     if !silent {
         let msg = "Test webhook event will be sent the webhook URL.";
-        eprintln!("{}", msg.yellow());
+        eprintln!("{}", msg.yellow_if_tty_stderr());
 
         // eprintln!();
         let i = interaction::confirm_opt("Are you sure?");
@@ -84,11 +87,11 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
                 match test_response_json {
                     Ok(test_res) => {
                         if json_format {
-                            let json_str = get_colored_json(&test_res).unwrap();
-
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
+
+                            let json_str = get_formatted_json_string(&test_res, true).unwrap();
                             println!("{}", json_str);
                         } else {
                             if let Some(mut spinner) = spinner {

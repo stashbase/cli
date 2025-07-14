@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
@@ -14,7 +13,11 @@ use crate::{
         },
         validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{output::get_colored_json, separator, spinner::request_spinner},
+    utils::{
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        separator,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleUpdateSecretsArgs {
@@ -200,7 +203,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                 match json_data {
                     Ok(data) => {
                         if json_format {
-                            let json_str = get_colored_json(&data).unwrap();
+                            let json_str = get_formatted_json_string(&data, true).unwrap();
 
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
@@ -232,9 +235,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                     "{} {}",
                                     format!(
                                         "{} {} {}",
-                                        "Secrets".green(),
-                                        "updated".green(),
-                                        format!("({}):", updated_count).green(),
+                                        "Secrets".green_if_tty(),
+                                        "updated".green_if_tty(),
+                                        format!("({}):", updated_count).green_if_tty(),
                                     ),
                                     secrets_updated
                                         .iter()
@@ -261,9 +264,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                     "{} {}",
                                     format!(
                                         "{} {} {}",
-                                        "Secrets".red(),
-                                        "not found".red(),
-                                        format!("({}):", not_found_secrets.len()).red(),
+                                        "Secrets".red_if_tty(),
+                                        "not found".red_if_tty(),
+                                        format!("({}):", not_found_secrets.len()).red_if_tty(),
                                     ),
                                     not_found_secrets.join(", ")
                                 );

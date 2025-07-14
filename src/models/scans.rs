@@ -1,8 +1,10 @@
-use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
 
-use crate::{models::validation::ScanInputValidationError, utils::scans::should_merge_hunks};
+use crate::{
+    models::validation::ScanInputValidationError,
+    utils::{output::ColorizeIfColoredOutput, scans::should_merge_hunks},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
@@ -164,22 +166,26 @@ impl ScanFinding {
         let mut result = String::new();
 
         let (start_line, end_line) = (self.range.start_line, self.range.end_line);
-        result.push_str(&format!("{} {}\n", "File:".green(), self.file_path));
+        result.push_str(&format!("{} {}\n", "File:".green_if_tty(), self.file_path));
         result.push_str(&format!(
             "{} {}-{}\n",
-            "Range:".green(),
+            "Range:".green_if_tty(),
             start_line,
             end_line
         ));
-        result.push_str(&format!("{} {}\n", "Preview:".green(), self.preview));
-        result.push_str(&format!("{} {}\n", "Severity:".green(), self.severity));
+        result.push_str(&format!("{} {}\n", "Preview:".green_if_tty(), self.preview));
+        result.push_str(&format!(
+            "{} {}\n",
+            "Severity:".green_if_tty(),
+            self.severity
+        ));
         result.push_str(&format!(
             "{} {}",
-            "Value SHA256:".green(),
+            "Value SHA256:".green_if_tty(),
             self.value_sha256
         ));
         if let Some(id) = &self.commit_id {
-            result.push_str(&format!("\n{} {}", "Commit ID:".green(), id));
+            result.push_str(&format!("\n{} {}", "Commit ID:".green_if_tty(), id));
         }
 
         result

@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 
 use tabled::{
@@ -16,6 +15,7 @@ use crate::{
         validation::{EnvironmentsInputValidationError, InputValidationError},
     },
     utils::{
+        output::{get_formatted_json_string, is_color_enabled},
         spinner::request_spinner,
         term_size::get_terminal_size,
         validation::{validate_environment_identifier, validate_project_environment_identifier},
@@ -162,8 +162,7 @@ fn format_comparison(
     only_names: bool,
 ) -> String {
     if json_format {
-        let value = serde_json::to_value(&data).unwrap();
-        let pretty = to_colored_json_auto(&value).unwrap();
+        let pretty = get_formatted_json_string(&data, true).unwrap();
         return pretty;
     } else {
         let mut table_data = vec![vec![String::from("Name"), environment_1, environment_2]];
@@ -181,13 +180,22 @@ fn format_comparison(
         let mut table = Builder::from(table_data).build();
 
         let (width, _) = get_terminal_size();
+        let color_enabled = is_color_enabled(true);
 
-        let term_size_settings = Settings::default()
-            .with(Style::rounded())
-            .with(Width::wrap(width).priority::<PriorityMax>())
-            .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
+        if color_enabled {
+            let term_size_settings = Settings::default()
+                .with(Style::rounded())
+                .with(Width::wrap(width).priority::<PriorityMax>())
+                .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
 
-        table.with(term_size_settings);
+            table.with(term_size_settings);
+        } else {
+            let term_size_settings = Settings::default()
+                .with(Style::rounded())
+                .with(Width::wrap(width).priority::<PriorityMax>());
+
+            table.with(term_size_settings);
+        }
 
         return format!("{table}");
     }

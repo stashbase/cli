@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::bail;
 use log::debug;
-use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
@@ -18,6 +17,7 @@ use crate::{
     },
     utils::{
         interaction::{self},
+        output::ColorizeIfColoredOutput,
         separator,
         tables::build::build_table,
         validation::{
@@ -406,11 +406,15 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             if let Ok(mut secrets) = secrets {
                 if secrets.is_empty() && setted_secrets.is_empty() {
                     let msg = if only_len == 0 {
-                        format!("{}\n{}", "Error".red(), "  Message: No secrets found.")
+                        format!(
+                            "{}\n{}",
+                            "Error".red_if_tty_stderr(),
+                            "  Message: No secrets found."
+                        )
                     } else {
                         format!(
                             "{}\n{} ({} requested)",
-                            "Error".red(),
+                            "Error".red_if_tty_stderr(),
                             "  Message: No secrets found.",
                             only_len
                         )
@@ -427,7 +431,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 if only_len > 0 && secrets.len() < only_len {
                     let mut msg = format!(
                         "{} {} Secret(s) found, {} secret(s) requested.",
-                        "Error:".red(),
+                        "Error:".red_if_tty_stderr(),
                         secrets.len(),
                         only_len
                     );
@@ -537,7 +541,7 @@ async fn handle_run(
     if !silent {
         let mut success_msg = format!(
             "{} {} ({} {})",
-            "✓".green(),
+            "   ✓".green_if_tty_stderr(),
             "Environment loaded",
             secrets.len(),
             if secrets.len() == 1 {
@@ -552,13 +556,13 @@ async fn handle_run(
             if let Some(spinner) = spinner {
                 spinner.stop_with_message(&success_msg);
             } else {
-                println!("{}", success_msg);
+                eprintln!("{}", success_msg);
             }
         } else {
             if let Some(spinner) = spinner {
                 spinner.stop_with_message(&success_msg);
             } else {
-                println!("{}", success_msg);
+                eprintln!("{}", success_msg);
             }
         }
     } else if let Some(spinner) = spinner {
@@ -605,7 +609,7 @@ async fn handle_run(
     subprocess::run_command(&cmd, args, secrets_hash_map)
         .await
         .unwrap_or_else(|e| {
-            eprintln!("{}: {}", "Failed to run command".red(), e);
+            eprintln!("{}: {}", "Failed to run command".red_if_tty_stderr(), e);
         });
 
     Ok(())

@@ -1,9 +1,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use colored_json::{to_colored_json, to_colored_json_auto};
 use log::{debug, error};
-use owo_colors::OwoColorize;
 
 use crate::{
     api::environments,
@@ -18,7 +16,7 @@ use crate::{
     utils::{
         files::check_file_exists,
         interaction,
-        output::get_colored_json,
+        output::{get_colored_json, get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::{parse_secrets_from_str, read_secrets_from_file},
         spinner::request_spinner,
         validation::{
@@ -80,7 +78,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         "message": "Error reading file: file does not exist."
                     }
                 });
-                let pretty = to_colored_json_auto(&error_json).unwrap();
+                let pretty = get_formatted_json_string(&error_json, false).unwrap();
 
                 if !silent {
                     eprintln!();
@@ -88,7 +86,11 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
 
                 bail!(pretty);
             } else {
-                let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
+                let err_msg = format!(
+                    "{} {}",
+                    "Error reading file:".red_if_tty_stderr(),
+                    "file does not exist."
+                );
 
                 if !silent {
                     eprintln!();
@@ -121,8 +123,11 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                 if values.is_empty() {
                     if !silent {
                         // Show warning and ask for confirmation in interactive mode
-                        let msg =
-                            format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
+                        let msg = format!(
+                            "{}: {}",
+                            "Nothing to upload".yellow_if_tty(),
+                            "no secrets found."
+                        );
                         eprintln!("{}", msg);
 
                         let confirm =
@@ -305,9 +310,17 @@ fn validate_secrets_input(secrets: &Vec<Secret>) -> Option<String> {
         }
 
         if !refs_validation.invalid_format.is_empty() && !refs_validation.not_found.is_empty() {
-            print_str = format!("{}\n{}", format!("Input warnings").yellow(), print_str);
+            print_str = format!(
+                "{}\n{}",
+                format!("Input warnings").yellow_if_tty_stderr(),
+                print_str
+            );
         } else {
-            print_str = format!("{}\n{}", format!("Input warning").yellow(), print_str);
+            print_str = format!(
+                "{}\n{}",
+                format!("Input warning").yellow_if_tty_stderr(),
+                print_str
+            );
         }
 
         print_str = format!("{}\n", print_str);

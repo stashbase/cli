@@ -1,12 +1,10 @@
-use owo_colors::OwoColorize;
-
-use crate::{config::config, models::config::UpdateConfig};
+use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfColoredOutput};
 
 pub fn set_expand_refs_config(enabled: Option<bool>) {
     if let None = enabled {
         eprintln!(
             "{} {}",
-            "Error:".red(),
+            "Error:".red_if_tty_stderr(),
             "No 'enabled' boolean value provided."
         );
         return;
@@ -21,10 +19,10 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
     });
 
     if let Err(err) = res {
-        eprintln!("{} {}", "Error:".red(), err);
+        eprintln!("{} {}", "Error:".red_if_tty_stderr(), err);
     } else {
         let msg = format!("Default expand-refs config set.");
-        eprintln!("{}", msg);
+        println!("{}", msg);
     }
 }
 

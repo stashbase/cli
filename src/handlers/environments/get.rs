@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 
 use crate::{
@@ -10,6 +9,7 @@ use crate::{
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
     },
     utils::{
+        output::get_formatted_json_string,
         spinner::request_spinner,
         tables,
         validation::{validate_project_environment, validate_project_environment_identifier},
@@ -73,8 +73,7 @@ pub async fn handle_get_environment(
 
                     match format {
                         OutputFormat::Json => {
-                            let value = serde_json::to_value(&env).unwrap();
-                            let pretty = to_colored_json_auto(&value).unwrap();
+                            let pretty = get_formatted_json_string(&env, true).unwrap();
                             println!("{}", pretty);
                         }
                         OutputFormat::List => {

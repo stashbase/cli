@@ -1,12 +1,12 @@
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::environments,
     models::api_client::DeleteRequestApiResponse,
     utils::{
-        interaction, spinner::request_spinner, validation::validate_project_environment_identifier,
+        interaction, output::ColorizeIfColoredOutput, spinner::request_spinner,
+        validation::validate_project_environment_identifier,
     },
 };
 
@@ -42,7 +42,10 @@ pub async fn handle_delete_environment(args: HandleDeleteEnvironmentArgs) -> Res
     }
 
     if !force {
-        eprintln!("{}", "Environment with all secrets will be deleted.".red());
+        eprintln!(
+            "{}",
+            "Environment with all secrets will be deleted.".red_if_tty_stderr()
+        );
 
         let i = interaction::input(&format!("Type '{}' to confirm.", environment));
 

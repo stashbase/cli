@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::cmd::scans::ScanCommands;
 
@@ -26,33 +26,24 @@ pub struct Cli {
     #[arg(long = "silent", global = true)]
     pub silent: bool,
 
-    // /// Output data as raw json
-    // #[arg(long = "raw", global = true)]
-    // pub raw: bool,
+    /// When to use colored output
+    #[arg(long, value_enum, global = true, default_value = "auto")]
+    pub color: ColorChoice,
 
-    // #[clap(long, value_enum, global = true, default_value = "auto")]
-    // pub color: Color,
-    //
     #[clap(subcommand)]
     pub entity_type: EntityType,
 }
 
-// #[derive(ValueEnum, Clone, Copy, Debug)]
-// pub enum Color {
-//     Auto,
-//     Never,
-// }
-//
-// impl Color {
-//     pub fn init(self) {
-//         // Set a supports-color override based on the variable passed in.
-//         match self {
-//             Color::Auto => {}
-//             Color::Never => owo_colors::set_override(false),
-//         }
-//     }
-// }
-//
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum ColorChoice {
+    /// Automatically detect if colors should be used
+    Auto,
+    /// Always use colors
+    Always,
+    /// Never use colors
+    Never,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum EntityType {
     /// Load environment and run command
