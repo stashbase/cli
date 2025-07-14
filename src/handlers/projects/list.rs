@@ -6,10 +6,7 @@ use crate::{
     cmd::{config::OutputFormat, projects::SortBy},
     models::{
         api_client::{GetRequestApiResponse, OutputError},
-        projects::{
-            ProjectList, ProjectWithCountNoDescriptionTable, SingleListProject,
-            SingleListProjectWithoutDescription,
-        },
+        projects::{ProjectList, SingleListProject, SingleListProjectWithoutDescription},
         shared::PaginationMetadata,
         validation::{InputValidationError, ProjectInputValidationError},
     },
