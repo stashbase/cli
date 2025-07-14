@@ -8,11 +8,7 @@ use crate::{
         api_client::{OutputError, RequestApiOptionResponse},
         webhooks::RotateWebhookSecretResponse,
     },
-    utils::{
-        interaction,
-        output::{get_formatted_json_string, ColorizeIfColoredOutput},
-        spinner::request_spinner,
-    },
+    utils::{interaction, output::get_formatted_json_string, spinner::request_spinner},
 };
 
 pub struct RotateWebhookSecretArgs {
