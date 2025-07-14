@@ -85,7 +85,6 @@ pub fn is_color_enabled(stdout: bool) -> bool {
     let color_choice = COLOR_CHOICE.get().unwrap_or(&ColorChoice::Auto);
 
     match color_choice {
-        ColorChoice::Always => true,
         ColorChoice::Auto => {
             // Force enable color
             if std::env::var("FORCE_COLOR").is_ok() || std::env::var("CLICOLOR_FORCE").is_ok() {
@@ -107,6 +106,7 @@ pub fn is_color_enabled(stdout: bool) -> bool {
                 is_terminal_stderr()
             }
         }
+        ColorChoice::Always => true,
         ColorChoice::Never => false,
     }
 }
