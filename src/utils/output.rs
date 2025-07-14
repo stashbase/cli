@@ -46,6 +46,26 @@ pub fn get_colored_json<T: serde::Serialize>(data: &T) -> Result<String> {
     Ok(json_str)
 }
 
+/// Converts data to a JSON string with optional color formatting
+///
+/// ### Arguments
+/// * `data` - The data to serialize to JSON
+/// * `stdout` - Whether to check stdout (true) or stderr (false) for color support
+///
+/// ### Returns
+/// * `Result<String>` - The formatted JSON string, with colors if enabled
+pub fn get_formatted_json_string<T: serde::Serialize>(data: &T, stdout: bool) -> Result<String> {
+    let value = serde_json::to_value(data)?;
+
+    if is_color_enabled(stdout) {
+        let json_str = to_colored_json_auto(&value)?;
+        Ok(json_str)
+    } else {
+        let json_str = serde_json::to_string_pretty(&value)?;
+        Ok(json_str)
+    }
+}
+
 pub fn is_terminal() -> bool {
     std::io::stdout().is_terminal()
 }
