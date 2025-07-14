@@ -22,7 +22,7 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
         eprintln!("{} {}", "Error:".red_if_tty_stderr(), err);
     } else {
         let msg = format!("Default expand-refs config set.");
-        eprintln!("{}", msg);
+        println!("{}", msg);
     }
 }
 
