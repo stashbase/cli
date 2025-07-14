@@ -10,7 +10,7 @@ use crate::{
     },
     utils::{
         interaction,
-        output::{get_colored_json, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminal},
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
@@ -111,7 +111,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                             match json_data {
                                 Ok(d) => {
                                     if json_format {
-                                        let json_str = get_colored_json(&d).unwrap();
+                                        let json_str = get_formatted_json_string(&d, true).unwrap();
 
                                         if let Some(mut spinner) = spinner {
                                             spinner.stop_and_persist("", "");
@@ -201,7 +201,8 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                             match json_data {
                                 Ok(data) => {
                                     if json_format {
-                                        let json_str = get_colored_json(&data).unwrap();
+                                        let json_str =
+                                            get_formatted_json_string(&data, true).unwrap();
 
                                         if let Some(mut spinner) = spinner {
                                             spinner.stop_and_persist("", "");

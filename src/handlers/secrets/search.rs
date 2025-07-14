@@ -1,7 +1,6 @@
 use std::fmt::Display;
 
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::debug;
 use serde::{de::DeserializeOwned, Serialize};
 use spinoff::Spinner;
@@ -21,6 +20,7 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
+        output::get_formatted_json_string,
         spinner::request_spinner,
         tables,
         validation::{validate_project_identifier, validate_secret_name},
@@ -214,8 +214,7 @@ where
                     spinner.stop_and_persist("", "");
                 }
 
-                let value = serde_json::to_value(&secrets).unwrap();
-                let pretty = to_colored_json_auto(&value).unwrap();
+                let pretty = get_formatted_json_string(&secrets, true).unwrap();
                 println!("{}", pretty);
 
                 return Ok(());

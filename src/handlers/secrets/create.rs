@@ -10,7 +10,7 @@ use crate::{
     },
     utils::{
         interaction,
-        output::{get_colored_json, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminal},
         secrets::format_secret_comment,
         separator,
         spinner::request_spinner,
@@ -163,7 +163,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                 match json_data {
                     Ok(data) => {
                         if json_format {
-                            let json_str = get_colored_json(&data).unwrap();
+                            let json_str = get_formatted_json_string(&data, true).unwrap();
 
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
@@ -196,9 +196,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                         "{} {}",
                                         format!(
                                             "{} {} {}",
-                                            "Secrets".green_if_tty_stderr(),
-                                            "created".green_if_tty_stderr(),
-                                            format!("({}):", created_count).green_if_tty_stderr(),
+                                            "Secrets".green_if_tty(),
+                                            "created".green_if_tty(),
+                                            format!("({}):", created_count).green_if_tty(),
                                         ),
                                         secrets_created
                                             .iter()
