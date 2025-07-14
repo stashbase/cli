@@ -1,6 +1,5 @@
 use anyhow::bail;
 use log::{debug, error};
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
@@ -11,7 +10,7 @@ use crate::{
     },
     utils::{
         interaction,
-        output::get_colored_json,
+        output::{get_colored_json, ColorizeIfTerminal},
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
     },
@@ -69,7 +68,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
     if delete_all && !force {
         eprintln!(
             "{}",
-            "All secrets in selected environment will be deleted.".red()
+            "All secrets in selected environment will be deleted.".red_if_tty_stderr()
         );
 
         let i = interaction::confirm_opt("Are you sure you want to continue?");
@@ -136,7 +135,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                                         "All secrets ({}) deleted.",
                                                         d.deleted_count
                                                     );
-                                                    println!("{} {}", "✓".green(), msg);
+                                                    println!("{} {}", "✓".green_if_tty(), msg);
                                                 }
                                             }
                                         }
@@ -239,9 +238,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                                     "{} {}",
                                                     format!(
                                                         "{} {} {}",
-                                                        "Secrets".red(),
-                                                        format!("({})", not_found_len).red(),
-                                                        "not found:".red()
+                                                        "Secrets".red_if_tty_stderr(),
+                                                        format!("({})", not_found_len)
+                                                            .red_if_tty_stderr(),
+                                                        "not found:".red_if_tty_stderr()
                                                     ),
                                                     not_found_secrets.join(", ")
                                                 );
@@ -264,9 +264,10 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                                     "{} {}",
                                                     format!(
                                                         "{} {} {}",
-                                                        "Secrets".green(),
-                                                        format!("({})", deleted_count).green(),
-                                                        "deleted:".green()
+                                                        "Secrets".green_if_tty(),
+                                                        format!("({})", deleted_count)
+                                                            .green_if_tty(),
+                                                        "deleted:".green_if_tty()
                                                     ),
                                                     secrets_deleted.join(", ")
                                                 );
