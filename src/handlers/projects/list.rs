@@ -128,7 +128,9 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                             spinner.stop_and_persist("", "");
                         }
 
-                        output_json(&data);
+                        let pretty = get_formatted_json_string(&data, true).unwrap();
+                        println!("{}", pretty);
+
                         return Ok(());
                     }
 
@@ -203,12 +205,6 @@ fn output_list(projects: Vec<SingleListProject>, pagination: PaginationMetadata)
     }
 
     eprintln!("\n\n{}", pagination);
-}
-
-fn output_json(data: &ProjectList) {
-    let pretty = get_formatted_json_string(data, true).unwrap();
-
-    println!("{}", pretty);
 }
 
 fn output_table(projects: Vec<SingleListProject>, pagination: PaginationMetadata) {
