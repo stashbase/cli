@@ -17,7 +17,7 @@ use crate::{
     },
     utils::{
         interaction::{self},
-        output::ColorizeIfTerminalColor,
+        output::ColorizeIfColoredOutput,
         separator,
         tables::build::build_table,
         validation::{

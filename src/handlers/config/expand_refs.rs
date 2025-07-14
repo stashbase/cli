@@ -1,4 +1,4 @@
-use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfTerminalColor};
+use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfColoredOutput};
 
 pub fn set_expand_refs_config(enabled: Option<bool>) {
     if let None = enabled {

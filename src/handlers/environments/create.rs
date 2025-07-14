@@ -16,7 +16,7 @@ use crate::{
     utils::{
         files::check_file_exists,
         interaction,
-        output::{get_colored_json, get_formatted_json_string, ColorizeIfTerminalColor},
+        output::{get_colored_json, get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::{parse_secrets_from_str, read_secrets_from_file},
         spinner::request_spinner,
         validation::{

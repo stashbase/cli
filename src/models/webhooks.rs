@@ -3,7 +3,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfTerminalColor};
+use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfColoredOutput};
 
 use super::shared::PaginationMetadata;
 
