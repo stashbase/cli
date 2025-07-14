@@ -99,7 +99,7 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                                 }
                             }
 
-                            println!("Id: {}", webhook.id);
+                            println!("ID: {}", webhook.id);
                             println!("Signing secret: {}", webhook.signing_secret);
                         }
                         Err(_) => {

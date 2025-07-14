@@ -96,7 +96,7 @@ pub async fn handle_create_project(
                                 spinner.stop_with_message(&msg);
                             }
 
-                            println!("Id: {}", data.id);
+                            println!("ID: {}", data.id);
                         }
                     }
                     Err(e) => {
