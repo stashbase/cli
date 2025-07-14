@@ -1,10 +1,9 @@
-use owo_colors::OwoColorize;
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::utils::human_datetime::get_human_datetime;
+use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfTerminal};
 
 use super::shared::PaginationMetadata;
 
@@ -24,9 +23,9 @@ pub struct ListWebhook {
 impl Display for ListWebhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.enabled == true {
-            writeln!(f, "{} {}", "Enabled:", "true".green())?;
+            writeln!(f, "{} {}", "Enabled:", "true".green_if_tty())?;
         } else {
-            writeln!(f, "{} {}", "Enabled:", "false".red())?;
+            writeln!(f, "{} {}", "Enabled:", "false".red_if_tty())?;
         }
 
         writeln!(f, "{} {}", "Id:", self.id)?;
@@ -114,9 +113,9 @@ impl From<Webhook> for TableWebhookNoDescription {
 impl Display for Webhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.enabled == true {
-            writeln!(f, "{} {}", "Enabled:", "true".green())?;
+            writeln!(f, "{} {}", "Enabled:", "true".green_if_tty())?;
         } else {
-            writeln!(f, "{} {}", "Enabled:", "false".red())?;
+            writeln!(f, "{} {}", "Enabled:", "false".red_if_tty())?;
         }
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
@@ -227,12 +226,12 @@ impl TestWebhookResponse {
 impl Display for TestWebhookResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_success() {
-            writeln!(f, "Status: {}", "success".green())?;
+            writeln!(f, "Status: {}", "success".green_if_tty())?;
             writeln!(f, "HTTP status code: {}", self.status.unwrap())?;
             writeln!(f, "Response message: Wehbook event delivered")?;
             writeln!(f, "Webhook URL: {}", self.url)?;
         } else {
-            writeln!(f, "Status: {}", "failure".red())?;
+            writeln!(f, "Status: {}", "failure".red_if_tty())?;
 
             if let Some(status) = &self.status {
                 writeln!(f, "HTTP status code: {}", status)?;
@@ -320,14 +319,14 @@ impl Display for WebhookLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(status) = self.status {
             if status == 200 || status == 204 {
-                writeln!(f, "Status: {}", "success".green())?;
+                writeln!(f, "Status: {}", "success".green_if_tty())?;
                 // writeln!(f, "Response message: Wehbook event delivered")?;
             } else {
-                writeln!(f, "Status: {}", "failure".red())?;
+                writeln!(f, "Status: {}", "failure".red_if_tty())?;
                 // writeln!(f, "Response message: Failed with status code")?;
             }
         } else {
-            writeln!(f, "Status: {}", "failure".red())?;
+            writeln!(f, "Status: {}", "failure".red_if_tty())?;
             // if let Some(error_code) = &self.error {
             //     writeln!(f, "Response message: {}", error_code.get_message())?;
             // } else {
