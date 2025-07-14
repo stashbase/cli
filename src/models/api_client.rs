@@ -5,7 +5,10 @@ use owo_colors::OwoColorize;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::{output::is_color_enabled, validation::SECRET_VALUE_MAX_LENGTH};
+use crate::utils::{
+    output::{get_formatted_json_string, is_color_enabled},
+    validation::SECRET_VALUE_MAX_LENGTH,
+};
 
 #[derive(Debug)]
 pub struct RequestArgs {
@@ -448,7 +451,7 @@ impl OutputError {
 
     pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
         if json_format {
-            let json_err = self.to_colored_json()?;
+            let json_err = self.to_formatted_json_string()?;
             Ok(json_err)
         } else {
             Ok(self.to_string())
@@ -480,9 +483,8 @@ impl OutputError {
         serde_json::to_value(&wrapper)
     }
 
-    pub fn to_colored_json(&self) -> Result<String, serde_json::Error> {
-        let json_value = self.to_json_value()?;
-        let json_str = to_colored_json_auto(&json_value)?;
+    pub fn to_formatted_json_string(&self) -> Result<String, serde_json::Error> {
+        let json_str = get_formatted_json_string(&self, false)?;
 
         Ok(json_str)
     }
