@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
@@ -14,7 +13,11 @@ use crate::{
         },
         validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{output::get_colored_json, separator, spinner::request_spinner},
+    utils::{
+        output::{get_colored_json, ColorizeIfTerminal},
+        separator,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleUpdateSecretsArgs {
@@ -232,9 +235,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                     "{} {}",
                                     format!(
                                         "{} {} {}",
-                                        "Secrets".green(),
-                                        "updated".green(),
-                                        format!("({}):", updated_count).green(),
+                                        "Secrets".green_if_tty(),
+                                        "updated".green_if_tty(),
+                                        format!("({}):", updated_count).green_if_tty(),
                                     ),
                                     secrets_updated
                                         .iter()
@@ -261,9 +264,9 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                     "{} {}",
                                     format!(
                                         "{} {} {}",
-                                        "Secrets".red(),
-                                        "not found".red(),
-                                        format!("({}):", not_found_secrets.len()).red(),
+                                        "Secrets".red_if_tty(),
+                                        "not found".red_if_tty(),
+                                        format!("({}):", not_found_secrets.len()).red_if_tty(),
                                     ),
                                     not_found_secrets.join(", ")
                                 );
