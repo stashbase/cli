@@ -5,9 +5,8 @@ use std::{
     io::Write,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 use crate::{
@@ -25,6 +24,7 @@ use crate::{
     },
     utils::{
         interaction::{self, select},
+        output::ColorizeIfColoredOutput,
         secrets::format_secrets,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
@@ -315,11 +315,15 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         }
 
                         let msg = if only_len == 0 {
-                            format!("{}\n{}", "Error".red(), "  Message: No secrets found.")
+                            format!(
+                                "{}\n{}",
+                                "Error".red_if_tty_stderr(),
+                                "  Message: No secrets found."
+                            )
                         } else {
                             format!(
                                 "{}\n{} ({} requested)",
-                                "Error".red(),
+                                "Error".red_if_tty_stderr(),
                                 "  Message: No secrets found.",
                                 only_len
                             )
@@ -336,7 +340,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         if !silent {
                             let mut msg = format!(
                                 "{} {} Secret(s) found, {} secret(s) requested.",
-                                "Error:".red(),
+                                "Error:".red_if_tty_stderr(),
                                 secrets.len(),
                                 only_len
                             );

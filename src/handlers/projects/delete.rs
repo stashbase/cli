@@ -1,14 +1,12 @@
 use anyhow::{bail, Result};
-use log::{debug, error};
-use owo_colors::OwoColorize;
+use log::error;
 
 use crate::{
     api::projects,
     models::api_client::DeleteRequestApiResponse,
     utils::{
-        interaction,
-        spinner::request_spinner,
-        validation::{validate_project_identifier, validate_project_name},
+        interaction, output::ColorizeIfColoredOutput, spinner::request_spinner,
+        validation::validate_project_identifier,
     },
 };
 
@@ -42,7 +40,10 @@ pub async fn handle_delete_project(args: HandleDeleteProjectArgs) -> Result<()> 
     }
 
     if !force {
-        eprintln!("{}", "All environments and secrets will be deleted.".red());
+        eprintln!(
+            "{}",
+            "All environments and secrets will be deleted.".red_if_tty_stderr()
+        );
 
         let i = interaction::input(&format!("Type '{}' to confirm.", name));
 

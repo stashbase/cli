@@ -15,6 +15,7 @@ use crate::{
     },
     utils::{
         self, interaction,
+        output::ColorizeIfColoredOutput,
         secrets::read_secrets_from_file,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
@@ -24,7 +25,6 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 use spinoff::{spinners, Color, Spinner, Streams};
 
 #[derive(Debug)]
@@ -147,7 +147,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     if !file_exists {
         let err_msg = format!(
             "{} {}",
-            "Error reading input file:".red(),
+            "Error reading input file:".red_if_tty_stderr(),
             "file does not exist."
         );
 
@@ -264,7 +264,11 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     if secrets.is_empty() {
         if !silent {
-            let msg = format!("{}: {}", "Nothing to upload".yellow(), "no secrets found.");
+            let msg = format!(
+                "{}: {}",
+                "Nothing to upload".yellow_if_tty_stderr(),
+                "no secrets found."
+            );
             eprintln!("{}", msg);
         }
 
