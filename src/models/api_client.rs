@@ -1,15 +1,11 @@
 use core::fmt;
 
 use colored_json::to_colored_json_auto;
-use log::debug;
 use owo_colors::OwoColorize;
-use reqwest::{header::HeaderValue, StatusCode};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::utils::{
-    output::{get_colored_json, is_terminal_stderr, write_indented},
-    validation::SECRET_VALUE_MAX_LENGTH,
-};
+use crate::utils::{output::is_color_enabled, validation::SECRET_VALUE_MAX_LENGTH};
 
 #[derive(Debug)]
 pub struct RequestArgs {
@@ -836,7 +832,8 @@ impl fmt::Display for OutputError {
         //     "{}",
         //     "Error".if_supports_color(Stream::Stderr, |text| text.red())
         // )?;
-        if is_terminal_stderr() {
+
+        if is_color_enabled(false) {
             writeln!(f, "{}", "API Error".red().bold())?;
         } else {
             writeln!(f, "{}", "API Error")?;
