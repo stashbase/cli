@@ -248,7 +248,7 @@ impl Display for SingleListProject {
         )?;
 
         writeln!(f, "{} {}", "ID:".green_if_tty(), self.id)?;
-        writeln!(f, "{} {}", "Project name:".green_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
 
         if let Some(description) = &self.description {
             writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
