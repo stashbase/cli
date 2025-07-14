@@ -1,6 +1,5 @@
 use anyhow::bail;
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
@@ -11,7 +10,7 @@ use crate::{
     },
     utils::{
         duplicates::{self, find_duplicates},
-        output::get_colored_json,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         separator,
         spinner::request_spinner,
         validation::{validate_environment_name, validate_project_name, validate_secret_names},
@@ -41,7 +40,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
     if secrets.is_empty() {
         let msg = format!(
             "{} {}",
-            "Input error:".red(),
+            "Input error:".red_if_tty_stderr(),
             "No secrets to rename provided."
         );
 
@@ -60,7 +59,7 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
             eprintln!();
         }
 
-        bail!("{} {}", format!("Input error:").red(), err);
+        bail!("{} {}", format!("Input error:").red_if_tty_stderr(), err);
     }
 
     let name_value_pairs = name_value_pairs.unwrap();
@@ -136,11 +135,11 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                 match json_data {
                     Ok(data) => {
                         if json_format {
-                            let json_str = get_colored_json(&data).unwrap();
-
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
+
+                            let json_str = get_formatted_json_string(&data, true).unwrap();
                             println!("{}", json_str);
 
                             return Ok(());
@@ -159,9 +158,9 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                                     "{} {}",
                                     format!(
                                         "{} {} {}",
-                                        "Secrets".red(),
-                                        format!("({})", not_found_len).red(),
-                                        "not found:".red()
+                                        "Secrets".red_if_tty_stderr(),
+                                        format!("({})", not_found_len).red_if_tty_stderr(),
+                                        "not found:".red_if_tty_stderr()
                                     ),
                                     not_found_secrets.join(", ")
                                 );
@@ -196,9 +195,9 @@ pub async fn handle_rename_secrets(args: HandleRenameSecretsArgs) -> anyhow::Res
                                         "{} {}",
                                         format!(
                                             "{} {} {}",
-                                            "Secrets".green(),
-                                            format!("({})", renamed_len).green(),
-                                            "renamed:".green()
+                                            "Secrets".green_if_tty_stderr(),
+                                            format!("({})", renamed_len).green_if_tty_stderr(),
+                                            "renamed:".green_if_tty_stderr()
                                         ),
                                         secrets_renamed.join(", ")
                                     );

@@ -1,15 +1,13 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use linked_hash_set::LinkedHashSet;
 use log::debug;
 use regex::Regex;
 use std::{collections::HashMap, fs, path::Path};
 
-use colored_json::to_colored_json_auto;
-use owo_colors::OwoColorize;
-
 use crate::{
     cmd::{config::SecretsOutputFormat, secrets::SecretsFileFormat},
     models::secrets::{Secret, SecretOnlyName, SecretWithComment, SecretWithoutComment},
+    utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
 
 use super::tables::build::build_table;
@@ -50,9 +48,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
             text_to_print
         }
         SecretsOutputFormat::Json => {
-            let value = serde_json::to_value(&secrets).unwrap();
-            let pretty = to_colored_json_auto(&value).unwrap();
-
+            let pretty = get_formatted_json_string(&secrets, true).unwrap();
             pretty
         }
         SecretsOutputFormat::Table => {
@@ -226,9 +222,9 @@ pub fn format_secret_names(names: Vec<String>, format: &SecretsOutputFormat) -> 
             for (i, p) in names.iter().enumerate() {
                 // is last
                 if i == names.len() - 1 {
-                    text_to_print.push_str(&format!("{}", p.green()))
+                    text_to_print.push_str(&format!("{}", p.green_if_tty()))
                 } else {
-                    text_to_print.push_str(&format!("{}\n", p.green()))
+                    text_to_print.push_str(&format!("{}\n", p.green_if_tty()))
                 }
             }
 
@@ -263,9 +259,7 @@ pub fn format_secret_names(names: Vec<String>, format: &SecretsOutputFormat) -> 
             text_to_print
         }
         SecretsOutputFormat::Json => {
-            let value = serde_json::to_value(&names).unwrap();
-            let pretty = to_colored_json_auto(&value).unwrap();
-
+            let pretty = get_formatted_json_string(&names, true).unwrap();
             pretty
         }
         SecretsOutputFormat::Table => {

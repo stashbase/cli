@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 
 use crate::{
     api::auth::get_current_auth_details,
@@ -8,7 +7,7 @@ use crate::{
         api_client::{GetRequestApiResponse, OutputError},
         auth::CurrentAuthResponse,
     },
-    utils::spinner::request_spinner,
+    utils::{output::get_formatted_json_string, spinner::request_spinner},
 };
 
 // for whoami command
@@ -56,8 +55,7 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
             match auth_details {
                 Ok(auth_details) => match format {
                     OutputFormat::Json => {
-                        let value = serde_json::to_value(&auth_details).unwrap();
-                        let pretty = to_colored_json_auto(&value).unwrap();
+                        let pretty = get_formatted_json_string(&auth_details, true).unwrap();
                         println!("{}", pretty);
                     }
                     OutputFormat::List => {

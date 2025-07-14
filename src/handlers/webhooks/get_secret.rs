@@ -8,7 +8,7 @@ use crate::{
         api_client::{GetRequestApiResponse, OutputError},
         webhooks::WebhookSigningSecret,
     },
-    utils::{output::get_colored_json, spinner::request_spinner},
+    utils::{output::get_formatted_json_string, spinner::request_spinner},
 };
 
 pub struct GetWebhookSecretArgs {
@@ -65,11 +65,11 @@ pub async fn handle_get_webhook_secret(args: GetWebhookSecretArgs) -> Result<()>
             match signing_secret_json {
                 Ok(data) => {
                     if json_format {
-                        let json_str = get_colored_json(&data).unwrap();
-
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
                         }
+
+                        let json_str = get_formatted_json_string(&data, true).unwrap();
                         println!("{}", json_str);
                     } else {
                         if let Some(mut spinner) = spinner {

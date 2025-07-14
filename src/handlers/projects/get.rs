@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use colored_json::to_colored_json_auto;
 use log::{debug, error};
 
 use crate::{
@@ -14,6 +13,7 @@ use crate::{
     },
     utils::{
         human_datetime::get_human_datetime,
+        output::get_formatted_json_string,
         spinner::request_spinner,
         tables,
         validation::{validate_project_identifier, validate_project_name},
@@ -78,8 +78,7 @@ pub async fn handle_get_project(
                             print!("{}", project);
                         }
                         OutputFormat::Json => {
-                            let value = serde_json::to_value(&project).unwrap();
-                            let pretty = to_colored_json_auto(&value).unwrap();
+                            let pretty = get_formatted_json_string(&project, true).unwrap();
                             println!("{}", pretty);
                         }
                         OutputFormat::Table => match &project.description {

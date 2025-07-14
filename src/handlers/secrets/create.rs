@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
@@ -10,7 +9,10 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        interaction, output::get_colored_json, secrets::format_secret_comment, separator,
+        interaction,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        secrets::format_secret_comment,
+        separator,
         spinner::request_spinner,
     },
 };
@@ -161,7 +163,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                 match json_data {
                     Ok(data) => {
                         if json_format {
-                            let json_str = get_colored_json(&data).unwrap();
+                            let json_str = get_formatted_json_string(&data, true).unwrap();
 
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
@@ -194,9 +196,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                         "{} {}",
                                         format!(
                                             "{} {} {}",
-                                            "Secrets".green(),
-                                            "created".green(),
-                                            format!("({}):", created_count).green(),
+                                            "Secrets".green_if_tty(),
+                                            "created".green_if_tty(),
+                                            format!("({}):", created_count).green_if_tty(),
                                         ),
                                         secrets_created
                                             .iter()
@@ -237,9 +239,10 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                     "{} {}",
                                     format!(
                                         "{} {} {}",
-                                        "Secrets".red(),
-                                        "already exist".red(),
-                                        format!("({}):", duplicate_secrets.len()).red(),
+                                        "Secrets".red_if_tty_stderr(),
+                                        "already exist".red_if_tty_stderr(),
+                                        format!("({}):", duplicate_secrets.len())
+                                            .red_if_tty_stderr(),
                                     ),
                                     duplicate_secrets.join(", ")
                                 );
