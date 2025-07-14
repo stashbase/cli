@@ -3,7 +3,7 @@ use tabled::{
     Table, Tabled,
 };
 
-use crate::utils::{output::is_terminal, term_size::get_terminal_size};
+use crate::utils::{output::is_color_enabled, term_size::get_terminal_size};
 
 pub fn build_table<T>(secrets: &Vec<T>) -> Table
 where
@@ -11,7 +11,7 @@ where
 {
     let (width, _) = get_terminal_size();
 
-    if is_terminal() {
+    if is_color_enabled(true) {
         let term_size_settings = Settings::default()
             // .with(Style::modern())
             .with(Style::rounded())
