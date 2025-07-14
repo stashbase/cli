@@ -7,7 +7,7 @@ use std::{collections::HashSet, fmt::Display};
 use owo_colors::OwoColorize;
 use tabled::Tabled;
 
-use crate::{cmd::config::SecretsOutputFormat, utils};
+use crate::{cmd::config::SecretsOutputFormat, utils, utils::output::is_terminal_stderr};
 
 use super::validation::InputValidationError;
 
@@ -540,10 +540,10 @@ impl SecretReferenceWarnings {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.invalid_format.len() == 0 &&
-        self.not_found.len() == 0 &&
-        self.empty_value.len() == 0 &&
-        self.self_reference.len() == 0
+        self.invalid_format.len() == 0
+            && self.not_found.len() == 0
+            && self.empty_value.len() == 0
+            && self.self_reference.len() == 0
     }
 }
 
@@ -557,15 +557,15 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            if is_terminal_stderr() {
+                writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            } else {
+                writeln!(f, "{}", format!("{}", "Input warning"))?;
+            }
 
-            writeln!(
-                f,
-                "- message: secrets referencing itself (within input)"
-            )?;
+            writeln!(f, "- message: secrets referencing itself (within input)")?;
             writeln!(f, "- secrets: {} \n", secrets_str)?;
         }
-
 
         if !self.invalid_format.is_empty() {
             let secrets_str = self
@@ -575,7 +575,11 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            if is_terminal_stderr() {
+                writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            } else {
+                writeln!(f, "{}", format!("{}", "Input warning"))?;
+            }
 
             writeln!(f, "- message: invalid secret references format")?;
             writeln!(f, "- secrets: {} \n", secrets_str)?;
@@ -589,7 +593,11 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            if is_terminal_stderr() {
+                writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            } else {
+                writeln!(f, "{}", format!("{}", "Input warning"))?;
+            }
 
             writeln!(
                 f,
@@ -606,7 +614,11 @@ impl std::fmt::Display for SecretReferenceWarnings {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            if is_terminal_stderr() {
+                writeln!(f, "{}", format!("{}", "Input warning").yellow().bold())?;
+            } else {
+                writeln!(f, "{}", format!("{}", "Input warning"))?;
+            }
 
             writeln!(f, "- message: empty references to other secrets")?;
             writeln!(f, "- secrets: {} \n", secrets_str)?;
