@@ -87,9 +87,20 @@ pub fn is_color_enabled(stdout: bool) -> bool {
     match color_choice {
         ColorChoice::Always => true,
         ColorChoice::Auto => {
-            if std::env::var("NO_COLOR").is_ok() || std::env::var("NOCOLOR").is_ok() {
+            // Force enable color
+            if std::env::var("FORCE_COLOR").is_ok() || std::env::var("CLICOLOR_FORCE").is_ok() {
+                return true;
+            }
+
+            // Disable color conditions
+            if std::env::var("NO_COLOR").is_ok()
+                || std::env::var("NOCOLOR").is_ok()
+                || std::env::var("TERM").map_or(false, |term| term == "dumb")
+            {
                 return false;
             }
+
+            // Check terminal capability
             if stdout {
                 is_terminal()
             } else {
