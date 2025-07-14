@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     models::validation::ScanInputValidationError,
-    utils::{output::ColorizeIfTerminalColor, scans::should_merge_hunks},
+    utils::{output::ColorizeIfColoredOutput, scans::should_merge_hunks},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

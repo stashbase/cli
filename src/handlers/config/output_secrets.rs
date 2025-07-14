@@ -2,7 +2,7 @@ use crate::{
     cmd::config::SecretsOutputFormat,
     config::config,
     models::config::{OutputFormatConfig, UpdateConfig},
-    utils::output::ColorizeIfTerminalColor,
+    utils::output::ColorizeIfColoredOutput,
 };
 
 pub fn set_default_secrets_output_format(output_format: SecretsOutputFormat) {
