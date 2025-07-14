@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use colored_json::{to_colored_json, to_colored_json_auto};
 use log::{debug, error};
 
 use crate::{
@@ -17,7 +16,7 @@ use crate::{
     utils::{
         files::check_file_exists,
         interaction,
-        output::{get_colored_json, ColorizeIfTerminal},
+        output::{get_colored_json, get_formatted_json_string, ColorizeIfTerminal},
         secrets::{parse_secrets_from_str, read_secrets_from_file},
         spinner::request_spinner,
         validation::{
@@ -79,7 +78,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         "message": "Error reading file: file does not exist."
                     }
                 });
-                let pretty = to_colored_json_auto(&error_json).unwrap();
+                let pretty = get_formatted_json_string(&error_json, false).unwrap();
 
                 if !silent {
                     eprintln!();
