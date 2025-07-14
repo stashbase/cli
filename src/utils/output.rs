@@ -1,6 +1,8 @@
 use crate::cmd::config::OutputFormat;
 use anyhow::Result;
 use colored_json::to_colored_json_auto;
+use owo_colors::OwoColorize;
+use std::io::IsTerminal;
 
 pub fn get_output_format(
     raw_output: bool,
@@ -39,4 +41,49 @@ pub fn get_colored_json<T: serde::Serialize>(data: &T) -> Result<String> {
     let json_str = to_colored_json_auto(&value)?;
 
     Ok(json_str)
+}
+
+pub fn is_terminal() -> bool {
+    std::io::stdout().is_terminal()
+}
+
+pub trait ColorizeIfTerminal {
+    fn green_if_tty(self) -> String;
+    fn red_if_tty(self) -> String;
+    fn yellow_if_tty(self) -> String;
+    fn blue_if_tty(self) -> String;
+}
+
+impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
+    fn green_if_tty(self) -> String {
+        if is_terminal() {
+            format!("{}", self.green())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn red_if_tty(self) -> String {
+        if is_terminal() {
+            format!("{}", self.red())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn yellow_if_tty(self) -> String {
+        if is_terminal() {
+            format!("{}", self.yellow())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn blue_if_tty(self) -> String {
+        if is_terminal() {
+            format!("{}", self.blue())
+        } else {
+            format!("{}", self)
+        }
+    }
 }
