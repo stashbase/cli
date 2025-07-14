@@ -47,11 +47,21 @@ pub fn is_terminal() -> bool {
     std::io::stdout().is_terminal()
 }
 
+pub fn is_terminal_stderr() -> bool {
+    std::io::stderr().is_terminal()
+}
+
 pub trait ColorizeIfTerminal {
     fn green_if_tty(self) -> String;
     fn red_if_tty(self) -> String;
     fn yellow_if_tty(self) -> String;
     fn blue_if_tty(self) -> String;
+
+    // stderr
+    fn green_if_tty_stderr(self) -> String;
+    fn red_if_tty_stderr(self) -> String;
+    fn yellow_if_tty_stderr(self) -> String;
+    fn blue_if_tty_stderr(self) -> String;
 }
 
 impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
@@ -81,6 +91,39 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfTerminal for T {
 
     fn blue_if_tty(self) -> String {
         if is_terminal() {
+            format!("{}", self.blue())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    // stderr
+    fn green_if_tty_stderr(self) -> String {
+        if is_terminal_stderr() {
+            format!("{}", self.green())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn red_if_tty_stderr(self) -> String {
+        if is_terminal_stderr() {
+            format!("{}", self.red())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn yellow_if_tty_stderr(self) -> String {
+        if is_terminal_stderr() {
+            format!("{}", self.yellow())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn blue_if_tty_stderr(self) -> String {
+        if is_terminal_stderr() {
             format!("{}", self.blue())
         } else {
             format!("{}", self)
