@@ -3,6 +3,8 @@ use core::fmt;
 use owo_colors::OwoColorize;
 use serde::Serialize;
 
+use crate::utils::output::is_terminal_stderr;
+
 #[derive(Debug, Serialize)]
 pub enum InputValidationError {
     CmdArgs(CmdArgInputValidationError),
@@ -347,7 +349,11 @@ impl fmt::Display for YamlEnvConfigError {
 
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "{}", "Input error".red().bold())?;
+        if is_terminal_stderr() {
+            writeln!(f, "{}", "Input error".red().bold())?;
+        } else {
+            writeln!(f, "{}", "Input error")?;
+        }
 
         match self {
             InputValidationError::Projects(inner) => write!(f, "{}", inner),
