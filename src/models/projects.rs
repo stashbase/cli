@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::utils::human_datetime::get_human_datetime;
+use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfTerminal};
 
 use super::shared::PaginationMetadata;
 
@@ -216,14 +216,20 @@ impl From<SingleListProject> for SingleListProjectWithoutDescription {
 
 impl Display for Project {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {}", "Project name:".green(), self.name)?;
+        writeln!(f, "{} {}", "Project name:".green_if_tty(), self.name)?;
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
-        writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Created at:".green_if_tty(),
+            formatted,
+            relative
+        )?;
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green(), description)?;
+            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
         }
 
         Ok(())
@@ -234,19 +240,25 @@ impl Display for SingleListProject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
-        writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Created at:".green_if_tty(),
+            formatted,
+            relative
+        )?;
 
-        writeln!(f, "{} {}", "Id".green(), self.id)?;
-        writeln!(f, "{} {}", "Project name:".green(), self.name)?;
+        writeln!(f, "{} {}", "Id".green_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "Project name:".green_if_tty(), self.name)?;
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green(), description)?;
+            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
         }
 
         writeln!(
             f,
             "{} {}",
-            "Environment count:".green(),
+            "Environment count:".green_if_tty(),
             self.environment_count
         )?;
 
@@ -268,22 +280,28 @@ impl Display for SingleProject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
-        writeln!(f, "{} {} ({})", "Created at:".green(), formatted, relative)?;
-        writeln!(f, "{} {}", "Id:".green(), self.id)?;
-        writeln!(f, "{} {}", "Name:".green(), self.name)?;
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Created at:".green_if_tty(),
+            formatted,
+            relative
+        )?;
+        writeln!(f, "{} {}", "Id:".green_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
 
         if let Some(full_access) = &self.full_access {
-            writeln!(f, "{} {}", "Full access:".green(), full_access)?;
+            writeln!(f, "{} {}", "Full access:".green_if_tty(), full_access)?;
         }
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green(), description)?;
+            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
         }
 
         writeln!(
             f,
             "{} {}",
-            "Environment count:".green(),
+            "Environment count:".green_if_tty(),
             self.environment_count
         )?;
 
