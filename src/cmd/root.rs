@@ -26,7 +26,7 @@ pub struct Cli {
     #[arg(long = "silent", global = true)]
     pub silent: bool,
 
-    /// When to use colored output [default: auto]
+    /// When to use colored output
     #[arg(long, value_enum, global = true, default_value = "auto")]
     pub color: ColorChoice,
 
