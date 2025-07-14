@@ -3,7 +3,6 @@ use std::path::Path;
 use anyhow::{bail, Result};
 use colored_json::to_colored_json_auto;
 use log::debug;
-use owo_colors::OwoColorize;
 
 use crate::{
     api::secrets,
@@ -13,7 +12,10 @@ use crate::{
         secrets::{FormatSecrets, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{interaction, secrets::read_secrets_from_file, spinner::request_spinner},
+    utils::{
+        interaction, output::ColorizeIfTerminal, secrets::read_secrets_from_file,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleUploadSecretsArgs {
@@ -44,7 +46,11 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     debug!("File exists: {}", file_exists);
 
     if !file_exists {
-        let err_msg = format!("{} {}", "Error reading file:".red(), "file does not exist.");
+        let err_msg = format!(
+            "{} {}",
+            "Error reading file:".red_if_tty_stderr(),
+            "file does not exist."
+        );
         bail!(err_msg);
     }
 
