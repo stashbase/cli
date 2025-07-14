@@ -9,7 +9,7 @@ use crate::{
     },
     utils::{
         interaction,
-        output::{get_colored_json, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminal},
         spinner::request_spinner,
     },
 };
@@ -87,11 +87,11 @@ pub async fn handle_test_webhook(args: TestWebhookArgs) -> Result<()> {
                 match test_response_json {
                     Ok(test_res) => {
                         if json_format {
-                            let json_str = get_colored_json(&test_res).unwrap();
-
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
+
+                            let json_str = get_formatted_json_string(&test_res, true).unwrap();
                             println!("{}", json_str);
                         } else {
                             if let Some(mut spinner) = spinner {
