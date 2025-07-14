@@ -7,7 +7,7 @@ use std::{collections::HashMap, fs, path::Path};
 use crate::{
     cmd::{config::SecretsOutputFormat, secrets::SecretsFileFormat},
     models::secrets::{Secret, SecretOnlyName, SecretWithComment, SecretWithoutComment},
-    utils::output::{get_formatted_json_string, ColorizeIfTerminal},
+    utils::output::{get_formatted_json_string, ColorizeIfTerminalColor},
 };
 
 use super::tables::build::build_table;

@@ -10,7 +10,7 @@ use crate::{
         webhooks::{TableWebhookLog, WebhookLogList},
     },
     utils::{
-        output::{get_formatted_json_string, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminalColor},
         spinner::request_spinner,
         tables,
     },

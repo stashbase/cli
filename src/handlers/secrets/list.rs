@@ -9,7 +9,7 @@ use crate::{
         secrets::{Secret, SecretOptional},
     },
     utils::{
-        output::{get_formatted_json_string, ColorizeIfTerminal},
+        output::{get_formatted_json_string, ColorizeIfTerminalColor},
         secrets::{format_secret_names, format_secrets},
         spinner::request_spinner,
     },
