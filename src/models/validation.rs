@@ -1,9 +1,8 @@
-use colored_json::to_colored_json_auto;
 use core::fmt;
-use owo_colors::OwoColorize;
 use serde::Serialize;
+use owo_colors::OwoColorize;
 
-use crate::utils::output::is_terminal_stderr;
+use crate::utils::output::{get_formatted_json_string, is_color_enabled};
 
 #[derive(Debug, Serialize)]
 pub enum InputValidationError {
@@ -349,7 +348,7 @@ impl fmt::Display for YamlEnvConfigError {
 
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if is_terminal_stderr() {
+        if is_color_enabled(false) {
             writeln!(f, "{}", "Input error".red().bold())?;
         } else {
             writeln!(f, "{}", "Input error")?;
@@ -402,9 +401,7 @@ impl InputValidationError {
     }
 
     pub fn to_colored_json(&self) -> Result<String, serde_json::Error> {
-        let json_value = self.to_json_value()?;
-        let json_str = to_colored_json_auto(&json_value)?;
-
+        let json_str = get_formatted_json_string(&self, false)?;
         Ok(json_str)
     }
 
