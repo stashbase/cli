@@ -477,6 +477,11 @@ pub fn get_staged_file_hunks(
     {
         let state_ref = Rc::clone(&state);
         let mut file_callback = |delta: git2::DiffDelta, _progress: f32| {
+            // Skip deleted files - we don't want to scan files that were removed
+            if delta.status() == git2::Delta::Deleted {
+                return true;
+            }
+
             if let Some(new_file) = delta.new_file().path() {
                 let file_path = new_file.to_string_lossy().to_string();
 
@@ -547,6 +552,11 @@ pub fn get_staged_file_hunks(
 
         let state_hunk = Rc::clone(&state);
         let mut hunk_callback = move |delta: git2::DiffDelta, hunk: git2::DiffHunk| {
+            // Skip deleted files
+            if delta.status() == git2::Delta::Deleted {
+                return true;
+            }
+
             if let Some(new_file) = delta.new_file().path() {
                 let file_path = new_file.to_string_lossy().to_string();
 
@@ -593,6 +603,11 @@ pub fn get_staged_file_hunks(
 
         let mut line_callback =
             move |delta: git2::DiffDelta, _hunk: Option<git2::DiffHunk>, line: git2::DiffLine| {
+                // Skip deleted files
+                if delta.status() == git2::Delta::Deleted {
+                    return true;
+                }
+
                 if let Some(new_file) = delta.new_file().path() {
                     let file_path = new_file.to_string_lossy().to_string();
 
