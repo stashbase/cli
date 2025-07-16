@@ -99,15 +99,17 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
     let unpushed_commit_hunks = unpushed_commit_hunks_result.unwrap();
 
-    if unpushed_commit_hunks.is_empty() && !silent {
-        if json_format {
-            let message = serde_json::json!({
-                "message": "No unpushed commits to scan."
-            });
-            let pretty = get_formatted_json_string(&message, false).unwrap();
-            eprintln!("\n{}", pretty);
-        } else {
-            eprintln!("\nNo unpushed commits to scan.");
+    if unpushed_commit_hunks.is_empty() {
+        if !silent {
+            if json_format {
+                let message = serde_json::json!({
+                    "message": "No unpushed commits to scan."
+                });
+                let pretty = get_formatted_json_string(&message, false).unwrap();
+                eprintln!("\n{}", pretty);
+            } else {
+                eprintln!("\nNo unpushed commits to scan.");
+            }
         }
 
         std::process::exit(0);
