@@ -313,7 +313,7 @@ fn output_scan_findings(
                         if content_equals {
                             let message = serde_json::json!({
                                 "message": "Potential secrets detected in unpushed commits, findings match previous scan.",
-                                "file_path": file_path
+                                "filePath": file_path
                             });
 
                             let pretty = get_formatted_json_string(&message, false).unwrap();
@@ -323,7 +323,7 @@ fn output_scan_findings(
 
                             let message = serde_json::json!({
                                 "message": "Potential secrets detected in unpushed commits. Scan findings saved to file.",
-                                "file_path": file_path
+                                "filePath": file_path
                             });
 
                             let pretty = get_formatted_json_string(&message, false).unwrap();
@@ -335,7 +335,7 @@ fn output_scan_findings(
 
                         let message = serde_json::json!({
                             "message": "Potential secrets detected in unpushed commits. Scan findings saved to file.",
-                            "file_path": file_path
+                            "filePath": file_path
                         });
 
                         let pretty = get_formatted_json_string(&message, false).unwrap();
