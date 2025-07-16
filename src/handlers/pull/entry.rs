@@ -350,8 +350,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                 )
                             };
                             eprintln!("{}", msg);
-                            return Ok(());
                         }
+
+                        return Ok(());
                     }
 
                     if only_len > 0 && secrets.len() < only_len {
