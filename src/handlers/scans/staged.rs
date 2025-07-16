@@ -98,16 +98,19 @@ pub async fn handle_scan_staged_file_hunks(
 
     let staged_files = staged_files_result.unwrap();
 
-    if staged_files.is_empty() && !silent {
-        if json_format {
-            let message = serde_json::json!({
-                "message": "No staged changes to scan."
-            });
-            let pretty = get_formatted_json_string(&message, false).unwrap();
-            eprintln!("\n{}", pretty);
-        } else {
-            eprintln!("\nNo staged changes to scan.");
+    if staged_files.is_empty() {
+        if !silent {
+            if json_format {
+                let message = serde_json::json!({
+                    "message": "No staged changes to scan."
+                });
+                let pretty = get_formatted_json_string(&message, false).unwrap();
+                eprintln!("\n{}", pretty);
+            } else {
+                eprintln!("\nNo staged changes to scan.");
+            }
         }
+
         std::process::exit(0);
     }
 
