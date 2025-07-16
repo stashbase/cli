@@ -12,7 +12,7 @@ use crate::{
         output::get_formatted_json_string,
         spinner::request_spinner,
         tables,
-        validation::{validate_env_search, validate_project_identifier, validate_project_name},
+        validation::{validate_env_search, validate_project_identifier},
     },
 };
 
