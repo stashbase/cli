@@ -24,7 +24,7 @@ use crate::{
     },
     utils::{
         interaction::{self, select},
-        output::ColorizeIfColoredOutput,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::format_secrets,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
@@ -314,22 +314,44 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             spinner.stop_and_persist("", "");
                         }
 
-                        let msg = if only_len == 0 {
-                            format!(
-                                "{}\n{}",
-                                "Error".red_if_tty_stderr(),
-                                "  Message: No secrets found."
-                            )
+                        if json_format {
+                            if only_len == 0 {
+                                let message = serde_json::json!({
+                                    "error": {
+                                        "message": "No secrets found."
+                                    }
+                                });
+
+                                let json_str = get_formatted_json_string(&message, false).unwrap();
+                                eprintln!("{}", json_str);
+                            } else {
+                                let message = serde_json::json!({
+                                    "error": {
+                                        "message": format!("{} secret(s) requested, no secrets found.", only_len)
+                                    }
+                                });
+
+                                let json_str = get_formatted_json_string(&message, false).unwrap();
+                                eprintln!("{}", json_str);
+                            }
                         } else {
-                            format!(
-                                "{}\n{} ({} requested)",
-                                "Error".red_if_tty_stderr(),
-                                "  Message: No secrets found.",
-                                only_len
-                            )
-                        };
-                        eprintln!("{}", msg);
-                        return Ok(());
+                            let msg = if only_len == 0 {
+                                format!(
+                                    "{}\n{}",
+                                    "Error".red_if_tty_stderr(),
+                                    "  Message: No secrets found."
+                                )
+                            } else {
+                                format!(
+                                    "{}\n{} ({} requested)",
+                                    "Error".red_if_tty_stderr(),
+                                    "  Message: No secrets found.",
+                                    only_len
+                                )
+                            };
+                            eprintln!("{}", msg);
+                            return Ok(());
+                        }
                     }
 
                     if only_len > 0 && secrets.len() < only_len {
@@ -434,13 +456,23 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             match file_res {
                                 Ok(_) => {
                                     if !silent {
-                                        println!(
-                                            "{}",
-                                            &format!(
-                                                "File '{}' successfully created.",
-                                                output_path
-                                            )
-                                        );
+                                        if json_format {
+                                            let message = serde_json::json!({
+                                                "message": format!("File '{}' successfully created.", output_path)
+                                            });
+
+                                            let json_str =
+                                                get_formatted_json_string(&message, false).unwrap();
+                                            println!("{}", json_str);
+                                        } else {
+                                            println!(
+                                                "{}",
+                                                &format!(
+                                                    "File '{}' successfully created.",
+                                                    output_path
+                                                )
+                                            );
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -521,21 +553,45 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         match file_res {
                             Ok(_) => {
                                 if !file_exists {
-                                    if let Some(ref mut spinner) = spinner {
-                                        spinner.stop_with_message(&format!(
-                                            "File '{}' successfully created.",
-                                            output_path
-                                        ));
+                                    if json_format {
+                                        if let Some(ref mut spinner) = spinner {
+                                            spinner.stop_and_persist("", "");
+                                        }
+
+                                        let message = serde_json::json!({
+                                            "message": format!("File '{}' successfully created.", output_path)
+                                        });
+
+                                        let json_str =
+                                            get_formatted_json_string(&message, false).unwrap();
+                                        println!("{}", json_str);
+                                    } else {
+                                        if let Some(ref mut spinner) = spinner {
+                                            spinner.stop_with_message(&format!(
+                                                "File '{}' successfully created.",
+                                                output_path
+                                            ));
+                                        }
                                     }
                                 } else {
                                     if !silent {
-                                        println!(
-                                            "{}",
-                                            &format!(
-                                                "File '{}' successfully created.",
-                                                output_path
-                                            )
-                                        );
+                                        if json_format {
+                                            let message = serde_json::json!({
+                                                "message": format!("File '{}' successfully created.", output_path)
+                                            });
+
+                                            let json_str =
+                                                get_formatted_json_string(&message, false).unwrap();
+                                            println!("{}", json_str);
+                                        } else {
+                                            println!(
+                                                "{}",
+                                                &format!(
+                                                    "File '{}' successfully created.",
+                                                    output_path
+                                                )
+                                            );
+                                        }
                                     }
                                 }
                             }
