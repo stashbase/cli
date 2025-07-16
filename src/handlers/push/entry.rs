@@ -264,12 +264,20 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     if secrets.is_empty() {
         if !silent {
-            let msg = format!(
-                "{}: {}",
-                "Nothing to upload".yellow_if_tty_stderr(),
-                "no secrets found."
-            );
-            eprintln!("{}", msg);
+            if json_format {
+                let message = serde_json::json!({
+                    "message": "Nothing to upload: no secrets found."
+                });
+
+                eprintln!("{}", message);
+            } else {
+                let msg = format!(
+                    "{}: {}",
+                    "Nothing to upload".yellow_if_tty_stderr(),
+                    "no secrets found."
+                );
+                eprintln!("{}", msg);
+            }
         }
 
         return Ok(());
