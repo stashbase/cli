@@ -311,7 +311,7 @@ fn output_scan_findings(
 
                         if content_equals {
                             let message = serde_json::json!({
-                                "message": "Potential secrets detected in staged changes, results match previous scan.",
+                                "message": "Potential secrets detected in staged changes, findings match previous scan.",
                                 "file_path": file_path
                             });
 
@@ -320,7 +320,7 @@ fn output_scan_findings(
                         } else {
                             let file_path = save_scan_results(output_dir, &pretty_json)?;
                             let message = serde_json::json!({
-                                "message": "Potential secrets detected in staged changes. Scan results saved to file.",
+                                "message": "Potential secrets detected in staged changes. Scan findings saved to file.",
                                 "file_path": file_path
                             });
 
@@ -332,7 +332,7 @@ fn output_scan_findings(
                         let file_path = save_scan_results(output_dir, &pretty_json)?;
 
                         let message = serde_json::json!({
-                            "message": "Potential secrets detected in staged changes. Scan results saved to file.",
+                            "message": "Potential secrets detected in staged changes. Scan findings saved to file.",
                             "file_path": file_path
                         });
 
@@ -358,17 +358,17 @@ fn output_scan_findings(
                         let content_equals = file_content_equals(&file_path, &pretty_json);
 
                         if content_equals {
-                            eprintln!("Potential secrets detected in staged changes, results match previous scan. File path: {}", file_path);
+                            eprintln!("Potential secrets detected in staged changes, findings match previous scan. File path: {}", file_path);
                         } else {
                             let file_path = save_scan_results(output_dir, &pretty_json)?;
-                            eprintln!("Potential secrets detected in your changes. Scan results saved to: {}", file_path);
+                            eprintln!("Potential secrets detected in your changes. Scan findings saved to: {}", file_path);
                         }
                     }
                     None => {
                         let file_path = save_scan_results(output_dir, &pretty_json)?;
 
                         eprintln!(
-                            "Potential secrets detected in your changes. Scan results saved to: {}",
+                            "Potential secrets detected in your changes. Scan findings saved to: {}",
                             file_path
                         );
                     }
