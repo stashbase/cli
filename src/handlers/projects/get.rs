@@ -6,17 +6,11 @@ use crate::{
     cmd::config::OutputFormat,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
-        projects::{
-            ProjectWithCountNoDescriptionTable, SingleProject, SingleProjectTable,
-            SingleProjectWithCountNoDescriptionTable,
-        },
+        projects::{SingleProject, SingleProjectTable, SingleProjectWithCountNoDescriptionTable},
     },
     utils::{
-        human_datetime::get_human_datetime,
-        output::get_formatted_json_string,
-        spinner::request_spinner,
-        tables,
-        validation::{validate_project_identifier, validate_project_name},
+        output::get_formatted_json_string, spinner::request_spinner, tables,
+        validation::validate_project_identifier,
     },
 };
 
