@@ -405,26 +405,49 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
             if let Ok(mut secrets) = secrets {
                 if secrets.is_empty() && setted_secrets.is_empty() {
-                    let msg = if only_len == 0 {
-                        format!(
-                            "{}\n{}",
-                            "Error".red_if_tty_stderr(),
-                            "  Message: No secrets found."
-                        )
-                    } else {
-                        format!(
-                            "{}\n{} ({} requested)",
-                            "Error".red_if_tty_stderr(),
-                            "  Message: No secrets found.",
-                            only_len
-                        )
-                    };
+                    if json_format {
+                        if only_len == 0 {
+                            let message = serde_json::json!({
+                                "error": {
+                                    "message": "No secrets found."
+                                }
+                            });
 
-                    if let Some(ref mut spinner) = spinner {
-                        spinner.stop_with_message(&msg);
-                    } else if !silent {
-                        eprintln!("{}", msg);
+                            let json_str = get_formatted_json_string(&message, false).unwrap();
+                            eprintln!("{}", json_str);
+                        } else {
+                            let message = serde_json::json!({
+                                "error": {
+                                    "message": format!("{} secret(s) requested, no secrets found.", only_len)
+                                }
+                            });
+
+                            let json_str = get_formatted_json_string(&message, false).unwrap();
+                            eprintln!("{}", json_str);
+                        }
+                    } else {
+                        let msg = if only_len == 0 {
+                            format!(
+                                "{}\n{}",
+                                "Error".red_if_tty_stderr(),
+                                "  Message: No secrets found."
+                            )
+                        } else {
+                            format!(
+                                "{}\n{} ({} requested)",
+                                "Error".red_if_tty_stderr(),
+                                "  Message: No secrets found.",
+                                only_len
+                            )
+                        };
+
+                        if let Some(ref mut spinner) = spinner {
+                            spinner.stop_with_message(&msg);
+                        } else if !silent {
+                            eprintln!("{}", msg);
+                        }
                     }
+
                     return Ok(());
                 }
 
