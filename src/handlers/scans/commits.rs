@@ -486,9 +486,74 @@ pub fn get_unpushed_commit_hunks(
             None
         }
     } else {
-        // No remote branch, scan all local commits
-        // eprintln!("No remote branch found");
-        None
+        // No remote branch exists (publishing new branch)
+        // Try to automatically detect the best base branch to compare against
+
+        let mut best_base_commit = None;
+        let mut most_recent_base_time = 0;
+
+        // First, try to get the default branch from remote
+        if let Ok(remote) = repo.find_remote("origin") {
+            if let Ok(remote_head) = remote.default_branch() {
+                if let Some(branch_name) = remote_head.as_str() {
+                    // Extract branch name from refs/heads/main format
+                    let branch_name = branch_name
+                        .strip_prefix("refs/heads/")
+                        .unwrap_or(branch_name);
+                    let remote_branch_name = format!("origin/{}", branch_name);
+
+                    if let Ok(base_branch) =
+                        repo.find_branch(&remote_branch_name, git2::BranchType::Remote)
+                    {
+                        if let Ok(commit) = base_branch.get().peel_to_commit() {
+                            if let Ok(merge_base) = repo.merge_base(local_commit.id(), commit.id())
+                            {
+                                if let Ok(base_commit_obj) = repo.find_commit(merge_base) {
+                                    best_base_commit = Some(merge_base);
+                                    most_recent_base_time = base_commit_obj.time().seconds();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no default branch found, iterate through all remote branches to find the best common ancestor
+        if best_base_commit.is_none() {
+            if let Ok(branches) = repo.branches(Some(git2::BranchType::Remote)) {
+                for branch_result in branches {
+                    if let Ok((branch, _)) = branch_result {
+                        if let Some(branch_name) = branch.name().ok().flatten() {
+                            // Skip HEAD references
+                            if branch_name.contains("HEAD") {
+                                continue;
+                            }
+
+                            if let Ok(commit) = branch.get().peel_to_commit() {
+                                if let Ok(merge_base) =
+                                    repo.merge_base(local_commit.id(), commit.id())
+                                {
+                                    if let Ok(base_commit_obj) = repo.find_commit(merge_base) {
+                                        let base_time = base_commit_obj.time().seconds();
+
+                                        // Use the most recent common ancestor
+                                        if best_base_commit.is_none()
+                                            || base_time > most_recent_base_time
+                                        {
+                                            best_base_commit = Some(merge_base);
+                                            most_recent_base_time = base_time;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        best_base_commit
     };
 
     let mut all_commit_changes = Vec::new();
