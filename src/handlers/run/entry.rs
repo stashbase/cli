@@ -17,7 +17,7 @@ use crate::{
     },
     utils::{
         interaction::{self},
-        output::ColorizeIfColoredOutput,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
         separator,
         tables::build::build_table,
         validation::{
@@ -481,6 +481,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             secrets,
                             is_from_file,
                             silent,
+                            json_format,
                         )
                         .await?;
                     } else {
@@ -505,6 +506,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         secrets,
                         is_from_file,
                         silent,
+                        json_format,
                     )
                     .await?;
                 }
@@ -537,6 +539,7 @@ async fn handle_run(
     secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
     silent: bool,
+    json_format: bool,
 ) -> anyhow::Result<()> {
     if !silent {
         let mut success_msg = format!(
@@ -573,7 +576,12 @@ async fn handle_run(
     debug!("{:#?}", &secrets);
 
     if print_secrets && !silent {
-        print_table(&secrets);
+        if json_format {
+            let json_str = get_formatted_json_string(&secrets, true).unwrap();
+            println!("{}\n", json_str);
+        } else {
+            print_table(&secrets);
+        }
     }
 
     debug!("{:#?}", command);
