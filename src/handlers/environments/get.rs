@@ -9,10 +9,8 @@ use crate::{
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
     },
     utils::{
-        output::get_formatted_json_string,
-        spinner::request_spinner,
-        tables,
-        validation::{validate_project_environment, validate_project_environment_identifier},
+        output::get_formatted_json_string, spinner::request_spinner, tables,
+        validation::validate_project_environment_identifier,
     },
 };
 
