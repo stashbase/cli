@@ -558,6 +558,14 @@ pub fn get_unpushed_commit_hunks(
         best_base_commit
     };
 
+    // If we found a base commit and it's the same as our local commit,
+    // there are no new changes to scan
+    if let Some(base_commit_id) = stop_commit_id {
+        if base_commit_id == local_commit.id() {
+            return Ok(Vec::new());
+        }
+    }
+
     let mut all_commit_changes = Vec::new();
     let mut current = local_commit;
 
