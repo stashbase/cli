@@ -155,7 +155,7 @@ impl Display for ScanFinding {
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
         result.push_str(&format!(
-            "Suggested env. variable: {}\n",
+            "Suggested Env. variable: {}\n",
             self.suggested_env_variable
         ));
         result.push_str(&format!("Value SHA256: {}", self.value_sha256));
@@ -186,7 +186,7 @@ impl ScanFinding {
         ));
         result.push_str(&format!(
             "{} {}\n",
-            "Suggested env. variable:".green_if_tty(),
+            "Suggested Env. Variable:".green_if_tty(),
             self.suggested_env_variable
         ));
         result.push_str(&format!(
