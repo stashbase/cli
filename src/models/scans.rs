@@ -135,6 +135,7 @@ pub struct ScanFinding {
     pub range: ChangeRange,
     pub preview: String,
     pub severity: ScanFindingSeverity,
+    pub suggested_env_variable: String,
 
     #[serde(rename = "valueSHA256")]
     pub value_sha256: String,
@@ -153,6 +154,10 @@ impl Display for ScanFinding {
         ));
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
+        result.push_str(&format!(
+            "Suggested env. variable: {}\n",
+            self.suggested_env_variable
+        ));
         result.push_str(&format!("Value SHA256: {}", self.value_sha256));
         if let Some(id) = &self.commit_id {
             result.push_str(&format!("\nCommit ID: {}", id));
@@ -178,6 +183,11 @@ impl ScanFinding {
             "{} {}\n",
             "Severity:".green_if_tty(),
             self.severity
+        ));
+        result.push_str(&format!(
+            "{} {}\n",
+            "Suggested env. variable:".green_if_tty(),
+            self.suggested_env_variable
         ));
         result.push_str(&format!(
             "{} {}",
