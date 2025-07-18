@@ -3,8 +3,8 @@ use crate::{
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
-            DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks, ScanConfig,
-            ScanFileChangesPayload,
+            DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks, IgnoreValuePayload,
+            ScanConfig, ScanFileChangesPayload,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -19,6 +19,7 @@ use crate::{
 };
 use anyhow::Result;
 use git2::Repository;
+use regex::Regex;
 use spinoff::{spinners, Color, Spinner, Streams};
 use std::{cell::RefCell, io::IsTerminal, path::Path, rc::Rc};
 
@@ -114,29 +115,73 @@ pub async fn handle_scan_staged_file_hunks(
         std::process::exit(0);
     }
 
-    let ignore_value_hashes = {
-        let hashes = config
-            .ignore_value_hashes
+    let mut ignore_value_payload = IgnoreValuePayload::default();
+
+    if let Some(ignore_value) = config.ignore_value {
+        // regexes
+        if let Some(regexes) = ignore_value.regexes {
+            let validate_and_dedupe_regexes =
+                |regexes: Vec<String>| -> Result<Vec<String>, (String, String)> {
+                    let mut seen = std::collections::HashSet::new();
+                    let mut unique = Vec::new();
+                    for regex in regexes {
+                        if !seen.insert(regex.clone()) {
+                            continue;
+                        }
+                        if let Err(e) = Regex::new(&regex) {
+                            return Err((regex, e.to_string()));
+                        }
+                        unique.push(regex);
+                    }
+                    Ok(unique)
+                };
+
+            match validate_and_dedupe_regexes(regexes) {
+                Ok(unique_valid_regexes) => {
+                    ignore_value_payload.regexes = unique_valid_regexes;
+                }
+                Err((regex, message)) => {
+                    let scan_error =
+                        ScanInputValidationError::InvlaidIgnoreValueRegex { regex, message };
+
+                    let input_validation_error = InputValidationError::Scan(scan_error);
+                    let error_output = input_validation_error.format_error_output(json_format)?;
+
+                    if !silent {
+                        eprintln!("\n{}", error_output);
+                    } else {
+                        eprintln!("{}", error_output);
+                    }
+
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        // hashes
+        let hashes = ignore_value
+            .hashes
             .into_iter()
             .flatten()
             .chain(args.ignore_value_hashes.into_iter())
             .flat_map(|hash| filter_sha256_hashes(vec![hash]))
             .collect::<std::collections::HashSet<_>>();
 
-        if hashes.is_empty() {
-            None
-        } else {
+        if !hashes.is_empty() {
             let sorted = hashes.into_iter().collect::<Vec<_>>();
             let mut sorted_hashes = sorted.clone();
             sorted_hashes.sort();
 
-            Some(sorted_hashes)
+            ignore_value_payload.hashes = sorted_hashes;
         }
-    };
+    }
 
     let data = ScanFileChangesPayload {
-        ignore_value_hashes,
         files: staged_files,
+        ignore_value: match ignore_value_payload.is_empty() {
+            true => None,
+            false => Some(ignore_value_payload),
+        },
     };
 
     let spinner = if !silent {
