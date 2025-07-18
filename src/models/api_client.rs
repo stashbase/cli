@@ -359,6 +359,9 @@ pub enum ScanError {
 
     #[serde(rename = "quota.scan_feature_not_available")]
     ScanFeatureNotAvailable,
+
+    #[serde(rename = "validation.invalid_ignore_value_regex")]
+    InvalidIgnoreValueRegex,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -821,6 +824,15 @@ impl From<ApiError> for OutputError {
                     message: format!("Scan feature is not available on the free plan. Please upgrade your workspace to a paid plan."),
                     hint: None,
                 }),
+                ScanError::InvalidIgnoreValueRegex => {
+                    let message = api_error.message.unwrap_or(String::from("Invalid ignore value regex."));
+
+                    OutputError::Generic(GenericOutputError {
+                        code: Some(format!("validation.invalid_ignore_value_regex")),
+                        message,
+                        hint: None,
+                    })
+                }
             },
         }
     }
