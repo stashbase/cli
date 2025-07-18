@@ -166,6 +166,7 @@ pub enum ScanInputValidationError {
     ConfigFileRead { path: String, message: String },
     ConfigFileParse { path: String, message: String },
     InvalidIgnoreValueRegex { regex: String, message: String }, 
+    InvalidIgnoreValueHash { hash: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -974,6 +975,10 @@ impl ScanInputValidationError {
             ScanInputValidationError::InvalidIgnoreValueRegex { regex, message } => (
                 "Invalid ignore value regex.",
                 Some(Box::leak(format!("Invalid regex '{}': {}", regex, message).into_boxed_str())),
+            ),
+            ScanInputValidationError::InvalidIgnoreValueHash { hash } => (
+                "Invalid ignore value hash.",
+                Some(Box::leak(format!("Hash: {}", hash).into_boxed_str())),
             ),
         }
     }
