@@ -38,8 +38,12 @@ pub struct ScanStaged {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(value_parser, short = 'i', long="ignore-value-hashes", num_args = 1..)]
+    #[clap(value_parser, long="ignore-value-hashes", num_args = 1..)]
     pub ignore_value_hashes: Vec<String>,
+
+    /// Regexes of secret values to ignore
+    #[clap(value_parser, long="ignore-value-regexes", num_args = 1..)]
+    pub ignore_value_regexes: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -62,6 +66,10 @@ pub struct ScanCommits {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(value_parser, short = 'i', long="ignore-value-hashes", num_args = 1..)]
+    #[clap(value_parser, long="ignore-value-hashes", num_args = 1..)]
     pub ignore_value_hashes: Vec<String>,
+
+    /// Regexes of secret values to ignore
+    #[clap(value_parser, long="ignore-value-regexes", num_args = 1..)]
+    pub ignore_value_regexes: Vec<String>,
 }
