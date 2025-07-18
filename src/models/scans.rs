@@ -13,8 +13,23 @@ pub struct ScanConfig {
     #[serde(rename = "output-dir")]
     pub output_dir: Option<String>,
 
-    #[serde(rename = "ignore-value-hashes")]
-    pub ignore_value_hashes: Option<Vec<String>>,
+    #[serde(rename = "ignore-values")]
+    pub ignore_values: Option<IgnoreValuesConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IgnoreValuesConfig {
+    pub hashes: Vec<String>,
+    pub regexes: Vec<String>,
+}
+
+impl Default for IgnoreValuesConfig {
+    fn default() -> Self {
+        Self {
+            hashes: Vec::new(),
+            regexes: Vec::new(),
+        }
+    }
 }
 
 impl Default for ScanConfig {
@@ -22,7 +37,7 @@ impl Default for ScanConfig {
         Self {
             exclude: None,
             output_dir: None,
-            ignore_value_hashes: None,
+            ignore_values: None,
         }
     }
 }
