@@ -105,6 +105,29 @@ pub struct IgnoreValuePayload {
     pub regexes: Vec<String>,
 }
 
+impl IgnoreValuePayload {
+    pub fn new(hashes: Vec<String>, regexes: Vec<String>) -> Self {
+        Self { hashes, regexes }
+    }
+
+    pub fn from_config(config: &IgnoreValueConfig) -> Self {
+        Self {
+            hashes: config.hashes.clone().unwrap_or_default(),
+            regexes: config.regexes.clone().unwrap_or_default(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.hashes.is_empty() && self.regexes.is_empty()
+    }
+}
+
+impl From<IgnoreValueConfig> for IgnoreValuePayload {
+    fn from(config: IgnoreValueConfig) -> Self {
+        Self::from_config(&config)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanFileChangesPayload {
