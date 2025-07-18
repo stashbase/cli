@@ -184,6 +184,7 @@ pub async fn handle_scan_staged_file_hunks(
                 .flatten()
                 .cloned(),
         )
+        .flat_map(|hash| filter_sha256_hashes(vec![hash]))
         .collect::<Vec<_>>();
 
     if !all_hashes.is_empty() {
