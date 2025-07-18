@@ -119,8 +119,6 @@ pub async fn handle_scan_staged_file_hunks(
 
     let mut ignore_value_payload = IgnoreValuePayload::default();
 
-    let mut ignore_value_payload = IgnoreValuePayload::default();
-
     // regexes
     let all_regexes = ignore_value_regexes
         .into_iter()
