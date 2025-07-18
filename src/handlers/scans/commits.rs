@@ -17,8 +17,8 @@ use crate::{
     utils::{
         output::get_formatted_json_string,
         scans::{
-            file_content_equals, filter_new_findings, filter_sha256_hashes, get_latest_scan_file,
-            is_binary_file, load_baseline_results, process_diff_line, save_scan_results,
+            file_content_equals, filter_new_findings, get_latest_scan_file, is_binary_file,
+            is_valid_sha256_hash, load_baseline_results, process_diff_line, save_scan_results,
             should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
     },
@@ -185,10 +185,26 @@ pub async fn handle_scan_unpushed_commit_hunks(
                 .flatten()
                 .cloned(),
         )
-        .flat_map(|hash| filter_sha256_hashes(vec![hash]))
         .collect::<Vec<_>>();
 
     if !all_hashes.is_empty() {
+        // validate hashes
+        if let Some(invalid_hash) = all_hashes.iter().find(|hash| !is_valid_sha256_hash(hash)) {
+            let scan_error = ScanInputValidationError::InvalidIgnoreValueHash {
+                hash: invalid_hash.clone(),
+            };
+            let input_validation_error = InputValidationError::Scan(scan_error);
+            let error_output = input_validation_error.format_error_output(json_format)?;
+
+            if !silent {
+                eprintln!("\n{}", error_output);
+            } else {
+                eprintln!("{}", error_output);
+            }
+
+            std::process::exit(1);
+        }
+
         let sorted = all_hashes.into_iter().collect::<Vec<_>>();
         let mut sorted_hashes = sorted.clone();
         sorted_hashes.sort();
