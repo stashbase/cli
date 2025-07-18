@@ -388,7 +388,7 @@ fn output_scan_findings(
                         .collect::<Vec<_>>()
                         .join("\n\n");
 
-                    print!("{}", findings_string);
+                    println!("{}", findings_string);
                 } else {
                     let findings_string = response
                         .findings
