@@ -19,15 +19,15 @@ pub struct ScanConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IgnoreValueConfig {
-    pub hashes: Vec<String>,
-    pub regexes: Vec<String>,
+    pub hashes: Option<Vec<String>>,
+    pub regexes: Option<Vec<String>>,
 }
 
 impl Default for IgnoreValueConfig {
     fn default() -> Self {
         Self {
-            hashes: Vec::new(),
-            regexes: Vec::new(),
+            hashes: None,
+            regexes: None,
         }
     }
 }
