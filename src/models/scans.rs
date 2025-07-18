@@ -105,6 +105,15 @@ pub struct IgnoreValuePayload {
     pub regexes: Vec<String>,
 }
 
+impl Default for IgnoreValuePayload {
+    fn default() -> Self {
+        Self {
+            hashes: Vec::new(),
+            regexes: Vec::new(),
+        }
+    }
+}
+
 impl IgnoreValuePayload {
     pub fn new(hashes: Vec<String>, regexes: Vec<String>) -> Self {
         Self { hashes, regexes }
