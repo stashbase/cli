@@ -362,6 +362,9 @@ pub enum ScanError {
 
     #[serde(rename = "validation.invalid_ignore_value_regex")]
     InvalidIgnoreValueRegex,
+
+    #[serde(rename = "validation.invalid_ignore_value_hash")]
+    InvalidIgnoreValueHash,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -829,6 +832,15 @@ impl From<ApiError> for OutputError {
 
                     OutputError::Generic(GenericOutputError {
                         code: Some(format!("validation.invalid_ignore_value_regex")),
+                        message,
+                        hint: None,
+                    })
+                }
+                ScanError::InvalidIgnoreValueHash => {
+                    let message = api_error.message.unwrap_or(String::from("Invalid ignore value hash."));
+
+                    OutputError::Generic(GenericOutputError {
+                        code: Some(format!("validation.invalid_ignore_value_hash")),
                         message,
                         hint: None,
                     })
