@@ -152,6 +152,10 @@ pub fn filter_sha256_hashes(hashes: Vec<String>) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
+pub fn is_valid_sha256_hash(hash: &str) -> bool {
+    hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanFinding>, ScanInputValidationError> {
     let content = fs::read_to_string(baseline_path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
