@@ -9,7 +9,7 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             CommitChanges, CommitsScanResponse, DiffHunk, DiffProcessingState, FileHunks,
-            ScanCommitChangesPayload, ScanConfig,
+            IgnoreValuePayload, ScanCommitChangesPayload, ScanConfig,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -115,29 +115,41 @@ pub async fn handle_scan_unpushed_commit_hunks(
         std::process::exit(0);
     }
 
-    let ignore_value_hashes = {
-        let hashes = config
-            .ignore_value_hashes
-            .into_iter()
-            .flatten()
-            .chain(args.ignore_value_hashes.into_iter())
-            .flat_map(|hash| filter_sha256_hashes(vec![hash]))
-            .collect::<std::collections::HashSet<_>>();
+    let mut ignore_value_payload = IgnoreValuePayload::default();
 
-        if hashes.is_empty() {
-            None
-        } else {
-            let sorted = hashes.into_iter().collect::<Vec<_>>();
-            let mut sorted_hashes = sorted.clone();
-            sorted_hashes.sort();
+    let ignore_value_hashes = match config.ignore_value {
+        Some(ignore_value) => {
+            let hashes = ignore_value
+                .hashes
+                .into_iter()
+                .flatten()
+                .chain(args.ignore_value_hashes.into_iter())
+                .flat_map(|hash| filter_sha256_hashes(vec![hash]))
+                .collect::<std::collections::HashSet<_>>();
 
-            Some(sorted_hashes)
+            if hashes.is_empty() {
+                None
+            } else {
+                let sorted = hashes.into_iter().collect::<Vec<_>>();
+                let mut sorted_hashes = sorted.clone();
+                sorted_hashes.sort();
+
+                Some(sorted_hashes)
+            }
         }
+        None => None,
     };
 
+    if let Some(ignore_value_hashes) = ignore_value_hashes {
+        ignore_value_payload.hashes = ignore_value_hashes;
+    }
+
     let data = ScanCommitChangesPayload {
-        ignore_value_hashes,
         commits: unpushed_commit_hunks,
+        ignore_value: match ignore_value_payload.is_empty() {
+            true => None,
+            false => Some(ignore_value_payload),
+        },
     };
 
     let spinner = if !silent {
