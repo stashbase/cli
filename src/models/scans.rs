@@ -98,13 +98,20 @@ pub struct FileHunks {
     pub hunks: Vec<DiffHunk>,
 }
 
+// payloads
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IgnoreValuePayload {
+    pub hashes: Vec<String>,
+    pub regexes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanFileChangesPayload {
     pub files: Vec<FileHunks>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_value_hashes: Option<Vec<String>>,
+    pub ignore_value: Option<IgnoreValuePayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,7 +120,7 @@ pub struct ScanCommitChangesPayload {
     pub commits: Vec<CommitChanges>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_value_hashes: Option<Vec<String>>,
+    pub ignore_value: Option<IgnoreValuePayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
