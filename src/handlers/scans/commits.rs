@@ -34,6 +34,7 @@ pub struct HandleScanUnpushedCommitHunksArgs {
     pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
     pub ignore_value_hashes: Vec<String>,
+    pub ignore_value_regexes: Vec<String>,
 }
 
 pub async fn handle_scan_unpushed_commit_hunks(
@@ -47,6 +48,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         output_dir,
         config_file_path,
         ignore_value_hashes: _,
+        ignore_value_regexes: _,
         exclude: _,
     } = args;
 
