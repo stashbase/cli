@@ -157,7 +157,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
             }
             Err((regex, message)) => {
                 let scan_error =
-                    ScanInputValidationError::InvlaidIgnoreValueRegex { regex, message };
+                    ScanInputValidationError::InvalidIgnoreValueRegex { regex, message };
 
                 let input_validation_error = InputValidationError::Scan(scan_error);
                 let error_output = input_validation_error.format_error_output(json_format)?;
