@@ -47,8 +47,8 @@ pub async fn handle_scan_unpushed_commit_hunks(
         baseline,
         output_dir,
         config_file_path,
-        ignore_value_hashes: _,
-        ignore_value_regexes: _,
+        ignore_value_hashes,
+        ignore_value_regexes,
         exclude: _,
     } = args;
 
@@ -122,7 +122,12 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
     if let Some(ignore_value) = config.ignore_value {
         // regexes
-        if let Some(regexes) = ignore_value.regexes {
+        let all_regexes = ignore_value_regexes
+            .into_iter()
+            .chain(ignore_value.regexes.into_iter().flatten())
+            .collect::<Vec<_>>();
+
+        if !all_regexes.is_empty() {
             let validate_and_dedupe_regexes =
                 |regexes: Vec<String>| -> Result<Vec<String>, (String, String)> {
                     let mut seen = std::collections::HashSet::new();
@@ -139,7 +144,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
                     Ok(unique)
                 };
 
-            match validate_and_dedupe_regexes(regexes) {
+            match validate_and_dedupe_regexes(all_regexes) {
                 Ok(unique_valid_regexes) => {
                     ignore_value_payload.regexes = unique_valid_regexes;
                 }
@@ -166,7 +171,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
             .hashes
             .into_iter()
             .flatten()
-            .chain(args.ignore_value_hashes.into_iter())
+            .chain(ignore_value_hashes.into_iter())
             .flat_map(|hash| filter_sha256_hashes(vec![hash]))
             .collect::<std::collections::HashSet<_>>();
 
