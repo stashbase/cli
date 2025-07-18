@@ -1,5 +1,6 @@
 use anyhow::Result;
 use git2::Repository;
+use regex::Regex;
 use spinoff::{spinners, Color, Spinner, Streams};
 use std::{cell::RefCell, io::IsTerminal, path::PathBuf, rc::Rc};
 
@@ -118,6 +119,47 @@ pub async fn handle_scan_unpushed_commit_hunks(
     let mut ignore_value_payload = IgnoreValuePayload::default();
 
     if let Some(ignore_value) = config.ignore_value {
+        // regexes
+        if let Some(regexes) = ignore_value.regexes {
+            let validate_and_dedupe_regexes =
+                |regexes: Vec<String>| -> Result<Vec<String>, (String, String)> {
+                    let mut seen = std::collections::HashSet::new();
+                    let mut unique = Vec::new();
+                    for regex in regexes {
+                        if !seen.insert(regex.clone()) {
+                            continue;
+                        }
+                        if let Err(e) = Regex::new(&regex) {
+                            return Err((regex, e.to_string()));
+                        }
+                        unique.push(regex);
+                    }
+                    Ok(unique)
+                };
+
+            match validate_and_dedupe_regexes(regexes) {
+                Ok(unique_valid_regexes) => {
+                    ignore_value_payload.regexes = unique_valid_regexes;
+                }
+                Err((regex, message)) => {
+                    let scan_error =
+                        ScanInputValidationError::InvlaidIgnoreValueRegex { regex, message };
+
+                    let input_validation_error = InputValidationError::Scan(scan_error);
+                    let error_output = input_validation_error.format_error_output(json_format)?;
+
+                    if !silent {
+                        eprintln!("\n{}", error_output);
+                    } else {
+                        eprintln!("{}", error_output);
+                    }
+
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        // hashes
         let hashes = ignore_value
             .hashes
             .into_iter()
