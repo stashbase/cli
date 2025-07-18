@@ -117,31 +117,22 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
     let mut ignore_value_payload = IgnoreValuePayload::default();
 
-    let ignore_value_hashes = match config.ignore_value {
-        Some(ignore_value) => {
-            let hashes = ignore_value
-                .hashes
-                .into_iter()
-                .flatten()
-                .chain(args.ignore_value_hashes.into_iter())
-                .flat_map(|hash| filter_sha256_hashes(vec![hash]))
-                .collect::<std::collections::HashSet<_>>();
+    if let Some(ignore_value) = config.ignore_value {
+        let hashes = ignore_value
+            .hashes
+            .into_iter()
+            .flatten()
+            .chain(args.ignore_value_hashes.into_iter())
+            .flat_map(|hash| filter_sha256_hashes(vec![hash]))
+            .collect::<std::collections::HashSet<_>>();
 
-            if hashes.is_empty() {
-                None
-            } else {
-                let sorted = hashes.into_iter().collect::<Vec<_>>();
-                let mut sorted_hashes = sorted.clone();
-                sorted_hashes.sort();
+        if !hashes.is_empty() {
+            let sorted = hashes.into_iter().collect::<Vec<_>>();
+            let mut sorted_hashes = sorted.clone();
+            sorted_hashes.sort();
 
-                Some(sorted_hashes)
-            }
+            ignore_value_payload.hashes = sorted_hashes;
         }
-        None => None,
-    };
-
-    if let Some(ignore_value_hashes) = ignore_value_hashes {
-        ignore_value_payload.hashes = ignore_value_hashes;
     }
 
     let data = ScanCommitChangesPayload {
