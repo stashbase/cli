@@ -165,7 +165,7 @@ pub enum ScanInputValidationError {
     ConfigFileNotFound { path: String },
     ConfigFileRead { path: String, message: String },
     ConfigFileParse { path: String, message: String },
-    InvlaidIgnoreValueRegex { regex: String, message: String }, 
+    InvalidIgnoreValueRegex { regex: String, message: String }, 
 }
 
 #[derive(Debug, Serialize)]
@@ -971,7 +971,7 @@ impl ScanInputValidationError {
                 "Failed to parse scan configuration file.",
                 Some("Ensure the config file contains valid YAML format."),
             ),
-            ScanInputValidationError::InvlaidIgnoreValueRegex { regex, message } => (
+            ScanInputValidationError::InvalidIgnoreValueRegex { regex, message } => (
                 "Invalid ignore value regex.",
                 Some(Box::leak(format!("Invalid regex '{}': {}", regex, message).into_boxed_str())),
             ),
