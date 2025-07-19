@@ -1,4 +1,5 @@
 use core::fmt;
+use colored_json::to_colored_json_auto;
 use serde::Serialize;
 use owo_colors::OwoColorize;
 
@@ -374,8 +375,9 @@ impl fmt::Display for InputValidationError {
 impl InputValidationError {
     pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
         if json_format {
-            let json_err = get_formatted_json_string(&self, false)?;
-            Ok(json_err)
+            let json_value = self.to_json_value()?;
+            let json_str = to_colored_json_auto(&json_value)?;
+            Ok(json_str)
         } else {
             Ok(self.to_string())
         }
