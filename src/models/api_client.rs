@@ -1,5 +1,6 @@
 use core::fmt;
 
+use colored_json::to_colored_json_auto;
 use owo_colors::OwoColorize;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -489,8 +490,8 @@ impl OutputError {
     }
 
     pub fn to_formatted_json_string(&self) -> Result<String, serde_json::Error> {
-        let json_str = get_formatted_json_string(&self, false)?;
-
+        let json_value = self.to_json_value()?;
+        let json_str = to_colored_json_auto(&json_value)?;
         Ok(json_str)
     }
 }
