@@ -1,6 +1,7 @@
 pub mod config;
 pub mod entry;
 pub mod environments;
+pub mod generate;
 pub mod load_old;
 pub mod open;
 pub mod projects;
