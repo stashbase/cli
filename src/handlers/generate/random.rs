@@ -3,12 +3,12 @@ use nanoid::nanoid;
 use crate::{models::generate::Encoding, utils::output::get_formatted_json_string};
 
 pub fn handle_generate_random_string(
-    encooding: Encoding,
+    encoding: Encoding,
     json_format: bool,
     length: usize,
     uppercase: bool,
 ) {
-    let alphabet = encooding.get_alphabet();
+    let alphabet = encoding.get_alphabet();
     let result = nanoid!(length, &alphabet.chars().collect::<Vec<char>>());
 
     let final_result = if uppercase {
