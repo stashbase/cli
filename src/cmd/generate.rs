@@ -31,18 +31,7 @@ pub enum GenerateUuidSubcommand {
 pub struct GenerateRandom {
     #[clap(subcommand)]
     pub subcommand: GenerateRandomSubcommand,
-}
 
-#[derive(Debug, Subcommand)]
-pub enum GenerateRandomSubcommand {
-    Alphanumeric(GenerateRandomOptions),
-    Hex(GenerateRandomOptions),
-    Base64(GenerateRandomOptions),
-    Base64Url(GenerateRandomOptions),
-}
-
-#[derive(Debug, Args)]
-pub struct GenerateRandomOptions {
     /// Length of the random string, defaults to 32
     #[arg(long = "length", default_value = "32")]
     pub length: u32,
@@ -51,3 +40,22 @@ pub struct GenerateRandomOptions {
     #[arg(long = "uppercase")]
     pub uppercase: bool,
 }
+
+#[derive(Debug, Subcommand)]
+pub enum GenerateRandomSubcommand {
+    Alphanumeric,
+    Hex,
+    Base64,
+    Base64Url,
+}
+
+// #[derive(Debug, Args)]
+// pub struct GenerateRandomOptions {
+//     /// Length of the random string, defaults to 32
+//     #[arg(long = "length", default_value = "32")]
+//     pub length: u32,
+
+//     /// Include uppercase letters
+//     #[arg(long = "uppercase")]
+//     pub uppercase: bool,
+// }
