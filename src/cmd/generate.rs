@@ -117,7 +117,7 @@ pub struct GenerateRandomOptions {
     #[arg(short = 'l', long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(1..=256))]
     pub length: u16,
 
-    /// Desired entropy length in bytes (overrides length option)
+    /// Desired entropy length in bytes (overrides --length)
     #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(1..=128))]
     pub bytes: Option<u16>,
 
