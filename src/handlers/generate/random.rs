@@ -1,32 +1,27 @@
 use nanoid::nanoid;
 
-pub enum GenerateRandomValueVariant {
-    Alphanumeric,
-    Hex,
-    Base64,
-    Base64Url,
-}
+use crate::cmd::generate::GenerateRandomSubcommand;
 
 pub fn handle_generate_random_value(
-    variant: GenerateRandomValueVariant,
+    variant: GenerateRandomSubcommand,
     json_format: bool,
     length: usize,
     uppercase: bool,
 ) {
     let alphabet = match variant {
-        GenerateRandomValueVariant::Alphanumeric => {
+        GenerateRandomSubcommand::Alphanumeric => {
             // 0-9, a-z, A-Z (62 characters)
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         }
-        GenerateRandomValueVariant::Hex => {
+        GenerateRandomSubcommand::Hex => {
             // 0-9, a-f (16 characters)
             "0123456789abcdef"
         }
-        GenerateRandomValueVariant::Base64 => {
+        GenerateRandomSubcommand::Base64 => {
             // A-Z, a-z, 0-9, +, / (64 characters)
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
         }
-        GenerateRandomValueVariant::Base64Url => {
+        GenerateRandomSubcommand::Base64Url => {
             // A-Z, a-z, 0-9, -, _ (64 characters) - URL-safe base64
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         }
