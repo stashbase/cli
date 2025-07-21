@@ -34,7 +34,7 @@ pub enum GenerateUuidSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "generate random <TYPE> [OPTIONS]")]
+#[command(override_usage = "generate random <ENCODING> [OPTIONS]")]
 pub struct GenerateRandomString {
     #[clap(subcommand)]
     pub subcommand: GenerateRandomStringSubcommand,
