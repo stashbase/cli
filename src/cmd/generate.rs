@@ -82,7 +82,7 @@ impl GenerateRandomString {
         }
     }
 
-    pub fn get_string_length(&self) -> usize {
+    pub fn get_target_length(&self) -> usize {
         let bytes = self.get_bytes();
 
         if let Some(bytes) = bytes {
