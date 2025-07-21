@@ -4,7 +4,7 @@ use crate::{
         random::handle_generate_random_string,
         uuid::{handle_generate_uuid_v4, handle_generate_uuid_v7},
     },
-    models::generate::GenerateRandomStringAlphabet,
+    models::generate::Encoding,
 };
 use anyhow::Result;
 
@@ -17,7 +17,7 @@ pub fn handle_generate_command(cmd: GenerateCommand, json_format: bool) -> Resul
         GenerateSubcommand::Random(args) => {
             let length = args.get_target_length();
             let uppercase = args.get_uppercase();
-            let alphabet = GenerateRandomStringAlphabet::from(args.subcommand);
+            let alphabet = Encoding::from(args.subcommand);
 
             handle_generate_random_string(alphabet, json_format, length, uppercase)
         }
