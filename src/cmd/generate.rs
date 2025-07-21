@@ -10,7 +10,7 @@ pub struct GenerateCommand {
 #[derive(Debug, Subcommand)]
 pub enum GenerateSubcommand {
     Uuid(GenerateUuid),
-    Random(GenerateRandom),
+    Random(GenerateRandomString),
 }
 
 #[derive(Debug, Args)]
@@ -28,35 +28,35 @@ pub enum GenerateUuidSubcommand {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "generate random <TYPE> [OPTIONS]")]
-pub struct GenerateRandom {
+pub struct GenerateRandomString {
     #[clap(subcommand)]
-    pub subcommand: GenerateRandomSubcommand,
+    pub subcommand: GenerateRandomStringSubcommand,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum GenerateRandomSubcommand {
+pub enum GenerateRandomStringSubcommand {
     Alphanumeric(GenerateRandomOptions),
     Hex(GenerateRandomOptions),
     Base64(GenerateRandomOptions),
     Base64Url(GenerateRandomOptions),
 }
 
-impl GenerateRandom {
+impl GenerateRandomString {
     pub fn get_length(&self) -> usize {
         match &self.subcommand {
-            GenerateRandomSubcommand::Alphanumeric(options) => options.length,
-            GenerateRandomSubcommand::Hex(options) => options.length,
-            GenerateRandomSubcommand::Base64(options) => options.length,
-            GenerateRandomSubcommand::Base64Url(options) => options.length,
+            GenerateRandomStringSubcommand::Alphanumeric(options) => options.length,
+            GenerateRandomStringSubcommand::Hex(options) => options.length,
+            GenerateRandomStringSubcommand::Base64(options) => options.length,
+            GenerateRandomStringSubcommand::Base64Url(options) => options.length,
         }
     }
 
     pub fn get_uppercase(&self) -> bool {
         match &self.subcommand {
-            GenerateRandomSubcommand::Alphanumeric(options) => options.uppercase,
-            GenerateRandomSubcommand::Hex(options) => options.uppercase,
-            GenerateRandomSubcommand::Base64(options) => options.uppercase,
-            GenerateRandomSubcommand::Base64Url(options) => options.uppercase,
+            GenerateRandomStringSubcommand::Alphanumeric(options) => options.uppercase,
+            GenerateRandomStringSubcommand::Hex(options) => options.uppercase,
+            GenerateRandomStringSubcommand::Base64(options) => options.uppercase,
+            GenerateRandomStringSubcommand::Base64Url(options) => options.uppercase,
         }
     }
 }
@@ -65,7 +65,7 @@ impl GenerateRandom {
 pub struct GenerateRandomOptions {
     /// Length of the random string, defaults to 32
     #[arg(long = "length", default_value = "32")]
-    pub length: u32,
+    pub length: usize,
 
     /// Include uppercase letters
     #[arg(long = "uppercase")]
