@@ -13,6 +13,7 @@ pub enum GenerateSubcommand {
     Uuid(GenerateUuid),
 
     /// Generate random string
+    #[clap(alias = "rand")]
     Random(GenerateRandomString),
 }
 
