@@ -77,7 +77,7 @@ impl GenerateRandomString {
 #[derive(Debug, Args)]
 pub struct GenerateRandomOptions {
     /// Length of the random string, defaults to 32
-    #[arg(long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(1..=256))]
+    #[arg(short = 'l', long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(1..=256))]
     pub length: u16,
 
     /// Make the random string uppercase
