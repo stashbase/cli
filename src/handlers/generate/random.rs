@@ -1,27 +1,27 @@
 use nanoid::nanoid;
 
-use crate::models::generate::GenerateRandomStringAlphabet;
+use crate::models::generate::Encoding;
 
 pub fn handle_generate_random_string(
-    alphabet: GenerateRandomStringAlphabet,
+    alphabet: Encoding,
     json_format: bool,
     length: usize,
     uppercase: bool,
 ) {
     let alphabet = match alphabet {
-        GenerateRandomStringAlphabet::Alphanumeric => {
+        Encoding::Alphanumeric => {
             // 0-9, a-z, A-Z (62 characters)
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         }
-        GenerateRandomStringAlphabet::Hex => {
+        Encoding::Hex => {
             // 0-9, a-f (16 characters)
             "0123456789abcdef"
         }
-        GenerateRandomStringAlphabet::Base64 => {
+        Encoding::Base64 => {
             // A-Z, a-z, 0-9, +, / (64 characters)
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
         }
-        GenerateRandomStringAlphabet::Base64Url => {
+        Encoding::Base64Url => {
             // A-Z, a-z, 0-9, -, _ (64 characters) - URL-safe base64
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         }
