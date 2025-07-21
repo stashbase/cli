@@ -34,7 +34,7 @@ pub struct GenerateRandom {
 
     /// Length of the random string, defaults to 32
     #[arg(long = "length", default_value = "32")]
-    pub length: u32,
+    pub length: usize,
 
     /// Include uppercase letters
     #[arg(long = "uppercase")]
