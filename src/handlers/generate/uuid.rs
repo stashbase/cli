@@ -15,8 +15,7 @@ pub fn handle_generate_uuid_v4(json_format: bool) {
 }
 
 pub fn handle_generate_uuid_v7(json_format: bool) {
-    let timestamp = uuid::Timestamp::now(uuid::timestamp::context::Context::new(0));
-    let uuid = Uuid::new_v7(timestamp);
+    let uuid = Uuid::now_v7();
 
     if json_format {
         let json = serde_json::json!({ "value": uuid.to_string() });
