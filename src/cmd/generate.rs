@@ -22,7 +22,6 @@ pub struct GenerateUuid {
 
 #[derive(Debug, Subcommand)]
 pub enum GenerateUuidSubcommand {
-    V1,
     V4,
     V7,
 }
