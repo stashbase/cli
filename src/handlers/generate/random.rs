@@ -1,43 +1,27 @@
 use nanoid::nanoid;
 
-pub enum GenerateRandomValueVariant {
-    Alphanumeric,
-    Hexadecimal,
-    Base64,
-    Base64Url,
-}
-
-impl From<GenerateRandomSubcommand> for GenerateRandomValueVariant {
-    fn from(value: GenerateRandomSubcommand) -> Self {
-        match value {
-            GenerateRandomSubcommand::Alphanumeric(_) => GenerateRandomValueVariant::Alphanumeric,
-            GenerateRandomSubcommand::Hex(_) => GenerateRandomValueVariant::Hexadecimal,
-            GenerateRandomSubcommand::Base64(_) => GenerateRandomValueVariant::Base64,
-            GenerateRandomSubcommand::Base64Url(_) => GenerateRandomValueVariant::Base64Url,
-        }
-    }
-}
+use crate::models::generate::GenerateRandomValueAlphabet;
 
 pub fn handle_generate_random_value(
-    variant: GenerateRandomValueVariant,
+    alphabet: GenerateRandomValueAlphabet,
     json_format: bool,
     length: usize,
     uppercase: bool,
 ) {
-    let alphabet = match variant {
-        GenerateRandomValueVariant::Alphanumeric => {
+    let alphabet = match alphabet {
+        GenerateRandomValueAlphabet::Alphanumeric => {
             // 0-9, a-z, A-Z (62 characters)
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         }
-        GenerateRandomValueVariant::Hexadecimal => {
+        GenerateRandomValueAlphabet::Hexadecimal => {
             // 0-9, a-f (16 characters)
             "0123456789abcdef"
         }
-        GenerateRandomValueVariant::Base64 => {
+        GenerateRandomValueAlphabet::Base64 => {
             // A-Z, a-z, 0-9, +, / (64 characters)
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
         }
-        GenerateRandomValueVariant::Base64Url => {
+        GenerateRandomValueAlphabet::Base64Url => {
             // A-Z, a-z, 0-9, -, _ (64 characters) - URL-safe base64
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         }
@@ -57,7 +41,6 @@ pub fn handle_generate_random_value(
         });
         println!("{}", json_output);
     } else {
-        // Use 'Id: value' format for silent mode as per memory
-        println!("Random: {}", final_result);
+        println!("{}", final_result);
     }
 }
