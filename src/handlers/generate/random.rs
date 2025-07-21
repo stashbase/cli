@@ -13,7 +13,7 @@ pub fn handle_generate_random_value(
             // 0-9, a-z, A-Z (62 characters)
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         }
-        GenerateRandomStringAlphabet::Hexadecimal => {
+        GenerateRandomStringAlphabet::Hex => {
             // 0-9, a-f (16 characters)
             "0123456789abcdef"
         }
