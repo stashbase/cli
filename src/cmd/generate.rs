@@ -57,10 +57,10 @@ pub enum GenerateRandomStringSubcommand {
 impl GenerateRandomString {
     pub fn get_length(&self) -> usize {
         match &self.subcommand {
-            GenerateRandomStringSubcommand::Alphanumeric(options) => options.length,
-            GenerateRandomStringSubcommand::Hex(options) => options.length,
-            GenerateRandomStringSubcommand::Base64(options) => options.length,
-            GenerateRandomStringSubcommand::Base64Url(options) => options.length,
+            GenerateRandomStringSubcommand::Alphanumeric(options) => options.length as usize,
+            GenerateRandomStringSubcommand::Hex(options) => options.length as usize,
+            GenerateRandomStringSubcommand::Base64(options) => options.length as usize,
+            GenerateRandomStringSubcommand::Base64Url(options) => options.length as usize,
         }
     }
 
@@ -77,8 +77,8 @@ impl GenerateRandomString {
 #[derive(Debug, Args)]
 pub struct GenerateRandomOptions {
     /// Length of the random string, defaults to 32
-    #[arg(long = "length", default_value = "32")]
-    pub length: usize,
+    #[arg(long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(1..=256))]
+    pub length: u16,
 
     /// Make the random string uppercase
     #[arg(long = "uppercase")]
