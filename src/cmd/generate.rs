@@ -48,6 +48,9 @@ pub enum GenerateRandomStringSubcommand {
     /// Generate random hexadecimal string
     Hex(GenerateRandomOptions),
 
+    /// Generate random base32 string
+    Base32(GenerateRandomOptions),
+
     /// Generate random base64 string
     Base64(GenerateRandomOptions),
 
@@ -60,6 +63,7 @@ impl GenerateRandomString {
         match &self.subcommand {
             GenerateRandomStringSubcommand::Alphanumeric(options) => options.length as usize,
             GenerateRandomStringSubcommand::Hex(options) => options.length as usize,
+            GenerateRandomStringSubcommand::Base32(options) => options.length as usize,
             GenerateRandomStringSubcommand::Base64(options) => options.length as usize,
             GenerateRandomStringSubcommand::Base64Url(options) => options.length as usize,
         }
@@ -69,6 +73,7 @@ impl GenerateRandomString {
         match &self.subcommand {
             GenerateRandomStringSubcommand::Alphanumeric(options) => options.uppercase,
             GenerateRandomStringSubcommand::Hex(options) => options.uppercase,
+            GenerateRandomStringSubcommand::Base32(options) => options.uppercase,
             GenerateRandomStringSubcommand::Base64(options) => options.uppercase,
             GenerateRandomStringSubcommand::Base64Url(options) => options.uppercase,
         }
@@ -78,6 +83,7 @@ impl GenerateRandomString {
         match &self.subcommand {
             GenerateRandomStringSubcommand::Alphanumeric(options) => options.bytes,
             GenerateRandomStringSubcommand::Hex(options) => options.bytes,
+            GenerateRandomStringSubcommand::Base32(options) => options.bytes,
             GenerateRandomStringSubcommand::Base64(options) => options.bytes,
             GenerateRandomStringSubcommand::Base64Url(options) => options.bytes,
         }
@@ -90,6 +96,9 @@ impl GenerateRandomString {
             match self.subcommand {
                 GenerateRandomStringSubcommand::Hex(_) => (bytes as usize) * 2,
                 GenerateRandomStringSubcommand::Alphanumeric(_) => bytes as usize,
+                GenerateRandomStringSubcommand::Base32(_) => {
+                    ((bytes as f64) * 8.0 / 5.0).ceil() as usize
+                }
                 GenerateRandomStringSubcommand::Base64(_)
                 | GenerateRandomStringSubcommand::Base64Url(_) => {
                     ((bytes as f64) * 4.0 / 3.0).ceil() as usize
