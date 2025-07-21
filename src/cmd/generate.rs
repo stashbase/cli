@@ -55,6 +55,7 @@ pub enum GenerateRandomStringSubcommand {
     Base64(GenerateRandomOptions),
 
     /// Generate random base64url string
+    #[clap(name = "base64url")]
     Base64Url(GenerateRandomOptions),
 }
 
