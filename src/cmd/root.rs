@@ -3,9 +3,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crate::cmd::scans::ScanCommands;
 
 use super::{
-    config::ConfigCommand, environments::EnvironmentCommands, projects::ProjectCommands,
-    pull::PullCommand, push::PushCommand, run::RunCommand, secrets::SecretArgs,
-    webhooks::WebhookCommand,
+    config::ConfigCommand, environments::EnvironmentCommands, generate::GenerateCommand,
+    projects::ProjectCommands, pull::PullCommand, push::PushCommand, run::RunCommand,
+    secrets::SecretArgs, webhooks::WebhookCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -74,6 +74,10 @@ pub enum EntityType {
     /// Manage webhooks
     #[clap(name = "webhooks", aliases = &["w", "web"])]
     Webhooks(WebhookCommand),
+
+    /// Generate random string or UUID
+    #[clap(name = "generate", aliases = &["gen"])]
+    Generate(GenerateCommand),
 
     /// Your CLI configuration
     #[clap(aliases = &["c", "conf"])]

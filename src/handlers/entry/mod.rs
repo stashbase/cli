@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod config;
 pub mod environments;
+pub mod generate;
 pub mod projects;
 pub mod root;
 pub mod scans;
