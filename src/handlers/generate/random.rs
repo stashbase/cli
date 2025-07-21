@@ -17,6 +17,10 @@ pub fn handle_generate_random_string(
             // 0-9, a-f (16 characters)
             "0123456789abcdef"
         }
+        Encoding::Base32 => {
+            // a-z, 2-7 (32 characters)
+            "abcdefghijklmnopqrstuvwxyz234567"
+        }
         Encoding::Base64 => {
             // A-Z, a-z, 0-9, +, / (64 characters)
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
