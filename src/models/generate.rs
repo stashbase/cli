@@ -25,9 +25,9 @@ impl Encoding {
         match self {
             Encoding::Hex => "0123456789abcdef",
             Encoding::Base32 => "abcdefghijklmnopqrstuvwxyz234567",
-            Encoding::Base64 => "ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+            Encoding::Base64 => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
             Encoding::Base64Url => {
-                "ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
             }
             Encoding::Alphanumeric => {
                 "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
