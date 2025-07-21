@@ -1,27 +1,43 @@
 use nanoid::nanoid;
 
-use crate::cmd::generate::GenerateRandomSubcommand;
+pub enum GenerateRandomValueVariant {
+    Alphanumeric,
+    Hexadecimal,
+    Base64,
+    Base64Url,
+}
+
+impl From<GenerateRandomSubcommand> for GenerateRandomValueVariant {
+    fn from(value: GenerateRandomSubcommand) -> Self {
+        match value {
+            GenerateRandomSubcommand::Alphanumeric(_) => GenerateRandomValueVariant::Alphanumeric,
+            GenerateRandomSubcommand::Hex(_) => GenerateRandomValueVariant::Hexadecimal,
+            GenerateRandomSubcommand::Base64(_) => GenerateRandomValueVariant::Base64,
+            GenerateRandomSubcommand::Base64Url(_) => GenerateRandomValueVariant::Base64Url,
+        }
+    }
+}
 
 pub fn handle_generate_random_value(
-    variant: GenerateRandomSubcommand,
+    variant: GenerateRandomValueVariant,
     json_format: bool,
     length: usize,
     uppercase: bool,
 ) {
     let alphabet = match variant {
-        GenerateRandomSubcommand::Alphanumeric => {
+        GenerateRandomValueVariant::Alphanumeric => {
             // 0-9, a-z, A-Z (62 characters)
             "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         }
-        GenerateRandomSubcommand::Hex => {
+        GenerateRandomValueVariant::Hexadecimal => {
             // 0-9, a-f (16 characters)
             "0123456789abcdef"
         }
-        GenerateRandomSubcommand::Base64 => {
+        GenerateRandomValueVariant::Base64 => {
             // A-Z, a-z, 0-9, +, / (64 characters)
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
         }
-        GenerateRandomSubcommand::Base64Url => {
+        GenerateRandomValueVariant::Base64Url => {
             // A-Z, a-z, 0-9, -, _ (64 characters) - URL-safe base64
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         }
