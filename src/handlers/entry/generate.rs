@@ -15,7 +15,7 @@ pub fn handle_generate_command(cmd: GenerateCommand, json_format: bool) -> Resul
             GenerateUuidSubcommand::V7 => handle_generate_uuid_v7(json_format),
         },
         GenerateSubcommand::Random(args) => {
-            let length = args.get_length();
+            let length = args.get_string_length();
             let uppercase = args.get_uppercase();
             let alphabet = GenerateRandomStringAlphabet::from(args.subcommand);
 
