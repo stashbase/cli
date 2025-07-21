@@ -3,6 +3,7 @@ pub mod auth;
 pub mod config;
 pub mod config_env;
 pub mod environments;
+pub mod generate;
 pub mod projects;
 pub mod scans;
 pub mod secrets;

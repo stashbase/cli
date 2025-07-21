@@ -1,5 +1,6 @@
 pub mod config;
 pub mod environments;
+pub mod generate;
 pub mod projects;
 pub mod pull;
 pub mod push;
