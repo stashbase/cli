@@ -1,19 +1,19 @@
 use crate::cmd::generate::GenerateRandomSubcommand;
 
-pub enum GenerateRandomValueAlphabet {
+pub enum GenerateRandomStringAlphabet {
     Alphanumeric,
     Hexadecimal,
     Base64,
     Base64Url,
 }
 
-impl From<GenerateRandomSubcommand> for GenerateRandomValueAlphabet {
+impl From<GenerateRandomSubcommand> for GenerateRandomStringAlphabet {
     fn from(value: GenerateRandomSubcommand) -> Self {
         match value {
-            GenerateRandomSubcommand::Alphanumeric(_) => GenerateRandomValueAlphabet::Alphanumeric,
-            GenerateRandomSubcommand::Hex(_) => GenerateRandomValueAlphabet::Hexadecimal,
-            GenerateRandomSubcommand::Base64(_) => GenerateRandomValueAlphabet::Base64,
-            GenerateRandomSubcommand::Base64Url(_) => GenerateRandomValueAlphabet::Base64Url,
+            GenerateRandomSubcommand::Alphanumeric(_) => GenerateRandomStringAlphabet::Alphanumeric,
+            GenerateRandomSubcommand::Hex(_) => GenerateRandomStringAlphabet::Hexadecimal,
+            GenerateRandomSubcommand::Base64(_) => GenerateRandomStringAlphabet::Base64,
+            GenerateRandomSubcommand::Base64Url(_) => GenerateRandomStringAlphabet::Base64Url,
         }
     }
 }
