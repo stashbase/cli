@@ -1,6 +1,6 @@
 use nanoid::nanoid;
 
-use crate::models::generate::Encoding;
+use crate::{models::generate::Encoding, utils::output::get_formatted_json_string};
 
 pub fn handle_generate_random_string(
     alphabet: Encoding,
@@ -43,7 +43,8 @@ pub fn handle_generate_random_string(
         let json_output = serde_json::json!({
             "value": final_result
         });
-        println!("{}", json_output);
+        let json_str = get_formatted_json_string(&json_output, true).unwrap();
+        println!("{}", json_str);
     } else {
         println!("{}", final_result);
     }
