@@ -2,7 +2,7 @@ use nanoid::nanoid;
 
 use crate::models::generate::GenerateRandomStringAlphabet;
 
-pub fn handle_generate_random_value(
+pub fn handle_generate_random_string(
     alphabet: GenerateRandomStringAlphabet,
     json_format: bool,
     length: usize,
