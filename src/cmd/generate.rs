@@ -1,8 +1,4 @@
-use core::fmt;
-
-use clap::{Args, Subcommand, ValueEnum};
-
-use super::config::OutputFormat;
+use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "generate <COMMAND> [OPTIONS]")]
@@ -14,6 +10,7 @@ pub struct GenerateCommand {
 #[derive(Debug, Subcommand)]
 pub enum GenerateSubcommand {
     Uuid(GenerateUuid),
+    Random(GenerateRandom),
 }
 
 #[derive(Debug, Args)]
@@ -28,4 +25,30 @@ pub enum GenerateUuidSubcommand {
     V1,
     V4,
     V7,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "generate random <TYPE> [OPTIONS]")]
+pub struct GenerateRandom {
+    #[clap(subcommand)]
+    pub subcommand: GenerateRandomSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenerateRandomSubcommand {
+    Alphanumeric(GenerateRandomOptions),
+    Hex(GenerateRandomOptions),
+    Base64(GenerateRandomOptions),
+    Base64Url(GenerateRandomOptions),
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateRandomOptions {
+    /// Length of the random string, defaults to 32
+    #[arg(long = "length", default_value = "32")]
+    pub length: u32,
+
+    /// Include uppercase letters
+    #[arg(long = "uppercase")]
+    pub uppercase: bool,
 }
