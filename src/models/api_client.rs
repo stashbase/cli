@@ -264,8 +264,8 @@ pub enum GenericError {
     #[serde(rename = "access.ip_address_not_allowed")]
     IpAddressNotAllowed,
 
-    #[serde(rename = "access.unsupported_api_key")]
-    UnsupportedApiKey,
+    #[serde(rename = "access.unsupported_api_key_type")]
+    UnsupportedApiKeyType,
 
     #[serde(rename = "access.missing_permission")]
     MissingPermission,
@@ -532,12 +532,12 @@ impl From<ApiError> for OutputError {
                         hint: Some(format!("Provide a new api key and try again.")),
                     })
                 }
-                GenericError::UnsupportedApiKey => {
+                GenericError::UnsupportedApiKeyType => {
                     let hint = if let Some(d) = api_error.details {
                         let details = serde_json::from_value::<UnsupportedApiKeyErrorDetails>(d);
                         match details {
                             Ok(details) => Some(format!(
-                                "Supported api key types for this action: {}.",
+                                "Supported API Key types for this action: {}.",
                                 details.supported_api_key_types.join(", ")
                             )),
                             Err(_) => None,
@@ -547,8 +547,8 @@ impl From<ApiError> for OutputError {
                     };
 
                     OutputError::Generic(GenericOutputError {
-                        message: format!("Current api key is not supported."),
-                        code: Some("access.unsupported_api_key".to_string()),
+                        message: format!("Current API Key type is not supported for this action."),
+                        code: Some("access.unsupported_api_key_type".to_string()),
                         hint,
                     })
                 }
