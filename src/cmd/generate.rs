@@ -72,6 +72,32 @@ impl GenerateRandomString {
             GenerateRandomStringSubcommand::Base64Url(options) => options.uppercase,
         }
     }
+
+    pub fn get_bytes(&self) -> Option<u16> {
+        match &self.subcommand {
+            GenerateRandomStringSubcommand::Alphanumeric(options) => options.bytes,
+            GenerateRandomStringSubcommand::Hex(options) => options.bytes,
+            GenerateRandomStringSubcommand::Base64(options) => options.bytes,
+            GenerateRandomStringSubcommand::Base64Url(options) => options.bytes,
+        }
+    }
+
+    pub fn get_string_length(&self) -> usize {
+        let bytes = self.get_bytes();
+
+        if let Some(bytes) = bytes {
+            match self.subcommand {
+                GenerateRandomStringSubcommand::Hex(_) => (bytes as usize) * 2,
+                GenerateRandomStringSubcommand::Alphanumeric(_) => bytes as usize,
+                GenerateRandomStringSubcommand::Base64(_)
+                | GenerateRandomStringSubcommand::Base64Url(_) => {
+                    ((bytes as f64) * 4.0 / 3.0).ceil() as usize
+                }
+            }
+        } else {
+            self.get_length()
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -79,6 +105,10 @@ pub struct GenerateRandomOptions {
     /// Length of the random string, defaults to 32
     #[arg(short = 'l', long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(1..=256))]
     pub length: u16,
+
+    /// Desired entropy length in bytes (overrides length option)
+    #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(1..=128))]
+    pub bytes: Option<u16>,
 
     /// Make the random string uppercase
     #[arg(long = "uppercase")]
