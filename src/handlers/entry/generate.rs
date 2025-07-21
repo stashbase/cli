@@ -13,12 +13,9 @@ pub fn handle_generate_command(cmd: GenerateCommand, json_format: bool) -> Resul
             GenerateUuidSubcommand::V4 => handle_generate_uuid_v4(json_format),
             GenerateUuidSubcommand::V7 => handle_generate_uuid_v7(json_format),
         },
-        GenerateSubcommand::Random(args) => handle_generate_random_value(
-            args.subcommand,
-            json_format,
-            args.length as usize,
-            args.uppercase,
-        ),
+        GenerateSubcommand::Random(args) => {
+            handle_generate_random_value(args.subcommand, json_format, args.length, args.uppercase)
+        }
     }
 
     Ok(())
