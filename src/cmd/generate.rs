@@ -114,11 +114,11 @@ impl GenerateRandomString {
 #[derive(Debug, Args)]
 pub struct GenerateRandomOptions {
     /// Length of the random string
-    #[arg(short = 'l', long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(1..=256))]
+    #[arg(short = 'l', long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(3..=256))]
     pub length: u16,
 
     /// Desired entropy length in bytes (overrides --length)
-    #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(1..=256))]
+    #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(3..=256))]
     pub bytes: Option<u16>,
 
     /// Make the random string uppercase
