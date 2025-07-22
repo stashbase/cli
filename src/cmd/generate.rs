@@ -118,7 +118,7 @@ pub struct GenerateRandomOptions {
     pub length: u16,
 
     /// Desired entropy length in bytes (overrides --length)
-    #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(1..=128))]
+    #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(1..=256))]
     pub bytes: Option<u16>,
 
     /// Make the random string uppercase
