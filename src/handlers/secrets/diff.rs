@@ -55,17 +55,20 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
         bail!("File does not exist: {}", file_path);
     }
 
-    let target_format = {
-        if file_path.ends_with(".yaml") || file_path.ends_with(".yml") {
-            SecretsFileFormat::Yaml
-        } else if file_path.ends_with(".json") {
-            SecretsFileFormat::Json
-        } else {
-            SecretsFileFormat::Dotenv
+    let file_format = match format {
+        Some(f) => f,
+        None => {
+            if file_path.ends_with(".yaml") || file_path.ends_with(".yml") {
+                SecretsFileFormat::Yaml
+            } else if file_path.ends_with(".json") {
+                SecretsFileFormat::Json
+            } else {
+                SecretsFileFormat::Dotenv
+            }
         }
     };
 
-    let secrets_res = read_secrets_from_file(path, &target_format);
+    let secrets_res = read_secrets_from_file(path, &file_format);
 
     if let Err(err) = secrets_res {
         let err =
