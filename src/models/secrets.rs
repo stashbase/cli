@@ -11,7 +11,7 @@ use crate::{
     cmd::config::SecretsOutputFormat,
     utils::{
         self,
-        output::{is_color_enabled, ColorizeIfColoredOutput},
+        output::{is_color_enabled, write_indented, ColorizeIfColoredOutput},
     },
 };
 
@@ -727,7 +727,7 @@ impl Display for SecretsDiff {
 
             for secret in &self.added {
                 let str = format!("+ {}", secret.name);
-                writeln!(f, "{}", str.green_if_tty())?;
+                write_indented(f, 2, &str.green_if_tty())?;
             }
         }
 
@@ -737,7 +737,7 @@ impl Display for SecretsDiff {
 
             for secret in &self.missing {
                 let str = format!("- {}", secret.name);
-                writeln!(f, "{}", str.red_if_tty())?;
+                write_indented(f, 2, &str.red_if_tty())?;
             }
         }
 
@@ -747,7 +747,7 @@ impl Display for SecretsDiff {
 
             for secret in &self.modified {
                 let str = format!("~ {}", secret.name);
-                writeln!(f, "{}", str.yellow_if_tty())?;
+                write_indented(f, 2, &str.yellow_if_tty())?;
 
                 if let Some(changes) = &secret.changes {
                     let local_str = format!("  • Local: {}", changes.local.value.display());
@@ -756,17 +756,15 @@ impl Display for SecretsDiff {
                     let local_comment = changes.local.comment.as_ref();
                     let remote_comment = changes.remote.comment.as_ref();
 
+                    write_indented(f, 4, &local_str.yellow_if_tty())?;
                     if let Some(local_comment) = local_comment {
-                        writeln!(f, "  # {}", local_comment)?;
+                        write_indented(f, 6, &format!("  # {}", local_comment))?;
                     }
 
-                    writeln!(f, "{}", local_str.yellow_if_tty())?;
-
+                    write_indented(f, 4, &remote_str.yellow_if_tty())?;
                     if let Some(remote_comment) = remote_comment {
-                        writeln!(f, "  # {}", remote_comment)?;
+                        write_indented(f, 6, &format!("  # {}", remote_comment))?;
                     }
-
-                    writeln!(f, "{}", remote_str.yellow_if_tty())?;
                 }
             }
         }
