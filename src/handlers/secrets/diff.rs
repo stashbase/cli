@@ -53,6 +53,11 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
     if !file_exists {
         let err = InputValidationError::Secrets(SecretsInputValidationError::FileNotFound);
         let error_output = err.format_error_output(json_format)?;
+
+        if !silent {
+            eprintln!();
+        }
+
         bail!(error_output);
     }
 
