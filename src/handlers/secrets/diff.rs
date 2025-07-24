@@ -145,7 +145,11 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
                         let json_str = get_formatted_json_string(&diff, true)?;
                         println!("{}", json_str);
                     } else {
-                        print!("{}", diff);
+                        if diff.is_empty() {
+                            println!("No differences found - local file secrets and Stashbase environment secrets are in sync.");
+                        } else {
+                            print!("{}", diff);
+                        }
                     }
                 }
                 Err(_) => {
