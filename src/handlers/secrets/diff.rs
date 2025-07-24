@@ -120,7 +120,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
                         let json_str = get_formatted_json_string(&diff, true)?;
                         println!("{}", json_str);
                     } else {
-                        todo!()
+                        print!("{}", diff);
                     }
                 }
                 Err(_) => {
