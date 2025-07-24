@@ -626,7 +626,7 @@ impl SecretsInputValidationError {
             ),
             SecretsInputValidationError::ReadFile(_) => (
                 "Error reading file.",
-                None,
+                Some("Ensure the file is accessible and has correct format."),
                 vec![]
             ),
             SecretsInputValidationError::SearchBothNameAndValue => (
