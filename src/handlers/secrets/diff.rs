@@ -232,11 +232,19 @@ pub fn create_secrets_diff(
                 let changes = Some(SecretDiffModifiedChange {
                     local: SecretDiffModifiedChangeItem {
                         value: Some(local_secret.value.clone()),
-                        comment: local_secret.comment.clone(),
+                        comment: if with_comments {
+                            local_secret.comment.clone()
+                        } else {
+                            None
+                        },
                     },
                     remote: SecretDiffModifiedChangeItem {
                         value: remote_secret.value.clone(),
-                        comment: remote_secret.comment.clone(),
+                        comment: if with_comments {
+                            remote_secret.comment.clone()
+                        } else {
+                            None
+                        },
                     },
                 });
 
