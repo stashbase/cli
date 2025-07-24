@@ -10,7 +10,8 @@ use crate::{
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         secrets::{
-            Secret, SecretDiffModified, SecretDiffModifiedChange, SecretOptional, SecretsDiff,
+            Secret, SecretDiffModified, SecretDiffModifiedChange, SecretDiffModifiedChangeItem,
+            SecretOptional, SecretsDiff,
         },
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -191,13 +192,11 @@ pub fn create_secrets_diff(
 
             if values_differ || comments_differ {
                 let changes = Some(SecretDiffModifiedChange {
-                    local: SecretOptional {
-                        name: local_secret.name.clone(),
+                    local: SecretDiffModifiedChangeItem {
                         value: Some(local_secret.value.clone()),
                         comment: local_secret.comment.clone(),
                     },
-                    remote: SecretOptional {
-                        name: remote_secret.name.clone(),
+                    remote: SecretDiffModifiedChangeItem {
                         value: remote_secret.value.clone(),
                         comment: remote_secret.comment.clone(),
                     },
