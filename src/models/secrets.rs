@@ -33,7 +33,7 @@ pub struct SecretOnlyName {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Secret {
     pub name: String,
@@ -43,7 +43,7 @@ pub struct Secret {
     pub comment: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretOptional {
     pub name: String,
