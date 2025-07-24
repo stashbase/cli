@@ -14,27 +14,23 @@ pub struct ProjectCommands {
 #[derive(Debug, Subcommand)]
 pub enum ProjectSubcommand {
     /// List projects
-    #[clap(alias = "l")]
     List(ListProjects),
 
     /// Get project
-    #[clap(alias = "g")]
     Get(GetProject),
 
     /// Create a new project
-    #[clap(aliases = &["c", "new"])]
+    #[clap(aliases = &["new"])]
     Create(CreateProject),
 
     /// Update project
-    #[clap(aliases = &["u", "upd"])]
     Update(UpdateProject),
 
     /// Delete a project
-    #[clap(aliases = &["d", "del"])]
+    #[clap(aliases = &["del"])]
     Delete(DeleteProject),
 
     /// Open project in browser
-    #[clap(alias = "o")]
     Open(OpenProject),
 }
 

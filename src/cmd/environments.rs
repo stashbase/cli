@@ -73,30 +73,26 @@ impl EnvironmentSubcommand {
 #[derive(Debug, Subcommand)]
 pub enum EnvironmentSubcommand {
     /// List environments
-    #[clap(alias = "l")]
     List(ListEnvironments),
 
     /// Get environment
-    #[clap(alias = "g")]
     Get(GetEnvironment),
 
     /// Create new environment
-    #[clap(aliases = &["c", "new"])]
+    #[clap(aliases = &["new"])]
     Create(CreateEnvironment),
 
     /// Update environment
-    #[clap(alias = "u")]
     Update(UpdateEnvironment),
 
     /// Compare secrets of two environments
     Compare(CompareEnvironment),
 
     /// Delete a project
-    #[clap(aliases = &["d", "del"])]
+    #[clap(aliases = &["del"])]
     Delete(DeleteEnvironment),
 
     /// Open environment in browser
-    #[clap(alias = "o")]
     Open(OpenEnvironment),
 }
 

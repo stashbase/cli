@@ -55,16 +55,16 @@ pub enum EntityType {
     /// Push secrets to environment
     Push(PushCommand),
 
-    #[clap(name = "projects", aliases = &["p", "pro", "proj"])]
+    #[clap(name = "projects", aliases = &["proj"])]
     /// Manage projects
     Project(ProjectCommands),
 
     /// Manage environments
-    #[clap(name = "environments", aliases = &["e", "env"])]
+    #[clap(name = "environments", aliases = &["env"])]
     Environment(EnvironmentCommands),
 
     /// Manage secrets
-    #[clap(name = "secrets", aliases = &["s", "sec"])]
+    #[clap(name = "secrets", aliases = &["sec"])]
     Secret(SecretArgs),
 
     /// Scan for hardcoded secrets
@@ -72,7 +72,7 @@ pub enum EntityType {
     Scan(ScanCommands),
 
     /// Manage webhooks
-    #[clap(name = "webhooks", aliases = &["w", "web"])]
+    #[clap(name = "webhooks", aliases = &["web"])]
     Webhooks(WebhookCommand),
 
     /// Generate random string or UUID
