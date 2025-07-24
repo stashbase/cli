@@ -707,6 +707,15 @@ pub struct SecretDiffModified {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SecretDiffModifiedChange {
-    pub local: SecretOptional,
-    pub remote: SecretOptional,
+    pub local: SecretDiffModifiedChangeItem,
+    pub remote: SecretDiffModifiedChangeItem,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretDiffModifiedChangeItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }
