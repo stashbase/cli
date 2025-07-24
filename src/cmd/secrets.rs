@@ -75,12 +75,19 @@ impl SecretSubcommand {
                 d.shared_args.environment.as_deref(),
             ),
             SecretSubcommand::Search(search_secrets) => (search_secrets.project.as_deref(), None),
+            SecretSubcommand::Diff(diff_secrets) => (
+                diff_secrets.shared_args.project.as_deref(),
+                diff_secrets.shared_args.environment.as_deref(),
+            ),
         }
     }
 }
 
 #[derive(Debug, Subcommand)]
 pub enum SecretSubcommand {
+    /// Compare local env secrets with remote
+    Diff(DiffSecrets),
+
     /// List secrets
     #[clap(alias = "l")]
     List(ListSecrets),
@@ -309,4 +316,14 @@ pub struct SearchSecrets {
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsSearchOutputFormat>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "secrets diff <LOCAL_ENV_FILE> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+pub struct DiffSecrets {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    /// Path to local .env file
+    pub local_env_file: String,
 }
