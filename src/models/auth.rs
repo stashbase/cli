@@ -7,6 +7,10 @@ pub struct WorkspaceData {
     pub id: String,
     pub slug: String,
     pub name: String,
+
+    #[serde(rename = "userRole")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_role: Option<WorkspaceUserRole>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +37,6 @@ pub struct AuthedUserData {
     pub email: String,
     pub name: String,
     pub workspace: WorkspaceData,
-    pub workspace_user_role: WorkspaceUserRole,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,7 +133,9 @@ impl std::fmt::Display for AuthedUserData {
         write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
         write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
         write_indented(f, 4, &format!("Slug: {}", self.workspace.slug))?;
-        write_indented(f, 4, &format!("User Role: {}", self.workspace_user_role))?;
+        if let Some(user_role) = &self.workspace.user_role {
+            write_indented(f, 4, &format!("User Role: {}", user_role))?;
+        }
 
         Ok(())
     }
