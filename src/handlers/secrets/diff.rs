@@ -51,8 +51,9 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
     let file_exists = path.exists();
 
     if !file_exists {
-        // TODO: validation error
-        bail!("File does not exist: {}", file_path);
+        let err = InputValidationError::Secrets(SecretsInputValidationError::FileNotFound);
+        let error_output = err.format_error_output(json_format)?;
+        bail!(error_output);
     }
 
     let file_format = match format {
