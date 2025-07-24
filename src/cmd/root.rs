@@ -87,5 +87,6 @@ pub enum EntityType {
     Open,
 
     /// Show details of currently authenticated entity
+    #[clap(name = "whoami", aliases = &["me"])]
     Whoami,
 }
