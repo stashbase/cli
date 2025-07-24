@@ -145,16 +145,14 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let file_exists = path.exists();
 
     if !file_exists {
-        let err_msg = format!(
-            "{} {}",
-            "Error reading input file:".red_if_tty_stderr(),
-            "file does not exist."
-        );
+        let err = InputValidationError::Secrets(SecretsInputValidationError::FileNotFound);
+        let error_output = err.format_error_output(json_format)?;
 
         if !silent {
             eprintln!();
         }
-        bail!(err_msg);
+
+        bail!(error_output);
     }
 
     //
