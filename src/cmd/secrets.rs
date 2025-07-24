@@ -319,11 +319,19 @@ pub struct SearchSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets diff <LOCAL_ENV_FILE> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets diff <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct DiffSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
-    /// Path to local .env file
-    pub local_env_file: String,
+    /// Path to local secrets file
+    pub file_path: String,
+
+    /// Target file format (autodetected by default)
+    #[arg(value_enum, long = "format")]
+    pub format: Option<SecretsFileFormat>,
+
+    /// Expand references to their values
+    #[arg(value_enum, long = "expand-refs")]
+    pub expand_refs: Option<bool>,
 }
