@@ -244,14 +244,7 @@ pub fn create_secrets_diff(
         }
     }
 
-    // Sort all vectors by name
-    added.sort_by(|a, b| a.name.cmp(&b.name));
-    missing.sort_by(|a, b| a.name.cmp(&b.name));
-    modified.sort_by(|a, b| a.name.cmp(&b.name));
-
-    SecretsDiff {
-        added,
-        missing,
-        modified,
-    }
+    let mut diff = SecretsDiff::new(added, missing, modified);
+    diff.sort();
+    diff
 }

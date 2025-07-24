@@ -697,6 +697,26 @@ pub struct SecretsDiff {
     pub modified: Vec<SecretDiffModified>,
 }
 
+impl SecretsDiff {
+    pub fn new(
+        added: Vec<SecretOptional>,
+        missing: Vec<SecretOptional>,
+        modified: Vec<SecretDiffModified>,
+    ) -> Self {
+        Self {
+            added,
+            missing,
+            modified,
+        }
+    }
+
+    pub fn sort(&mut self) {
+        self.added.sort_by(|a, b| a.name.cmp(&b.name));
+        self.missing.sort_by(|a, b| a.name.cmp(&b.name));
+        self.modified.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SecretDiffModified {
     pub name: String,
