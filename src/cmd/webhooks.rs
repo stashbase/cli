@@ -36,7 +36,6 @@ impl WebhookCommand {
 #[derive(Debug, Subcommand)]
 pub enum WebhookSubcommand {
     /// List all webhooks
-    #[clap(alias = "l")]
     List(ListWebhooks),
 
     /// Get single webhook
@@ -46,7 +45,6 @@ pub enum WebhookSubcommand {
     Create(CreateWebhook),
 
     /// Update webhook
-    #[clap(aliases = &["u", "upd"])]
     Update(UpdateWebhook),
 
     /// Enable webhook
@@ -65,7 +63,7 @@ pub enum WebhookSubcommand {
     RotateSecret(RoateteWebhookSecret),
 
     /// Delete webhook
-    #[clap(aliases = &["d", "del"])]
+    #[clap(aliases = &["del"])]
     Delete(DeleteWebhook),
 
     /// List webhook logs
