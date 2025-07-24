@@ -100,8 +100,22 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
         None
     };
 
-    let remote_secrets_res =
-        secrets::list(api_key, project, environment, false, None, expand_refs).await;
+    let omit = if !with_comments {
+        Some(vec!["comment".to_string()])
+    } else {
+        None
+    };
+
+    let remote_secrets_res = secrets::list(
+        api_key,
+        project,
+        environment,
+        false,
+        omit,
+        None,
+        expand_refs,
+    )
+    .await;
 
     if let Err(err) = remote_secrets_res {
         if let Some(mut spinner) = spinner {

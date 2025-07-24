@@ -53,7 +53,16 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         None
     };
 
-    let res = secrets::list(api_key, project, enironment, only_names, None, expand_refs).await;
+    let res = secrets::list(
+        api_key,
+        project,
+        enironment,
+        only_names,
+        None,
+        None,
+        expand_refs,
+    )
+    .await;
 
     if let Err(err) = res {
         if let Some(mut spinner) = spinner {

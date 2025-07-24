@@ -12,10 +12,15 @@ pub async fn list(
     project: String,
     environment: String,
     only_names: bool,
+    omit: Option<Vec<String>>,
     only: Option<Vec<String>>,
     expand_refs: bool,
 ) -> Result<GetRequestApiResponse, OutputError> {
     let mut query_str = vec![];
+
+    if let Some(omit) = omit {
+        query_str.push(("omit".to_string(), omit.join(",")));
+    }
 
     if only_names {
         query_str.push(("omit".to_string(), "value,comment".to_string()));
