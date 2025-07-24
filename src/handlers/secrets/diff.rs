@@ -14,7 +14,10 @@ use crate::{
         },
         validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{secrets::read_secrets_from_file, spinner::request_spinner},
+    utils::{
+        output::get_formatted_json_string, secrets::read_secrets_from_file,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleSecretsDiffArgs {
@@ -109,7 +112,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
                     let diff = create_secrets_diff(secrets, remote_secrets);
 
                     if json_format {
-                        let json_str = serde_json::to_string_pretty(&diff)?;
+                        let json_str = get_formatted_json_string(&diff, true)?;
                         println!("{}", json_str);
                     } else {
                         todo!()
