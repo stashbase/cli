@@ -689,3 +689,24 @@ impl ReferencesValidationWithExistence {
             && self.not_found.len() == 0
     }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretsDiff {
+    pub added: Vec<SecretOptional>,
+    pub missing: Vec<SecretOptional>,
+    pub modified: Vec<SecretDiffModified>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretDiffModified {
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changes: Option<SecretDiffModifiedChange>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SecretDiffModifiedChange {
+    pub local: SecretOptional,
+    pub remote: SecretOptional,
+}
