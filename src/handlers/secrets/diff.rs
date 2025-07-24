@@ -71,7 +71,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
         let err =
             InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err.to_string()));
 
-        let error_output = err.format_error_output(false)?;
+        let error_output = err.format_error_output(json_format)?;
 
         if !silent {
             eprintln!();
@@ -100,7 +100,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
         }
         debug!("Error: {:#?}", &err);
 
-        let error_output = err.format_error_output(false)?;
+        let error_output = err.format_error_output(json_format)?;
         bail!(error_output);
     }
 
