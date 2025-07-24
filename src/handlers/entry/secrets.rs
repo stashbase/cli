@@ -9,6 +9,7 @@ use crate::{
         comment::{handle_update_comment, HandleCommentArgs},
         create::{handle_create_secrets, HandleCreateSecretsArgs},
         delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
+        diff::{handle_secrets_diff, HandleSecretsDiffArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
         rename::{handle_rename_secrets, HandleRenameSecretsArgs},
@@ -199,6 +200,20 @@ pub async fn handle_secrets_commands(
             };
 
             handle_upload_secrets(args).await?;
+        }
+        SecretSubcommand::Diff(args) => {
+            let args = HandleSecretsDiffArgs {
+                api_key,
+                silent,
+                project,
+                environment,
+                file_path: args.file_path,
+                format: args.format,
+                json_format: raw_output,
+                expand_refs: args.expand_refs.unwrap_or(expand_refs.unwrap_or(false)),
+            };
+
+            handle_secrets_diff(args).await?;
         }
         _ => unreachable!(),
     }
