@@ -624,9 +624,9 @@ impl SecretsInputValidationError {
                 Some("Secrets cannot reference themselves."),
                 secrets.clone()
             ),
-            SecretsInputValidationError::ReadFile(_) => (
+            SecretsInputValidationError::ReadFile(message) => (
                 "Error reading file.",
-                Some("Ensure the file is accessible and has correct format."),
+                Some(Box::leak(format!("{}.", message).into_boxed_str())),
                 vec![]
             ),
             SecretsInputValidationError::SearchBothNameAndValue => (
