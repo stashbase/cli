@@ -16,7 +16,7 @@ use crate::{
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        output::get_formatted_json_string, secrets::read_secrets_from_file,
+        self, output::get_formatted_json_string, secrets::read_secrets_from_file,
         spinner::request_spinner,
     },
 };
@@ -77,7 +77,11 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
         bail!(error_output);
     }
 
-    let secrets = secrets_res.unwrap();
+    let mut secrets = secrets_res.unwrap();
+
+    if expand_refs == true {
+        utils::secrets::expand_secret_references(&mut secrets);
+    }
 
     let spinner = if !silent {
         Some(request_spinner())
