@@ -85,9 +85,6 @@ impl SecretSubcommand {
 
 #[derive(Debug, Subcommand)]
 pub enum SecretSubcommand {
-    /// Compare local env secrets with remote
-    Diff(DiffSecrets),
-
     /// List secrets
     #[clap(alias = "l")]
     List(ListSecrets),
@@ -124,6 +121,9 @@ pub enum SecretSubcommand {
 
     /// Search secrets by exact name or value
     Search(SearchSecrets),
+
+    /// Compare local secrets with remote secrets
+    Diff(DiffSecrets),
 }
 
 #[derive(Debug, Args)]
