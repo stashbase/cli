@@ -1,6 +1,7 @@
 pub mod comment;
 pub mod create;
 pub mod delete;
+pub mod diff;
 pub mod get;
 pub mod list;
 pub mod rename;
