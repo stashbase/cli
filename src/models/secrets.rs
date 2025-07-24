@@ -715,6 +715,10 @@ impl SecretsDiff {
         self.missing.sort_by(|a, b| a.name.cmp(&b.name));
         self.modified.sort_by(|a, b| a.name.cmp(&b.name));
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.missing.is_empty() && self.modified.is_empty()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
