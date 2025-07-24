@@ -210,6 +210,7 @@ pub async fn handle_secrets_commands(
                 file_path: args.file_path,
                 format: args.format,
                 json_format: raw_output,
+                with_comments: args.with_comments,
                 expand_refs: args.expand_refs.unwrap_or(expand_refs.unwrap_or(false)),
             };
 
