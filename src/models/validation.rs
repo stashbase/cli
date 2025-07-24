@@ -76,6 +76,7 @@ pub enum SecretsInputValidationError {
     DuplicateNewNames(Vec<String>),
     SelfReferences(Vec<String>),
     ReadFile(String),
+    FileNotFound,
     CommentsTooLong(Vec<String>),
     CommentTooLong,
     NameValueSeparator,
@@ -623,6 +624,11 @@ impl SecretsInputValidationError {
                 "Found self-referencing secrets.",
                 Some("Secrets cannot reference themselves."),
                 secrets.clone()
+            ),
+            SecretsInputValidationError::FileNotFound => (
+                "File not found.",
+                Some("Ensure the file exists and is accessible."),
+                vec![]
             ),
             SecretsInputValidationError::ReadFile(message) => (
                 "Error reading file.",
