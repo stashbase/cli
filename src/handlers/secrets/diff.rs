@@ -30,6 +30,7 @@ pub struct HandleSecretsDiffArgs {
     pub format: Option<SecretsFileFormat>,
     pub json_format: bool,
     pub expand_refs: bool,
+    pub with_comments: bool,
 }
 
 pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
@@ -42,6 +43,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
         format,
         json_format,
         expand_refs,
+        with_comments,
     } = args;
 
     let path = Path::new(&file_path);
@@ -114,7 +116,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
                         spinner.stop_and_persist("", "");
                     }
 
-                    let diff = create_secrets_diff(secrets, remote_secrets);
+                    let diff = create_secrets_diff(secrets, remote_secrets, with_comments);
 
                     if json_format {
                         let json_str = get_formatted_json_string(&diff, true)?;
@@ -153,6 +155,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
 pub fn create_secrets_diff(
     local_secrets: Vec<Secret>,
     remote_secrets: Vec<SecretOptional>,
+    with_comments: bool,
 ) -> SecretsDiff {
     // Create HashMaps for efficient lookup by name
     let local_map: HashMap<String, &Secret> = local_secrets
@@ -175,7 +178,11 @@ pub fn create_secrets_diff(
             added.push(SecretOptional {
                 name: local_secret.name.clone(),
                 value: Some(local_secret.value.clone()),
-                comment: local_secret.comment.clone(),
+                comment: if with_comments {
+                    local_secret.comment.clone()
+                } else {
+                    None
+                },
             });
         }
     }
@@ -192,7 +199,7 @@ pub fn create_secrets_diff(
         if let Some(remote_secret) = remote_map.get(&local_secret.name) {
             // Check if values or comments are different
             let values_differ = local_secret.value != remote_secret.value.clone().unwrap();
-            let comments_differ = local_secret.comment != remote_secret.comment;
+            let comments_differ = with_comments && local_secret.comment != remote_secret.comment;
 
             if values_differ || comments_differ {
                 let changes = Some(SecretDiffModifiedChange {
