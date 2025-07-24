@@ -86,11 +86,9 @@ impl SecretSubcommand {
 #[derive(Debug, Subcommand)]
 pub enum SecretSubcommand {
     /// List secrets
-    #[clap(alias = "l")]
     List(ListSecrets),
 
     /// Get secrets
-    #[clap(alias = "g")]
     Get(GetSecrets),
 
     /// Set secrets
@@ -105,7 +103,6 @@ pub enum SecretSubcommand {
     Update(UpdateSecrets),
 
     /// Upload secrets
-    #[clap(alias = "upl")]
     Upload(UploadSecrets),
 
     // /// Rename secrets
