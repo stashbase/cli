@@ -334,4 +334,8 @@ pub struct DiffSecrets {
     /// Expand references to their values
     #[arg(value_enum, long = "expand-refs")]
     pub expand_refs: Option<bool>,
+
+    /// Print and compare with comments
+    #[arg(value_enum, long = "with-comments")]
+    pub with_comments: bool,
 }
