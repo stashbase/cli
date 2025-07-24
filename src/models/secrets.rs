@@ -759,12 +759,12 @@ impl Display for SecretsDiff {
                     if let Some(local_comment) = local_comment {
                         write_indented(f, 6, &format!("  # {}", local_comment))?;
                     }
-                    write_indented(f, 4, &local_str.yellow_if_tty())?;
+                    write_indented(f, 4, &local_str)?;
 
                     if let Some(remote_comment) = remote_comment {
                         write_indented(f, 6, &format!("  # {}", remote_comment))?;
                     }
-                    write_indented(f, 4, &remote_str.yellow_if_tty())?;
+                    write_indented(f, 4, &remote_str)?;
                 }
             }
         }
