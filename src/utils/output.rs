@@ -117,12 +117,16 @@ pub trait ColorizeIfColoredOutput {
     fn red_if_tty(self) -> String;
     fn yellow_if_tty(self) -> String;
     fn blue_if_tty(self) -> String;
+    fn bright_black_if_tty(self) -> String;
+    fn bright_blue_if_tty(self) -> String;
 
     // stderr
     fn green_if_tty_stderr(self) -> String;
     fn red_if_tty_stderr(self) -> String;
     fn yellow_if_tty_stderr(self) -> String;
     fn blue_if_tty_stderr(self) -> String;
+    fn bright_black_if_tty_stderr(self) -> String;
+    fn bright_blue_if_tty_stderr(self) -> String;
 }
 
 /// Implementation of the ColorizeIfColoredOutput trait
@@ -187,6 +191,38 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfColoredOutput for T {
     fn blue_if_tty_stderr(self) -> String {
         if is_color_enabled(false) {
             format!("{}", self.blue())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn bright_black_if_tty_stderr(self) -> String {
+        if is_color_enabled(false) {
+            format!("{}", self.bright_black())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn bright_black_if_tty(self) -> String {
+        if is_color_enabled(true) {
+            format!("{}", self.bright_black())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn bright_blue_if_tty(self) -> String {
+        if is_color_enabled(true) {
+            format!("{}", self.bright_blue())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn bright_blue_if_tty_stderr(self) -> String {
+        if is_color_enabled(false) {
+            format!("{}", self.bright_blue())
         } else {
             format!("{}", self)
         }
