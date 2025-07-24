@@ -719,3 +719,58 @@ pub struct SecretDiffModifiedChangeItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 }
+
+impl Display for SecretsDiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.added.len() > 0 {
+            writeln!(f, "Added: ({})", self.added.len())?;
+
+            for secret in &self.added {
+                let str = format!("+ {}", secret.name);
+                writeln!(f, "{}", str.green_if_tty())?;
+            }
+        }
+
+        if self.missing.len() > 0 {
+            writeln!(f, "")?;
+            writeln!(f, "Missing: ({})", self.missing.len())?;
+
+            for secret in &self.missing {
+                let str = format!("- {}", secret.name);
+                writeln!(f, "{}", str.red_if_tty())?;
+            }
+        }
+
+        if self.modified.len() > 0 {
+            writeln!(f, "")?;
+            writeln!(f, "Modified: ({})", self.modified.len())?;
+
+            for secret in &self.modified {
+                let str = format!("~ {}", secret.name);
+                writeln!(f, "{}", str.yellow_if_tty())?;
+
+                if let Some(changes) = &secret.changes {
+                    let local_str = format!("  • Local: {}", changes.local.value.display());
+                    let remote_str = format!("  • Remote: {}", changes.remote.value.display());
+
+                    let local_comment = changes.local.comment.as_ref();
+                    let remote_comment = changes.remote.comment.as_ref();
+
+                    if let Some(local_comment) = local_comment {
+                        writeln!(f, "  # {}", local_comment)?;
+                    }
+
+                    writeln!(f, "{}", local_str.yellow_if_tty())?;
+
+                    if let Some(remote_comment) = remote_comment {
+                        writeln!(f, "  # {}", remote_comment)?;
+                    }
+
+                    writeln!(f, "{}", remote_str.yellow_if_tty())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
