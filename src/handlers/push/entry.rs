@@ -40,6 +40,7 @@ pub struct HandlePushArgs {
     pub set: Vec<String>,
     pub exclude: Vec<String>,
     pub expand_refs: Option<bool>,
+    pub ignore_comments: Option<bool>,
     pub json_format: bool,
     pub silent: bool,
 }
@@ -54,6 +55,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         mut set,
         mut format,
         mut target_file,
+        mut ignore_comments,
         json_format,
         silent,
     } = args;
@@ -101,6 +103,12 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         if let Some(expand_refs_val) = secrets_config.expand_refs {
             if expand_refs.is_none() {
                 expand_refs = Some(expand_refs_val);
+            }
+        }
+
+        if let Some(ignore_comments_val) = secrets_config.ignore_comments {
+            if ignore_comments.is_none() {
+                ignore_comments = Some(ignore_comments_val);
             }
         }
 
@@ -205,6 +213,15 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     //  process, format and validate secrets
     let mut secrets = secrets_res.unwrap();
+
+    if let Some(ignore_comments) = ignore_comments {
+        if ignore_comments == true {
+            secrets = secrets
+                .into_iter()
+                .map(|secret| secret.without_comment())
+                .collect();
+        }
+    }
 
     if !only_set.is_empty() && !exclude_set.is_empty() {
         let err = InputValidationError::LoadEnvironment(
