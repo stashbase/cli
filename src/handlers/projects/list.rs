@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use log::{debug, error};
+use log::debug;
 
 use crate::{
     api::projects,
@@ -99,8 +99,6 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     .await;
 
     if let Err(err) = project_res {
-        error!("{:#?}", &err);
-
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
         }
