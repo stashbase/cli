@@ -110,7 +110,7 @@ pub async fn handle_scan_staged_file_hunks(
                 let pretty = get_formatted_json_string(&message, false).unwrap();
                 eprintln!("\n{}", pretty);
             } else {
-                eprintln!("\nNo staged changes to scan.");
+                eprintln!("No staged changes to scan.");
             }
         }
 
