@@ -29,6 +29,13 @@ use crate::{
 pub async fn handle_cli(args: Cli) {
     debug!("args: {:?}", args);
 
+    if let EntityType::Generate(cmd) = args.entity_type {
+        if let Err(e) = handle_generate_command(cmd, args.raw) {
+            eprintln!("{:?}", e);
+        }
+        return;
+    }
+
     let config = config::get_config();
     debug!("config: {:?}", config);
 
