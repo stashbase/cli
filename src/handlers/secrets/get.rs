@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::bail;
-use log::{debug, error};
+use log::debug;
 
 use crate::{
     api::secrets,
@@ -121,8 +121,6 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
                     }
                 }
                 Err(e) => {
-                    error!("{}", e);
-
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err =
                         error.format_error_output(format == SecretsOutputFormat::Json)?;

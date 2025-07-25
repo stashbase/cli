@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use log::{debug, error};
+use log::debug;
 
 use crate::{
     api::webhooks,
@@ -52,7 +52,6 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
         }
-        debug!("Error: {:#?}", &err);
 
         let error_output = err.format_error_output(format == OutputFormat::Json)?;
         bail!(error_output);
@@ -109,7 +108,6 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }
-                    error!("{}", e);
 
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(format == OutputFormat::Json)?;

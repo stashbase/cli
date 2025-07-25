@@ -1,5 +1,5 @@
 use anyhow::bail;
-use log::{debug, error};
+use log::debug;
 
 use crate::{
     api::environments,
@@ -91,8 +91,6 @@ pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> any
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
         }
-
-        error!("{:#?}", &err);
 
         let error_output = err.format_error_output(json_format)?;
         bail!(error_output);

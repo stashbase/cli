@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use log::error;
 
 use crate::{
     api::projects,
@@ -62,8 +61,6 @@ pub async fn handle_delete_project(args: HandleDeleteProjectArgs) -> Result<()> 
     let project_res = projects::delete_project(api_key, name).await;
 
     if let Err(err) = project_res {
-        error!("{:#?}", &err);
-
         if let Some(mut spinner) = spinner {
             spinner.stop_and_persist("", "");
         }
