@@ -1,5 +1,5 @@
 use anyhow::bail;
-use log::{debug, error};
+use log::debug;
 
 use crate::{
     api::secrets,
@@ -92,8 +92,6 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                 if let Some(mut spinner) = spinner {
                     spinner.stop_and_persist("", "");
                 }
-
-                error!("{:#?}", &err);
 
                 let error_output = err.format_error_output(json_format)?;
                 bail!(error_output);

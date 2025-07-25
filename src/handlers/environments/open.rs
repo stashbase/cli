@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use log::error;
 use serde::Deserialize;
 
 use crate::{
@@ -72,8 +71,6 @@ pub async fn handle_open_environment(
                     }
                 }
                 Err(e) => {
-                    error!("{:#?}", e);
-
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }

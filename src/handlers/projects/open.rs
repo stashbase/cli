@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use log::error;
 use serde::Deserialize;
 
 use crate::{
@@ -60,8 +59,6 @@ pub async fn handle_open_project(
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }
-
-                    error!("{}", e);
 
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err = error.format_error_output(json_format)?;
