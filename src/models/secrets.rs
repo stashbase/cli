@@ -43,6 +43,16 @@ pub struct Secret {
     pub comment: Option<String>,
 }
 
+impl Secret {
+    pub fn without_comment(self) -> Self {
+        Self {
+            name: self.name,
+            value: self.value,
+            comment: None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretOptional {
