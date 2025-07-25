@@ -217,7 +217,10 @@ impl EnvConfigItem {
 
             expand_refs = action_secrets.expand_refs;
             print_secrets = action_secrets.print;
-            ignore_comments = action_secrets.ignore_comments;
+
+            if !is_run_action {
+                ignore_comments = action_secrets.ignore_comments;
+            }
         }
 
         PullSecretsConfig::new(
