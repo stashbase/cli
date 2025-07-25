@@ -34,4 +34,8 @@ pub struct PushCommand {
     /// Expand references to their values
     #[arg(value_enum, long = "expand-refs")]
     pub expand_refs: Option<bool>,
+
+    /// Ignore secret comments
+    #[arg(value_enum, long = "ignore-comments")]
+    pub ignore_comments: Option<bool>,
 }
