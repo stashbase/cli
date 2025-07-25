@@ -42,6 +42,7 @@ pub enum WebhookSubcommand {
     Get(GetWebhook),
 
     /// Create new webhook
+    #[clap(name = "create", alias = "new")]
     Create(CreateWebhook),
 
     /// Update webhook
