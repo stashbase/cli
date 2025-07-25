@@ -155,10 +155,12 @@ impl EnvConfigItem {
         let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
 
         let mut expand_refs: Option<bool> = None;
+        let mut ignore_comments: Option<bool> = None;
 
         if let Some(p) = &self.push {
             if let Some(p_secrets) = &p.secrets {
                 expand_refs = p_secrets.expand_refs;
+                ignore_comments = p_secrets.ignore_comments;
 
                 if let Some(ex) = p_secrets.exclude.to_owned() {
                     exclude = Some(ex.to_owned());
@@ -174,7 +176,7 @@ impl EnvConfigItem {
             }
         }
 
-        PushSecretsConfig::new(only, exclude, set, expand_refs)
+        PushSecretsConfig::new(only, exclude, set, expand_refs, ignore_comments)
     }
 
     pub fn get_pull_secrets(&self) -> PullSecretsConfig {
@@ -193,6 +195,7 @@ impl EnvConfigItem {
 
         let mut expand_refs: Option<bool> = None;
         let mut print_secrets: Option<bool> = None;
+        let mut ignore_comments: Option<bool> = None;
 
         let action_secrets = match is_run_action {
             true => self.run.as_ref().and_then(|r| r.secrets.to_owned()),
@@ -214,9 +217,17 @@ impl EnvConfigItem {
 
             expand_refs = action_secrets.expand_refs;
             print_secrets = action_secrets.print;
+            ignore_comments = action_secrets.ignore_comments;
         }
 
-        PullSecretsConfig::new(only, exclude, set, expand_refs, print_secrets)
+        PullSecretsConfig::new(
+            only,
+            exclude,
+            set,
+            expand_refs,
+            print_secrets,
+            ignore_comments,
+        )
     }
 }
 
@@ -240,12 +251,14 @@ impl PushSecretsConfig {
         exclude: Option<Vec<String>>,
         set: Option<HashMap<String, String>>,
         expand_refs: Option<bool>,
+        ignore_comments: Option<bool>,
     ) -> Self {
         Self {
             only,
             exclude,
             set,
             expand_refs,
+            ignore_comments,
         }
     }
 }
@@ -258,6 +271,9 @@ pub struct PushSecretsConfig {
 
     #[serde(rename = "expand-refs")]
     pub expand_refs: Option<bool>,
+
+    #[serde(rename = "ignore-comments")]
+    pub ignore_comments: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,6 +294,9 @@ pub struct PullSecretsConfig {
     pub exclude: Option<Vec<String>>,
     pub set: Option<HashMap<String, String>>,
 
+    #[serde(rename = "ignore-comments")]
+    pub ignore_comments: Option<bool>,
+
     #[serde(rename = "expand-refs")]
     pub expand_refs: Option<bool>,
 }
@@ -289,6 +308,7 @@ impl PullSecretsConfig {
         set: Option<HashMap<String, String>>,
         expand_refs: Option<bool>,
         print: Option<bool>,
+        ignore_comments: Option<bool>,
     ) -> Self {
         Self {
             only,
@@ -296,6 +316,7 @@ impl PullSecretsConfig {
             print,
             set,
             expand_refs,
+            ignore_comments,
         }
     }
 }
