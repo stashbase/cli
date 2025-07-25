@@ -1,12 +1,11 @@
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use log::{debug, error};
+use log::debug;
 
 use crate::{
     api::environments,
     cmd::secrets::SecretsFileFormat,
-    handlers::environments::open::GetEnvUrlResponse,
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
         environments::{CreatEnvironmentPayload, CreateEnvironmentResponse},
@@ -17,12 +16,9 @@ use crate::{
         files::check_file_exists,
         interaction,
         output::{get_colored_json, get_formatted_json_string, ColorizeIfColoredOutput},
-        secrets::{parse_secrets_from_str, read_secrets_from_file},
+        secrets::read_secrets_from_file,
         spinner::request_spinner,
-        validation::{
-            validate_project_environment, validate_secrets_references,
-            validate_secrets_references_with_existence,
-        },
+        validation::{validate_project_environment, validate_secrets_references_with_existence},
     },
 };
 
