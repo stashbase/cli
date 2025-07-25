@@ -6,13 +6,11 @@ use crate::{
         secrets::{SecretArgs, SecretSubcommand},
     },
     handlers::secrets::{
-        comment::{handle_update_comment, HandleCommentArgs},
         create::{handle_create_secrets, HandleCreateSecretsArgs},
         delete::{handle_delete_secrets, HandleDeleteSecretsArgs},
         diff::{handle_secrets_diff, HandleSecretsDiffArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
-        rename::{handle_rename_secrets, HandleRenameSecretsArgs},
         search::{handle_search_secrets, HandleSearchSecretsArgs},
         set::{handle_set_secrets, HandleSetSecretsArgs},
         update::{handle_update_secrets, HandleUpdateSecretsArgs},
