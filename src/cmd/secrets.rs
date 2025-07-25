@@ -223,7 +223,7 @@ pub struct UploadSecrets {
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsFileFormat>,
 
-    /// Ignore comments
+    /// Ignore secret comments
     #[arg(value_enum, long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
 }
