@@ -45,6 +45,7 @@ pub struct HandlePullArgs {
     pub target_file: Option<String>,
     pub format: Option<PullFormat>,
     pub expand_refs: Option<bool>,
+    pub ignore_comments: Option<bool>,
     pub overwrite_file: bool,
     pub json_format: bool,
     pub silent: bool,
@@ -61,6 +62,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut exclude,
         mut print_secrets,
         mut expand_refs,
+        mut ignore_comments,
         overwrite_file,
         json_format,
         silent,
@@ -110,6 +112,13 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         if let Some(expand_refs_val) = secrets_config.expand_refs {
             if expand_refs.is_none() {
                 expand_refs = Some(expand_refs_val);
+            }
+        }
+
+        // ignore comments
+        if let Some(ignore_comments_val) = secrets_config.ignore_comments {
+            if ignore_comments.is_none() {
+                ignore_comments = Some(ignore_comments_val);
             }
         }
 
@@ -280,13 +289,19 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         None
     };
 
+    let with_comment = match ignore_comments {
+        Some(true) => false,
+        Some(false) => true,
+        None => true, // default to true
+    };
+
     let res = secrets::pull(
         api_key,
         project.clone(),
         environment.clone(),
         only,
         exclude,
-        true,
+        with_comment,
         expand_refs.unwrap_or(false),
     )
     .await;
