@@ -184,9 +184,9 @@ pub async fn handle_cli(args: Cli) {
 
                 handle_push(args).await
             }
-            EntityType::Generate(cmd) => handle_generate_command(cmd, raw_output),
             EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent).await,
             EntityType::Open => handle_open_dashboard(api_key, silent).await,
+            EntityType::Generate(_) => unreachable!(),
         };
 
         if let Err(err) = result {
