@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{bail, Result};
-use log::{debug, error};
+use log::debug;
 
 use crate::{
     api::secrets,
