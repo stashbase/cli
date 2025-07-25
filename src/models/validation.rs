@@ -377,7 +377,12 @@ impl InputValidationError {
     pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
         if json_format {
             let json_value = self.to_json_value()?;
-            let json_str = to_colored_json_auto(&json_value)?;
+            let json_str = if is_color_enabled(false) {
+                to_colored_json_auto(&json_value)?
+            } else {
+                serde_json::to_string_pretty(&json_value)?
+            };
+
             Ok(json_str)
         } else {
             Ok(self.to_string())
