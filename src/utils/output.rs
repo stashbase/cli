@@ -60,13 +60,13 @@ pub fn get_formatted_json_string<T: serde::Serialize>(
 ) -> Result<String, serde_json::Error> {
     let value = serde_json::to_value(data)?;
 
-    if is_color_enabled(stdout) {
-        let json_str = to_colored_json_auto(&value)?;
-        Ok(json_str)
+    let json_str = if is_color_enabled(stdout) {
+        to_colored_json_auto(&value)?
     } else {
-        let json_str = serde_json::to_string_pretty(&value)?;
-        Ok(json_str)
-    }
+        serde_json::to_string_pretty(&value)?
+    };
+
+    Ok(json_str)
 }
 
 /// Check if stdout is a terminal
