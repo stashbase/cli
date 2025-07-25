@@ -105,10 +105,8 @@ impl Display for Secret {
         // writeln!(f, "{} {}", "Value:".green(), self.value)?;
 
         if let Some(comment) = &self.comment {
-            writeln!(f, "{}", comment.blue_if_tty())?;
-            writeln!(f, "{}", "-".repeat(self.name.len()).blue_if_tty())?;
-
-            // writeln!(f, "{} {}", "- comment:".blue(), comment)?;
+            let comment_str = format!("# {}", comment);
+            writeln!(f, "{}", comment_str.bright_blue_if_tty())?;
         }
 
         write!(
