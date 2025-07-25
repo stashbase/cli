@@ -195,6 +195,7 @@ pub async fn handle_secrets_commands(
                 format: args.format,
                 file_path: args.file_path,
                 json_format: raw_output,
+                ignore_comments: args.ignore_comments.unwrap_or(false),
             };
 
             handle_upload_secrets(args).await?;
