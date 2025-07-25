@@ -25,6 +25,7 @@ pub struct HandleUploadSecretsArgs {
     pub environment: String,
     pub file_path: String,
     pub format: Option<SecretsFileFormat>,
+    pub ignore_comments: bool,
     pub json_format: bool,
     pub silent: bool,
 }
@@ -36,6 +37,7 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
         environment,
         file_path,
         format,
+        ignore_comments,
         json_format,
         silent,
     } = args;
@@ -85,6 +87,13 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     }
 
     let mut secrets = secrets_res.unwrap();
+
+    if ignore_comments {
+        secrets = secrets
+            .into_iter()
+            .map(|secret| secret.without_comment())
+            .collect();
+    }
 
     // format secrets for input
     secrets.format();
