@@ -4,7 +4,7 @@ use std::default::Default;
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{config::OutputFormat, secrets::SecretsFileFormat, shared::SharedProjectEnvArgs};
+use super::{config::OutputFormat, secrets::SecretsFileFormat};
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
 #[derive(Debug, Args)]
