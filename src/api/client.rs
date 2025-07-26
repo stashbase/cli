@@ -68,7 +68,8 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 //
 
 pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, OutputError> {
-    let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
+    let base_path =
+        env::var("STASHBASE_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
@@ -108,7 +109,8 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, Out
 }
 
 pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse, OutputError> {
-    let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
+    let base_path =
+        env::var("STASHBASE_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
@@ -193,7 +195,8 @@ async fn post_patch_put<T: serde::Serialize>(
     data: Option<T>,
     method: Method,
 ) -> Result<RequestApiOptionResponse, OutputError> {
-    let base_path = env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
+    let base_path =
+        env::var("STASHBASE_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
 
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", base_path, args.path);
