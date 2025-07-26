@@ -41,7 +41,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
         reqwest::ClientBuilder::new()
             .timeout(std::time::Duration::from_secs(10))
             .default_headers(headers)
-            .user_agent("env-ease-cli/0.0.1")
+            .user_agent("stashbase/cli/0.1.0")
             .build()
             .unwrap(),
     )
