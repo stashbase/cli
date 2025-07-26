@@ -109,7 +109,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
                     "message": "No unpushed commits to scan."
                 });
                 let pretty = get_formatted_json_string(&message, false).unwrap();
-                println!("{}", pretty);
+                println!("\n{}", pretty);
             } else {
                 println!("No unpushed commits to scan.");
             }
