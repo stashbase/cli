@@ -59,6 +59,7 @@ pub enum WebhookInputValidationError {
     InvalidLimit,
     InvalidId,
     InvalidUrl,
+    UrlTooLong,
     DescriptionTooLong,
     InvalidPage,
 }
@@ -556,6 +557,10 @@ impl WebhookInputValidationError {
             WebhookInputValidationError::InvalidUrl => (
                 "Invalid webhook url.",
                 Some("Must be valid url using https protocol."),
+            ),
+            WebhookInputValidationError::UrlTooLong => (
+                "Webhook URL is too long.",
+                Some("Maximum length for the webhook URL is 512 characters."),
             ),
             WebhookInputValidationError::DescriptionTooLong => (
                 "Description is too long.",

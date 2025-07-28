@@ -351,7 +351,6 @@ pub fn get_secrets_reference_warnings(secrets: &Vec<Secret>) -> SecretReferenceW
                     .push(ref_);
             }
         }
-
     }
 
     validation_obj
@@ -823,6 +822,13 @@ pub fn validate_webhook_url(url: &str) -> Result<(), InputValidationError> {
 
     if !https_url_regex.is_match(url) {
         let input_err = WebhookInputValidationError::InvalidUrl;
+        let err = InputValidationError::Webhook(input_err);
+
+        return Err(err);
+    }
+
+    if url.len() > 512 {
+        let input_err = WebhookInputValidationError::UrlTooLong;
         let err = InputValidationError::Webhook(input_err);
 
         return Err(err);
