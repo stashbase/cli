@@ -362,9 +362,9 @@ impl fmt::Display for InputValidationError {
             }
         } else {
             if is_color_enabled(false) {
-                writeln!(f, "{}", "Input error".red().bold())?;
+                writeln!(f, "{}", "Input Validation Error".red().bold())?;
             } else {
-                writeln!(f, "{}", "Input error")?;
+                writeln!(f, "{}", "Input Validation Error")?;
             }
         }
 
