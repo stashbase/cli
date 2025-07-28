@@ -25,7 +25,13 @@ pub fn get_config_path() -> Result<PathBuf> {
     let dir_path = ProjectDirs::from("", "", "stashbase");
 
     match dir_path {
-        Some(dirs) => Ok(dirs.config_dir().to_path_buf()),
+        Some(dirs) => {
+            let config_dir = dirs.config_dir();
+            // Create the directory if it doesn't exist
+            fs::create_dir_all(config_dir)?;
+            // Return the full path to the config file
+            Ok(config_dir.join("config.toml"))
+        }
         None => bail!("Could not find config directory."),
     }
 }
@@ -33,18 +39,21 @@ pub fn get_config_path() -> Result<PathBuf> {
 pub fn get_config() -> Result<Config> {
     if let Some(proj_dirs) = ProjectDirs::from("", "", "stashbase") {
         let config_dir = proj_dirs.config_dir();
-        let config_file_exists = Path::new(&config_dir).is_file();
+        let config_file_path = config_dir.join("config.toml");
+        let config_file_exists = config_file_path.is_file();
 
         match config_file_exists {
             true => {
-                let content = fs::read_to_string(config_dir)?;
+                let content = fs::read_to_string(&config_file_path)?;
                 let data =
                     toml::from_str::<Config>(&content).context("Could not parse config file.")?;
 
                 Ok(data)
             }
             false => {
-                let new_config = create_config(config_dir)?;
+                // Ensure the config directory exists
+                fs::create_dir_all(config_dir)?;
+                let new_config = create_config(&config_file_path)?;
                 let data = toml::from_str::<Config>(&new_config)?;
 
                 Ok(data)
