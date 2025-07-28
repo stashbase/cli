@@ -48,7 +48,6 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
-        // TODO: check api_key for api commands
         let api_key = match args.api_key {
             Some(api_key) => Some(api_key),
             None => config.api_key,
