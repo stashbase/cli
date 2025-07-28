@@ -50,12 +50,21 @@ pub async fn handle_cli(args: Cli) {
 
         // TODO: check api_key for api commands
         let api_key = match args.api_key {
-            Some(api_key) => api_key,
-            None => config.api_key.unwrap(),
+            Some(api_key) => Some(api_key),
+            None => config.api_key,
         };
 
         let raw_output = args.raw;
         let silent = args.silent;
+
+        let requires_api_key = args.entity_type.requires_api_key();
+
+        if requires_api_key && api_key.is_none() {
+            eprintln!("API key is required for this command. Please set it using the --api-key flag or in the config file.");
+            return;
+        }
+
+        let api_key = api_key.unwrap();
 
         let result = match args.entity_type {
             EntityType::Whoami => {
