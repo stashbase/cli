@@ -243,7 +243,6 @@ pub enum ApiErrorEntity {
     Webhook(WebhookError),
 }
 
-// TODO: env errors
 #[derive(Debug, Deserialize)]
 pub enum GenericError {
     #[serde(rename = "server.internal_error")]
@@ -268,7 +267,6 @@ pub enum GenericError {
     MissingPermission,
 }
 
-// TODO: env errors
 #[derive(Debug, Deserialize)]
 pub enum EnvironmentError {
     #[serde(rename = "resource.project_not_found")]
