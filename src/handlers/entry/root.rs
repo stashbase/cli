@@ -22,7 +22,7 @@ use crate::{
         push::entry::{handle_push, HandlePushArgs},
         run::entry::{handle_load_env_run, HandleRunArgs},
     },
-    models::config::Config,
+    models::{config::Config, validation::InputValidationError},
 };
 
 #[tokio::main()]
@@ -60,7 +60,16 @@ pub async fn handle_cli(args: Cli) {
         let requires_api_key = args.entity_type.requires_api_key();
 
         if requires_api_key && api_key.is_none() {
-            eprintln!("API key is required for this command. Please set it using the --api-key flag or in the config file.");
+            let error = InputValidationError::MissingApiKey;
+            match args.raw {
+                false => {
+                    eprintln!("{}", error);
+                }
+                true => {
+                    let json_str = error.format_error_output(args.raw).unwrap();
+                    eprintln!("{}", json_str);
+                }
+            }
             return;
         }
 
