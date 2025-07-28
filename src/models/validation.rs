@@ -549,13 +549,13 @@ impl WebhookInputValidationError {
                 Some("Limit can range from 2 to 30."),
             ),
             WebhookInputValidationError::InvalidId => (
-                "Invalid webhook id value.",
+                "Invalid webhook ID value.",
                 Some(
                     "Id must start with the prefix 'whk_' followed by 22 alphanumeric characters.",
                 ),
             ),
             WebhookInputValidationError::InvalidUrl => (
-                "Invalid webhook url.",
+                "Invalid webhook URL.",
                 Some("Must be valid url using https protocol."),
             ),
             WebhookInputValidationError::UrlTooLong => (
