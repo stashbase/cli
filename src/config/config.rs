@@ -22,7 +22,7 @@ pub fn create_config(path: &Path) -> Result<String> {
 }
 
 pub fn get_config_path() -> Result<PathBuf> {
-    let dir_path = ProjectDirs::from("app", "env-ease", "env-ease.toml");
+    let dir_path = ProjectDirs::from("", "", "stashbase");
 
     match dir_path {
         Some(dirs) => Ok(dirs.config_dir().to_path_buf()),
@@ -31,7 +31,7 @@ pub fn get_config_path() -> Result<PathBuf> {
 }
 
 pub fn get_config() -> Result<Config> {
-    if let Some(proj_dirs) = ProjectDirs::from("app", "env-ease", "env-ease.toml") {
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "stashbase") {
         let config_dir = proj_dirs.config_dir();
         let config_file_exists = Path::new(&config_dir).is_file();
 
