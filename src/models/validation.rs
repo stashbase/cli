@@ -5,8 +5,10 @@ use owo_colors::OwoColorize;
 
 use crate::utils::output::{get_formatted_json_string, is_color_enabled};
 
+ 
 #[derive(Debug, Serialize)]
 pub enum InputValidationError {
+    MissingApiKey,
     CmdArgs(CmdArgInputValidationError),
     Projects(ProjectInputValidationError),
     Secrets(SecretsInputValidationError),
@@ -352,10 +354,18 @@ impl fmt::Display for YamlEnvConfigError {
 
 impl fmt::Display for InputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if is_color_enabled(false) {
-            writeln!(f, "{}", "Input error".red().bold())?;
+        if let InputValidationError::MissingApiKey = self {
+            if is_color_enabled(false) {
+                writeln!(f, "{}", "Authentication Error".red().bold())?;
+            } else {
+                writeln!(f, "{}", "Authentication Error")?;
+            }
         } else {
-            writeln!(f, "{}", "Input error")?;
+            if is_color_enabled(false) {
+                writeln!(f, "{}", "Input error".red().bold())?;
+            } else {
+                writeln!(f, "{}", "Input error")?;
+            }
         }
 
         match self {
@@ -369,6 +379,10 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Run(inner) => write!(f, "{}", inner),
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
             InputValidationError::Scan(inner) => write!(f, "{}", inner),
+            InputValidationError::MissingApiKey => {
+                writeln!(f, "{}", format!("  Message: {}", "API key is required for this command."))?;
+                write!(f, "{}", format!("  Hint: {}", "Use '--api-key' argument or set it in the config file using 'stashbase config set-api-key <your-api-key>'."))
+            },
         }
     }
 }
@@ -405,7 +419,10 @@ impl InputValidationError {
         }
 
         let wrapper = ErrorWrapper {
-            error: ErrorData { data: &self.to_struct(), error_type: "input_validation_error" },
+            error: ErrorData { data: &self.to_struct(), error_type: match self {
+                InputValidationError::MissingApiKey => "authentication_error",
+                _ => "input_validation_error",
+            } },
         };
         serde_json::to_value(&wrapper)
     }
@@ -1048,6 +1065,13 @@ impl InputValidationError {
             InputValidationError::Scan(inner) => {
                 let (m, h) = inner.message_and_hint();
                 MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::MissingApiKey => {
+                MessageHint { 
+                    message: "API key is required for this command.", 
+                    hint: Some("Use '--api-key' argument or set it in the config file using 'stashbase config set-api-key <your-api-key>'."), 
+                    secrets: vec![] 
+                }
             }
         };
 
