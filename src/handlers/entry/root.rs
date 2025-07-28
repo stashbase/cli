@@ -62,10 +62,18 @@ pub async fn handle_cli(args: Cli) {
             let error = InputValidationError::MissingApiKey;
             match args.raw {
                 false => {
+                    if !silent {
+                        eprintln!()
+                    }
+
                     eprintln!("{}", error);
                 }
                 true => {
                     let json_str = error.format_error_output(args.raw).unwrap();
+                    if !silent {
+                        eprintln!()
+                    }
+
                     eprintln!("{}", json_str);
                 }
             }
