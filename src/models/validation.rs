@@ -564,7 +564,7 @@ impl WebhookInputValidationError {
             ),
             WebhookInputValidationError::DescriptionTooLong => (
                 "Description is too long.",
-                Some("Maximum is 200 characters."),
+                Some("Maximum is 255 characters."),
             ),
             WebhookInputValidationError::InvalidPage => (
                 "Page option value is invalid.",
