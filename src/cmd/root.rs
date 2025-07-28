@@ -90,3 +90,13 @@ pub enum EntityType {
     #[clap(name = "whoami", aliases = &["me"])]
     Whoami,
 }
+
+impl EntityType {
+    pub fn requires_api_key(&self) -> bool {
+        match self {
+            EntityType::Generate(_) => false,
+            EntityType::Config(_) => false,
+            _ => true,
+        }
+    }
+}
