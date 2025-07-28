@@ -52,7 +52,6 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
             pretty
         }
         SecretsOutputFormat::Table => {
-            // TODO: cehck no have comment -> dont show comment col
             let has_some_comment = secrets.iter().any(|s| s.has_comment());
 
             if has_some_comment {
