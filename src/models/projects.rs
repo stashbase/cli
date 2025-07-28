@@ -164,7 +164,6 @@ pub struct SingleProjectWithCountNoDescriptionTable {
     pub environment_count: usize,
 }
 
-// TODO: rename roles?
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum ProjectUserRole {
