@@ -47,6 +47,21 @@ pub async fn handle_create_project(
         bail!(error_output);
     }
 
+    if let Some(description) = &description {
+        if description.len() > 255 {
+            let error =
+                InputValidationError::Projects(ProjectInputValidationError::DescriptionTooLong);
+
+            let error_output = error.format_error_output(json_format)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(error_output);
+        }
+    }
+
     debug!("creating project...:");
 
     let data = CreateProjectPayload { name, description };

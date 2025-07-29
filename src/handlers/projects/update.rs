@@ -152,5 +152,13 @@ pub fn validate_input(
         }
     }
 
+    if let Some(new_description) = &new_description {
+        if new_description.len() > 255 {
+            let err =
+                InputValidationError::Projects(ProjectInputValidationError::DescriptionTooLong);
+            return Err(err);
+        }
+    }
+
     Ok(())
 }
