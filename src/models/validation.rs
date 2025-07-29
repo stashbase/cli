@@ -35,8 +35,9 @@ pub enum ProjectInputValidationError {
     NameTooShort { is_root: bool },
     NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
-
+    
     InvalidIdentifierFormat { is_root: bool },
+    DescriptionTooLong,   
     NameUsingIdFormat,
 
     SearchTooShort,
@@ -484,6 +485,9 @@ impl ProjectInputValidationError {
                 } else {
                     ("Argument project is invalid.", Some("Project name can contain only alphanumeric characters, hyphens or underscores."))
                 }
+            }
+            ProjectInputValidationError::DescriptionTooLong => {
+                ("Project description is too long.", Some("The project description cannot be longer than 255 characters."))
             }
             ProjectInputValidationError::NoUpdateFlags => (
                 "No update option specified.",
