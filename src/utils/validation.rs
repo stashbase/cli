@@ -818,17 +818,13 @@ pub fn validate_webhook_id(value: &str) -> Result<(), InputValidationError> {
 }
 
 pub fn validate_webhook_url(url: &str) -> Result<(), InputValidationError> {
-    let https_url_regex = Regex::new(r"^(https://[-\w]+(\.\w[-\w]*)+)([/?].*)?$").unwrap();
+    let regex = Regex::new(
+        r"^https:\/\/(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?::\d{1,5})?(?:\/\S*)?$",
+    )
+    .unwrap();
 
-    if !https_url_regex.is_match(url) {
+    if !regex.is_match(url) || url.len() > 512 {
         let input_err = WebhookInputValidationError::InvalidUrl;
-        let err = InputValidationError::Webhook(input_err);
-
-        return Err(err);
-    }
-
-    if url.len() > 512 {
-        let input_err = WebhookInputValidationError::UrlTooLong;
         let err = InputValidationError::Webhook(input_err);
 
         return Err(err);
