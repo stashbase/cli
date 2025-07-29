@@ -556,7 +556,7 @@ impl WebhookInputValidationError {
             ),
             WebhookInputValidationError::InvalidUrl => (
                 "Invalid webhook URL.",
-                Some("Must be valid url using https protocol."),
+                Some("Webhook URLs cannot be longer than 512 characters, must use HTTPS, and cannot use localhost, loopback addresses, or private IP ranges."),
             ),
             WebhookInputValidationError::UrlTooLong => (
                 "Webhook URL is too long.",
