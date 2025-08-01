@@ -18,7 +18,10 @@ use crate::{
         output::{get_colored_json, get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::read_secrets_from_file,
         spinner::request_spinner,
-        validation::{validate_project_environment, validate_secrets_references_with_existence},
+        validation::{
+            validate_environment_description, validate_project_environment,
+            validate_secrets_references_with_existence,
+        },
     },
 };
 
@@ -59,6 +62,20 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         }
 
         bail!(formatted_err);
+    }
+
+    if let Some(desc) = &description {
+        let description_valid = validate_environment_description(desc);
+
+        if let Err(err) = description_valid {
+            let formatted_err = err.format_error_output(json_format)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(formatted_err);
+        }
     }
 
     let mut secrets: Option<Vec<Secret>> = None;
