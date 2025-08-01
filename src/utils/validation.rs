@@ -27,6 +27,8 @@ pub const SECRET_VALUE_MAX_LENGTH: usize = 4096;
 pub const SECRET_NAME_MIN_LENGTH: usize = 2;
 // 255 is max length for secret name
 pub const SECRET_NAME_MAX_LENGTH: usize = 255;
+// 255 is max length for environment description
+pub const ENV_DESCRIPTION_MAX_LENGTH: usize = 255;
 
 pub fn count_dashes(s: &str) -> usize {
     s.chars().filter(|&c| c == '-').count()
@@ -837,6 +839,17 @@ pub fn validate_webhook_description(description: &str) -> Result<(), InputValida
     if description.len() > 255 {
         let input_err = WebhookInputValidationError::DescriptionTooLong;
         let err = InputValidationError::Webhook(input_err);
+
+        return Err(err);
+    }
+
+    Ok(())
+}
+
+pub fn validate_environment_description(description: &str) -> Result<(), InputValidationError> {
+    if description.len() > ENV_DESCRIPTION_MAX_LENGTH {
+        let input_err = EnvironmentsInputValidationError::DescriptionTooLong;
+        let err = InputValidationError::Environments(input_err);
 
         return Err(err);
     }
