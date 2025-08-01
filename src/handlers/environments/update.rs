@@ -12,8 +12,8 @@ use crate::{
         interaction,
         spinner::request_spinner,
         validation::{
-            resource_name_has_id_format, validate_environment_name, validate_project_name,
-            IdentifierResource,
+            resource_name_has_id_format, validate_environment_description,
+            validate_environment_name, validate_project_name, IdentifierResource,
         },
     },
 };
@@ -60,6 +60,20 @@ pub async fn handle_update_environment(args: HandleUpdateEnvironmentArgs) -> any
         }
 
         bail!(error);
+    }
+
+    if let Some(desc) = &new_description {
+        let description_valid = validate_environment_description(desc);
+
+        if let Err(err) = description_valid {
+            let formatted_err = err.format_error_output(json_format)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(formatted_err);
+        }
     }
 
     // OK
