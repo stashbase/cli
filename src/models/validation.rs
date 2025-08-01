@@ -107,9 +107,10 @@ pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
     NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
-
+    
     InvalidIdentifierFormat { is_root: bool },
     NameUsingIdFormat,
+    DescriptionTooLong,
 
     SearchTooShort,
     SearchFormat,
@@ -777,6 +778,10 @@ impl EnvironmentsInputValidationError {
             EnvironmentsInputValidationError::NewNameTooLong => (
                 "New name option value is too long.",
                 Some("Maximum is 40 characters.")
+            ),
+            EnvironmentsInputValidationError::DescriptionTooLong => (
+                "Description is too long.",
+                Some("The environment description cannot be longer than 255 characters."),
             ),
             EnvironmentsInputValidationError::SelfComparison => (
                 "Cannot compare an environment with itself.",
