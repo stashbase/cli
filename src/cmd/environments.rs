@@ -148,7 +148,7 @@ impl fmt::Display for EnvSortBy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             EnvSortBy::Name => write!(f, "name"),
-            EnvSortBy::CreatedAt => write!(f, "created"),
+            EnvSortBy::CreatedAt => write!(f, "createdAt"),
             EnvSortBy::SecretCount => write!(f, "secretCount"),
         }?;
 
