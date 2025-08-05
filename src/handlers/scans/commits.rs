@@ -974,7 +974,7 @@ pub fn get_unpushed_commit_hunks(
                     files: sorted_files,
                 };
 
-                all_commit_changes.push(change);
+                all_commit_changes.insert(0, change);
             }
 
             if should_stop {
@@ -988,8 +988,6 @@ pub fn get_unpushed_commit_hunks(
         }
     }
 
-    // go from the oldest commit first
-    all_commit_changes.reverse();
-
+    // commits are already ordered from oldest to newest
     Ok(all_commit_changes)
 }
