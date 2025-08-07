@@ -10,7 +10,7 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             CommitChanges, CommitsScanResponse, DiffHunk, DiffProcessingState, FileHunks,
-            IgnoreValuePayload, ScanCommitChangesPayload, ScanConfig,
+            IgnoreValuePayload, ScanCommitChangesPayload, ScanConfig, ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -376,11 +376,14 @@ fn output_scan_findings(
     if json_format {
         if let Some(output_dir) = output_dir {
             if is_empty {
-                let message = serde_json::json!({
-                    "message": "No secrets detected in unpushed commits!"
-                });
+                let message = ScanOutputJson {
+                    message: "No secrets detected in unpushed commits!".to_string(),
+                    skipped_commits: response.skipped_commits,
+                    file_path: None,
+                    skipped_files: None,
+                };
 
-                let pretty = get_formatted_json_string(&message, false).unwrap();
+                let pretty = message.to_json_pretty(false).unwrap();
                 eprintln!("{}", pretty);
             } else {
                 let latest_file = get_latest_scan_file(output_dir);
@@ -391,34 +394,40 @@ fn output_scan_findings(
                         let content_equals = file_content_equals(&file_path, &pretty_json);
 
                         if content_equals {
-                            let message = serde_json::json!({
-                                "message": "Potential secrets detected in unpushed commits, findings match previous scan.",
-                                "filePath": file_path
-                            });
+                            let message = ScanOutputJson{
+                                message: "Potential secrets detected in unpushed commits, findings match previous scan.".to_string(),
+                                file_path: Some(file_path),
+                                skipped_commits: response.skipped_commits,
+                                skipped_files: None,
+                            };
 
-                            let pretty = get_formatted_json_string(&message, false).unwrap();
+                            let pretty = message.to_json_pretty(false).unwrap();
                             eprintln!("{}", pretty);
                         } else {
                             let file_path = save_scan_results(output_dir, &pretty_json)?;
 
-                            let message = serde_json::json!({
-                                "message": "Potential secrets detected in unpushed commits. Scan findings saved to file.",
-                                "filePath": file_path
-                            });
+                            let message = ScanOutputJson{
+                                message: "Potential secrets detected in unpushed commits. Scan findings saved to file.".to_string(),
+                                file_path: Some(file_path),
+                                skipped_commits: response.skipped_commits,
+                                skipped_files: None,
+                            };
 
-                            let pretty = get_formatted_json_string(&message, false).unwrap();
+                            let pretty = message.to_json_pretty(false).unwrap();
                             eprintln!("{}", pretty);
                         }
                     }
                     None => {
                         let file_path = save_scan_results(output_dir, &pretty_json)?;
 
-                        let message = serde_json::json!({
-                            "message": "Potential secrets detected in unpushed commits. Scan findings saved to file.",
-                            "filePath": file_path
-                        });
+                        let message = ScanOutputJson{
+                            message: "Potential secrets detected in unpushed commits. Scan findings saved to file.".to_string(),
+                            file_path: Some(file_path),
+                            skipped_commits: response.skipped_commits,
+                            skipped_files: None,
+                        };
 
-                        let pretty = get_formatted_json_string(&message, false).unwrap();
+                        let pretty = message.to_json_pretty(false).unwrap();
                         eprintln!("{}", pretty);
                     }
                 }
@@ -454,6 +463,10 @@ fn output_scan_findings(
                             file_path
                         );
                     }
+                }
+
+                if let Some(skipped_commits) = &response.skipped_commits {
+                    eprintln!("Skipped commits: {}", skipped_commits.join(", "));
                 }
             } else {
                 eprintln!("Potential secrets detected in unpushed commits, please review the findings before pushing to remote.");
