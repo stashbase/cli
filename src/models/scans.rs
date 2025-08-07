@@ -3,7 +3,10 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     models::validation::ScanInputValidationError,
-    utils::{output::ColorizeIfColoredOutput, scans::should_merge_hunks},
+    utils::{
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        scans::should_merge_hunks,
+    },
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -396,5 +399,28 @@ impl DiffProcessingState {
             new_files: HashMap::new(),
             prev_line: String::new(),
         }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanOutputJson {
+    pub message: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped_commits: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped_files: Option<Vec<String>>,
+}
+
+impl ScanOutputJson {
+    pub fn to_json_pretty(&self, stdout: bool) -> Result<String, anyhow::Error> {
+        let json_value = serde_json::to_value(&self)?;
+        let pretty_json = get_formatted_json_string(&json_value, stdout)?;
+        Ok(pretty_json)
     }
 }
