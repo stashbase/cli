@@ -646,16 +646,6 @@ async fn handle_run(
     Ok(())
 }
 
-fn create_env_vars(secrets: Vec<SecretWithoutComment>) -> HashMap<String, String> {
-    let mut map: HashMap<String, String> = HashMap::new();
-
-    for secret in secrets {
-        map.insert(secret.name, secret.value);
-    }
-
-    map
-}
-
 fn print_table(secrets: &Vec<SecretWithoutComment>) {
     let table = build_table(secrets);
     println!("{}\n", table);
@@ -696,30 +686,4 @@ pub fn get_set_name_value_pairs(
             return Err(error);
         }
     }
-}
-
-fn test() {
-    // let test_secrets: Vec<Secret> = vec![Secret {
-    //     key: "JWT_SECRET".to_string(),
-    //     value: "secret".to_string(),
-    //     description: None,
-    // }];
-    //
-    // let mut parts = command.split_whitespace();
-    // // Get the first part as the command itself
-    // let command = parts.next().expect("No command specified");
-    // // Collect the rest as arguments
-    // let mut arguments: Vec<&str> = parts.collect();
-    //
-    // if command == "npm" {
-    //     arguments.push("--color=always");
-    // }
-    //
-    // let env_vars = create_env_vars(test_secrets);
-    //
-    // run_command(command, arguments, env_vars)
-    //     .await
-    //     .expect("failed to run command");
-    //
-    // return Ok(());
 }
