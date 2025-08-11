@@ -801,12 +801,12 @@ impl YamlEnvConfigError {
                 ),
                 false => (
                     "No 'stashbase.yaml' file found.",
-                    Some("Create file or use '-p' and '-e' flags.")
+                    Some("Create file or use '-c' flag for custom file path.")
                 ),
             },
             YamlEnvConfigError::NoEntries => (
                 "No entries found in 'stashbase.yaml'.",
-                Some("Add entries to the file or use '-p' and '-e' flags.")
+                Some("Add at least one entry to the file.")
             ),
             YamlEnvConfigError::FailedToRead {
                 custom_path,
