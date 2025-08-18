@@ -1,6 +1,8 @@
-# Stashbase CLI
+# Stashbase CLI (Beta)
 
-The Stashbase CLI is official command line tool for Stashbase secrets management platform for developers.
+The Stashbase CLI is the official command-line tool for the Stashbase secrets management platform for developers.
+
+⚠️ **Beta:** This CLI is in beta. Features and commands may change.
 
 ## Table of Contents
 
@@ -11,7 +13,7 @@ The Stashbase CLI is official command line tool for Stashbase secrets management
 
 ## Installation
 
-You have multiple options to install the Stashbase CLI, either via package managers, shell script ot you can just download the binary from the [releases](https://github.com/stashbase/cli/releases) page directly.
+You have multiple options to install the Stashbase CLI, either via package managers, shell script or you can just download the binary from the [releases](https://github.com/stashbase/cli/releases) page directly.
 
 ### macOS
 
@@ -23,7 +25,7 @@ brew install stashbase/stashbase-cli
 
 ### Linux
 
-For Linux users, we recommend dowload Stashbase CLI using shell script.
+For Linux users, we recommend downloading Stashbase CLI using shell script.
 
 ```bash
 curl -fsSL https://stashbase.com/cli/install.sh | bash
@@ -31,7 +33,7 @@ curl -fsSL https://stashbase.com/cli/install.sh | bash
 
 ### Windows
 
-For Windows users, we recommend dowload Stashbase CLI using shell script or package manager [Scoop](https://scoop.sh).
+For Windows users, we recommend downloading Stashbase CLI using shell script or package manager [Scoop](https://scoop.sh).
 
 ```bash
 curl -fsSL https://stashbase.com/cli/install.sh | bash
@@ -49,7 +51,7 @@ Here are some common usage examples for the Stashbase CLI:
 
 ### Authenticate with Stashbase
 
-You can generate API key in your Stashbase workspace going to API Keys -> Personal API Keys -> Create API Key.
+You can generate an API key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
 
 ```bash
 stashbase config set api-key <API_KEY>
