@@ -99,7 +99,7 @@ stashbase scan commits
 ## License
 
 Stashbase CLI is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-You can find the license in the [LICENSE](LICENSE) file.
+You can find the license in the [LICENSE.txt](LICENSE.txt) file.
 
 ## Contact
 
