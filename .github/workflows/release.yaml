@@ -10,8 +10,6 @@ on:
 jobs:
   build:
     name: Build and Package Binaries
-    permissions:
-      contents: write # Required to create releases and upload assets
     strategy:
       matrix:
         include:
@@ -91,24 +89,40 @@ jobs:
           $VERSION_NUM = $VERSION.TrimStart('v')
           Compress-Archive -Path stashbase.exe -DestinationPath ${{ matrix.artifact }}-${VERSION_NUM}-${{ matrix.target }}${{ matrix.archive_ext }}
 
-      - name: Generate checksums (Unix)
-        if: runner.os != 'Windows'
-        run: cd dist && shasum -a 256 *${{ matrix.archive_ext }} > SHA256SUMS.txt
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/*${{ matrix.archive_ext }}
 
-      - name: Generate checksums (Windows)
-        if: runner.os == 'Windows'
-        shell: powershell
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create releases and upload assets
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release directory
         run: |
-          cd dist
-          Get-FileHash -Algorithm SHA256 *${{ matrix.archive_ext }} | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ASCII SHA256SUMS.txt
+          mkdir -p release
+          find artifacts -name "*.*" -exec cp {} release/ \;
 
-      - name: Upload release asset
+      - name: Generate consolidated checksums
+        run: |
+          cd release
+          shasum -a 256 *.tar.gz *.zip > checksums.txt
+
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version }}
           name: ${{ github.event.inputs.version }}
           files: |
-            dist/*${{ matrix.archive_ext }}
-            dist/SHA256SUMS.txt
+            release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
