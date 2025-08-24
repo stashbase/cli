@@ -32,7 +32,7 @@ jobs:
             ext: ""
             archive_ext: ".tar.gz"
           - os: windows-latest
-            target: x86_64-pc-windows-gnu
+            target: x86_64-pc-windows-msvc
             artifact: stashbase
             display_name: "Windows x64"
             ext: ".exe"
