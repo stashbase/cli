@@ -1,0 +1,68 @@
+name: Release CLI Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v1.0.0)"
+        required: true
+
+jobs:
+  build:
+    name: Build and Package Binaries
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: stashbase-linux-x86_64
+            ext: ""
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: stashbase-macos-x86_64
+            ext: ""
+          - os: macos-14
+            target: aarch64-apple-darwin
+            artifact: stashbase-macos-aarch64
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-gnu
+            artifact: stashbase-windows-x86_64
+            ext: ".exe"
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir dist
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          cp target/${{ matrix.target }}/release/stashbase${{ matrix.ext }} dist/${{ matrix.artifact }}${{ matrix.ext }}
+          cd dist
+          zip ${{ matrix.artifact }}.zip ${{ matrix.artifact }}${{ matrix.ext }}
+
+      - name: Generate checksums
+        run: cd dist && shasum -a 256 *.zip > SHA256SUMS.txt
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.version }}
+          files: dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
