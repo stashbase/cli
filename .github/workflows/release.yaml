@@ -88,7 +88,9 @@ jobs:
       - name: Generate checksums (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: cd dist && Get-FileHash -Algorithm SHA256 *${{ matrix.archive_ext }} | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ASCII SHA256SUMS.txt
+        run: |
+          cd dist
+          Get-FileHash -Algorithm SHA256 *${{ matrix.archive_ext }} | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ASCII SHA256SUMS.txt
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
