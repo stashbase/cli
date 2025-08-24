@@ -76,11 +76,10 @@ jobs:
 
       - name: Package binary (Windows - zip)
         if: runner.os == 'Windows'
-        shell: cmd
         run: |
-          copy target\${{ matrix.target }}\release\stashbase${{ matrix.ext }} dist\${{ matrix.artifact }}${{ matrix.ext }}
+          copy target/${{ matrix.target }}/release/stashbase${{ matrix.ext }} dist/${{ matrix.artifact }}${{ matrix.ext }}
           cd dist
-          powershell -Command "Compress-Archive -Path '${{ matrix.artifact }}${{ matrix.ext }}' -DestinationPath '${{ matrix.artifact }}${{ matrix.archive_ext }}'"
+          Compress-Archive -Path ${{ matrix.artifact }}${{ matrix.ext }} -DestinationPath ${{ matrix.artifact }}${{ matrix.archive_ext }}
 
       - name: Generate checksums (Unix)
         if: runner.os != 'Windows'
