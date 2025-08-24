@@ -17,20 +17,28 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: stashbase-linux-x86_64
+            artifact: stashbase-linux-x64
+            display_name: "Linux x64"
             ext: ""
+            archive_ext: ".tar.gz"
           - os: macos-13
             target: x86_64-apple-darwin
             artifact: stashbase-macos-x86_64
+            display_name: "macOS x86_64 (Intel)"
             ext: ""
+            archive_ext: ".tar.gz"
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: stashbase-macos-aarch64
+            display_name: "macOS ARM64 (Apple Silicon)"
             ext: ""
+            archive_ext: ".tar.gz"
           - os: windows-latest
             target: x86_64-pc-windows-gnu
-            artifact: stashbase-windows-x86_64
+            artifact: stashbase-windows-x64
+            display_name: "Windows x64"
             ext: ".exe"
+            archive_ext: ".zip"
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -59,20 +67,37 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package binary
+      - name: Package binary (Unix - tar.gz)
+        if: runner.os != 'Windows'
         run: |
           cp target/${{ matrix.target }}/release/stashbase${{ matrix.ext }} dist/${{ matrix.artifact }}${{ matrix.ext }}
           cd dist
-          zip ${{ matrix.artifact }}.zip ${{ matrix.artifact }}${{ matrix.ext }}
+          tar -czf ${{ matrix.artifact }}${{ matrix.archive_ext }} ${{ matrix.artifact }}${{ matrix.ext }}
 
-      - name: Generate checksums
-        run: cd dist && shasum -a 256 *.zip > SHA256SUMS.txt
+      - name: Package binary (Windows - zip)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          copy target\${{ matrix.target }}\release\stashbase${{ matrix.ext }} dist\${{ matrix.artifact }}${{ matrix.ext }}
+          cd dist
+          powershell -Command "Compress-Archive -Path '${{ matrix.artifact }}${{ matrix.ext }}' -DestinationPath '${{ matrix.artifact }}${{ matrix.archive_ext }}'"
+
+      - name: Generate checksums (Unix)
+        if: runner.os != 'Windows'
+        run: cd dist && shasum -a 256 *${{ matrix.archive_ext }} > SHA256SUMS.txt
+
+      - name: Generate checksums (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: cd dist && powershell -Command "Get-FileHash -Algorithm SHA256 *${{ matrix.archive_ext }} | ForEach-Object { \"$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)\" } | Out-File -Encoding ASCII SHA256SUMS.txt"
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.version }}
           name: ${{ github.event.inputs.version }}
-          files: dist/*.zip
+          files: |
+            dist/*${{ matrix.archive_ext }}
+            dist/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
