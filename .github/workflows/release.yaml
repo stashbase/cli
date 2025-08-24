@@ -72,14 +72,14 @@ jobs:
         run: |
           cp target/${{ matrix.target }}/release/stashbase${{ matrix.ext }} dist/stashbase
           cd dist
-          tar -czf ${{ matrix.artifact }}-${{ matrix.target }}${{ matrix.archive_ext }} stashbase
+          tar -czf ${{ matrix.artifact }}-${{ github.event.inputs.version }}-${{ matrix.target }}${{ matrix.archive_ext }} stashbase
 
       - name: Package binary (Windows - zip)
         if: runner.os == 'Windows'
         run: |
           copy target/${{ matrix.target }}/release/stashbase${{ matrix.ext }} dist/stashbase.exe
           cd dist
-          Compress-Archive -Path stashbase.exe -DestinationPath ${{ matrix.artifact }}-${{ matrix.target }}${{ matrix.archive_ext }}
+          Compress-Archive -Path stashbase.exe -DestinationPath ${{ matrix.artifact }}-${{ github.event.inputs.version }}-${{ matrix.target }}${{ matrix.archive_ext }}
 
       - name: Generate checksums (Unix)
         if: runner.os != 'Windows'
