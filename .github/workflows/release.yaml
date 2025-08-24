@@ -49,6 +49,7 @@ jobs:
 
       - name: Clean dist directory (Windows)
         if: runner.os == 'Windows'
+        shell: cmd
         run: |
           if exist dist rmdir /s /q dist
           mkdir dist
