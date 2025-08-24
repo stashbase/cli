@@ -43,8 +43,15 @@ jobs:
       - name: Add target
         run: rustup target add ${{ matrix.target }}
 
-      - name: Clean dist directory
+      - name: Clean dist directory (Linux/macOS)
+        if: runner.os != 'Windows'
         run: rm -rf dist && mkdir dist
+
+      - name: Clean dist directory (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if exist dist rmdir /s /q dist
+          mkdir dist
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
