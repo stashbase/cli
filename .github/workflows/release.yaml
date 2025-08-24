@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     name: Build and Package Binaries
+    permissions:
+      contents: write # Required to create releases and upload assets
     strategy:
       matrix:
         include:
