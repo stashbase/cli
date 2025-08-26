@@ -18,12 +18,20 @@ pub struct ScanConfig {
 
     #[serde(rename = "ignore-value")]
     pub ignore_value: Option<IgnoreValueConfig>,
+
+    #[serde(rename = "project")]
+    pub project: Option<ProjectContextConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IgnoreValueConfig {
     pub hashes: Option<Vec<String>>,
     pub regexes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectContextConfig {
+    pub identifier: String, // id or name of the project
 }
 
 impl Default for IgnoreValueConfig {
@@ -41,6 +49,7 @@ impl Default for ScanConfig {
             exclude: None,
             output_dir: None,
             ignore_value: None,
+            project: None,
         }
     }
 }
