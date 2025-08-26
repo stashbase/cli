@@ -250,12 +250,16 @@ impl Display for ScanFinding {
         }
 
         if let Some(matched_project_secrets) = &self.matched_project_secrets {
-            result.push_str("\nMatched Project Secrets:");
+            result.push_str(&format!(
+                "\n{} {}",
+                "Matched Project Secrets:",
+                matched_project_secrets.len()
+            ));
             for secret in matched_project_secrets {
-                result.push_str(&format!("\n  {}", secret.name));
-                result.push_str(&format!("\n   Environments:"));
+                result.push_str(&format!("\n  {} {}", "Name:", secret.name));
+                result.push_str(&format!("\n  {}", "Environments:"));
                 for env in &secret.environments {
-                    result.push_str(&format!("\n    {}", env.name));
+                    result.push_str(&format!("\n    {} {}", "Name:", env.name));
                 }
             }
         }
@@ -297,12 +301,16 @@ impl ScanFinding {
         }
 
         if let Some(matched_project_secrets) = &self.matched_project_secrets {
-            result.push_str("\nMatched Project Secrets:");
+            result.push_str(&format!(
+                "\n{} {}",
+                "Matched Project Secrets:".green_if_tty(),
+                matched_project_secrets.len()
+            ));
             for secret in matched_project_secrets {
-                result.push_str(&format!("\n  {}", secret.name));
-                result.push_str(&format!("\n   Environments:"));
+                result.push_str(&format!("\n  {} {}", "Name:".green_if_tty(), secret.name));
+                result.push_str(&format!("\n  {}", "Environments:".green_if_tty()));
                 for env in &secret.environments {
-                    result.push_str(&format!("\n    {}", env.name));
+                    result.push_str(&format!("\n    {} {}", "Name:".green_if_tty(), env.name));
                 }
             }
         }
