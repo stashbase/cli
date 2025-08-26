@@ -216,9 +216,15 @@ pub async fn handle_scan_staged_file_hunks(
     let data = ScanFileChangesPayload {
         files: staged_files,
         project: match project {
-            Some(name_or_id) => Some(ProjectContextConfig {
-                identifier: name_or_id,
-            }),
+            Some(name_or_id) => {
+                if !name_or_id.trim().is_empty() {
+                    Some(ProjectContextConfig {
+                        identifier: name_or_id,
+                    })
+                } else {
+                    None
+                }
+            }
             None => config.project,
         },
         ignore_value: match ignore_value_payload.is_empty() {
