@@ -248,6 +248,18 @@ impl Display for ScanFinding {
         if let Some(id) = &self.commit_id {
             result.push_str(&format!("\nCommit ID: {}", id));
         }
+
+        if let Some(matched_project_secrets) = &self.matched_project_secrets {
+            result.push_str("\nMatched Project Secrets:");
+            for secret in matched_project_secrets {
+                result.push_str(&format!("\n  {}", secret.name));
+                result.push_str(&format!("\n   Environments:"));
+                for env in &secret.environments {
+                    result.push_str(&format!("\n    {}", env.name));
+                }
+            }
+        }
+
         write!(f, "{}", result)
     }
 }
