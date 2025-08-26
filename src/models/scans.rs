@@ -211,6 +211,23 @@ pub struct ScanFinding {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_project_secrets: Option<Vec<MatchedProjectSecret>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchedProjectSecret {
+    pub name: String, // secret name
+    pub environments: Vec<Environment>,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Environment {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub name: String,
 }
 
 impl Display for ScanFinding {
