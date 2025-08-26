@@ -258,7 +258,11 @@ impl Display for ScanFinding {
             for secret in matched_project_secrets {
                 result.push_str(&format!("\n  {} {}", "Name:", secret.name));
                 result.push_str(&format!("\n  {}", "Environments:"));
+
                 for env in &secret.environments {
+                    if let Some(id) = &env.id {
+                        result.push_str(&format!("\n    {} {}", "ID:", id));
+                    }
                     result.push_str(&format!("\n    {} {}", "Name:", env.name));
                 }
             }
@@ -309,7 +313,11 @@ impl ScanFinding {
             for secret in matched_project_secrets {
                 result.push_str(&format!("\n  {} {}", "Name:".green_if_tty(), secret.name));
                 result.push_str(&format!("\n  {}", "Environments:".green_if_tty()));
+
                 for env in &secret.environments {
+                    if let Some(id) = &env.id {
+                        result.push_str(&format!("\n    {} {}", "ID:".green_if_tty(), id));
+                    }
                     result.push_str(&format!("\n    {} {}", "Name:".green_if_tty(), env.name));
                 }
             }
