@@ -156,6 +156,9 @@ pub struct ScanFileChangesPayload {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_value: Option<IgnoreValuePayload>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<ProjectContextConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
