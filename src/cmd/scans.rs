@@ -44,6 +44,11 @@ pub struct ScanStaged {
     /// Regexes of secret values to ignore
     #[clap(value_parser, long="ignore-value-regexes", num_args = 1..)]
     pub ignore_value_regexes: Vec<String>,
+
+
+    /// Project to find matched secret values 
+    #[clap(value_parser, long = "project")]
+    pub project: Option<String>,
 }
 
 #[derive(Debug, Args)]
