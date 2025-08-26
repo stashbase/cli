@@ -4,7 +4,7 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks, IgnoreValuePayload,
-            ScanConfig, ScanFileChangesPayload, ScanOutputJson,
+            ProjectContextConfig, ScanConfig, ScanFileChangesPayload, ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -34,6 +34,7 @@ pub struct HandleScanStagedFileHunksArgs {
     pub config_file_path: Option<String>,
     pub ignore_value_hashes: Vec<String>,
     pub ignore_value_regexes: Vec<String>,
+    pub project: Option<String>,
 }
 
 pub async fn handle_scan_staged_file_hunks(
@@ -48,6 +49,7 @@ pub async fn handle_scan_staged_file_hunks(
         config_file_path,
         ignore_value_hashes,
         ignore_value_regexes,
+        project,
         exclude: _,
     } = args;
 
@@ -213,6 +215,12 @@ pub async fn handle_scan_staged_file_hunks(
 
     let data = ScanFileChangesPayload {
         files: staged_files,
+        project: match project {
+            Some(name_or_id) => Some(ProjectContextConfig {
+                identifier: name_or_id,
+            }),
+            None => config.project,
+        },
         ignore_value: match ignore_value_payload.is_empty() {
             true => None,
             false => Some(ignore_value_payload),
