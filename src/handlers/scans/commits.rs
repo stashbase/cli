@@ -22,6 +22,7 @@ use crate::{
             is_valid_sha256_hash, load_baseline_results, process_diff_line, save_scan_results,
             should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
+        validation::validate_project_identifier,
     },
 };
 
@@ -215,21 +216,39 @@ pub async fn handle_scan_unpushed_commit_hunks(
         ignore_value_payload.hashes = sorted_hashes;
     }
 
-    let data = ScanCommitChangesPayload {
-        project: match project {
-            Some(name_or_id) => {
-                if !name_or_id.trim().is_empty() {
-                    let project_context = ProjectContextConfig {
-                        identifier: name_or_id,
-                    };
-
-                    Some(project_context)
-                } else {
-                    None
-                }
-            }
-            None => config.project,
+    let project_identifier = match project {
+        Some(p) => Some(p),
+        None => match config.project {
+            Some(p) => Some(p.identifier),
+            None => None,
         },
+    };
+
+    let mut project_context_config: Option<ProjectContextConfig> = None;
+
+    if let Some(project) = project_identifier {
+        if !project.trim().is_empty() {
+            let identifier_is_valid = validate_project_identifier(&project, true);
+
+            if let Err(err) = identifier_is_valid {
+                let error_output = err.format_error_output(json_format)?;
+                if !silent {
+                    eprintln!("\n{}", error_output);
+                } else {
+                    eprintln!("{}", error_output);
+                }
+
+                std::process::exit(1);
+            } else {
+                project_context_config = Some(ProjectContextConfig {
+                    identifier: project,
+                });
+            }
+        }
+    }
+
+    let data = ScanCommitChangesPayload {
+        project: project_context_config,
         commits: unpushed_commit_hunks,
         ignore_value: match ignore_value_payload.is_empty() {
             true => None,
