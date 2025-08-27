@@ -222,7 +222,7 @@ pub struct ScanFinding {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct MatchedProjectSecret {
-    pub name: String, // secret name
+    pub secret_name: String,
     pub environments: Vec<Environment>,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -259,7 +259,7 @@ impl Display for ScanFinding {
                 matched_project_secrets.len()
             ));
             for secret in matched_project_secrets {
-                result.push_str(&format!("\n  {} {}", "Name:", secret.name));
+                result.push_str(&format!("\n  {} {}", "Name:", secret.secret_name));
                 result.push_str(&format!("\n  {}", "Environments:"));
 
                 for env in &secret.environments {
@@ -314,7 +314,11 @@ impl ScanFinding {
                 matched_project_secrets.len()
             ));
             for secret in matched_project_secrets {
-                result.push_str(&format!("\n  {} {}", "Name:".green_if_tty(), secret.name));
+                result.push_str(&format!(
+                    "\n  {} {}",
+                    "Name:".green_if_tty(),
+                    secret.secret_name
+                ));
                 result.push_str(&format!("\n  {}", "Environments:".green_if_tty()));
 
                 for env in &secret.environments {
