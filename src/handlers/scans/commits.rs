@@ -10,7 +10,8 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             CommitChanges, CommitsScanResponse, DiffHunk, DiffProcessingState, FileHunks,
-            IgnoreValuePayload, ScanCommitChangesPayload, ScanConfig, ScanOutputJson,
+            IgnoreValuePayload, ProjectContextConfig, ScanCommitChangesPayload, ScanConfig,
+            ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -29,6 +30,7 @@ pub struct HandleScanUnpushedCommitHunksArgs {
     pub json_format: bool,
     pub silent: bool,
 
+    pub project: Option<String>,
     pub exclude: Vec<String>,
     pub baseline: Option<String>,
     pub output_dir: Option<String>,
@@ -49,6 +51,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         config_file_path,
         ignore_value_hashes,
         ignore_value_regexes,
+        project,
         exclude: _,
     } = args;
 
@@ -213,6 +216,20 @@ pub async fn handle_scan_unpushed_commit_hunks(
     }
 
     let data = ScanCommitChangesPayload {
+        project: match project {
+            Some(name_or_id) => {
+                if !name_or_id.trim().is_empty() {
+                    let project_context = ProjectContextConfig {
+                        identifier: name_or_id,
+                    };
+
+                    Some(project_context)
+                } else {
+                    None
+                }
+            }
+            None => config.project,
+        },
         commits: unpushed_commit_hunks,
         ignore_value: match ignore_value_payload.is_empty() {
             true => None,
