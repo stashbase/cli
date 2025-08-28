@@ -27,6 +27,7 @@ pub async fn handle_scan_commands(
                 ignore_value_hashes: args.ignore_value_hashes,
                 ignore_value_regexes: args.ignore_value_regexes,
                 project: args.project,
+                environments: args.environments,
             };
 
             handle_scan_staged_file_hunks(args).await?;
