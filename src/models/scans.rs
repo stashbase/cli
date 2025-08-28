@@ -31,7 +31,7 @@ pub struct IgnoreValueConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectContextConfig {
-    pub identifier: String, // id or name of the project
+    pub identifier: Option<String>, // id or name of the project
     pub environments: Option<Vec<String>>,
 }
 
@@ -151,6 +151,12 @@ impl From<IgnoreValueConfig> for IgnoreValuePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectContextConfigPayload {
+    pub identifier: String, // id or name of the project
+    pub environments: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanFileChangesPayload {
     pub files: Vec<FileHunks>,
@@ -159,7 +165,7 @@ pub struct ScanFileChangesPayload {
     pub ignore_value: Option<IgnoreValuePayload>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<ProjectContextConfig>,
+    pub project: Option<ProjectContextConfigPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,7 +177,7 @@ pub struct ScanCommitChangesPayload {
     pub ignore_value: Option<IgnoreValuePayload>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<ProjectContextConfig>,
+    pub project: Option<ProjectContextConfigPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
