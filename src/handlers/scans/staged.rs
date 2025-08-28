@@ -243,6 +243,20 @@ pub async fn handle_scan_staged_file_hunks(
         },
     };
 
+    if unique_environments.len() > 0 && project_identifier.is_none() {
+        let error = ScanInputValidationError::MissingProjectIdentifier;
+        let input_error = InputValidationError::Scan(error);
+        let error_output = input_error.format_error_output(json_format)?;
+
+        if !silent {
+            eprintln!("\n{}", error_output);
+        } else {
+            eprintln!("{}", error_output);
+        }
+
+        std::process::exit(1);
+    }
+
     let mut project_context_config: Option<ProjectContextConfigPayload> = None;
 
     if let Some(project) = project_identifier {
