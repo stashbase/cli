@@ -10,7 +10,7 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             CommitChanges, CommitsScanResponse, DiffHunk, DiffProcessingState, FileHunks,
-            IgnoreValuePayload, ProjectContextConfig, ScanCommitChangesPayload, ScanConfig,
+            IgnoreValuePayload, ProjectContextConfigPayload, ScanCommitChangesPayload, ScanConfig,
             ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
@@ -219,12 +219,12 @@ pub async fn handle_scan_unpushed_commit_hunks(
     let project_identifier = match project {
         Some(p) => Some(p),
         None => match config.project {
-            Some(p) => Some(p.identifier),
+            Some(p) => p.identifier,
             None => None,
         },
     };
 
-    let mut project_context_config: Option<ProjectContextConfig> = None;
+    let mut project_context_config: Option<ProjectContextConfigPayload> = None;
 
     if let Some(project) = project_identifier {
         if !project.trim().is_empty() {
@@ -233,14 +233,14 @@ pub async fn handle_scan_unpushed_commit_hunks(
             if let Err(err) = identifier_is_valid {
                 let error_output = err.format_error_output(json_format)?;
                 if !silent {
-                    eprintln!("\n{}", error_output);
+                    eprintln!("\n({}", error_output);
                 } else {
                     eprintln!("{}", error_output);
                 }
 
                 std::process::exit(1);
             } else {
-                project_context_config = Some(ProjectContextConfig {
+                project_context_config = Some(ProjectContextConfigPayload {
                     identifier: project,
                     environments: None,
                 });
