@@ -242,6 +242,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
             } else {
                 project_context_config = Some(ProjectContextConfig {
                     identifier: project,
+                    environments: None,
                 });
             }
         }
