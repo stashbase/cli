@@ -48,6 +48,10 @@ pub struct ScanStaged {
     /// Project to find matched secret values
     #[clap(value_parser, long = "project")]
     pub project: Option<String>,
+
+    /// Enviornment to find matched secret values
+    #[clap(value_parser, long = "environment", num_args = 1..)]
+    pub environments: Vec<String>,
 }
 
 #[derive(Debug, Args)]
