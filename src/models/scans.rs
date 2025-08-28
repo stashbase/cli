@@ -32,6 +32,7 @@ pub struct IgnoreValueConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectContextConfig {
     pub identifier: String, // id or name of the project
+    pub environments: Option<Vec<String>>,
 }
 
 impl Default for IgnoreValueConfig {
