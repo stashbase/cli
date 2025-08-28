@@ -84,4 +84,8 @@ pub struct ScanCommits {
     /// Project to find matched secret values
     #[clap(value_parser, long = "project")]
     pub project: Option<String>,
+
+    /// Enviornments to find matched secret values in the specified project; defaults to all environments in the project
+    #[clap(value_parser, long = "environments", num_args = 1..)]
+    pub environments: Vec<String>,
 }
