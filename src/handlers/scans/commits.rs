@@ -32,6 +32,7 @@ pub struct HandleScanUnpushedCommitHunksArgs {
     pub silent: bool,
 
     pub project: Option<String>,
+    pub environments: Vec<String>,
     pub exclude: Vec<String>,
     pub baseline: Option<String>,
     pub output_dir: Option<String>,
@@ -47,6 +48,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         api_key,
         json_format,
         silent,
+        environments,
         baseline,
         output_dir,
         config_file_path,
@@ -216,6 +218,25 @@ pub async fn handle_scan_unpushed_commit_hunks(
         ignore_value_payload.hashes = sorted_hashes;
     }
 
+    let all_environments = environments
+        .into_iter()
+        .chain(
+            config
+                .project
+                .as_ref()
+                .and_then(|c| c.environments.as_ref())
+                .into_iter()
+                .flatten()
+                .cloned(),
+        )
+        .collect::<Vec<_>>();
+
+    let unique_environments = all_environments
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
     let project_identifier = match project {
         Some(p) => Some(p),
         None => match config.project {
@@ -223,6 +244,20 @@ pub async fn handle_scan_unpushed_commit_hunks(
             None => None,
         },
     };
+
+    if unique_environments.len() > 0 && project_identifier.is_none() {
+        let error = ScanInputValidationError::MissingProjectIdentifier;
+        let input_error = InputValidationError::Scan(error);
+        let error_output = input_error.format_error_output(json_format)?;
+
+        if !silent {
+            eprintln!("\n{}", error_output);
+        } else {
+            eprintln!("{}", error_output);
+        }
+
+        std::process::exit(1);
+    }
 
     let mut project_context_config: Option<ProjectContextConfigPayload> = None;
 
@@ -240,9 +275,14 @@ pub async fn handle_scan_unpushed_commit_hunks(
 
                 std::process::exit(1);
             } else {
+                let envs = match unique_environments.is_empty() {
+                    true => None,
+                    false => Some(unique_environments),
+                };
+
                 project_context_config = Some(ProjectContextConfigPayload {
                     identifier: project,
-                    environments: None,
+                    environments: envs,
                 });
             }
         }

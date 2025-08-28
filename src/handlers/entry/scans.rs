@@ -37,6 +37,7 @@ pub async fn handle_scan_commands(
                 api_key,
                 silent,
                 json_format: raw_output,
+                environments: args.environments,
                 project: args.project,
                 exclude: args.exclude,
                 baseline: args.baseline,
