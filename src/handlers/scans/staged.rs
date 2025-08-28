@@ -4,7 +4,7 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks, IgnoreValuePayload,
-            ProjectContextConfig, ScanConfig, ScanFileChangesPayload, ScanOutputJson,
+            ProjectContextConfigPayload, ScanConfig, ScanFileChangesPayload, ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -238,12 +238,12 @@ pub async fn handle_scan_staged_file_hunks(
     let project_identifier = match project {
         Some(p) => Some(p),
         None => match config.project {
-            Some(p) => Some(p.identifier),
+            Some(p) => p.identifier,
             None => None,
         },
     };
 
-    let mut project_context_config: Option<ProjectContextConfig> = None;
+    let mut project_context_config: Option<ProjectContextConfigPayload> = None;
 
     if let Some(project) = project_identifier {
         if !project.trim().is_empty() {
@@ -264,7 +264,7 @@ pub async fn handle_scan_staged_file_hunks(
                     false => Some(unique_environments),
                 };
 
-                project_context_config = Some(ProjectContextConfig {
+                project_context_config = Some(ProjectContextConfigPayload {
                     identifier: project,
                     environments: envs,
                 });
