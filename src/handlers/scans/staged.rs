@@ -36,6 +36,7 @@ pub struct HandleScanStagedFileHunksArgs {
     pub ignore_value_hashes: Vec<String>,
     pub ignore_value_regexes: Vec<String>,
     pub project: Option<String>,
+    pub environments: Vec<String>,
 }
 
 pub async fn handle_scan_staged_file_hunks(
@@ -52,6 +53,7 @@ pub async fn handle_scan_staged_file_hunks(
         ignore_value_regexes,
         project,
         exclude: _,
+        environments,
     } = args;
 
     let config = match &config_file_path {
@@ -214,6 +216,25 @@ pub async fn handle_scan_staged_file_hunks(
         ignore_value_payload.hashes = sorted_hashes;
     }
 
+    let all_environments = environments
+        .into_iter()
+        .chain(
+            config
+                .project
+                .as_ref()
+                .and_then(|c| c.environments.as_ref())
+                .into_iter()
+                .flatten()
+                .cloned(),
+        )
+        .collect::<Vec<_>>();
+
+    let unique_environments = all_environments
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
     let project_identifier = match project {
         Some(p) => Some(p),
         None => match config.project {
@@ -238,9 +259,14 @@ pub async fn handle_scan_staged_file_hunks(
 
                 std::process::exit(1);
             } else {
+                let envs = match unique_environments.is_empty() {
+                    true => None,
+                    false => Some(unique_environments),
+                };
+
                 project_context_config = Some(ProjectContextConfig {
                     identifier: project,
-                    environments: None,
+                    environments: envs,
                 });
             }
         }
