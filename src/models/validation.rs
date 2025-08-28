@@ -940,7 +940,7 @@ impl ScanInputValidationError {
         match self {
             ScanInputValidationError::MissingProjectIdentifier => (
                 "Project identifier not specified.",
-                Some("Use '--project' flag to specify the project or add 'project.identifier' property to the scan config file."),
+                Some("Use '--project' option to specify the project or add 'project.identifier' property to the scan config file."),
             ),
             ScanInputValidationError::FailedToSaveScanResults { output_dir, message: _ } => {
                 (
