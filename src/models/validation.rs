@@ -154,6 +154,7 @@ pub enum LoadEnvironmentInputValidationError {
 #[derive(Debug, Serialize)]
 pub enum ScanInputValidationError {
     FailedToSaveScanResults { output_dir: String, message: String },  
+    MissingProjectIdentifier, 
     BaselineFileNotFound { path: String },
     BaselineFileRead { path: String, message: String },
     BaselineFileParse { path: String, message: String },
@@ -937,6 +938,10 @@ impl RunInputValidationError {
 impl ScanInputValidationError {
     pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
         match self {
+            ScanInputValidationError::MissingProjectIdentifier => (
+                "Project identifier not specified.",
+                Some("Use '-p' flag to specify the project or add 'project.identifier' property to the scan config file."),
+            ),
             ScanInputValidationError::FailedToSaveScanResults { output_dir, message: _ } => {
                 (
                     "Failed to save scan results",
