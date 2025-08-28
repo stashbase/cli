@@ -50,6 +50,11 @@ pub struct ScanStaged {
     pub project: Option<String>,
 
     /// Environments to find matched secret values in the specified project; defaults to all environments in the project
+    ///
+    /// Environments can be selected by:
+    /// - Name
+    /// - ID
+    /// - Folder (e.g. `folder-*`)
     #[clap(value_parser, long = "environments", num_args = 1..)]
     pub environments: Vec<String>,
 }
@@ -86,6 +91,11 @@ pub struct ScanCommits {
     pub project: Option<String>,
 
     /// Environments to find matched secret values in the specified project; defaults to all environments in the project
+    ///
+    /// Environments can be selected by:
+    /// - Name
+    /// - ID
+    /// - Folder (e.g. `folder-*`)
     #[clap(value_parser, long = "environments", num_args = 1..)]
     pub environments: Vec<String>,
 }
