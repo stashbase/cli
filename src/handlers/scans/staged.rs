@@ -240,6 +240,7 @@ pub async fn handle_scan_staged_file_hunks(
             } else {
                 project_context_config = Some(ProjectContextConfig {
                     identifier: project,
+                    environments: None,
                 });
             }
         }
