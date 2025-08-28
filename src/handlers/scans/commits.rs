@@ -268,7 +268,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
             if let Err(err) = identifier_is_valid {
                 let error_output = err.format_error_output(json_format)?;
                 if !silent {
-                    eprintln!("\n({}", error_output);
+                    eprintln!("\n{}", error_output);
                 } else {
                     eprintln!("{}", error_output);
                 }
