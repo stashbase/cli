@@ -375,6 +375,10 @@ impl ScanFinding {
             }
 
             if let Some(matched_file_secrets) = &matched_secrets.files {
+                if let Some(_) = &matched_secrets.project {
+                    result.push_str(&format!("\n"));
+                }
+
                 result.push_str(&format!("\n  {}", "Files:".green_if_tty()));
 
                 for (index, file_secret) in matched_file_secrets.iter().enumerate() {
