@@ -282,7 +282,7 @@ impl Display for ScanFinding {
                 result.push_str(&format!("\n  {}", "Project:"));
 
                 for env in matched_project_secrets {
-                    result.push_str(&format!("\n    {} {}", "Secret Name:", env.secret_name));
+                    result.push_str(&format!("\n    - {} {}", "Secret Name:", env.secret_name));
 
                     result.push_str(&format!("\n    {}", "Environments:"));
                     for environment in &env.environments {
@@ -341,7 +341,7 @@ impl ScanFinding {
 
                 for env in matched_project_secrets {
                     result.push_str(&format!(
-                        "\n    {} {}",
+                        "\n    - {} {}",
                         "Secret Name:".green_if_tty(),
                         env.secret_name
                     ));
