@@ -4,8 +4,8 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks, IgnoreValuePayload,
-            MatchConfigPayload, MatchedFileSecret, MatchedSecrets, ProjectContextConfigPayload,
-            ScanConfig, ScanFileChangesPayload, ScanOutputJson,
+            MatchConfigPayload, ProjectContextConfigPayload, ScanConfig, ScanFileChangesPayload,
+            ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -220,11 +220,14 @@ pub async fn handle_scan_staged_file_hunks(
         ignore_value_payload.hashes = sorted_hashes;
     }
 
+    let match_config = config.match_config.clone();
+
     let all_environments = match_environments
         .into_iter()
         .chain(
             config
                 .match_config
+                .clone()
                 .as_ref()
                 .and_then(|c| c.project.as_ref().and_then(|p| p.environments.as_ref()))
                 .into_iter()
@@ -369,9 +372,23 @@ pub async fn handle_scan_staged_file_hunks(
 
                         let is_empty = filtered_data.findings.is_empty();
 
-                        let file_matches = match match_files.is_empty() {
+                        let all_files_to_match = match_files
+                            .into_iter()
+                            .chain(
+                                match_config
+                                    .as_ref()
+                                    .and_then(|ref c| c.files.as_ref())
+                                    .into_iter()
+                                    .flatten()
+                                    .cloned(),
+                            )
+                            .collect::<Vec<_>>();
+
+                        let file_matches = match all_files_to_match.is_empty() {
                             true => HashMap::new(),
-                            false => get_file_matches(match_files, filtered_data.findings.clone()),
+                            false => {
+                                get_file_matches(all_files_to_match, filtered_data.findings.clone())
+                            }
                         };
 
                         // Update findings with matched secrets from files
