@@ -19,14 +19,19 @@ pub struct ScanConfig {
     #[serde(rename = "ignore-value")]
     pub ignore_value: Option<IgnoreValueConfig>,
 
-    #[serde(rename = "project")]
-    pub project: Option<ProjectContextConfig>,
+    #[serde(rename = "match")]
+    pub match_config: Option<ProjectContextConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IgnoreValueConfig {
     pub hashes: Option<Vec<String>>,
     pub regexes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchConfig {
+    pub project: Option<ProjectContextConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,7 +55,7 @@ impl Default for ScanConfig {
             exclude: None,
             output_dir: None,
             ignore_value: None,
-            project: None,
+            match_config: None,
         }
     }
 }
@@ -151,6 +156,11 @@ impl From<IgnoreValueConfig> for IgnoreValuePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchConfigPayload {
+    pub project: Option<ProjectContextConfigPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectContextConfigPayload {
     pub identifier: String, // id or name of the project
     pub environments: Option<Vec<String>>,
@@ -164,8 +174,8 @@ pub struct ScanFileChangesPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_value: Option<IgnoreValuePayload>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<ProjectContextConfigPayload>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "match")]
+    pub match_config: Option<MatchConfigPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,8 +186,8 @@ pub struct ScanCommitChangesPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_value: Option<IgnoreValuePayload>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<ProjectContextConfigPayload>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "match")]
+    pub match_config: Option<MatchConfigPayload>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
