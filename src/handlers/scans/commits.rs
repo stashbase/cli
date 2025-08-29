@@ -224,7 +224,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
             config
                 .match_config
                 .as_ref()
-                .and_then(|c| c.environments.as_ref())
+                .and_then(|c| c.project.as_ref().and_then(|p| p.environments.as_ref()))
                 .into_iter()
                 .flatten()
                 .cloned(),
@@ -240,7 +240,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
     let project_identifier = match match_project {
         Some(p) => Some(p),
         None => match config.match_config {
-            Some(c) => c.identifier.clone(),
+            Some(c) => c.project.as_ref().and_then(|p| p.identifier.clone()),
             None => None,
         },
     };
