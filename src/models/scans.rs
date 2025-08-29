@@ -346,19 +346,23 @@ impl ScanFinding {
                         env.secret_name
                     ));
 
-                    result.push_str(&format!("\n    {}", "Environments:".green_if_tty()));
+                    result.push_str(&format!("\n      {}", "Environments:".green_if_tty()));
                     for environment in &env.environments {
                         if let Some(id) = &environment.id {
-                            result.push_str(&format!("\n      - {} {}", "ID:".green_if_tty(), id));
+                            result.push_str(&format!(
+                                "\n        - {} {}",
+                                "ID:".green_if_tty(),
+                                id
+                            ));
 
                             result.push_str(&format!(
-                                "\n      {} {}",
+                                "\n          {} {}",
                                 "Name:".green_if_tty(),
                                 environment.name
                             ));
                         } else {
                             result.push_str(&format!(
-                                "\n      - {} {}",
+                                "\n        - {} {}",
                                 "Name:".green_if_tty(),
                                 environment.name
                             ));
