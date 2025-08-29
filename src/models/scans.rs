@@ -20,7 +20,7 @@ pub struct ScanConfig {
     pub ignore_value: Option<IgnoreValueConfig>,
 
     #[serde(rename = "match")]
-    pub match_config: Option<ProjectContextConfig>,
+    pub match_config: Option<MatchConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
