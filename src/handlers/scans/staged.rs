@@ -225,8 +225,7 @@ pub async fn handle_scan_staged_file_hunks(
     let all_environments = match_environments
         .into_iter()
         .chain(
-            config
-                .match_config
+            match_config
                 .clone()
                 .as_ref()
                 .and_then(|c| c.project.as_ref().and_then(|p| p.environments.as_ref()))
