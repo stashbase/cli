@@ -371,31 +371,34 @@ pub async fn handle_scan_staged_file_hunks(
 
                         let is_empty = filtered_data.findings.is_empty();
 
-                        let all_files_to_match = match_files
-                            .into_iter()
-                            .chain(
-                                match_config
-                                    .as_ref()
-                                    .and_then(|ref c| c.files.as_ref())
-                                    .into_iter()
-                                    .flatten()
-                                    .cloned(),
-                            )
-                            .collect::<Vec<_>>();
+                        if !is_empty {
+                            let all_files_to_match = match_files
+                                .into_iter()
+                                .chain(
+                                    match_config
+                                        .as_ref()
+                                        .and_then(|ref c| c.files.as_ref())
+                                        .into_iter()
+                                        .flatten()
+                                        .cloned(),
+                                )
+                                .collect::<Vec<_>>();
 
-                        let file_matches = match all_files_to_match.is_empty() {
-                            true => HashMap::new(),
-                            false => {
-                                get_file_matches(all_files_to_match, filtered_data.findings.clone())
+                            let file_matches = match all_files_to_match.is_empty() {
+                                true => HashMap::new(),
+                                false => get_file_matches(
+                                    all_files_to_match,
+                                    filtered_data.findings.clone(),
+                                ),
+                            };
+
+                            // Update findings with matched secrets from files
+                            if !file_matches.is_empty() {
+                                update_findings_with_file_matches(
+                                    &mut filtered_data.findings,
+                                    file_matches,
+                                );
                             }
-                        };
-
-                        // Update findings with matched secrets from files
-                        if !file_matches.is_empty() {
-                            update_findings_with_file_matches(
-                                &mut filtered_data.findings,
-                                file_matches,
-                            );
                         }
 
                         let output_res =
