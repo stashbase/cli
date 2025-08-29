@@ -308,6 +308,31 @@ impl Display for ScanFinding {
                     }
                 }
             }
+
+            if let Some(matched_file_secrets) = &matched_secrets.files {
+                if let Some(_) = &matched_secrets.project {
+                    result.push_str(&format!("\n"));
+                }
+
+                result.push_str(&format!("\n  {}", "Files:"));
+
+                for (index, file_secret) in matched_file_secrets.iter().enumerate() {
+                    if index > 0 {
+                        result.push_str(&format!("\n"));
+                    }
+
+                    result.push_str(&format!(
+                        "\n    - {} {}",
+                        "Secret Name:", file_secret.secret_name
+                    ));
+
+                    result.push_str(&format!(
+                        "\n      {} {}",
+                        "File Paths:",
+                        file_secret.file_paths.join(", ")
+                    ));
+                }
+            }
         }
 
         write!(f, "{}", result)
