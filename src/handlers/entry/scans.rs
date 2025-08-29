@@ -28,6 +28,7 @@ pub async fn handle_scan_commands(
                 ignore_value_regexes: args.ignore_value_regexes,
                 match_environments: args.match_environments,
                 match_project: args.match_project,
+                match_files: args.match_files,
             };
 
             handle_scan_staged_file_hunks(args).await?;
