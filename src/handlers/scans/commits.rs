@@ -246,7 +246,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
     };
 
     if unique_environments.len() > 0 && project_identifier.is_none() {
-        let error = ScanInputValidationError::MissingProjectIdentifier;
+        let error = ScanInputValidationError::MissingMatchProjectIdentifier;
         let input_error = InputValidationError::Scan(error);
         let error_output = input_error.format_error_output(json_format)?;
 
