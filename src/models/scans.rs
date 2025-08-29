@@ -32,6 +32,7 @@ pub struct IgnoreValueConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchConfig {
     pub project: Option<ProjectContextConfig>,
+    pub files: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
