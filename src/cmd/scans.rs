@@ -57,6 +57,10 @@ pub struct ScanStaged {
     /// - Folder (e.g. `folder-*`)
     #[clap(value_parser, long = "match-environments", num_args = 1..)]
     pub match_environments: Vec<String>,
+
+    /// Local files with secrets (like .env) to find matched secret values
+    #[clap(value_parser, long = "match-files", num_args = 1..)]
+    pub match_files: Vec<String>,
 }
 
 #[derive(Debug, Args)]
