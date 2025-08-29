@@ -254,7 +254,7 @@ pub struct MatchedProjectSecret {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MatchedFileSecret {
     pub secret_name: String,
-    pub file_path: String,
+    pub file_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -371,6 +371,28 @@ impl ScanFinding {
                             result.push_str(&format!(" (ID: {})", id));
                         }
                     }
+                }
+            }
+
+            if let Some(matched_file_secrets) = &matched_secrets.files {
+                result.push_str(&format!("\n  {}", "Files:".green_if_tty()));
+
+                for (index, file_secret) in matched_file_secrets.iter().enumerate() {
+                    if index > 0 {
+                        result.push_str(&format!("\n"));
+                    }
+
+                    result.push_str(&format!(
+                        "\n    - {} {}",
+                        "Secret Name:".green_if_tty(),
+                        file_secret.secret_name
+                    ));
+
+                    result.push_str(&format!(
+                        "\n      {} {}",
+                        "File Paths:".green_if_tty(),
+                        file_secret.file_paths.join(", ")
+                    ));
                 }
             }
         }
