@@ -241,6 +241,7 @@ pub struct ScanFinding {
 #[serde(rename_all = "camelCase")]
 pub struct MatchedSecrets {
     pub project: Option<Vec<MatchedProjectSecret>>,
+    pub files: Option<Vec<MatchedFileSecret>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -249,6 +250,13 @@ pub struct MatchedProjectSecret {
     pub secret_name: String,
     pub environments: Vec<Environment>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MatchedFileSecret {
+    pub secret_name: String,
+    pub file_path: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Environment {
