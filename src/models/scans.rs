@@ -233,7 +233,13 @@ pub struct ScanFinding {
     pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub matched_project_secrets: Option<Vec<MatchedProjectSecret>>,
+    pub matched_secrets: Option<MatchedSecrets>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchedSecrets {
+    pub project: Option<Vec<MatchedProjectSecret>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -269,21 +275,24 @@ impl Display for ScanFinding {
             result.push_str(&format!("\nCommit ID: {}", id));
         }
 
-        if let Some(matched_project_secrets) = &self.matched_project_secrets {
-            result.push_str(&format!(
-                "\n{} {}",
-                "Matched Project Secrets:",
-                matched_project_secrets.len()
-            ));
-            for secret in matched_project_secrets {
-                result.push_str(&format!("\n  {} {}", "Name:", secret.secret_name));
-                result.push_str(&format!("\n  {}", "Environments:"));
+        if let Some(matched_secrets) = &self.matched_secrets {
+            result.push_str(&format!("\n{}", "Matched Secrets:"));
 
-                for env in &secret.environments {
-                    if let Some(id) = &env.id {
-                        result.push_str(&format!("\n    {} {}", "ID:", id));
+            if let Some(matched_project_secrets) = &matched_secrets.project {
+                result.push_str(&format!("\n  {}", "Project:"));
+
+                for env in matched_project_secrets {
+                    result.push_str(&format!("\n    {} {}", "Secret Name:", env.secret_name));
+
+                    result.push_str(&format!("\n    {}", "Environments:"));
+                    for environment in &env.environments {
+                        if let Some(id) = &environment.id {
+                            result.push_str(&format!("\n     - {} {}", "ID:", id));
+                            result.push_str(&format!("\n     - {} {}", "Name:", environment.name));
+                        } else {
+                            result.push_str(&format!("\n     - {} {}", "Name:", environment.name));
+                        }
                     }
-                    result.push_str(&format!("\n    {} {}", "Name:", env.name));
                 }
             }
         }
@@ -324,25 +333,37 @@ impl ScanFinding {
             result.push_str(&format!("\n{} {}", "Commit ID:".green_if_tty(), id));
         }
 
-        if let Some(matched_project_secrets) = &self.matched_project_secrets {
-            result.push_str(&format!(
-                "\n{} {}",
-                "Matched Project Secrets:".green_if_tty(),
-                matched_project_secrets.len()
-            ));
-            for secret in matched_project_secrets {
-                result.push_str(&format!(
-                    "\n  {} {}",
-                    "Name:".green_if_tty(),
-                    secret.secret_name
-                ));
-                result.push_str(&format!("\n  {}", "Environments:".green_if_tty()));
+        if let Some(matched_secrets) = &self.matched_secrets {
+            result.push_str(&format!("\n{}", "Matched Secrets:".green_if_tty()));
 
-                for env in &secret.environments {
-                    if let Some(id) = &env.id {
-                        result.push_str(&format!("\n    {} {}", "ID:".green_if_tty(), id));
+            if let Some(matched_project_secrets) = &matched_secrets.project {
+                result.push_str(&format!("\n  {}", "Project:".green_if_tty()));
+
+                for env in matched_project_secrets {
+                    result.push_str(&format!(
+                        "\n    {} {}",
+                        "Secret Name:".green_if_tty(),
+                        env.secret_name
+                    ));
+
+                    result.push_str(&format!("\n    {}", "Environments:".green_if_tty()));
+                    for environment in &env.environments {
+                        if let Some(id) = &environment.id {
+                            result.push_str(&format!("\n      - {} {}", "ID:".green_if_tty(), id));
+
+                            result.push_str(&format!(
+                                "\n      {} {}",
+                                "Name:".green_if_tty(),
+                                environment.name
+                            ));
+                        } else {
+                            result.push_str(&format!(
+                                "\n      - {} {}",
+                                "Name:".green_if_tty(),
+                                environment.name
+                            ));
+                        }
                     }
-                    result.push_str(&format!("\n    {} {}", "Name:".green_if_tty(), env.name));
                 }
             }
         }
