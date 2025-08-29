@@ -285,12 +285,12 @@ impl Display for ScanFinding {
                     result.push_str(&format!("\n    - {} {}", "Secret Name:", env.secret_name));
 
                     result.push_str(&format!("\n    {}", "Environments:"));
+
                     for environment in &env.environments {
+                        result.push_str(&format!("\n        - {}", environment.name));
+
                         if let Some(id) = &environment.id {
-                            result.push_str(&format!("\n     - {} {}", "ID:", id));
-                            result.push_str(&format!("\n     - {} {}", "Name:", environment.name));
-                        } else {
-                            result.push_str(&format!("\n     - {} {}", "Name:", environment.name));
+                            result.push_str(&format!(" (ID: {})", id));
                         }
                     }
                 }
@@ -348,24 +348,10 @@ impl ScanFinding {
 
                     result.push_str(&format!("\n      {}", "Environments:".green_if_tty()));
                     for environment in &env.environments {
-                        if let Some(id) = &environment.id {
-                            result.push_str(&format!(
-                                "\n        - {} {}",
-                                "ID:".green_if_tty(),
-                                id
-                            ));
+                        result.push_str(&format!("\n        - {}", environment.name));
 
-                            result.push_str(&format!(
-                                "\n          {} {}",
-                                "Name:".green_if_tty(),
-                                environment.name
-                            ));
-                        } else {
-                            result.push_str(&format!(
-                                "\n        - {} {}",
-                                "Name:".green_if_tty(),
-                                environment.name
-                            ));
+                        if let Some(id) = &environment.id {
+                            result.push_str(&format!(" (ID: {})", id));
                         }
                     }
                 }
