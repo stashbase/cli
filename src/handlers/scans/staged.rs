@@ -4,17 +4,18 @@ use crate::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
             DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks, IgnoreValuePayload,
-            MatchConfigPayload, ProjectContextConfigPayload, ScanConfig, ScanFileChangesPayload,
-            ScanOutputJson,
+            MatchConfigPayload, MatchedFileSecret, MatchedSecrets, ProjectContextConfigPayload,
+            ScanConfig, ScanFileChangesPayload, ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
     utils::{
         output::get_formatted_json_string,
         scans::{
-            file_content_equals, filter_new_findings, get_latest_scan_file, is_binary_file,
-            is_valid_sha256_hash, load_baseline_results, process_diff_line, save_scan_results,
-            should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
+            file_content_equals, filter_new_findings, get_file_matches, get_latest_scan_file,
+            is_binary_file, is_valid_sha256_hash, load_baseline_results, process_diff_line,
+            save_scan_results, should_exclude_file, update_findings_with_file_matches,
+            SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
         validation::validate_project_identifier,
     },
@@ -23,7 +24,7 @@ use anyhow::Result;
 use git2::Repository;
 use regex::Regex;
 use spinoff::{spinners, Color, Spinner, Streams};
-use std::{cell::RefCell, io::IsTerminal, path::Path, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::Path, rc::Rc};
 
 pub struct HandleScanStagedFileHunksArgs {
     pub api_key: String,
@@ -343,7 +344,7 @@ pub async fn handle_scan_staged_file_hunks(
                         }
 
                         // Apply baseline filtering if baseline is provided
-                        let filtered_data = if let Some(baseline_path) = baseline {
+                        let mut filtered_data = if let Some(baseline_path) = baseline {
                             match load_baseline_results(&baseline_path) {
                                 Ok(baseline_results) => {
                                     let filtered_findings =
@@ -367,6 +368,19 @@ pub async fn handle_scan_staged_file_hunks(
                         };
 
                         let is_empty = filtered_data.findings.is_empty();
+
+                        let file_matches = match match_files.is_empty() {
+                            true => HashMap::new(),
+                            false => get_file_matches(match_files, filtered_data.findings.clone()),
+                        };
+
+                        // Update findings with matched secrets from files
+                        if !file_matches.is_empty() {
+                            update_findings_with_file_matches(
+                                &mut filtered_data.findings,
+                                file_matches,
+                            );
+                        }
 
                         let output_res =
                             output_scan_findings(filtered_data, json_format, &output_dir);
