@@ -38,6 +38,7 @@ pub struct HandleScanStagedFileHunksArgs {
     pub ignore_value_regexes: Vec<String>,
     pub match_project: Option<String>,
     pub match_environments: Vec<String>,
+    pub match_files: Vec<String>,
 }
 
 pub async fn handle_scan_staged_file_hunks(
@@ -54,6 +55,7 @@ pub async fn handle_scan_staged_file_hunks(
         ignore_value_regexes,
         match_project,
         match_environments,
+        match_files,
         exclude: _,
     } = args;
 
