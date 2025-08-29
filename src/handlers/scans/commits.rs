@@ -31,8 +31,8 @@ pub struct HandleScanUnpushedCommitHunksArgs {
     pub json_format: bool,
     pub silent: bool,
 
-    pub project: Option<String>,
-    pub environments: Vec<String>,
+    pub match_project: Option<String>,
+    pub match_environments: Vec<String>,
     pub exclude: Vec<String>,
     pub baseline: Option<String>,
     pub output_dir: Option<String>,
@@ -48,13 +48,13 @@ pub async fn handle_scan_unpushed_commit_hunks(
         api_key,
         json_format,
         silent,
-        environments,
         baseline,
         output_dir,
         config_file_path,
         ignore_value_hashes,
         ignore_value_regexes,
-        project,
+        match_project,
+        match_environments,
         exclude: _,
     } = args;
 
@@ -218,7 +218,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         ignore_value_payload.hashes = sorted_hashes;
     }
 
-    let all_environments = environments
+    let all_environments = match_environments
         .into_iter()
         .chain(
             config
@@ -237,7 +237,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         .into_iter()
         .collect::<Vec<_>>();
 
-    let project_identifier = match project {
+    let project_identifier = match match_project {
         Some(p) => Some(p),
         None => match config.match_config {
             Some(c) => c.identifier.clone(),

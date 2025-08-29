@@ -26,8 +26,8 @@ pub async fn handle_scan_commands(
                 config_file_path: args.config_file,
                 ignore_value_hashes: args.ignore_value_hashes,
                 ignore_value_regexes: args.ignore_value_regexes,
-                project: args.project,
-                environments: args.environments,
+                match_environments: args.match_environments,
+                match_project: args.match_project,
             };
 
             handle_scan_staged_file_hunks(args).await?;
@@ -37,14 +37,14 @@ pub async fn handle_scan_commands(
                 api_key,
                 silent,
                 json_format: raw_output,
-                environments: args.environments,
-                project: args.project,
                 exclude: args.exclude,
                 baseline: args.baseline,
                 output_dir: args.output_dir,
                 config_file_path: args.config_file,
                 ignore_value_hashes: args.ignore_value_hashes,
                 ignore_value_regexes: args.ignore_value_regexes,
+                match_environments: args.match_environments,
+                match_project: args.match_project,
             };
 
             handle_scan_unpushed_commit_hunks(args).await?;

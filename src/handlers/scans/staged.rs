@@ -36,8 +36,8 @@ pub struct HandleScanStagedFileHunksArgs {
     pub config_file_path: Option<String>,
     pub ignore_value_hashes: Vec<String>,
     pub ignore_value_regexes: Vec<String>,
-    pub project: Option<String>,
-    pub environments: Vec<String>,
+    pub match_project: Option<String>,
+    pub match_environments: Vec<String>,
 }
 
 pub async fn handle_scan_staged_file_hunks(
@@ -52,9 +52,9 @@ pub async fn handle_scan_staged_file_hunks(
         config_file_path,
         ignore_value_hashes,
         ignore_value_regexes,
-        project,
+        match_project,
+        match_environments,
         exclude: _,
-        environments,
     } = args;
 
     let config = match &config_file_path {
@@ -217,7 +217,7 @@ pub async fn handle_scan_staged_file_hunks(
         ignore_value_payload.hashes = sorted_hashes;
     }
 
-    let all_environments = environments
+    let all_environments = match_environments
         .into_iter()
         .chain(
             config
@@ -236,7 +236,7 @@ pub async fn handle_scan_staged_file_hunks(
         .into_iter()
         .collect::<Vec<_>>();
 
-    let project_identifier = match project {
+    let project_identifier = match match_project {
         Some(p) => Some(p),
         None => match config.match_config {
             Some(c) => c.identifier.clone(),

@@ -46,8 +46,8 @@ pub struct ScanStaged {
     pub ignore_value_regexes: Vec<String>,
 
     /// Project to find matched secret values
-    #[clap(value_parser, long = "project")]
-    pub project: Option<String>,
+    #[clap(value_parser, long = "match-project")]
+    pub match_project: Option<String>,
 
     /// Environments to find matched secret values in the specified project; defaults to all environments in the project
     ///
@@ -55,8 +55,8 @@ pub struct ScanStaged {
     /// - Name
     /// - ID
     /// - Folder (e.g. `folder-*`)
-    #[clap(value_parser, long = "environments", num_args = 1..)]
-    pub environments: Vec<String>,
+    #[clap(value_parser, long = "match-environments", num_args = 1..)]
+    pub match_environments: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -87,8 +87,8 @@ pub struct ScanCommits {
     pub ignore_value_regexes: Vec<String>,
 
     /// Project to find matched secret values
-    #[clap(value_parser, long = "project")]
-    pub project: Option<String>,
+    #[clap(value_parser, long = "match-project")]
+    pub match_project: Option<String>,
 
     /// Environments to find matched secret values in the specified project; defaults to all environments in the project
     ///
@@ -96,6 +96,6 @@ pub struct ScanCommits {
     /// - Name
     /// - ID
     /// - Folder (e.g. `folder-*`)
-    #[clap(value_parser, long = "environments", num_args = 1..)]
-    pub environments: Vec<String>,
+    #[clap(value_parser, long = "match-environments", num_args = 1..)]
+    pub match_environments: Vec<String>,
 }
