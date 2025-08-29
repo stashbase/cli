@@ -1,6 +1,6 @@
 use sha2::{Sha256, Digest};
 use anyhow::{Result};
-use std::{path::Path, fs, collections::HashSet};
+use std::{collections::{HashMap, HashSet}, fs, path::Path};
 use ignore::gitignore::GitignoreBuilder;
 use crate::models::{
     scans::{DiffHunk, FileChangesScanResponse, ScanFinding, ChangeRangeWithHash},
@@ -409,4 +409,59 @@ pub fn process_diff_line(
     }
 
     true
+}
+
+// find matched secrets in a files
+// retruns hashmap of file path to a vector of (secret name, secret value hash)
+pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashMap<String, Vec<(String, String)>> {
+    use crate::{cmd::secrets::SecretsFileFormat, utils::secrets::read_secrets_from_file};
+    use std::path::Path;
+    
+    let mut matches: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    
+    // Create a set of finding value hashes for quick lookup
+    let finding_hashes: HashSet<String> = findings
+        .iter()
+        .map(|finding| finding.value_sha256.clone())
+        .collect();
+    
+    for file_path in files {
+        let path = Path::new(&file_path);
+        
+        if !path.exists() {
+            continue;
+        }
+        
+        // Determine format from file extension
+        let target_format = if file_path.ends_with(".yaml") || file_path.ends_with(".yml") {
+            SecretsFileFormat::Yaml
+        } else if file_path.ends_with(".json") {
+            SecretsFileFormat::Json
+        } else {
+            SecretsFileFormat::Dotenv
+        };
+        
+        // Try to read secrets from file
+        if let Ok(secrets) = read_secrets_from_file(path, &target_format) {
+            let mut file_matches = Vec::new();
+            
+            for secret in secrets {
+                // Hash the secret value using SHA256
+                let mut hasher = Sha256::new();
+                hasher.update(secret.value.as_bytes());
+                let value_hash = format!("{:x}", hasher.finalize());
+                
+                // Check if this hash matches any finding
+                if finding_hashes.contains(&value_hash) {
+                    file_matches.push((secret.name, value_hash));
+                }
+            }
+            
+            if !file_matches.is_empty() {
+                matches.insert(file_path, file_matches);
+            }
+        }
+    }
+
+    matches
 }
