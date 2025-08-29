@@ -2,7 +2,7 @@ use anyhow::Result;
 use git2::Repository;
 use regex::Regex;
 use spinoff::{spinners, Color, Spinner, Streams};
-use std::{cell::RefCell, io::IsTerminal, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::PathBuf, rc::Rc};
 
 use crate::{
     api,
@@ -18,9 +18,10 @@ use crate::{
     utils::{
         output::get_formatted_json_string,
         scans::{
-            file_content_equals, filter_new_findings, get_latest_scan_file, is_binary_file,
-            is_valid_sha256_hash, load_baseline_results, process_diff_line, save_scan_results,
-            should_exclude_file, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
+            file_content_equals, filter_new_findings, get_file_matches, get_latest_scan_file,
+            is_binary_file, is_valid_sha256_hash, load_baseline_results, process_diff_line,
+            save_scan_results, should_exclude_file, update_findings_with_file_matches,
+            SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
         validation::validate_project_identifier,
     },
@@ -39,6 +40,7 @@ pub struct HandleScanUnpushedCommitHunksArgs {
     pub config_file_path: Option<String>,
     pub ignore_value_hashes: Vec<String>,
     pub ignore_value_regexes: Vec<String>,
+    pub match_files: Vec<String>,
 }
 
 pub async fn handle_scan_unpushed_commit_hunks(
@@ -55,6 +57,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         ignore_value_regexes,
         match_project,
         match_environments,
+        match_files,
         exclude: _,
     } = args;
 
@@ -218,11 +221,12 @@ pub async fn handle_scan_unpushed_commit_hunks(
         ignore_value_payload.hashes = sorted_hashes;
     }
 
+    let match_config = config.match_config.clone();
+
     let all_environments = match_environments
         .into_iter()
         .chain(
-            config
-                .match_config
+            match_config
                 .as_ref()
                 .and_then(|c| c.project.as_ref().and_then(|p| p.environments.as_ref()))
                 .into_iter()
@@ -342,7 +346,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
                         }
 
                         // Apply baseline filtering if baseline is provided
-                        let filtered_data = if let Some(baseline_path) = baseline {
+                        let mut filtered_data = if let Some(baseline_path) = baseline {
                             match load_baseline_results(&baseline_path) {
                                 Ok(baseline_results) => {
                                     let filtered_findings =
@@ -367,6 +371,34 @@ pub async fn handle_scan_unpushed_commit_hunks(
                         };
 
                         let is_empty = filtered_data.findings.is_empty();
+
+                        let all_files_to_match = match_files
+                            .into_iter()
+                            .chain(
+                                match_config
+                                    .as_ref()
+                                    .and_then(|ref c| c.files.as_ref())
+                                    .into_iter()
+                                    .flatten()
+                                    .cloned(),
+                            )
+                            .collect::<Vec<_>>();
+
+                        let file_matches = match all_files_to_match.is_empty() {
+                            true => HashMap::new(),
+                            false => {
+                                get_file_matches(all_files_to_match, filtered_data.findings.clone())
+                            }
+                        };
+
+                        // Update findings with matched secrets from files
+                        if !file_matches.is_empty() {
+                            update_findings_with_file_matches(
+                                &mut filtered_data.findings,
+                                file_matches,
+                            );
+                        }
+
                         let output_res =
                             output_scan_findings(filtered_data, json_format, &output_dir);
 
