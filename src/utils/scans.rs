@@ -3,7 +3,7 @@ use anyhow::{Result};
 use std::{collections::{HashMap, HashSet}, fs, path::Path};
 use ignore::gitignore::GitignoreBuilder;
 use crate::models::{
-    scans::{DiffHunk, FileChangesScanResponse, ScanFinding, ChangeRangeWithHash},
+    scans::{DiffHunk, FileChangesScanResponse, ScanFinding, ChangeRangeWithHash, MatchedSecrets, MatchedFileSecret},
     validation::ScanInputValidationError,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -464,4 +464,48 @@ pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashM
     }
 
     matches
+}
+
+pub fn update_findings_with_file_matches(findings: &mut Vec<ScanFinding>, file_matches: HashMap<String, Vec<(String, String)>>) {
+    for finding in findings.iter_mut() {
+        for (file_path, matches) in &file_matches {
+            for (secret_name, value_hash) in matches {
+                if finding.value_sha256 == *value_hash {
+                    // Initialize matched_secrets if None
+                    if finding.matched_secrets.is_none() {
+                        finding.matched_secrets = Some(MatchedSecrets {
+                            project: None,
+                            files: Some(Vec::new()),
+                        });
+                    }
+
+                    // Initialize files if None
+                    if let Some(ref mut matched_secrets) = finding.matched_secrets {
+                        if matched_secrets.files.is_none() {
+                            matched_secrets.files = Some(Vec::new());
+                        }
+
+                        // Check if this secret name already exists in files
+                        if let Some(ref mut files) = matched_secrets.files {
+                            if let Some(existing_secret) = files
+                                .iter_mut()
+                                .find(|f| f.secret_name == *secret_name)
+                            {
+                                // Secret name exists, add file path if not already present
+                                if !existing_secret.file_paths.contains(file_path) {
+                                    existing_secret.file_paths.push(file_path.clone());
+                                }
+                            } else {
+                                // Secret name doesn't exist, create new entry
+                                files.push(MatchedFileSecret {
+                                    secret_name: secret_name.clone(),
+                                    file_paths: vec![file_path.clone()],
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
