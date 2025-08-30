@@ -467,43 +467,56 @@ pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashM
 }
 
 pub fn update_findings_with_file_matches(findings: &mut Vec<ScanFinding>, file_matches: HashMap<String, Vec<(String, String)>>) {
+    // Build a reverse index: value_hash -> Vec<(file_path, secret_name)>
+    let mut hash_to_matches: HashMap<String, Vec<(String, String)>> = HashMap::with_capacity(file_matches.len());
+    
+    for (file_path, matches) in file_matches {
+        for (secret_name, value_hash) in matches {
+            hash_to_matches
+                .entry(value_hash)
+                .or_insert_with(Vec::new)
+                .push((file_path.clone(), secret_name));
+        }
+    }
+
+    // Process each finding once using the reverse index
     for finding in findings.iter_mut() {
-        for (file_path, matches) in &file_matches {
-            for (secret_name, value_hash) in matches {
-                if finding.value_sha256 == *value_hash {
-                    // Initialize matched_secrets if None
-                    if finding.matched_secrets.is_none() {
-                        finding.matched_secrets = Some(MatchedSecrets {
-                            project: None,
-                            files: Some(Vec::new()),
-                        });
-                    }
+        if let Some(matches) = hash_to_matches.get(&finding.value_sha256) {
+            // Ensure matched_secrets is initialized
+            let matched_secrets = finding.matched_secrets.get_or_insert_with(|| MatchedSecrets {
+                project: None,
+                files: Some(Vec::new()),
+            });
 
-                    // Initialize files if None
-                    if let Some(ref mut matched_secrets) = finding.matched_secrets {
-                        if matched_secrets.files.is_none() {
-                            matched_secrets.files = Some(Vec::new());
-                        }
+            // Ensure files is initialized
+            let files = matched_secrets.files.get_or_insert_with(Vec::new);
 
-                        // Check if this secret name already exists in files
-                        if let Some(ref mut files) = matched_secrets.files {
-                            if let Some(existing_secret) = files
-                                .iter_mut()
-                                .find(|f| f.secret_name == *secret_name)
-                            {
-                                // Secret name exists, add file path if not already present
-                                if !existing_secret.file_paths.contains(file_path) {
-                                    existing_secret.file_paths.push(file_path.clone());
-                                }
-                            } else {
-                                // Secret name doesn't exist, create new entry
-                                files.push(MatchedFileSecret {
-                                    secret_name: secret_name.clone(),
-                                    file_paths: vec![file_path.clone()],
-                                });
-                            }
+            // Group matches by secret_name to batch file paths and avoid duplicate processing
+            let mut secret_to_files: HashMap<&str, HashSet<&str>> = HashMap::new();
+            for (file_path, secret_name) in matches {
+                secret_to_files
+                    .entry(secret_name)
+                    .or_insert_with(HashSet::new)
+                    .insert(file_path);
+            }
+
+            // Update or create MatchedFileSecret entries
+            for (secret_name, file_paths_set) in secret_to_files {
+                // Find existing secret by name
+                if let Some(existing_secret) = files.iter_mut().find(|f| f.secret_name == secret_name) {
+                    // Secret exists, merge file paths
+                    for file_path in file_paths_set {
+                        let file_path_string = file_path.to_string();
+                        if !existing_secret.file_paths.contains(&file_path_string) {
+                            existing_secret.file_paths.push(file_path_string);
                         }
                     }
+                } else {
+                    // Secret doesn't exist, create new entry
+                    files.push(MatchedFileSecret {
+                        secret_name: secret_name.to_string(),
+                        file_paths: file_paths_set.into_iter().map(|s| s.to_string()).collect(),
+                    });
                 }
             }
         }
