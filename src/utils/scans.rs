@@ -417,13 +417,18 @@ pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashM
     use crate::{cmd::secrets::SecretsFileFormat, utils::secrets::read_secrets_from_file};
     use std::path::Path;
     
-    let mut matches: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut matches: HashMap<String, Vec<(String, String)>> = HashMap::with_capacity(files.len());
     
     // Create a set of finding value hashes for quick lookup
     let finding_hashes: HashSet<String> = findings
         .iter()
         .map(|finding| finding.value_sha256.clone())
         .collect();
+    
+    // Early exit if no findings to match against
+    if finding_hashes.is_empty() {
+        return matches;
+    }
     
     for file_path in files {
         let path = Path::new(&file_path);
@@ -443,7 +448,7 @@ pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashM
         
         // Try to read secrets from file
         if let Ok(secrets) = read_secrets_from_file(path, &target_format) {
-            let mut file_matches = Vec::new();
+            let mut file_matches = Vec::with_capacity(secrets.len().min(finding_hashes.len()));
             
             for secret in secrets {
                 // Hash the secret value using SHA256
