@@ -50,6 +50,7 @@ pub struct AuthedUserResponse {
 pub struct ProjectData {
     pub id: String,
     pub name: String,
+    pub environment: EnvironmentData,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,7 +65,6 @@ pub struct AuthedEnvironmentAccountData {
     pub name: String,
     pub workspace: WorkspaceData,
     pub project: ProjectData,
-    pub environment: EnvironmentData,
     pub permissions: HashMap<String, Vec<String>>,
 }
 
@@ -146,12 +146,12 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
         writeln!(f, "Authenticated as Environment Account:")?;
         write_indented(f, 2, &format!("ID: {}", self.id))?;
         write_indented(f, 2, &format!("Name: {}", self.name))?;
-        write_indented(f, 2, "Environment:")?;
-        write_indented(f, 4, &format!("ID: {}", self.environment.id))?;
-        write_indented(f, 4, &format!("Name: {}", self.environment.name))?;
         write_indented(f, 2, "Project:")?;
         write_indented(f, 4, &format!("ID: {}", self.project.id))?;
         write_indented(f, 4, &format!("Name: {}", self.project.name))?;
+        write_indented(f, 4, "Environment:")?;
+        write_indented(f, 6, &format!("ID: {}", self.project.environment.id))?;
+        write_indented(f, 6, &format!("Name: {}", self.project.environment.name))?;
         write_indented(f, 2, "Workspace:")?;
         write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
         write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
