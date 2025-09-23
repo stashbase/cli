@@ -1,4 +1,4 @@
-use nanoid::nanoid;
+use rand::{rng, Rng};
 
 use crate::{models::generate::Encoding, utils::output::get_formatted_json_string};
 
@@ -9,7 +9,17 @@ pub fn handle_generate_random_string(
     uppercase: bool,
 ) {
     let alphabet = encoding.get_alphabet();
-    let result = nanoid!(length, &alphabet.chars().collect::<Vec<char>>());
+    let alphabet_chars: Vec<char> = alphabet.chars().collect();
+    let alphabet_len = alphabet_chars.len();
+
+    let mut rng = rng();
+    let mut result = String::with_capacity(length);
+
+    for _ in 0..length {
+        let idx = rng.random_range(0..alphabet_len);
+
+        result.push(alphabet_chars[idx]);
+    }
 
     let final_result = if uppercase {
         result.to_uppercase()
