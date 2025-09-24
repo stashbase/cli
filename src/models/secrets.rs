@@ -17,16 +17,25 @@ use crate::{
 
 use super::validation::InputValidationError;
 
-#[derive(Debug, ValueEnum, Clone)]
+#[derive(Debug, ValueEnum, Clone, Serialize, Deserialize)]
 pub enum PrintSecrets {
-    /// Show only secret names
+    /// Print only secret names
     Names,
-    /// Show secret names and masked values (••••••••)
+    /// Print secret names and masked values
     Masked,
-    /// Show secret names and full values
+    /// Print secret names and full values
     Full,
 }
 
+impl Display for PrintSecrets {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Names => write!(f, "names"),
+            Self::Masked => write!(f, "masked"),
+            Self::Full => write!(f, "full"),
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithoutComment {
