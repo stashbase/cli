@@ -17,7 +17,7 @@ use crate::{
 
 use super::validation::InputValidationError;
 
-#[derive(Debug, ValueEnum, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, ValueEnum, Clone, Serialize, Deserialize)]
 pub enum PrintSecrets {
     /// Print only secret names
     Names,
@@ -36,7 +36,20 @@ impl Display for PrintSecrets {
         }
     }
 }
-#[derive(Debug, Serialize, Deserialize, Tabled)]
+
+impl PrintSecrets {
+    pub fn is_names(&self) -> bool {
+        self == &PrintSecrets::Names
+    }
+    pub fn is_masked(&self) -> bool {
+        *self == PrintSecrets::Masked
+    }
+    pub fn is_full(&self) -> bool {
+        self == &PrintSecrets::Full
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithoutComment {
     #[tabled(rename = "Name")]
