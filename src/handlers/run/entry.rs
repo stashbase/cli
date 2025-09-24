@@ -625,7 +625,7 @@ async fn handle_run(
             } else {
                 print_table(&formatted_secrets);
             }
-        } else if print_secrets.is_some_and(|p| p.is_names()) {
+        } else if print_secrets.is_some_and(|p| p.is_name()) {
             // print only names
             let formatted_secrets: Vec<SecretOnlyName> = secrets
                 .clone()
