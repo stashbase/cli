@@ -38,6 +38,6 @@ pub struct RunCommand {
     pub expand_refs: Option<bool>,
 
     /// Print loaded secrets
-    #[arg(value_enum, long = "print")]
+    #[arg(value_enum, long = "print-secrets")]
     pub print_secrets: Option<PrintSecrets>,
 }
