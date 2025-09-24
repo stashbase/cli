@@ -568,7 +568,7 @@ async fn handle_run(
     if !silent {
         let mut success_msg = format!(
             "{} {} ({} {})",
-            "   ✓".green_if_tty_stderr(),
+            "✓".green_if_tty_stderr(),
             "Environment loaded",
             secrets.len(),
             if secrets.len() == 1 {
