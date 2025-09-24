@@ -21,7 +21,7 @@ use super::validation::InputValidationError;
 #[serde(rename_all = "lowercase")]
 pub enum PrintSecrets {
     /// Print only secret names
-    Names,
+    Name,
     /// Print secret names and masked values
     Masked,
     /// Print secret names and full values
@@ -31,7 +31,7 @@ pub enum PrintSecrets {
 impl Display for PrintSecrets {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Names => write!(f, "names"),
+            Self::Name => write!(f, "names"),
             Self::Masked => write!(f, "masked"),
             Self::Full => write!(f, "full"),
         }
@@ -39,8 +39,8 @@ impl Display for PrintSecrets {
 }
 
 impl PrintSecrets {
-    pub fn is_names(&self) -> bool {
-        self == &PrintSecrets::Names
+    pub fn is_name(&self) -> bool {
+        self == &PrintSecrets::Name
     }
     pub fn is_masked(&self) -> bool {
         *self == PrintSecrets::Masked
