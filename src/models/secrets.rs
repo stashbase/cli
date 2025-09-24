@@ -18,6 +18,7 @@ use crate::{
 use super::validation::InputValidationError;
 
 #[derive(Debug, PartialEq, ValueEnum, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PrintSecrets {
     /// Print only secret names
     Names,
