@@ -71,8 +71,4 @@ pub struct PullCommand {
     /// Ignore secret comments
     #[arg(value_enum, long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
-
-    /// Print loaded secrets
-    #[arg(value_enum, long = "print")]
-    pub print_secrets: bool,
 }

@@ -16,7 +16,7 @@ use crate::{
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
-        secrets::Secret,
+        secrets::{PrintSecrets, Secret},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
             PushPullInputValidationError, YamlEnvConfigError,
@@ -40,7 +40,6 @@ pub struct HandlePullArgs {
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
-    pub print_secrets: bool,
     pub file: Option<String>,
     pub target_file: Option<String>,
     pub format: Option<PullFormat>,
@@ -60,7 +59,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut format,
         mut only,
         mut exclude,
-        mut print_secrets,
         mut expand_refs,
         mut ignore_comments,
         overwrite_file,
@@ -123,9 +121,9 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         }
 
         // print
-        if let Some(print_secrets_val) = secrets_config.print {
-            print_secrets = print_secrets_val;
-        }
+        // if let Some(print_secrets_val) = secrets_config.print {
+        //     print_secrets = Some(print_secrets_val);
+        // }
 
         // only
         if let Some(only_val) = secrets_config.only {
@@ -394,10 +392,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         };
 
                         if let Some(true) = confirmation {
-                            if print_secrets {
-                                eprintln!();
-                            }
-
                             if !setted_secrets.is_empty() {
                                 for (name, value) in setted_secrets {
                                     let secret = Secret {
