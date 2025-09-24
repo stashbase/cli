@@ -1,5 +1,7 @@
 use clap::Args;
 
+use crate::models::secrets::PrintSecrets;
+
 #[derive(Debug, Args)]
 #[command(override_usage = "run [OPTIONS] [COMMAND]...")]
 pub struct RunCommand {
@@ -37,5 +39,5 @@ pub struct RunCommand {
 
     /// Print loaded secrets
     #[arg(value_enum, long = "print")]
-    pub print_secrets: bool,
+    pub print_secrets: Option<PrintSecrets>,
 }
