@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cmd::{pull::PullFormat, push::PushFormat},
-    models::validation::{InputValidationError, YamlEnvConfigError},
+    models::{
+        secrets::PrintSecrets,
+        validation::{InputValidationError, YamlEnvConfigError},
+    },
     utils::interaction::select,
 };
 
@@ -194,7 +197,7 @@ impl EnvConfigItem {
         let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
 
         let mut expand_refs: Option<bool> = None;
-        let mut print_secrets: Option<bool> = None;
+        let mut print_secrets: Option<PrintSecrets> = None;
         let mut ignore_comments: Option<bool> = None;
 
         let action_secrets = match is_run_action {
@@ -290,7 +293,7 @@ pub struct PullActionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullSecretsConfig {
-    pub print: Option<bool>,
+    pub print: Option<PrintSecrets>,
     // Select secret names
     pub only: Option<Vec<String>>,
     // Exclude secret names
@@ -310,7 +313,7 @@ impl PullSecretsConfig {
         exclude: Option<Vec<String>>,
         set: Option<HashMap<String, String>>,
         expand_refs: Option<bool>,
-        print: Option<bool>,
+        print: Option<PrintSecrets>,
         ignore_comments: Option<bool>,
     ) -> Self {
         Self {
