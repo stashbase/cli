@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::bail;
 use log::debug;
 use spinoff::{spinners, Color, Spinner, Streams};
+use tabled::Tabled;
 
 use crate::{
     api::secrets,
@@ -10,7 +11,7 @@ use crate::{
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
-        secrets::SecretWithoutComment,
+        secrets::{PrintSecrets, SecretOnlyName, SecretWithoutComment},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
         },
@@ -40,7 +41,7 @@ pub struct HandleRunArgs {
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
-    pub print_secrets: bool,
+    pub print_secrets: Option<PrintSecrets>,
     pub file: Option<String>,
     pub expand_refs: Option<bool>,
     pub json_format: bool,
@@ -129,8 +130,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             }
 
             // print
-            if let Some(print_secrets_val) = secrets_config.print {
-                print_secrets = print_secrets_val;
+            if let Some(print_secrets_val) = secrets_config.print.clone() {
+                print_secrets = Some(print_secrets_val);
             }
 
             // only
@@ -478,7 +479,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     };
 
                     if let Some(true) = confirmation {
-                        if print_secrets {
+                        if print_secrets.is_some() {
                             eprintln!();
                         }
                         // if !print_secrets {
@@ -500,7 +501,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         handle_run(
                             &mut spinner,
                             command,
-                            print_secrets,
+                            print_secrets.clone(),
                             secrets,
                             is_from_file,
                             silent,
@@ -525,7 +526,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     handle_run(
                         &mut spinner,
                         command,
-                        print_secrets,
+                        print_secrets.clone(),
                         secrets,
                         is_from_file,
                         silent,
@@ -558,7 +559,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
-    print_secrets: bool,
+    print_secrets: Option<PrintSecrets>,
     secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
     silent: bool,
@@ -577,7 +578,7 @@ async fn handle_run(
             }
         );
 
-        if print_secrets && !is_from_file {
+        if print_secrets.is_some() && !is_from_file {
             success_msg.insert_str(0, "\n");
             if let Some(spinner) = spinner {
                 spinner.stop_with_message(&success_msg);
@@ -598,12 +599,54 @@ async fn handle_run(
 
     debug!("{:#?}", &secrets);
 
-    if print_secrets && !silent {
-        if json_format {
-            let json_str = get_formatted_json_string(&secrets, true).unwrap();
-            println!("{}\n", json_str);
+    if print_secrets.is_some() && !silent {
+        let print_masked = print_secrets
+            .as_ref()
+            .map(|p| p.is_masked())
+            .unwrap_or(false);
+
+        if print_masked {
+            let formatted_secrets: Vec<SecretWithoutComment> = secrets
+                .clone()
+                .into_iter()
+                .map(|s| SecretWithoutComment {
+                    name: s.name,
+                    value: if s.value.len() >= 3 {
+                        format!("{}******", &s.value[..3])
+                    } else {
+                        "******".to_string()
+                    },
+                })
+                .collect();
+
+            if json_format {
+                let json_str = get_formatted_json_string(&formatted_secrets, true).unwrap();
+                println!("{}\n", json_str);
+            } else {
+                print_table(&formatted_secrets);
+            }
+        } else if print_secrets.is_some_and(|p| p.is_names()) {
+            // print only names
+            let formatted_secrets: Vec<SecretOnlyName> = secrets
+                .clone()
+                .into_iter()
+                .map(|s| SecretOnlyName { name: s.name })
+                .collect();
+
+            if json_format {
+                let json_str = get_formatted_json_string(&formatted_secrets, true).unwrap();
+                println!("{}\n", json_str);
+            } else {
+                print_table(&formatted_secrets);
+            }
         } else {
-            print_table(&secrets);
+            // print full
+            if json_format {
+                let json_str = get_formatted_json_string(&secrets, true).unwrap();
+                println!("{}\n", json_str);
+            } else {
+                print_table(&secrets);
+            }
         }
     }
 
@@ -646,7 +689,7 @@ async fn handle_run(
     Ok(())
 }
 
-fn print_table(secrets: &Vec<SecretWithoutComment>) {
+fn print_table(secrets: &Vec<impl Tabled>) {
     let table = build_table(secrets);
     println!("{}\n", table);
 }
