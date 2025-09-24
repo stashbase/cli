@@ -17,6 +17,16 @@ use crate::{
 
 use super::validation::InputValidationError;
 
+#[derive(Debug, ValueEnum, Clone)]
+pub enum PrintSecrets {
+    /// Show only secret names
+    Names,
+    /// Show secret names and masked values (••••••••)
+    Masked,
+    /// Show secret names and full values
+    Full,
+}
+
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 #[serde(rename_all = "camelCase")]
 pub struct SecretWithoutComment {
