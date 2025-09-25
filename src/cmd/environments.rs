@@ -102,7 +102,7 @@ pub struct ListEnvironments {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Search name
+    /// Search environments by name
     #[arg(value_enum, long = "search")]
     pub search: Option<String>,
 
@@ -116,7 +116,7 @@ pub struct ListEnvironments {
     )]
     pub is_production: Option<bool>,
 
-    /// Sort environments by property
+    /// Sort environments by
     #[arg(value_enum, long = "sort-by")]
     pub sort_by: Option<EnvSortBy>,
 
