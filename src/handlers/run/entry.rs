@@ -611,10 +611,10 @@ async fn handle_run(
                 .into_iter()
                 .map(|s| SecretWithoutComment {
                     name: s.name,
-                    value: if s.value.len() >= 3 {
-                        format!("{}******", &s.value[..3])
+                    value: if s.value.len() <= 3 {
+                        "*".repeat(6)
                     } else {
-                        "******".to_string()
+                        format!("{}{}", &s.value[..3], "*".repeat(6))
                     },
                 })
                 .collect();
