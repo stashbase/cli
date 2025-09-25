@@ -83,6 +83,7 @@ pub enum EntityType {
     Config(ConfigCommand),
 
     /// Open web dashboard
+    #[clap(name = "open", aliases = &["dashboard"])]
     Open,
 
     /// Show details of currently authenticated entity
