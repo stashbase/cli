@@ -80,7 +80,6 @@ pub enum EntityType {
     Generate(GenerateCommand),
 
     /// Your CLI configuration
-    #[clap(aliases = &["c", "conf"])]
     Config(ConfigCommand),
 
     /// Open web dashboard
