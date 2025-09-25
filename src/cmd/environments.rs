@@ -117,7 +117,7 @@ pub struct ListEnvironments {
     pub is_production: Option<bool>,
 
     /// Sort environments by property
-    #[arg(value_enum, short = 's', long = "sort-by")]
+    #[arg(value_enum, long = "sort-by")]
     pub sort_by: Option<EnvSortBy>,
 
     /// Descending order
