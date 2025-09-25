@@ -16,7 +16,7 @@ use crate::{
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
-        secrets::{PrintSecrets, Secret},
+        secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
             PushPullInputValidationError, YamlEnvConfigError,
