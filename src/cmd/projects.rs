@@ -38,7 +38,7 @@ pub enum ProjectSubcommand {
 #[command(override_usage = "projects list [OPTIONS]")]
 // TODO: perPage, pages + other args
 pub struct ListProjects {
-    /// Search name
+    /// Search projects by name
     #[arg(value_enum, long = "search")]
     pub search: Option<String>,
 
