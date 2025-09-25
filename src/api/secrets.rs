@@ -1,8 +1,7 @@
 use super::client;
 use crate::models::{
     api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
-        RequestApiOptionResponse, RequestArgs,
+        ApiPath, GetRequestApiResponse, OutputError, RequestApiOptionResponse, RequestArgs,
     },
     secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload, UpdateSecretsPayload},
 };
