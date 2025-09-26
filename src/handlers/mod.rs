@@ -9,5 +9,4 @@ pub mod push;
 pub mod run;
 pub mod scans;
 pub mod secrets;
-pub mod test;
 pub mod webhooks;
