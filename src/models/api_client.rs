@@ -245,6 +245,9 @@ pub enum ApiErrorEntity {
 
 #[derive(Debug, Deserialize)]
 pub enum GenericError {
+    #[serde(rename = "server.temporary_unavailable")]
+    ServerTemporaryUnavailable,
+
     #[serde(rename = "server.internal_error")]
     InternalServerError,
 
@@ -505,6 +508,11 @@ impl From<ApiError> for OutputError {
                     code: Some("server.internal_error".to_string()),
                     message: format!("Internal server error."),
                     hint: Some(format!("Please try again later.")),
+                }),
+                GenericError::ServerTemporaryUnavailable => OutputError::Generic(GenericOutputError {
+                    code: Some("server.temporary_unavailable".to_string()),
+                    message: format!("API service is temporarily unavailable. Please try again later."),
+                    hint: None,
                 }),
                 GenericError::Unauthorized => OutputError::Generic(GenericOutputError {
                     code: Some("auth.unauthorized".to_string()),
