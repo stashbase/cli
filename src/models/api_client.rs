@@ -245,7 +245,7 @@ pub enum ApiErrorEntity {
 
 #[derive(Debug, Deserialize)]
 pub enum GenericError {
-    #[serde(rename = "server.temporary_unavailable")]
+    #[serde(rename = "server.temporarily_unavailable")]
     ServerTemporaryUnavailable,
 
     #[serde(rename = "server.internal_error")]
