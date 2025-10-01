@@ -506,8 +506,8 @@ impl From<ApiError> for OutputError {
             ApiErrorEntity::Generic(e) => match e {
                 GenericError::InternalServerError => OutputError::Generic(GenericOutputError {
                     code: Some("server.internal_error".to_string()),
-                    message: format!("Internal server error."),
-                    hint: Some(format!("Please try again later.")),
+                    message: format!("Internal server error. Please try again later."),
+                    hint: None,
                 }),
                 GenericError::ServerTemporaryUnavailable => OutputError::Generic(GenericOutputError {
                     code: Some("server.temporary_unavailable".to_string()),
