@@ -9,8 +9,9 @@ use reqwest_retry::{
 };
 
 use crate::models::api_client::{
-    ApiErrorResponse, DeleteApiResponseOk, DeleteRequestApiResponse, GetApiResponseOk,
-    GetRequestApiResponse, OptionResponseOk, OutputError, RequestApiOptionResponse, RequestArgs,
+    ApiErrorResponse, DeleteApiResponseOk, DeleteRequestApiResponse, GenericOutputError,
+    GetApiResponseOk, GetRequestApiResponse, OptionResponseOk, OutputError,
+    RequestApiOptionResponse, RequestArgs,
 };
 
 struct RetryReqPolicy;
@@ -97,6 +98,15 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, Out
 
         Ok(response)
     } else {
+        if status == 503 {
+            let err = OutputError::Generic(GenericOutputError {
+                code: Some("server.temporary_unavailable".to_string()),
+                message: format!("API service is temporarily unavailable. Please try again later."),
+                hint: None,
+            });
+            return Err(err);
+        }
+
         let error_response: ApiErrorResponse = res
             .json()
             .await
@@ -155,6 +165,15 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
             }))
         }
     } else {
+        if status == 503 {
+            let err = OutputError::Generic(GenericOutputError {
+                code: Some("server.temporary_unavailable".to_string()),
+                message: format!("API service is temporarily unavailable. Please try again later."),
+                hint: None,
+            });
+            return Err(err);
+        }
+
         let error_response: ApiErrorResponse = res
             .json()
             .await
@@ -261,6 +280,15 @@ async fn post_patch_put<T: serde::Serialize>(
             Ok(response)
         }
     } else {
+        if status == 503 {
+            let err = OutputError::Generic(GenericOutputError {
+                code: Some("server.temporary_unavailable".to_string()),
+                message: format!("API service is temporarily unavailable. Please try again later."),
+                hint: None,
+            });
+            return Err(err);
+        }
+
         let error_response: ApiErrorResponse = res
             .json()
             .await
