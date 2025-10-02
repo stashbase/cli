@@ -102,7 +102,7 @@ pub async fn handle_environment_commands(
                 project,
                 environment_1: args.identifier_1,
                 environment_2: args.identifier_2,
-                only_names: args.only_names,
+                with_values: args.with_values,
                 json_format: raw_output,
                 silent,
             };

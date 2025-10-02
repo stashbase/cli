@@ -254,9 +254,9 @@ pub struct CompareEnvironment {
     #[arg(value_name = "NAME_OR_ID_2")]
     pub identifier_2: String,
 
-    /// Return only names without values
-    #[arg(value_enum, long = "only-names")]
-    pub only_names: bool,
+    /// Return secrets with values
+    #[arg(value_enum, long = "with-values")]
+    pub with_values: bool,
 }
 
 #[derive(Debug, Args)]
