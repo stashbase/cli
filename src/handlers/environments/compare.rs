@@ -27,7 +27,7 @@ pub struct HandleCompareEnvironmentsArgs {
     pub project: String,
     pub environment_1: String,
     pub environment_2: String,
-    pub only_names: bool,
+    pub with_values: bool,
     pub json_format: bool,
     pub silent: bool,
 }
@@ -83,7 +83,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         project: args.project,
         environment_1: &args.environment_1,
         environment_2: &args.environment_2,
-        only_names: &args.only_names,
+        with_values: &args.with_values,
     };
 
     let res = environments::compare(req_args).await;
@@ -124,7 +124,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                         args.environment_2,
                         data,
                         args.json_format,
-                        args.only_names,
+                        args.with_values,
                     );
 
                     println!("{}", print_string);
@@ -159,7 +159,7 @@ fn format_comparison(
     environment_2: String,
     data: CompareEnvironmentsResponse,
     json_format: bool,
-    only_names: bool,
+    with_values: bool,
 ) -> String {
     if json_format {
         let pretty = get_formatted_json_string(&data, true).unwrap();
@@ -171,8 +171,8 @@ fn format_comparison(
             let value_1 = row.values.get(0).cloned().unwrap();
             let value_2 = row.values.get(1).cloned().unwrap();
 
-            let formatted_1 = get_formatted_table_value(value_1, only_names);
-            let formatted_2 = get_formatted_table_value(value_2, only_names);
+            let formatted_1 = get_formatted_table_value(value_1, with_values);
+            let formatted_2 = get_formatted_table_value(value_2, with_values);
 
             table_data.push(vec![row.name, formatted_1, formatted_2]);
         }
@@ -201,10 +201,10 @@ fn format_comparison(
     }
 }
 
-fn get_formatted_table_value(value: Option<String>, only_names: bool) -> String {
+fn get_formatted_table_value(value: Option<String>, with_values: bool) -> String {
     match value {
         Some(v) => {
-            if only_names {
+            if !with_values {
                 "•••••••••••".to_string()
             } else {
                 match v == "" {

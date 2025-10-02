@@ -154,7 +154,7 @@ pub struct CompareEnvironmentsRequestArgs<'a> {
     pub project: String,
     pub environment_1: &'a str,
     pub environment_2: &'a str,
-    pub only_names: &'a bool,
+    pub with_values: &'a bool,
 }
 
 pub async fn compare<'a>(
@@ -165,13 +165,13 @@ pub async fn compare<'a>(
         project,
         environment_1,
         environment_2,
-        only_names,
+        with_values,
     } = args;
 
     let path = format!("{}/compare/{}", environment_1, environment_2);
 
-    let query = match only_names {
-        true => Some(vec![(format!("hide-values"), format!("true"))]),
+    let query = match with_values {
+        true => Some(vec![(format!("with-values"), format!("true"))]),
         false => None,
     };
 
