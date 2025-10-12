@@ -85,9 +85,15 @@ impl ScanConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ChangeRange {
-    pub start_line: usize,
-    pub end_line: usize,
+pub struct ResultChangeRange {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>, // for single line findings
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<usize>, // for multiline findings
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<usize>, // for multiline findings
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -222,7 +228,7 @@ impl Display for ScanFindingSeverity {
 #[serde(rename_all = "camelCase")]
 pub struct ScanFinding {
     pub file_path: String,
-    pub range: ChangeRange,
+    pub range: ResultChangeRange,
     pub preview: String,
     pub severity: ScanFindingSeverity,
     pub suggested_env_variable: String,
@@ -269,10 +275,16 @@ impl Display for ScanFinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         result.push_str(&format!("File: {}\n", self.file_path));
-        result.push_str(&format!(
-            "Range: {},{}\n",
-            self.range.start_line, self.range.end_line
-        ));
+        if let Some(line) = self.range.line {
+            result.push_str(&format!("Line: {}\n", line));
+        } else {
+            result.push_str(&format!(
+                "Range: {}-{}\n",
+                self.range.start_line.unwrap(),
+                self.range.end_line.unwrap()
+            ));
+        };
+
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
         result.push_str(&format!(
@@ -345,12 +357,17 @@ impl ScanFinding {
 
         let (start_line, end_line) = (self.range.start_line, self.range.end_line);
         result.push_str(&format!("{} {}\n", "File:".green_if_tty(), self.file_path));
-        result.push_str(&format!(
-            "{} {}-{}\n",
-            "Range:".green_if_tty(),
-            start_line,
-            end_line
-        ));
+        if let Some(line) = self.range.line {
+            result.push_str(&format!("{} {}\n", "Line:".green_if_tty(), line));
+        } else {
+            result.push_str(&format!(
+                "{} {}-{}\n",
+                "Range:".green_if_tty(),
+                self.range.start_line.unwrap(),
+                self.range.end_line.unwrap()
+            ));
+        };
+
         result.push_str(&format!("{} {}\n", "Preview:".green_if_tty(), self.preview));
         result.push_str(&format!(
             "{} {}\n",
