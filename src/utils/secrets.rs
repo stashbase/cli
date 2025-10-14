@@ -196,7 +196,11 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                                 }
                             }
                             false => {
-                                format!("{}{} {}", s.name, kv_separator, replaced_value)
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!("{}{}{}", s.name, kv_separator, replaced_value)
+                                } else {
+                                    format!("{}{} {}", s.name, kv_separator, replaced_value)
+                                }
                             }
                         };
 
