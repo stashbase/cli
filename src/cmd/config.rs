@@ -28,6 +28,8 @@ pub enum SecretsOutputFormat {
     #[default]
     List,
     Table,
+    // add alias for dotenv
+    #[clap(alias = ".env")]
     Dotenv,
     Yaml,
     Json,
