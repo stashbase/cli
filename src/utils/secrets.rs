@@ -109,7 +109,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             true => {
                                 if SecretsOutputFormat::Dotenv == *format {
                                     format!(
-                                        "{}{}{} {}",
+                                        "{}{}{}{}",
                                         comment_str, s.name, kv_separator, replaced_value
                                     )
                                 } else {
@@ -126,10 +126,17 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                                 }
                             }
                             false => {
-                                format!(
-                                    "{}{}{} {}",
-                                    comment_str, s.name, kv_separator, replaced_value
-                                )
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!(
+                                        "{}{}{}{}",
+                                        comment_str, s.name, kv_separator, replaced_value
+                                    )
+                                } else {
+                                    format!(
+                                        "{}{}{} {}",
+                                        comment_str, s.name, kv_separator, replaced_value
+                                    )
+                                }
                             }
                         };
 
@@ -178,7 +185,7 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                         let mut str_line = match is_multiline {
                             true => {
                                 if SecretsOutputFormat::Dotenv == *format {
-                                    format!("{}{} {}", s.name, kv_separator, replaced_value)
+                                    format!("{}{}{}", s.name, kv_separator, replaced_value)
                                 } else {
                                     let indented_value = replaced_value
                                         .lines()
