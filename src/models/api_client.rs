@@ -829,7 +829,7 @@ impl From<ApiError> for OutputError {
             ApiErrorEntity::Scan(e) => match e {
                 ScanError::ScanLimitReached => OutputError::Generic(GenericOutputError {
                     code: Some(format!("quota.scan_limit_reached")),
-                    message: format!("Workspace has reached the maximum number of scans allowed for its plan. Please enable pay-as-you-go scans to continue using scans or wait until the next billing cycle."),
+                    message: format!("Workspace has reached its included scan usage for the plan. Pay-as-you-go (metered) scans are available to continue scanning beyond the included quota, or you can wait until the next billing cycle."),
                     hint: None,
                 }),
                 ScanError::ScanFeatureNotAvailable => OutputError::Generic(GenericOutputError {
