@@ -1,5 +1,3 @@
-use std::env;
-
 use log::debug;
 use reqwest::{header::HeaderMap, Method};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -13,6 +11,8 @@ use crate::models::api_client::{
     GetApiResponseOk, GetRequestApiResponse, OptionResponseOk, OutputError,
     RequestApiOptionResponse, RequestArgs,
 };
+
+const API_URL: &str = "http://localhost:5000";
 
 struct RetryReqPolicy;
 impl RetryableStrategy for RetryReqPolicy {
@@ -69,11 +69,8 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 //
 
 pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, OutputError> {
-    let base_path =
-        env::var("STASHBASE_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
-
     let client = build_client(args.api_key);
-    let full_path = format!("{}/{}", base_path, args.path);
+    let full_path = format!("{}/{}", API_URL, args.path);
 
     let res = client
         .request(reqwest::Method::GET, full_path)
@@ -119,11 +116,8 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, Out
 }
 
 pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse, OutputError> {
-    let base_path =
-        env::var("STASHBASE_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
-
     let client = build_client(args.api_key);
-    let full_path = format!("{}/{}", base_path, args.path);
+    let full_path = format!("{}/{}", API_URL, args.path);
 
     let res = client
         .request(reqwest::Method::DELETE, full_path)
@@ -214,11 +208,8 @@ async fn post_patch_put<T: serde::Serialize>(
     data: Option<T>,
     method: Method,
 ) -> Result<RequestApiOptionResponse, OutputError> {
-    let base_path =
-        env::var("STASHBASE_API_URL").unwrap_or_else(|_| format!("http://localhost:5000"));
-
     let client = build_client(args.api_key);
-    let full_path = format!("{}/{}", base_path, args.path);
+    let full_path = format!("{}/{}", API_URL, args.path);
 
     let mut headers = HeaderMap::new();
 
