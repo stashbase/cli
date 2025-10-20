@@ -278,11 +278,10 @@ impl Display for ScanFinding {
         if let Some(line) = self.range.line {
             result.push_str(&format!("Line: {}\n", line));
         } else {
-            result.push_str(&format!(
-                "Range: {}-{}\n",
-                self.range.start_line.unwrap(),
-                self.range.end_line.unwrap()
-            ));
+            let (start_line, end_line) =
+                (self.range.start_line.unwrap(), self.range.end_line.unwrap());
+
+            result.push_str(&format!("Range: {}-{}\n", start_line, end_line));
         };
 
         result.push_str(&format!("Preview: {}\n", self.preview));
@@ -351,16 +350,18 @@ impl ScanFinding {
     pub fn get_colored_string(&self) -> String {
         let mut result = String::new();
 
-        let (start_line, end_line) = (self.range.start_line, self.range.end_line);
         result.push_str(&format!("{} {}\n", "File:".green_if_tty(), self.file_path));
         if let Some(line) = self.range.line {
             result.push_str(&format!("{} {}\n", "Line:".green_if_tty(), line));
         } else {
+            let (start_line, end_line) =
+                (self.range.start_line.unwrap(), self.range.end_line.unwrap());
+
             result.push_str(&format!(
                 "{} {}-{}\n",
                 "Range:".green_if_tty(),
-                self.range.start_line.unwrap(),
-                self.range.end_line.unwrap()
+                start_line,
+                end_line
             ));
         };
 
