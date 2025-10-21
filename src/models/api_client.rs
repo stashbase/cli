@@ -353,6 +353,12 @@ pub enum WebhookError {
 
 #[derive(Debug, Deserialize)]
 pub enum ScanError {
+    #[serde(rename = "rate_limit.scan_tpm_limit_reached")]
+    ScanTpmLimitReached,
+
+    #[serde(rename = "rate_limit.scan_rpm_limit_reached")]
+    ScanRpmLimitReached,
+
     #[serde(rename = "quota.scan_limit_reached")]
     ScanLimitReached,
 
@@ -827,6 +833,16 @@ impl From<ApiError> for OutputError {
                 }
             },
             ApiErrorEntity::Scan(e) => match e {
+                ScanError::ScanTpmLimitReached => OutputError::Generic(GenericOutputError {
+                    code: Some("rate_limit.scan_tpm_limit_reached".to_string()),
+                    message: "You have reached the maximum allowed scan tokens per minute. Please wait and try again in about a minute.".to_string(),
+                    hint: None,
+                }),
+                ScanError::ScanRpmLimitReached => OutputError::Generic(GenericOutputError {
+                    code: Some("rate_limit.scan_rpm_limit_reached".to_string()),
+                    message: "You have reached the maximum allowed scan requests per minute. Please wait and try again in about a minute.".to_string(),
+                    hint: None,
+                }),
                 ScanError::ScanLimitReached => OutputError::Generic(GenericOutputError {
                     code: Some(format!("quota.scan_limit_reached")),
                     message: format!("Workspace has reached its included scan usage for the plan. Pay-as-you-go (metered) scans are available to continue scanning beyond the included quota, or you can wait until the next billing cycle."),
