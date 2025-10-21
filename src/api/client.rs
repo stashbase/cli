@@ -40,7 +40,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 
     let builder = ClientBuilder::new(
         reqwest::ClientBuilder::new()
-            .timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30))
             .default_headers(headers)
             .user_agent("stashbase/cli/0.1.0")
             .build()
