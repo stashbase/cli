@@ -362,6 +362,9 @@ pub enum ScanError {
     #[serde(rename = "quota.scan_limit_reached")]
     ScanLimitReached,
 
+    #[serde(rename = "quota.scan_spend_limit_reached")]
+    ScanSpendLimitReached,
+
     #[serde(rename = "quota.scan_feature_not_available")]
     ScanFeatureNotAvailable,
 
@@ -845,7 +848,12 @@ impl From<ApiError> for OutputError {
                 }),
                 ScanError::ScanLimitReached => OutputError::Generic(GenericOutputError {
                     code: Some(format!("quota.scan_limit_reached")),
-                    message: format!("Workspace has reached its included scan usage for the plan. Pay-as-you-go (metered) scans are available to continue scanning beyond the included quota, or you can wait until the next billing cycle."),
+                    message: format!("Workspace has reached or would exceed its included scan usage for the plan. Pay-as-you-go (metered) scans are available to continue scanning beyond the included quota, or you can wait until the next billing cycle."),
+                    hint: None,
+                }),
+                ScanError::ScanSpendLimitReached => OutputError::Generic(GenericOutputError {
+                    code: Some(format!("quota.scan_spend_limit_reached")),
+                    message: format!("Workspace has reached its configured pay-as-you-go spend limit. To continue scanning, workspace owner can increase/delete workspace spend limit or wait until the next billing cycle."),
                     hint: None,
                 }),
                 ScanError::ScanFeatureNotAvailable => OutputError::Generic(GenericOutputError {
