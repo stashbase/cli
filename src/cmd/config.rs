@@ -67,7 +67,7 @@ pub enum ConfigSubcommand {
     ExpandRefs(ExpandRefsCommand),
 
     /// Print current config
-    Print,
+    Print(PrintConfig),
     /// Reset config file
     Reset(ResetConfig),
 }
@@ -174,4 +174,11 @@ pub struct ResetConfig {
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config print [OPTIONS]")]
+pub struct PrintConfig {
+    #[arg(value_enum, long = "show-secrets")]
+    pub show_secrets: bool,
 }

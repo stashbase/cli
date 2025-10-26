@@ -6,7 +6,7 @@ use crate::{
         SecretsOutputSubcommand,
     },
     handlers::config::{
-        api_key,
+        api_key::{self, get_first_3_and_last_5},
         expand_refs::{print_expand_refs_config, set_expand_refs_config},
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
@@ -61,11 +61,28 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 }
             }
         },
-        ConfigSubcommand::Print => {
+        ConfigSubcommand::Print(args) => {
             if config.is_empty() {
                 eprintln!("Config file is empty.");
             } else {
-                let toml_string = toml::to_string(&config);
+                let mut config_clone = config.clone();
+
+                if !args.show_secrets {
+                    if let Some(api_key) = &config.api_key {
+                        let masked_api_key = get_first_3_and_last_5(api_key);
+
+                        match masked_api_key {
+                            Some(masked) => {
+                                config_clone.api_key = Some(format!("{}...{}", masked.0, masked.1));
+                            }
+                            None => {
+                                config_clone.api_key = Some(String::from("***"));
+                            }
+                        }
+                    }
+                }
+
+                let toml_string = toml::to_string(&config_clone);
 
                 match toml_string {
                     Ok(s) => {
