@@ -1,4 +1,5 @@
 pub mod duplicates;
+pub mod env;
 pub mod files;
 pub mod human_datetime;
 pub mod interaction;
