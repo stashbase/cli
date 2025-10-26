@@ -1,10 +1,26 @@
 // use anyhow::Result;
 
-use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfColoredOutput};
+use crate::{
+    config::config,
+    models::config::UpdateConfig,
+    utils::{interaction::input_password, output::ColorizeIfColoredOutput},
+};
 
-pub fn set_api_key(api_key: String) {
+pub fn set_api_key(api_key: Option<String>) {
+    // If API key argument not provided, prompt the user
+    let api_key_value = match api_key {
+        Some(key) => key,
+        None => match input_password("Enter your API key") {
+            Some(value) => value,
+            None => {
+                eprintln!("{}", "No API key entered. Aborted.".red_if_tty_stderr());
+                return;
+            }
+        },
+    };
+
     let res = config::update_config(UpdateConfig {
-        api_key: Some(api_key),
+        api_key: Some(api_key_value),
         output_format: None,
         expand_refs: None,
     });
