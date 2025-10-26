@@ -23,6 +23,7 @@ use crate::{
         run::entry::{handle_load_env_run, HandleRunArgs},
     },
     models::{config::Config, validation::InputValidationError},
+    utils::env::get_stashbase_api_key,
 };
 
 #[tokio::main()]
@@ -48,10 +49,10 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
-        let api_key = match args.api_key {
-            Some(api_key) => Some(api_key),
-            None => config.api_key,
-        };
+        let api_key = args
+            .api_key
+            .or_else(|| get_stashbase_api_key())
+            .or_else(|| config.api_key);
 
         let raw_output = args.raw;
         let silent = args.silent;
