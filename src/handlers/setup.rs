@@ -37,7 +37,7 @@ pub fn setup(existing_config: Config) -> Result<()> {
 
     let updated_config = UpdateConfig {
         api_key,
-        expand_refs,
+        expand_refs: Some(expand_refs.unwrap_or(false)),
         output_format: Some(OutputFormatConfig {
             general: Some(new_output_format),
             secrets: Some(new_secrets_output_format),
