@@ -1,4 +1,4 @@
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 pub fn confirm_opt(prompt: &str) -> Option<bool> {
     Confirm::with_theme(&ColorfulTheme::default())
@@ -35,4 +35,15 @@ pub fn select(prompt: &str, selections: Vec<String>) -> Option<usize> {
         .items(&selections[..])
         .interact_opt()
         .unwrap_or_else(|_| None)
+}
+
+pub fn input_password(prompt: &str) -> Option<String> {
+    match Password::with_theme(&ColorfulTheme::default())
+        .with_prompt(prompt)
+        .allow_empty_password(true)
+        .interact()
+    {
+        Ok(value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+        _ => None, // empty or error
+    }
 }
