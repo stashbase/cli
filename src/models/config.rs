@@ -2,14 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub api_key: Option<String>,
     pub expand_refs: Option<bool>,
     pub ouput_format: Option<OutputFormatConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputFormatConfig {
     pub general: Option<OutputFormat>,
     pub secrets: Option<SecretsOutputFormat>,
