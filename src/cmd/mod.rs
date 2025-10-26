@@ -8,5 +8,6 @@ pub mod root;
 pub mod run;
 pub mod scans;
 pub mod secrets;
+pub mod setup;
 pub mod shared;
 pub mod webhooks;
