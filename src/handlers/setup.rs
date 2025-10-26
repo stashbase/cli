@@ -4,9 +4,9 @@ use crate::{
     cmd::config::{OutputFormat, SecretsOutputFormat},
     config::config,
     models::config::{Config, OutputFormatConfig, UpdateConfig},
-    utils::interaction::{confirm_opt, input_password},
+    utils::interaction::input_password,
 };
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Select};
 
 pub fn setup(existing_config: Config) -> Result<()> {
     // Implementation for setup
@@ -105,5 +105,9 @@ fn select_secrets_output_format(current: Option<SecretsOutputFormat>) -> Secrets
 }
 
 pub fn select_expand_secret_references() -> Option<bool> {
-    confirm_opt("Expand secret references by default")
+    Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Expand secret references by default")
+        .default(false)
+        .interact_opt()
+        .unwrap_or_else(|_| None)
 }
