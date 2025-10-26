@@ -51,7 +51,7 @@ pub fn print_api_key(api_key: &Option<String>, full: bool) {
     }
 }
 
-fn get_first_3_and_last_5(s: &str) -> Option<(String, String)> {
+pub fn get_first_3_and_last_5(s: &str) -> Option<(String, String)> {
     if s.len() < 8 {
         return None; // The string is too short to extract both parts.
     }
