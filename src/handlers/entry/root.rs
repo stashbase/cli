@@ -21,6 +21,7 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
         run::entry::{handle_load_env_run, HandleRunArgs},
+        setup::setup,
     },
     models::{config::Config, validation::InputValidationError},
     utils::env::get_stashbase_api_key,
@@ -43,6 +44,12 @@ pub async fn handle_cli(args: Cli) {
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
             if let Err(err) = handle_config_commands(cmd, &config) {
+                eprintln!("{:?}", err);
+            }
+
+            return;
+        } else if let EntityType::Setup(_) = args.entity_type {
+            if let Err(err) = setup(config) {
                 eprintln!("{:?}", err);
             }
 
@@ -119,6 +126,9 @@ pub async fn handle_cli(args: Cli) {
                     .await
             }
             EntityType::Config(_) => {
+                unreachable!()
+            }
+            EntityType::Setup(_) => {
                 unreachable!()
             }
             EntityType::Secret(cmd) => {

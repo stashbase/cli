@@ -5,7 +5,7 @@ use crate::cmd::scans::ScanCommands;
 use super::{
     config::ConfigCommand, environments::EnvironmentCommands, generate::GenerateCommand,
     projects::ProjectCommands, pull::PullCommand, push::PushCommand, run::RunCommand,
-    secrets::SecretArgs, webhooks::WebhookCommand,
+    secrets::SecretArgs, setup::SetupCommand, webhooks::WebhookCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -81,6 +81,9 @@ pub enum EntityType {
 
     /// Your CLI configuration
     Config(ConfigCommand),
+
+    /// Interactively configure Stashbase CLI
+    Setup(SetupCommand),
 
     /// Open web dashboard
     #[clap(name = "open", aliases = &["dashboard"])]
