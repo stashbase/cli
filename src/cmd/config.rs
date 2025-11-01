@@ -179,6 +179,6 @@ pub struct ResetConfig {
 #[derive(Debug, Args)]
 #[command(override_usage = "config print [OPTIONS]")]
 pub struct PrintConfig {
-    #[arg(value_enum, long = "show-secrets")]
-    pub show_secrets: bool,
+    #[arg(value_enum, long = "show-sensitive")]
+    pub show_sensitive: bool,
 }
