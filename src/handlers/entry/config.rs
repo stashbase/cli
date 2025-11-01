@@ -67,7 +67,7 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
             } else {
                 let mut config_clone = config.clone();
 
-                if !args.show_secrets {
+                if !args.show_sensitive {
                     if let Some(api_key) = &config.api_key {
                         let masked_api_key = get_first_3_and_last_5(api_key);
 
