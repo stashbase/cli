@@ -365,6 +365,9 @@ pub enum ScanError {
     #[serde(rename = "quota.scan_spend_limit_reached")]
     ScanSpendLimitReached,
 
+    #[serde(rename = "rate_limit.scan_request_too_large")]
+    ScanRequestTooLarge,
+
     #[serde(rename = "quota.scan_feature_not_available")]
     ScanFeatureNotAvailable,
 
@@ -844,6 +847,11 @@ impl From<ApiError> for OutputError {
                 ScanError::ScanRpmLimitReached => OutputError::Generic(GenericOutputError {
                     code: Some("rate_limit.scan_rpm_limit_reached".to_string()),
                     message: "You have reached the maximum allowed scan requests per minute. Please wait and try again in about a minute.".to_string(),
+                    hint: None,
+                }),
+                ScanError::ScanRequestTooLarge => OutputError::Generic(GenericOutputError {
+                    code: Some("rate_limit.scan_request_too_large".to_string()),
+                    message: "Scan request exceeds the maximum allowed size. Please reduce the number of files/commits or split into smaller requests to ensure all content is scanned for secrets.".to_string(),
                     hint: None,
                 }),
                 ScanError::ScanLimitReached => OutputError::Generic(GenericOutputError {
