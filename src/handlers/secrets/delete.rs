@@ -100,7 +100,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
             let res = res.unwrap();
 
             match res {
-                RequestApiOptionResponse::Ok(res) => {
+                DeleteRequestApiResponse::Ok(res) => {
                     match res.text {
                         Some(text) => {
                             //
@@ -163,7 +163,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                         }
                     }
                 }
-                RequestApiOptionResponse::Err(e) => {
+                DeleteRequestApiResponse::Err(e) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }
