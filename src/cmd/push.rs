@@ -8,11 +8,11 @@ pub type PushFormat = PullFormat;
 #[command(override_usage = "push  [OPTIONS]")]
 pub struct PushCommand {
     /// Relative path to a config file (default: stashbase.yaml)
-    #[arg(value_enum, short = 'c', long = "config")]
+    #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
 
     /// Target file path if not specified in the config
-    #[arg(value_enum, long = "file")]
+    #[arg(long = "file")]
     pub file: Option<String>,
 
     /// Target file format (autodetected by default)
@@ -32,10 +32,10 @@ pub struct PushCommand {
     pub set: Vec<String>,
 
     /// Expand references to their values
-    #[arg(value_enum, long = "expand-refs")]
+    #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
 
     /// Ignore secret comments
-    #[arg(value_enum, long = "ignore-comments")]
+    #[arg(long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
 }

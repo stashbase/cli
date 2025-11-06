@@ -26,7 +26,7 @@ pub struct ScanStaged {
     pub baseline: Option<String>,
 
     /// Relative path to the config file
-    #[arg(value_enum, short = 'c', long = "config")]
+    #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
 
     /// Git-like patterns of files and folders to not scan
@@ -34,7 +34,7 @@ pub struct ScanStaged {
     pub exclude: Vec<String>,
 
     /// Output directory for the scan results
-    #[arg(value_enum, short = 'o', long = "output-dir")]
+    #[arg(short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
@@ -74,7 +74,7 @@ pub struct ScanCommits {
     pub baseline: Option<String>,
 
     /// Relative path to the config file
-    #[arg(value_enum, short = 'c', long = "config")]
+    #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
 
     /// Git-like patterns of files and folders to not scan
@@ -82,7 +82,7 @@ pub struct ScanCommits {
     pub exclude: Vec<String>,
 
     /// Output directory for the scan results
-    #[arg(value_enum, short = 'o', long = "output-dir")]
+    #[arg(short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore

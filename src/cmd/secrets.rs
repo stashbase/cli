@@ -13,11 +13,11 @@ use super::{
 #[command(override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct SecretArgs {
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    #[arg(short = 'p', long = "project", required = false)]
     pub project: Option<String>,
 
     /// Environment name
-    #[arg(value_enum, short = 'e', long = "environment", required = false)]
+    #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
 
     #[clap(subcommand)]
@@ -134,11 +134,11 @@ pub struct ListSecrets {
     pub format: Option<SecretsOutputFormat>,
 
     /// Print only names
-    #[arg(value_enum, long = "only-names")]
+    #[arg(long = "only-names")]
     pub only_names: bool,
 
     /// Expand references to their values
-    #[arg(value_enum, long = "expand-refs")]
+    #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
 }
 
@@ -156,7 +156,7 @@ pub struct GetSecrets {
     pub format: Option<SecretsOutputFormat>,
 
     /// Expand references to their values
-    #[arg(value_enum, long = "expand-refs")]
+    #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
 }
 
@@ -171,7 +171,7 @@ pub struct DeleteSecrets {
     pub names: Vec<String>,
 
     /// Delete all secrets
-    #[arg(name = "all", value_enum, long = "all")]
+    #[arg(name = "all", long = "all")]
     pub delete_all: bool,
 
     /// Proceed without confirmation
@@ -224,7 +224,7 @@ pub struct UploadSecrets {
     pub format: Option<SecretsFileFormat>,
 
     /// Ignore secret comments
-    #[arg(value_enum, long = "ignore-comments")]
+    #[arg(long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
 }
 

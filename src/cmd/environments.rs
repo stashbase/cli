@@ -103,13 +103,11 @@ pub struct ListEnvironments {
     pub shared_args: SharedProjectArgs,
 
     /// Search environments by name
-    #[arg(value_enum, long = "search")]
+    #[arg(long = "search")]
     pub search: Option<String>,
 
     /// Filter by production status
     #[arg(
-        value_enum,
-        name = "production",
         long = "production",
         alias = "prod",
         help = "Filter environments by production status (true/false)"
@@ -117,15 +115,15 @@ pub struct ListEnvironments {
     pub is_production: Option<bool>,
 
     /// Sort environments by
-    #[arg(value_enum, long = "sort-by")]
+    #[arg(long = "sort-by")]
     pub sort_by: Option<EnvSortBy>,
 
     /// Descending order
-    #[arg(value_enum, long = "desc")]
+    #[arg(long = "desc")]
     pub descending: bool,
 
     /// Format output
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 }
 
@@ -167,7 +165,7 @@ pub struct GetEnvironment {
     pub identifier: String,
 
     /// Format output
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 }
 
@@ -182,7 +180,7 @@ pub struct DeleteEnvironment {
     pub identifier: String,
 
     /// Proceed without confirmation
-    #[arg(long = "force")]
+    #[arg(short = 'f', long = "force")]
     pub force: bool,
 }
 
@@ -208,15 +206,15 @@ pub struct UpdateEnvironment {
     pub identifier: String,
 
     /// New environment name
-    #[arg(value_enum, short = 'n', long = "name")]
+    #[arg(short = 'n', long = "name")]
     pub new_name: Option<String>,
 
     /// Environment description
-    #[arg(value_enum, short = 'd', long = "description")]
+    #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 
     /// Whether the environment is production or not, defaults to false
-    #[arg(value_enum, name = "production", alias = "prod", long = "production")]
+    #[arg(name = "production", alias = "prod", long = "production")]
     pub is_production: Option<bool>,
 
     /// Proceed without confirmation
@@ -255,7 +253,7 @@ pub struct CompareEnvironment {
     pub identifier_2: String,
 
     /// Return secrets with values
-    #[arg(value_enum, long = "with-values")]
+    #[arg(long = "with-values")]
     pub with_values: bool,
 }
 
@@ -269,22 +267,22 @@ pub struct CreateEnvironment {
     pub name: String,
 
     /// Whether the environment is production or not, defaults to false
-    #[arg(value_enum, name = "production", alias = "prod", long = "production")]
+    #[arg(name = "production", alias = "prod", long = "production")]
     pub is_production: Option<bool>,
 
     /// Environment description
-    #[arg(value_enum, short = 'd', long = "description")]
+    #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 
     /// Add with secrets - path to file
-    #[arg(value_enum, short = 'f', long = "file")]
+    #[arg(short = 'f', long = "file")]
     pub file_path: Option<String>,
 
     /// Secrets file format (if file provided)
-    #[arg(value_enum, long = "format")]
+    #[arg(long = "format")]
     pub file_format: Option<SecretsFileFormat>,
 
     /// Open environment in browser
-    #[arg(value_enum, long = "open")]
+    #[arg(long = "open")]
     pub open: bool,
 }

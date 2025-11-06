@@ -39,27 +39,27 @@ pub enum ProjectSubcommand {
 // TODO: perPage, pages + other args
 pub struct ListProjects {
     /// Search projects by name
-    #[arg(value_enum, long = "search")]
+    #[arg(long = "search")]
     pub search: Option<String>,
 
     /// Sort projects by
-    #[arg(value_enum, long = "sort-by")]
+    #[arg(long = "sort-by")]
     pub sort_by: Option<SortBy>,
 
     /// Descending order
-    #[arg(value_enum, long = "desc")]
+    #[arg(long = "desc")]
     pub descending: bool,
 
     /// Page (selected page)
-    #[arg(value_enum, long = "page")]
+    #[arg(long = "page")]
     pub page: Option<usize>,
 
     /// Take (number of) items per page
-    #[arg(value_enum, long = "limit")]
+    #[arg(long = "limit")]
     pub limit: Option<usize>,
 
     /// Format output
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 }
 
@@ -97,7 +97,7 @@ pub struct CreateProject {
     pub name: String,
 
     /// Project description
-    #[arg(value_enum, short = 'd', long = "description")]
+    #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 }
 
@@ -109,11 +109,11 @@ pub struct UpdateProject {
     pub identifier: String,
 
     /// New name
-    #[arg(value_enum, short = 'n', long = "name")]
+    #[arg(short = 'n', long = "name")]
     pub new_name: Option<String>,
 
     /// Project description
-    #[arg(value_enum, short = 'd', long = "description")]
+    #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 
     /// Proceed without confirmation
@@ -129,7 +129,7 @@ pub struct GetProject {
     pub identifier: String,
 
     /// Format output
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 }
 
