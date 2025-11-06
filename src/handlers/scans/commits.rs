@@ -41,6 +41,7 @@ pub struct HandleScanUnpushedCommitHunksArgs {
     pub ignore_value_hashes: Vec<String>,
     pub ignore_value_regexes: Vec<String>,
     pub match_files: Vec<String>,
+    pub last_n_commits: Option<u32>,
 }
 
 pub async fn handle_scan_unpushed_commit_hunks(
@@ -58,6 +59,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         match_project,
         match_environments,
         match_files,
+        last_n_commits,
         exclude: _,
     } = args;
 
@@ -94,6 +96,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         &SCAN_IGNORE_LINE_COMMENT,
         &exclude,
         config_file_path.as_deref(),
+        last_n_commits,
     );
 
     if let Err(e) = unpushed_commit_hunks_result {
@@ -622,6 +625,7 @@ pub fn get_unpushed_commit_hunks(
     ignore_line_comment: &str,
     exclude_patterns: &[String],
     config_file_path: Option<&str>,
+    last_n_commits: Option<u32>,
 ) -> Result<Vec<CommitChanges>, ScanInputValidationError> {
     let repo = Repository::open(".").map_err(|e| {
         if e.code() == git2::ErrorCode::NotFound {
@@ -1114,6 +1118,16 @@ pub fn get_unpushed_commit_hunks(
             // We've reached the root commit
             break;
         }
+    }
+
+    if let Some(last_n_commits) = last_n_commits {
+        let sorted_from_latest: Vec<CommitChanges> = all_commit_changes
+            .into_iter()
+            .rev()
+            .take(last_n_commits as usize)
+            .collect();
+
+        return Ok(sorted_from_latest);
     }
 
     // commits are already ordered from oldest to newest

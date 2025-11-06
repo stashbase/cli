@@ -47,6 +47,7 @@ pub async fn handle_scan_commands(
                 match_environments: args.match_environments,
                 match_project: args.match_project,
                 match_files: args.match_files,
+                last_n_commits: args.last_n_commits,
             };
 
             handle_scan_unpushed_commit_hunks(args).await?;
