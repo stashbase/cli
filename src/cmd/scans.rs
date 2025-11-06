@@ -30,7 +30,7 @@ pub struct ScanStaged {
     pub config_file: Option<String>,
 
     /// Git-like patterns of files and folders to not scan
-    #[clap(value_parser, short = 'e', long="exclude", num_args = 1..)]
+    #[clap(short = 'e', long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
 
     /// Output directory for the scan results
@@ -38,15 +38,15 @@ pub struct ScanStaged {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(value_parser, long="ignore-value-hashes", num_args = 1..)]
+    #[clap(long="ignore-value-hashes", num_args = 1..)]
     pub ignore_value_hashes: Vec<String>,
 
     /// Regexes of secret values to ignore
-    #[clap(value_parser, long="ignore-value-regexes", num_args = 1..)]
+    #[clap(long="ignore-value-regexes", num_args = 1..)]
     pub ignore_value_regexes: Vec<String>,
 
     /// Project to find matched secret values
-    #[clap(value_parser, long = "match-project")]
+    #[clap(long = "match-project")]
     pub match_project: Option<String>,
 
     /// Environments to find matched secret values in the specified project; defaults to all environments in the project
@@ -55,11 +55,11 @@ pub struct ScanStaged {
     /// - Name
     /// - ID
     /// - Folder (e.g. `folder-*`)
-    #[clap(value_parser, long = "match-environments", num_args = 1..)]
+    #[clap(long = "match-environments", num_args = 1..)]
     pub match_environments: Vec<String>,
 
     /// Local files with secrets (like .env) to find matched secret values
-    #[clap(value_parser, long = "match-files", num_args = 1..)]
+    #[clap(long = "match-files", num_args = 1..)]
     pub match_files: Vec<String>,
 }
 
@@ -67,7 +67,7 @@ pub struct ScanStaged {
 #[command(override_usage = "scan commits [OPTIONS]")]
 pub struct ScanCommits {
     /// Number of commits to scan from the most recent commit (default: all)
-    #[clap( value_name = "N", long = "last", value_parser = clap::value_parser!(u32).range(1..=1000),)]
+    #[clap(value_name = "N", long = "last", value_parser = clap::value_parser!(u32).range(1..=1000),)]
     pub last_n_commits: Option<u32>,
     /// Path to a baseline file; only report findings that are new compared to this baseline
     #[arg(long = "baseline", name = "baseline")]
@@ -78,7 +78,7 @@ pub struct ScanCommits {
     pub config_file: Option<String>,
 
     /// Git-like patterns of files and folders to not scan
-    #[clap(value_parser, short = 'e', long="exclude", num_args = 1..)]
+    #[clap(short = 'e', long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
 
     /// Output directory for the scan results
@@ -86,15 +86,15 @@ pub struct ScanCommits {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(value_parser, long="ignore-value-hashes", num_args = 1..)]
+    #[clap(long="ignore-value-hashes", num_args = 1..)]
     pub ignore_value_hashes: Vec<String>,
 
     /// Regexes of secret values to ignore
-    #[clap(value_parser, long="ignore-value-regexes", num_args = 1..)]
+    #[clap(long="ignore-value-regexes", num_args = 1..)]
     pub ignore_value_regexes: Vec<String>,
 
     /// Project to find matched secret values
-    #[clap(value_parser, long = "match-project")]
+    #[clap(long = "match-project")]
     pub match_project: Option<String>,
 
     /// Environments to find matched secret values in the specified project; defaults to all environments in the project
@@ -103,10 +103,10 @@ pub struct ScanCommits {
     /// - Name
     /// - ID
     /// - Folder (e.g. `folder-*`)
-    #[clap(value_parser, long = "match-environments", num_args = 1..)]
+    #[clap(long = "match-environments", num_args = 1..)]
     pub match_environments: Vec<String>,
 
     /// Local files with secrets (like .env) to find matched secret values
-    #[clap(value_parser, long = "match-files", num_args = 1..)]
+    #[clap(long = "match-files", num_args = 1..)]
     pub match_files: Vec<String>,
 }

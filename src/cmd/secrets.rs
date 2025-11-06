@@ -167,7 +167,7 @@ pub struct DeleteSecrets {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets (names) to delete
-    #[clap(value_parser, num_args = 1.., value_delimiter = ' ')]
+    #[clap(num_args = 1.., value_delimiter = ' ')]
     pub names: Vec<String>,
 
     /// Delete all secrets
@@ -186,11 +186,11 @@ pub struct SetSecrets {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets to set: NAME_1=VAL_1 NAME_2=VAL_2
-    #[clap(value_parser, num_args = 1..)]
+    #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
 
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
-    #[clap(value_parser, long="comments", short='c', num_args = 1..)]
+    #[clap(long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
 }
 
@@ -201,11 +201,11 @@ pub struct CreateSecrets {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets to create: NAME_1=VAL_1 NAME_2=VAL_2
-    #[clap(value_parser, num_args = 1..)]
+    #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
 
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
-    #[clap(value_parser, long="comments", short='c', num_args = 1..)]
+    #[clap(long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
 }
 
@@ -220,7 +220,7 @@ pub struct UploadSecrets {
     pub file_path: String,
 
     /// Upload format
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<SecretsFileFormat>,
 
     /// Ignore secret comments
@@ -235,15 +235,15 @@ pub struct UpdateSecrets {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Values to update (format: NAME=NEW_VALUE). Use original name even if also renaming
-    #[clap(value_parser, long = "values", short = 'v', num_args = 1..)]
+    #[clap(long = "values", short = 'v', num_args = 1..)]
     pub values: Vec<String>,
 
     /// Names to update (format: OLD_NAME=NEW_NAME). Use original name even if updating value
-    #[clap(value_parser, long = "names", short = 'n', num_args = 1..)]
+    #[clap(long = "names", short = 'n', num_args = 1..)]
     pub new_names: Vec<String>,
 
     /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
-    #[clap(value_parser, long = "comments", short = 'c', num_args = 1..)]
+    #[clap(long = "comments", short = 'c', num_args = 1..)]
     pub comments: Vec<String>,
 }
 
@@ -287,7 +287,7 @@ pub struct RenameSecrets {
     pub shared_args: SharedProjectEnvArgs,
 
     /// Secrets to rename: NAME_1=NEW_NAME_1 NAME_2=NEW_NAME_2
-    #[clap(value_parser, num_args = 1..)]
+    #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
 }
 

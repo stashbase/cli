@@ -53,15 +53,15 @@ pub struct PullCommand {
     // #[arg(value_enum, short = 'e', long = "environment")]
     // pub environment: Option<String>,
     /// Select secret names
-    #[clap(value_parser, long="only", num_args = 1..)]
+    #[clap(long="only", num_args = 1..)]
     pub only: Vec<String>,
 
     /// Exclude secret names
-    #[clap(value_parser, long="exclude", num_args = 1..)]
+    #[clap(long="exclude", num_args = 1..)]
     pub exclude: Vec<String>,
 
     /// Manually set secrets
-    #[clap(value_parser, long="set", num_args = 1..)]
+    #[clap(long="set", num_args = 1..)]
     pub set: Vec<String>,
 
     /// Expand references to their values
