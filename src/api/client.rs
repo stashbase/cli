@@ -223,7 +223,7 @@ async fn post_patch_put<T: serde::Serialize>(
                 .request(method, full_path)
                 .headers(headers)
                 .query(&args.query)
-                .json(&data)
+                .body(serde_json::to_string(&data).unwrap())
                 .send()
                 .await
         }
