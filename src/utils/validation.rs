@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use linked_hash_map::LinkedHashMap;
 use linked_hash_set::LinkedHashSet;
 use regex::Regex;
-use short_uuid::ShortUuid;
 
 use crate::models::{
     secrets::{
@@ -808,11 +807,20 @@ pub fn validate_webhook_id(value: &str) -> Result<(), InputValidationError> {
         return Err(err);
     }
 
-    let parsed = ShortUuid::parse_str(&value.strip_prefix(prefix).unwrap());
+    let id_without_prefix = &value[prefix.len()..];
 
-    if let Err(_) = parsed {
+    if id_without_prefix.len() != 22 {
         let input_err = WebhookInputValidationError::InvalidId;
         let err = InputValidationError::Webhook(input_err);
+
+        return Err(err);
+    }
+
+    let alphanumeric_regex = regex::Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+    if !alphanumeric_regex.is_match(id_without_prefix) {
+        let input_err = WebhookInputValidationError::InvalidId;
+        let err = InputValidationError::Webhook(input_err);
+
         return Err(err);
     }
 
