@@ -66,6 +66,9 @@ pub struct ScanStaged {
 #[derive(Debug, Args)]
 #[command(override_usage = "scan commits [OPTIONS]")]
 pub struct ScanCommits {
+    /// Number of commits to scan from the most recent commit (default: all)
+    #[clap( value_name = "N", long = "last", value_parser = clap::value_parser!(u32).range(1..=1000),)]
+    pub last_n_commits: Option<u32>,
     /// Path to a baseline file; only report findings that are new compared to this baseline
     #[arg(long = "baseline", name = "baseline")]
     pub baseline: Option<String>,
