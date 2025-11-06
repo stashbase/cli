@@ -1924,15 +1924,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "short-uuid"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f064c6778a648749022a70cbb25a8c072f14d26dacf8cd4bbc7c633b021a9b1"
-dependencies = [
- "uuid",
-]
-
-[[package]]
 name = "signal-hook-registry"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2023,7 +2014,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
- "short-uuid",
  "spinoff",
  "tabled",
  "terminal_size",
