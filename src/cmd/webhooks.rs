@@ -11,11 +11,11 @@ use super::{
 #[command(override_usage = "webhooks <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
 pub struct WebhookCommand {
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = false)]
+    #[arg(short = 'p', long = "project", required = false)]
     pub project: Option<String>,
 
     /// Environment name
-    #[arg(value_enum, short = 'e', long = "environment", required = false)]
+    #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
 
     #[clap(subcommand)]
@@ -172,7 +172,7 @@ pub struct ListWebhooks {
     // #[arg(value_enum, short = 'p', long = "page")]
     // pub page: Option<usize>,
     /// Format output
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 }
 
@@ -186,11 +186,11 @@ pub struct GetWebhook {
     pub webhook_id: String,
 
     /// With signing secret
-    #[arg(value_enum, long = "with-secret")]
+    #[arg(long = "with-secret")]
     pub with_secret: bool,
 
     /// Format output
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 }
 
@@ -240,15 +240,15 @@ pub struct CreateWebhook {
     pub url: String,
 
     /// Description
-    #[arg(value_enum, short = 'd', long = "description")]
+    #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 
     /// Return signing secret
-    #[arg(value_enum, long = "enable")]
+    #[arg(long = "enable")]
     pub enable: bool,
 
     /// Return signing secret
-    #[arg(value_enum, long = "return-secret")]
+    #[arg(long = "return-secret")]
     pub return_secret: bool,
 }
 
@@ -262,11 +262,11 @@ pub struct UpdateWebhook {
     pub webhook_id: String,
 
     /// Webhook URL
-    #[arg(value_enum, short = 'u', long = "url")]
+    #[arg(short = 'u', long = "url")]
     pub url: Option<String>,
 
     /// Webhook description
-    #[arg(value_enum, short = 'd', long = "description")]
+    #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 }
 
@@ -280,15 +280,15 @@ pub struct WebhookLogs {
     pub webhook_id: String,
 
     /// Format output
-    #[arg(value_enum, short = 'f', long = "format")]
+    #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 
     /// Page number
-    #[arg(value_enum, long = "page")]
+    #[arg(long = "page")]
     pub page: Option<usize>,
 
     /// Items per page
-    #[arg(value_enum, long = "limit")]
+    #[arg(long = "limit")]
     pub limit: Option<usize>,
 }
 

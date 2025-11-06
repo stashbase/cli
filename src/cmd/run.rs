@@ -10,15 +10,15 @@ pub struct RunCommand {
     pub command: Vec<String>,
 
     /// Relative path to a config file (default: stashbase.yaml)
-    #[arg(value_enum, short = 'c', long = "config")]
+    #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
 
     /// Project name or id
-    #[arg(value_enum, short = 'p', long = "project")]
+    #[arg(short = 'p', long = "project")]
     pub project: Option<String>,
 
     /// Enviornment name or id
-    #[arg(value_enum, short = 'e', long = "environment")]
+    #[arg(short = 'e', long = "environment")]
     pub environment: Option<String>,
 
     /// Select secret names
@@ -34,7 +34,7 @@ pub struct RunCommand {
     pub set: Vec<String>,
 
     /// Expand references to their values
-    #[arg(value_enum, long = "expand-refs")]
+    #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
 
     /// Print loaded secrets

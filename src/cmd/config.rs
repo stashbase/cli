@@ -97,7 +97,7 @@ pub struct SetApiKey {
 #[command(override_usage = "config api-key print [OPTIONS]")]
 pub struct PrintApiKey {
     /// Print full api key token
-    #[arg(value_enum, long = "full")]
+    #[arg(long = "full")]
     pub full: bool,
 }
 
@@ -179,6 +179,6 @@ pub struct ResetConfig {
 #[derive(Debug, Args)]
 #[command(override_usage = "config print [OPTIONS]")]
 pub struct PrintConfig {
-    #[arg(value_enum, long = "show-sensitive")]
+    #[arg(long = "show-sensitive")]
     pub show_sensitive: bool,
 }
