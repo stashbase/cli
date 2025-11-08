@@ -48,12 +48,6 @@ impl OutputFormatConfig {
 }
 
 #[derive(Debug)]
-pub struct ConfigWithPath {
-    pub config_dir: String,
-    pub config: Config,
-}
-
-#[derive(Debug)]
 pub struct UpdateConfig {
     pub api_key: Option<String>,
     pub expand_refs: Option<bool>,
