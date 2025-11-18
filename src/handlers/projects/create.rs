@@ -107,9 +107,11 @@ pub async fn handle_create_project(
                             println!("{}", json_str);
                         } else {
                             if let Some(mut spinner) = spinner {
-                                let msg = format!("Project created.");
-                                spinner.stop_with_message(&msg);
+                                spinner.stop_and_persist("", "");
                             }
+
+                            let msg = format!("Project created.");
+                            eprintln!("{}", msg);
 
                             println!("ID: {}", data.id);
                         }
