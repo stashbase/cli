@@ -99,6 +99,10 @@ pub struct CreateProject {
     /// Project description
     #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
+
+    /// Open project in browser
+    #[arg(long = "open")]
+    pub open: bool,
 }
 
 #[derive(Debug, Args)]

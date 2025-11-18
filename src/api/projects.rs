@@ -76,11 +76,17 @@ pub async fn get_project_dashboard_url(
 
 pub async fn create_project(
     api_key: String,
+    open: bool,
     data: &CreateProjectPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
+    let query = match open {
+        true => Some(vec![(format!("url"), format!("true"))]),
+        false => None,
+    };
+
     let args = RequestArgs {
         path: ApiPath::Projects(None),
-        query: None,
+        query,
         api_key,
     };
 
