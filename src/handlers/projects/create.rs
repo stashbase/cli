@@ -19,6 +19,7 @@ pub async fn handle_create_project(
     api_key: String,
     name: String,
     description: Option<String>,
+    open: bool,
     json_format: bool,
     silent: bool,
 ) -> Result<()> {
@@ -72,7 +73,7 @@ pub async fn handle_create_project(
         None
     };
 
-    let project_res = projects::create_project(api_key, &data).await;
+    let project_res = projects::create_project(api_key, open, &data).await;
 
     if let Err(err) = project_res {
         error!("{:#?}", &err);
@@ -105,15 +106,26 @@ pub async fn handle_create_project(
                             }
 
                             println!("{}", json_str);
-                        } else {
-                            if let Some(mut spinner) = spinner {
-                                spinner.stop_and_persist("", "");
+                            return Ok(());
+                        }
+
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        let msg = format!("Project created.");
+                        eprintln!("{}", msg);
+
+                        println!("ID: {}", data.id);
+
+                        if !silent {
+                            if let Some(dashboard_url) = data.dashboard_url {
+                                eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
+
+                                if let Err(err) = webbrowser::open(&dashboard_url) {
+                                    eprintln!("{}", &format!("Error opening URL: {}", err));
+                                }
                             }
-
-                            let msg = format!("Project created.");
-                            eprintln!("{}", msg);
-
-                            println!("ID: {}", data.id);
                         }
                     }
                     Err(e) => {
