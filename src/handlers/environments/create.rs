@@ -237,8 +237,11 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         }
 
                         if let Some(mut spinner) = spinner {
-                            spinner.stop_with_message("Environment created.");
+                            spinner.stop_and_persist("", "");
                         }
+
+                        let msg = format!("Environment created.");
+                        eprintln!("{}", msg);
 
                         println!("ID: {}", data.id);
 
