@@ -204,6 +204,7 @@ pub struct CreateEnvironmentResponse {
     pub name: String,
 
     #[serde(rename = "dashboardUrl")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_url: Option<String>,
 }
 
