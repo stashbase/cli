@@ -19,7 +19,7 @@ pub async fn list_projects(
     page: Option<usize>,
     page_size: Option<usize>,
 ) -> Result<GetRequestApiResponse, OutputError> {
-    let mut query = vec![("sort-by".to_string(), format!("{}", sort_by))];
+    let mut query = vec![("sort_by".to_string(), format!("{}", sort_by))];
 
     if descending == true {
         query.push(("order".to_string(), "desc".to_string()));
@@ -34,7 +34,7 @@ pub async fn list_projects(
     }
 
     if let Some(page_size) = page_size {
-        query.push(("page-size".to_string(), page_size.to_string()));
+        query.push(("page_size".to_string(), page_size.to_string()));
     }
 
     let args = RequestArgs {

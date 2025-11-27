@@ -25,7 +25,7 @@ pub async fn list(
     if only_names {
         query_str.push(("omit".to_string(), "value,comment".to_string()));
     } else {
-        query_str.push(("expand-refs".to_string(), expand_refs.to_string()));
+        query_str.push(("expand_refs".to_string(), expand_refs.to_string()));
     }
 
     if let Some(only) = only {
@@ -74,7 +74,7 @@ pub async fn pull(
         false => Vec::with_capacity(1),
     };
 
-    query.push(("expand-refs".to_string(), expand_refs.to_string()));
+    query.push(("expand_refs".to_string(), expand_refs.to_string()));
 
     if with_comment == false {
         query.push(("omit".to_string(), "comment".to_string()));
@@ -240,14 +240,14 @@ pub async fn search_secrets(
         query.push(("name".to_string(), name.to_string()));
 
         if show_values {
-            query.push(("show-values".to_string(), "true".to_string()));
+            query.push(("show_values".to_string(), "true".to_string()));
         }
     } else if let Some(value) = value {
         query.push(("value".to_string(), value.to_string()));
     }
 
     if with_ids {
-        query.push(("with-ids".to_string(), "true".to_string()));
+        query.push(("with_ids".to_string(), "true".to_string()));
     }
 
     let args = RequestArgs {

@@ -52,7 +52,7 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse, OutputError> {
     } = args;
 
     let query = match with_secret {
-        true => Some(vec![("with-secret".to_string(), "true".to_string())]),
+        true => Some(vec![("with_secret".to_string(), "true".to_string())]),
         false => None,
     };
 
@@ -80,7 +80,7 @@ pub struct CreateArgs {
 
 pub async fn create(args: CreateArgs) -> Result<RequestApiOptionResponse, OutputError> {
     let query = match args.return_secret {
-        true => Some(vec![("return-secret".to_string(), "true".to_string())]),
+        true => Some(vec![("return_secret".to_string(), "true".to_string())]),
         false => None,
     };
 
@@ -264,7 +264,7 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse, Outp
     }
 
     if let Some(page_size) = page_size {
-        query.push(("page-size".to_string(), page_size.to_string()));
+        query.push(("page_size".to_string(), page_size.to_string()));
     }
 
     let args = RequestArgs {
