@@ -17,7 +17,7 @@ pub async fn list_projects(
     sort_by: SortBy,
     descending: bool,
     page: Option<usize>,
-    limit: Option<usize>,
+    page_size: Option<usize>,
 ) -> Result<GetRequestApiResponse, OutputError> {
     let mut query = vec![("sort-by".to_string(), format!("{}", sort_by))];
 
@@ -33,8 +33,8 @@ pub async fn list_projects(
         query.push(("page".to_string(), page.to_string()));
     }
 
-    if let Some(limit) = limit {
-        query.push(("limit".to_string(), limit.to_string()));
+    if let Some(page_size) = page_size {
+        query.push(("page-size".to_string(), page_size.to_string()));
     }
 
     let args = RequestArgs {

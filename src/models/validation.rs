@@ -42,7 +42,7 @@ pub enum ProjectInputValidationError {
 
     SearchTooShort,
     SearchFormat,
-    InvalidLimit,
+    InvalidPageSize,
     InvalidPage,
 
     // update
@@ -57,7 +57,7 @@ pub enum ProjectInputValidationError {
 pub enum WebhookInputValidationError {
     // update
     NoUpdateFlags,
-    InvalidLimit,
+    InvalidPageSize,
     InvalidId,
     InvalidUrl,
     DescriptionTooLong,
@@ -530,9 +530,9 @@ impl ProjectInputValidationError {
                 "Name option value is too long.",
                 Some("Maximum is 40 characters.")
             ),
-            ProjectInputValidationError::InvalidLimit => (
-                "Limit option value is invalid.",
-                Some("Limit can range from 2 to 30.")
+            ProjectInputValidationError::InvalidPageSize => (
+                "Page size option value is invalid.",
+                Some("Page size can range from 2 to 30.")
             ),
             ProjectInputValidationError::InvalidPage => (
                 "Page option value is invalid.",
@@ -549,9 +549,9 @@ impl WebhookInputValidationError {
                 "No update flag specified.",
                 Some("Use one of: -u (--url), -d (--description)."),
             ),
-            WebhookInputValidationError::InvalidLimit => (
-                "Invalid '--limit' option value.",
-                Some("Limit can range from 2 to 30."),
+            WebhookInputValidationError::InvalidPageSize => (
+                "Page size option value is invalid.",
+                Some("Page size can range from 2 to 30."),
             ),
             WebhookInputValidationError::InvalidId => (
                 "Invalid webhook ID value.",

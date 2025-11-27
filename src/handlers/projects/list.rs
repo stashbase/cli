@@ -22,7 +22,7 @@ pub struct HandleListProjectsArgs {
     pub sort_by: Option<SortBy>,
     pub descending: bool,
     pub page: Option<usize>,
-    pub limit: Option<usize>,
+    pub page_size: Option<usize>,
     pub format: OutputFormat,
     pub silent: bool,
 }
@@ -35,7 +35,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         descending,
         format,
         page,
-        limit,
+        page_size,
         silent,
     } = args;
 
@@ -54,9 +54,10 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         }
     }
 
-    if let Some(limit) = limit {
-        if limit < 2 || limit > 30 {
-            let error = InputValidationError::Projects(ProjectInputValidationError::InvalidLimit);
+    if let Some(page_size) = page_size {
+        if page_size < 2 || page_size > 30 {
+            let error =
+                InputValidationError::Projects(ProjectInputValidationError::InvalidPageSize);
             let error_output = error.format_error_output(format == OutputFormat::Json)?;
 
             if !silent {
@@ -94,7 +95,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         sort_by.unwrap_or_default(),
         descending,
         page,
-        limit,
+        page_size,
     )
     .await;
 
