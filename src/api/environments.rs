@@ -29,7 +29,7 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
         descending,
     } = args;
 
-    let mut query = vec![("sort-by".to_string(), format!("{}", sort))];
+    let mut query = vec![("sort_by".to_string(), format!("{}", sort))];
 
     if descending == true {
         query.push(("order".to_string(), "desc".to_string()));
@@ -40,7 +40,7 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
     }
 
     if let Some(is_production) = is_production {
-        query.push(("is-production".to_string(), is_production.to_string()));
+        query.push(("is_production".to_string(), is_production.to_string()));
     }
 
     let args = RequestArgs {
@@ -171,7 +171,7 @@ pub async fn compare<'a>(
     let path = format!("{}/compare/{}", environment_1, environment_2);
 
     let query = match with_values {
-        true => Some(vec![(format!("with-values"), format!("true"))]),
+        true => Some(vec![(format!("with_values"), format!("true"))]),
         false => None,
     };
 
