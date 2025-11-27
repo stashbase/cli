@@ -8,7 +8,7 @@ pub struct PaginationMetadata {
     // current page
     pub page: usize,
     // the number of items per page
-    pub limit: usize,
+    pub page_size: usize,
     // the total number of items
     pub total_items: usize,
     // the total number of pages
@@ -23,7 +23,7 @@ pub struct PaginationMetadata {
 impl fmt::Display for PaginationMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "------- Pagination Metadata -------")?;
-        write!(f, "Page: {} | Limit: {}", self.page, self.limit)?;
+        write!(f, "Page: {} | Page Size: {}", self.page, self.page_size)?;
 
         if let Some(prev_page) = self.prev_page {
             write!(f, " | Prev Page: {}", prev_page)?;

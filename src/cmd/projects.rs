@@ -54,9 +54,9 @@ pub struct ListProjects {
     #[arg(long = "page")]
     pub page: Option<usize>,
 
-    /// Take (number of) items per page
-    #[arg(long = "limit")]
-    pub limit: Option<usize>,
+    /// Number of items per page
+    #[arg(long = "page-size")]
+    pub page_size: Option<usize>,
 
     /// Format output
     #[arg(short = 'f', long = "format")]

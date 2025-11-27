@@ -288,8 +288,8 @@ pub struct WebhookLogs {
     pub page: Option<usize>,
 
     /// Items per page
-    #[arg(long = "limit")]
-    pub limit: Option<usize>,
+    #[arg(long = "page-size")]
+    pub page_size: Option<usize>,
 }
 
 #[derive(Debug, Args)]
