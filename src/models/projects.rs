@@ -58,6 +58,7 @@ pub struct SingleListProject {
     // only for personal auth (api key)
     #[tabled(display_with = "display_bool_option")]
     #[tabled(rename = "Full access", order = 3)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,6 +85,7 @@ pub struct SingleListProjectWithoutDescription {
     // only for personal auth (api key)
     #[tabled(display_with = "display_bool_option")]
     #[tabled(rename = "Full access", order = 3)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
 
     #[tabled(rename = "Environments", order = 4)]
