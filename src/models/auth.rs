@@ -8,7 +8,6 @@ pub struct WorkspaceData {
     pub slug: String,
     pub name: String,
 
-    #[serde(rename = "userRole")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_role: Option<WorkspaceUserRole>,
 }
@@ -31,7 +30,6 @@ impl std::fmt::Display for WorkspaceUserRole {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AuthedUserData {
     pub id: String,
     pub email: String,
@@ -76,7 +74,6 @@ pub struct AuthedEnvironmentAccountResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ServiceAccountWorkspaceAccess {
     pub permissions: Option<HashMap<String, Vec<String>>>,
     pub created_project_permissions: Option<HashMap<String, Vec<String>>>,
@@ -84,7 +81,6 @@ pub struct ServiceAccountWorkspaceAccess {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ServiceAccountAccess {
     pub workspace: Option<ServiceAccountWorkspaceAccess>,
     pub project_count: i64,

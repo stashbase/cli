@@ -8,7 +8,6 @@ use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfColored
 use super::shared::PaginationMetadata;
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct ListWebhook {
     #[tabled(rename = "ID", order = 0)]
     id: String,
@@ -37,7 +36,6 @@ impl Display for ListWebhook {
 
 // NOTE: with details
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Webhook {
     pub id: String,
     pub url: String,
@@ -50,7 +48,6 @@ pub struct Webhook {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct TableWebhook {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -69,7 +66,6 @@ pub struct TableWebhook {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct TableWebhookNoDescription {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -143,7 +139,6 @@ pub struct CreateWebhookPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateWebhookResponse {
     pub id: String,
 
@@ -151,7 +146,6 @@ pub struct CreateWebhookResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RotateWebhookSecretResponse {
     pub signing_secret: String,
 }
@@ -176,7 +170,6 @@ pub struct UpdateWebhookStatusPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TestWebhookResponse {
     pub url: String,
 
@@ -254,7 +247,6 @@ impl Display for TestWebhookResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WebhookSigningSecret {
     pub signing_secret: String,
 }
@@ -262,14 +254,12 @@ pub struct WebhookSigningSecret {
 // logs
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WebhookLogList {
     pub data: Vec<WebhookLog>,
     pub pagination: PaginationMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WebhookLog {
     pub processed_at: String,
     pub attempt: u8,

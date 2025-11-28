@@ -8,7 +8,6 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct OpenProjectResponse {
     dashboard_url: String,
 }

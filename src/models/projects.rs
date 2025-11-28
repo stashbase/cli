@@ -8,7 +8,6 @@ use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfColored
 use super::shared::PaginationMetadata;
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Project {
     pub name: String,
     // date string
@@ -40,13 +39,11 @@ pub struct CreateProjectResponse {
     #[serde(skip_serializing)]
     pub name: String,
 
-    #[serde(rename = "dashboardUrl")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct SingleListProject {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -73,7 +70,6 @@ pub struct SingleListProject {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct SingleListProjectWithoutDescription {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -95,14 +91,12 @@ pub struct SingleListProjectWithoutDescription {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ProjectList {
     pub data: Vec<SingleListProject>,
     pub pagination: PaginationMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct SingleProjectTable {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -128,7 +122,6 @@ pub struct SingleProjectTable {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SingleProject {
     pub id: String,
 
@@ -147,7 +140,6 @@ pub struct SingleProject {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct SingleProjectWithCountNoDescriptionTable {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -177,7 +169,6 @@ pub enum ProjectUserRole {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct ProjectWithCountNoDescriptionTable {
     #[tabled(rename = "Name", order = 0)]
     pub name: String,

@@ -51,7 +51,6 @@ impl PrintSecrets {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct SecretWithoutComment {
     #[tabled(rename = "Name")]
     pub name: String,
@@ -67,7 +66,6 @@ pub struct SecretOnlyName {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct Secret {
     pub name: String,
     pub value: String,
@@ -87,7 +85,6 @@ impl Secret {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct SecretOptional {
     pub name: String,
 
@@ -105,7 +102,6 @@ impl Secret {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct SecretWithComment {
     #[tabled(rename = "Name")]
     pub name: String,
@@ -193,7 +189,6 @@ impl FormatSecrets for Vec<Secret> {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UpdatedSecret {
     // The name of the secret to update
     pub name: String,
@@ -236,7 +231,6 @@ pub struct UpdateSecretCommentPayload {
 }
 
 #[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct RenamedSecret {
     pub name: String,
     pub new_name: String,
@@ -252,7 +246,6 @@ pub type RenameSecretsPayload = Vec<RenamedSecret>;
 
 // response
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateSecretsResponse {
     // The number of secrets successfully created
     pub created_count: usize,
@@ -261,7 +254,6 @@ pub struct CreateSecretsResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UpdateSecretsResponse {
     pub updated_count: usize,
     pub not_found_secrets: Vec<String>,
@@ -269,7 +261,6 @@ pub struct UpdateSecretsResponse {
 
 // response
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DeleteSecretsResponse {
     pub not_found_secrets: Vec<String>,
     pub deleted_count: usize,
@@ -277,14 +268,12 @@ pub struct DeleteSecretsResponse {
 
 // response
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RenameSecretsResponse {
     pub not_found_secrets: Vec<String>,
     pub updated_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DeleteAllSecretsResponse {
     pub deleted_count: usize,
 }
@@ -329,7 +318,7 @@ impl SecretValueDisplay for SecretSearchedValue {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectSecretSearchedByName {
-    #[serde(rename = "secretValue")]
+    #[serde(rename = "secret_value")]
     pub value: SecretSearchedValue,
     pub environments: Vec<SecretsSearchEnvironment>,
 }
@@ -421,7 +410,7 @@ impl Display for ProjectSecretSearchedByName {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectSecretSearchedByValue {
-    #[serde(rename = "secretName")]
+    #[serde(rename = "secret_name")]
     pub name: String,
     pub environments: Vec<SecretsSearchEnvironment>,
 }
@@ -460,7 +449,7 @@ impl Display for ProjectSecretSearchedByValue {
 // worksapce search secrets
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkspaceSecretSearchedByName {
-    #[serde(rename = "secretValue")]
+    #[serde(rename = "secret_value")]
     pub value: SecretSearchedValue,
     pub project: WorkspaceSecretSearchProject,
 }
@@ -523,7 +512,7 @@ impl From<WorkspaceSecretSearchedByName> for WorkspaceSecretSearchedByNameTable 
 // workspace search secrets by value
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkspaceSecretSearchedByValue {
-    #[serde(rename = "secretName")]
+    #[serde(rename = "secret_name")]
     pub name: String,
     pub project: WorkspaceSecretSearchProject,
 }

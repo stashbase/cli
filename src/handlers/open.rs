@@ -7,7 +7,6 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 struct OpenDashboardResponse {
-    #[serde(rename = "dashboardUrl")]
     dashboard_url: String,
 }
 

@@ -84,7 +84,6 @@ impl ScanConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct ResultChangeRange {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>, // for single line findings
@@ -97,7 +96,6 @@ pub struct ResultChangeRange {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct ChangeRangeWithHash {
     pub start_line: usize,
     pub end_line: usize,
@@ -105,7 +103,6 @@ pub struct ChangeRangeWithHash {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct DiffHunk {
     pub full_content: String, // Hunks + context combined
 
@@ -117,7 +114,6 @@ pub struct DiffHunk {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct FileHunks {
     pub file_path: String,
     pub hunks: Vec<DiffHunk>,
@@ -174,7 +170,6 @@ pub struct ProjectContextConfigPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ScanFileChangesPayload {
     pub files: Vec<FileHunks>,
 
@@ -186,7 +181,6 @@ pub struct ScanFileChangesPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ScanCommitChangesPayload {
     pub commits: Vec<CommitChanges>,
 
@@ -198,14 +192,13 @@ pub struct ScanCommitChangesPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CommitChanges {
     pub commit_id: String,
     pub files: Vec<FileHunks>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "lowercase")]
 pub enum ScanFindingSeverity {
     Low = 1,
     Medium = 2,
@@ -225,7 +218,6 @@ impl Display for ScanFindingSeverity {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct ScanFinding {
     pub file_path: String,
     pub range: ResultChangeRange,
@@ -233,7 +225,6 @@ pub struct ScanFinding {
     pub severity: ScanFindingSeverity,
     pub suggested_env_variable: String,
 
-    #[serde(rename = "valueSHA256")]
     pub value_sha256: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -244,14 +235,12 @@ pub struct ScanFinding {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct MatchedSecrets {
     pub project: Option<Vec<MatchedProjectSecret>>,
     pub files: Option<Vec<MatchedFileSecret>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct MatchedProjectSecret {
     pub secret_name: String,
     pub environments: Vec<Environment>,
@@ -264,7 +253,6 @@ pub struct MatchedFileSecret {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct Environment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -441,7 +429,6 @@ impl ScanFinding {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct FileChangesScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -450,7 +437,6 @@ pub struct FileChangesScanResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct CommitsScanResponse {
     // if exceeded the limit of commits or files due to token limit, return the skipped commits or files
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -584,7 +570,6 @@ impl DiffProcessingState {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct ScanOutputJson {
     pub message: String,
 
