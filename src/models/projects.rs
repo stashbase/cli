@@ -61,7 +61,6 @@ pub struct SingleListProject {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
     #[tabled(rename = "Description", order = 5)]
     pub description: Option<String>,
@@ -114,7 +113,6 @@ pub struct SingleProjectTable {
     // only for personal auth (api key)
     pub full_access: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
     #[tabled(rename = "Description", order = 5)]
     pub description: Option<String>,
@@ -131,7 +129,6 @@ pub struct SingleProject {
     // date string
     pub created_at: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
     pub environment_count: usize,
