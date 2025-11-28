@@ -9,7 +9,6 @@ use crate::{
 
 #[derive(Debug, Deserialize)]
 pub struct GetEnvUrlResponse {
-    #[serde(rename = "dashboardUrl")]
     pub dashboard_url: String,
 }
 

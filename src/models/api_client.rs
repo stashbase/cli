@@ -177,13 +177,11 @@ impl ApiError {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SecretApiErrorDetails {
     pub secret_names: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MissingPermissionErrorDetails {
     // for env/project api keys
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -205,25 +203,21 @@ pub struct PermissionErrorDetails {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ExpiredApiKeyErrorDetails {
     pub expired_at: String,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UnsupportedApiKeyErrorDetails {
     pub supported_api_key_types: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TooManyRequestsErrorDetails {
     retry_after: RetryAfterDetails,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct RetryAfterDetails {
     seconds: usize,
 

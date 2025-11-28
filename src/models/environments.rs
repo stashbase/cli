@@ -28,7 +28,6 @@ impl Display for EnvironmentUserRole {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Environment {
     pub id: String,
 
@@ -48,7 +47,6 @@ pub struct Environment {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct TableEnvironment {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -77,7 +75,6 @@ pub struct TableEnvironment {
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
-#[serde(rename_all = "camelCase")]
 pub struct TableEnvironmentWithoutDescription {
     #[tabled(rename = "ID", order = 0)]
     pub id: String,
@@ -188,7 +185,6 @@ impl Display for Environment {
 // requests
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreatEnvironmentPayload {
     pub name: String,
     pub description: Option<String>,
@@ -203,13 +199,11 @@ pub struct CreateEnvironmentResponse {
     pub id: String,
     pub name: String,
 
-    #[serde(rename = "dashboardUrl")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct UpdateEnvironmentPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
