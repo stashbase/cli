@@ -72,9 +72,9 @@ impl Default for SortBy {
 #[derive(Debug, ValueEnum, Clone)]
 pub enum SortBy {
     Name,
-    #[value(name = "createdAt")]
+    #[value(name = "created_at")]
     CreatedAt,
-    #[value(name = "environmentCount")]
+    #[value(name = "environment_count")]
     EnvironmentCount,
 }
 
@@ -82,8 +82,8 @@ impl fmt::Display for SortBy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             SortBy::Name => write!(f, "name"),
-            SortBy::CreatedAt => write!(f, "createdAt"),
-            SortBy::EnvironmentCount => write!(f, "environmentCount"),
+            SortBy::CreatedAt => write!(f, "created_at"),
+            SortBy::EnvironmentCount => write!(f, "environment_count"),
         }?;
 
         Ok(())
