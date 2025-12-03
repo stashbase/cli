@@ -160,7 +160,7 @@ pub struct SingleProjectWithCountNoDescriptionTable {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "lowercase")]
 pub enum ProjectUserRole {
     Viewer,
     Editor,

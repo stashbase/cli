@@ -8,7 +8,7 @@ use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfColored
 use super::secrets::Secret;
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "lowercase")]
 pub enum EnvironmentUserRole {
     Viewer,
     Editor,
