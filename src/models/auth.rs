@@ -13,18 +13,19 @@ pub struct WorkspaceData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum WorkspaceUserRole {
-    MEMBER,
-    ADMIN,
-    OWNER,
+    Member,
+    Admin,
+    Owner,
 }
 
 impl std::fmt::Display for WorkspaceUserRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WorkspaceUserRole::MEMBER => write!(f, "Member"),
-            WorkspaceUserRole::ADMIN => write!(f, "Admin"),
-            WorkspaceUserRole::OWNER => write!(f, "Owner"),
+            WorkspaceUserRole::Member => write!(f, "Member"),
+            WorkspaceUserRole::Admin => write!(f, "Admin"),
+            WorkspaceUserRole::Owner => write!(f, "Owner"),
         }
     }
 }
