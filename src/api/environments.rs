@@ -155,6 +155,7 @@ pub struct CompareEnvironmentsRequestArgs<'a> {
     pub environment_1: &'a str,
     pub environment_2: &'a str,
     pub with_values: &'a bool,
+    pub expand_refs: &'a bool,
 }
 
 pub async fn compare<'a>(
@@ -166,18 +167,24 @@ pub async fn compare<'a>(
         environment_1,
         environment_2,
         with_values,
+        expand_refs,
     } = args;
 
     let path = format!("{}/compare/{}", environment_1, environment_2);
 
-    let query = match with_values {
-        true => Some(vec![(format!("with_values"), format!("true"))]),
-        false => None,
-    };
+    let mut query = vec![];
+
+    if *with_values {
+        query.push(("with_values".to_string(), "true".to_string()));
+    }
+
+    if *expand_refs {
+        query.push(("expand_refs".to_string(), "true".to_string()));
+    }
 
     let args = RequestArgs {
         api_key,
-        query,
+        query: Some(query),
         path: ApiPath::Environments {
             project,
             path: Some(path),
