@@ -31,6 +31,7 @@ pub struct HandleSecretsDiffArgs {
     pub json_format: bool,
     pub expand_refs: bool,
     pub with_comments: bool,
+    pub show_values: bool,
 }
 
 pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
@@ -44,6 +45,7 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
         json_format,
         expand_refs,
         with_comments,
+        show_values,
     } = args;
 
     let path = Path::new(&file_path);
@@ -90,9 +92,18 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
 
     let mut secrets = secrets_res.unwrap();
 
-    if expand_refs == true {
+    if expand_refs == true && show_values {
         utils::secrets::expand_secret_references(&mut secrets);
     }
+
+    let local_secrets = secrets
+        .into_iter()
+        .map(|s| SecretOptional {
+            name: s.name,
+            value: if show_values { Some(s.value) } else { None },
+            comment: s.comment,
+        })
+        .collect::<Vec<_>>();
 
     let spinner = if !silent {
         Some(request_spinner())
@@ -139,7 +150,12 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
                         spinner.stop_and_persist("", "");
                     }
 
-                    let diff = create_secrets_diff(secrets, remote_secrets, with_comments);
+                    let diff = create_secrets_diff(
+                        local_secrets,
+                        remote_secrets,
+                        with_comments,
+                        show_values,
+                    );
 
                     if json_format {
                         let json_str = get_formatted_json_string(&diff, true)?;
@@ -180,12 +196,13 @@ pub async fn handle_secrets_diff(args: HandleSecretsDiffArgs) -> Result<()> {
 /// - `local_secrets`: secrets from the local file
 /// - `remote_secrets`: secrets from the remote environment
 pub fn create_secrets_diff(
-    local_secrets: Vec<Secret>,
+    local_secrets: Vec<SecretOptional>,
     remote_secrets: Vec<SecretOptional>,
     with_comments: bool,
+    with_values: bool,
 ) -> SecretsDiff {
     // Create HashMaps for efficient lookup by name
-    let local_map: HashMap<String, &Secret> = local_secrets
+    let local_map: HashMap<String, &SecretOptional> = local_secrets
         .iter()
         .map(|secret| (secret.name.clone(), secret))
         .collect();
@@ -204,7 +221,11 @@ pub fn create_secrets_diff(
         if !remote_map.contains_key(&local_secret.name) {
             added.push(SecretOptional {
                 name: local_secret.name.clone(),
-                value: Some(local_secret.value.clone()),
+                value: if with_values {
+                    local_secret.value.clone()
+                } else {
+                    None
+                },
                 comment: if with_comments {
                     local_secret.comment.clone()
                 } else {
@@ -217,7 +238,19 @@ pub fn create_secrets_diff(
     // Find missing secrets (exist in remote but not in local)
     for remote_secret in &remote_secrets {
         if !local_map.contains_key(&remote_secret.name) {
-            missing.push((*remote_secret).clone());
+            missing.push(SecretOptional {
+                name: remote_secret.name.clone(),
+                value: if with_values {
+                    remote_secret.value.clone()
+                } else {
+                    None
+                },
+                comment: if with_comments {
+                    remote_secret.comment.clone()
+                } else {
+                    None
+                },
+            });
         }
     }
 
@@ -225,13 +258,17 @@ pub fn create_secrets_diff(
     for local_secret in &local_secrets {
         if let Some(remote_secret) = remote_map.get(&local_secret.name) {
             // Check if values or comments are different
-            let values_differ = local_secret.value != remote_secret.value.clone().unwrap();
+            let values_differ = local_secret.value != remote_secret.value;
             let comments_differ = with_comments && local_secret.comment != remote_secret.comment;
 
             if values_differ || comments_differ {
                 let changes = Some(SecretDiffModifiedChange {
                     local: SecretDiffModifiedChangeItem {
-                        value: Some(local_secret.value.clone()),
+                        value: if with_values {
+                            local_secret.value.clone()
+                        } else {
+                            None
+                        },
                         comment: if with_comments {
                             local_secret.comment.clone()
                         } else {
@@ -239,7 +276,11 @@ pub fn create_secrets_diff(
                         },
                     },
                     remote: SecretDiffModifiedChangeItem {
-                        value: remote_secret.value.clone(),
+                        value: if with_values {
+                            remote_secret.value.clone()
+                        } else {
+                            None
+                        },
                         comment: if with_comments {
                             remote_secret.comment.clone()
                         } else {

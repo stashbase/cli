@@ -780,8 +780,30 @@ impl Display for SecretsDiff {
             writeln!(f, "Added: ({})", self.added.len())?;
 
             for secret in &self.added {
-                let str = format!("+ {}", secret.name);
-                write_indented(f, 2, &str.green_if_tty())?;
+                let mut str = String::new();
+
+                if secret.value.is_some() {
+                    if secret.value.as_ref().unwrap().contains("\n") {
+                        str = format!("{}", format!("+ {}:", secret.name).green_if_tty(),);
+
+                        for line in secret.value.as_ref().unwrap().lines() {
+                            if line.is_empty() {
+                                continue;
+                            }
+
+                            str += &format!("\n  {}", line);
+                        }
+                    } else {
+                        str = format!(
+                            "{} {}",
+                            format!("+ {}:", secret.name).green_if_tty(),
+                            secret.value.as_ref().unwrap()
+                        );
+                    }
+                } else {
+                    str = format!("+ {}", secret.name).green_if_tty();
+                }
+                write_indented(f, 2, &str)?;
             }
         }
 
@@ -790,8 +812,31 @@ impl Display for SecretsDiff {
             writeln!(f, "Missing: ({})", self.missing.len())?;
 
             for secret in &self.missing {
-                let str = format!("- {}", secret.name);
-                write_indented(f, 2, &str.red_if_tty())?;
+                let mut str = String::new();
+
+                if secret.value.is_some() {
+                    if secret.value.as_ref().unwrap().contains("\n") {
+                        str = format!("{}", format!("- {}:", secret.name).red_if_tty(),);
+
+                        for line in secret.value.as_ref().unwrap().lines() {
+                            if line.is_empty() {
+                                continue;
+                            }
+
+                            str += &format!("\n  {}", line);
+                        }
+                    } else {
+                        str = format!(
+                            "{} {}",
+                            format!("- {}:", secret.name).red_if_tty(),
+                            secret.value.as_ref().unwrap()
+                        );
+                    }
+                } else {
+                    str = format!("- {}", secret.name).red_if_tty();
+                }
+
+                write_indented(f, 2, &str)?;
             }
         }
 
@@ -804,23 +849,62 @@ impl Display for SecretsDiff {
                 write_indented(f, 2, &str.yellow_if_tty())?;
 
                 if let Some(changes) = &secret.changes {
-                    let local_str = format!("  • Local: {}", changes.local.value.display());
-                    let remote_str = format!("  • Remote: {}", changes.remote.value.display());
+                    if (changes.local.value.is_some() || changes.remote.value.is_some())
+                        || (changes.local.comment.is_some() || changes.remote.comment.is_some())
+                    {
+                        let local_comment = changes.local.comment.as_ref();
+                        let remote_comment = changes.remote.comment.as_ref();
 
-                    let local_comment = changes.local.comment.as_ref();
-                    let remote_comment = changes.remote.comment.as_ref();
+                        // Handle local value
+                        if let Some(local_comment) = local_comment {
+                            let str = format!("  # {}", local_comment);
+                            write_indented(f, 6, &str.bright_blue_if_tty())?;
+                        }
 
-                    if let Some(local_comment) = local_comment {
-                        let str = format!("  # {}", local_comment);
-                        write_indented(f, 6, &str.bright_blue_if_tty())?;
+                        if let Some(local_value) = &changes.local.value {
+                            if local_value.contains("\n") {
+                                let mut local_str = String::from("  • Local:");
+                                for line in local_value.lines() {
+                                    if line.is_empty() {
+                                        continue;
+                                    }
+                                    local_str += &format!("\n    {}", line);
+                                }
+                                write_indented(f, 4, &local_str)?;
+                            } else {
+                                let local_str = format!("  • Local: {}", local_value);
+                                write_indented(f, 4, &local_str)?;
+                            }
+                        } else {
+                            let local_str = format!("  • Local: {}", "••••••••");
+                            write_indented(f, 4, &local_str)?;
+                        }
+
+                        // Handle remote value
+                        if let Some(remote_comment) = remote_comment {
+                            let str = format!("  # {}", remote_comment);
+                            write_indented(f, 6, &str.bright_blue_if_tty())?;
+                        }
+
+                        if let Some(remote_value) = &changes.remote.value {
+                            if remote_value.contains("\n") {
+                                let mut remote_str = String::from("  • Remote:");
+                                for line in remote_value.lines() {
+                                    if line.is_empty() {
+                                        continue;
+                                    }
+                                    remote_str += &format!("\n    {}", line);
+                                }
+                                write_indented(f, 4, &remote_str)?;
+                            } else {
+                                let remote_str = format!("  • Remote: {}", remote_value);
+                                write_indented(f, 4, &remote_str)?;
+                            }
+                        } else {
+                            let remote_str = format!("  • Remote: {}", "••••••••");
+                            write_indented(f, 4, &remote_str)?;
+                        }
                     }
-                    write_indented(f, 4, &local_str)?;
-
-                    if let Some(remote_comment) = remote_comment {
-                        let str = format!("  # {}", remote_comment);
-                        write_indented(f, 6, &str.bright_blue_if_tty())?;
-                    }
-                    write_indented(f, 4, &remote_str)?;
                 }
             }
         }
