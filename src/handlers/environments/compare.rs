@@ -30,6 +30,7 @@ pub struct HandleCompareEnvironmentsArgs {
     pub with_values: bool,
     pub json_format: bool,
     pub silent: bool,
+    pub expand_refs: bool,
 }
 
 pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) -> Result<()> {
@@ -84,6 +85,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         environment_1: &args.environment_1,
         environment_2: &args.environment_2,
         with_values: &args.with_values,
+        expand_refs: &args.expand_refs,
     };
 
     let res = environments::compare(req_args).await;

@@ -255,6 +255,10 @@ pub struct CompareEnvironment {
     /// Return secrets with values
     #[arg(long = "with-values")]
     pub with_values: bool,
+
+    /// Expand secrets references to their values
+    #[arg(long = "expand-refs")]
+    pub expand_refs: Option<bool>,
 }
 
 #[derive(Debug, Args)]
