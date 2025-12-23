@@ -339,4 +339,8 @@ pub struct DiffSecrets {
     /// Print and compare with comments
     #[arg(value_enum, long = "with-comments")]
     pub with_comments: bool,
+
+    /// Show secret values
+    #[arg(value_enum, long = "show-values")]
+    pub show_values: bool,
 }
