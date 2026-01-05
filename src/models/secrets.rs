@@ -318,7 +318,7 @@ impl SecretValueDisplay for SecretSearchedValue {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectSecretSearchedByName {
-    #[serde(rename = "secret_value")]
+    #[serde(rename = "secret_value", skip_serializing_if = "Option::is_none")]
     pub value: SecretSearchedValue,
     pub environments: Vec<SecretsSearchEnvironment>,
 }
@@ -449,7 +449,7 @@ impl Display for ProjectSecretSearchedByValue {
 // worksapce search secrets
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkspaceSecretSearchedByName {
-    #[serde(rename = "secret_value")]
+    #[serde(rename = "secret_value", skip_serializing_if = "Option::is_none")]
     pub value: SecretSearchedValue,
     pub project: WorkspaceSecretSearchProject,
 }
