@@ -34,7 +34,8 @@ impl std::fmt::Display for WorkspaceUserRole {
 pub struct AuthedUserData {
     pub id: String,
     pub email: String,
-    pub name: String,
+    pub full_name: String,
+    pub display_name: Option<String>,
     pub workspace: WorkspaceData,
 }
 
@@ -125,7 +126,10 @@ impl std::fmt::Display for AuthedUserData {
         writeln!(f, "Authenticated as User:")?;
         write_indented(f, 2, &format!("ID: {}", self.id))?;
         write_indented(f, 2, &format!("Email: {}", self.email))?;
-        write_indented(f, 2, &format!("Name: {}", self.name))?;
+        write_indented(f, 2, &format!("Full Name: {}", self.full_name))?;
+        if let Some(display_name) = &self.display_name {
+            write_indented(f, 2, &format!("Display Name: {}", display_name))?;
+        }
         write_indented(f, 2, "Workspace:")?;
         write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
         write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
