@@ -1096,7 +1096,65 @@ pub fn get_unpushed_commit_hunks(
             })
             .collect();
 
-            let mut sorted_files = commit_changes.clone();
+            // Populate full_content for each hunk by reading from the commit tree
+            let mut commit_changes_with_full_content = commit_changes;
+            for file_hunks in &mut commit_changes_with_full_content {
+                let is_new_file = state
+                    .new_files
+                    .get(&file_hunks.file_path)
+                    .copied()
+                    .unwrap_or(false);
+
+                // Get the file content from the commit tree
+                if let Ok(tree_entry) =
+                    current_tree.get_path(std::path::Path::new(&file_hunks.file_path))
+                {
+                    if let Ok(object) = tree_entry.to_object(&repo) {
+                        if let Some(blob) = object.as_blob() {
+                            if let Ok(file_content) = std::str::from_utf8(blob.content()) {
+                                let lines: Vec<&str> = file_content.lines().collect();
+
+                                for hunk in &mut file_hunks.hunks {
+                                    // For new files, read all lines from start_line to the end of file
+                                    if is_new_file {
+                                        let start_idx =
+                                            (hunk.start_line.saturating_sub(1)).min(lines.len());
+                                        let hunk_lines = &lines[start_idx..];
+                                        hunk.full_content = hunk_lines.join("\n");
+                                        if !hunk.full_content.is_empty()
+                                            && file_content.ends_with('\n')
+                                        {
+                                            hunk.full_content.push('\n');
+                                        }
+                                    } else {
+                                        // For modified files, read the exact range
+                                        let start_idx =
+                                            (hunk.start_line.saturating_sub(1)).min(lines.len());
+                                        let end_idx = hunk.end_line.min(lines.len());
+
+                                        if start_idx < end_idx {
+                                            let hunk_lines = &lines[start_idx..end_idx];
+                                            hunk.full_content = hunk_lines.join("\n");
+                                            // Add trailing newline if the original file has it and this isn't the last line
+                                            if !hunk.full_content.is_empty()
+                                                && end_idx < lines.len()
+                                            {
+                                                hunk.full_content.push('\n');
+                                            } else if end_idx == lines.len()
+                                                && file_content.ends_with('\n')
+                                            {
+                                                hunk.full_content.push('\n');
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut sorted_files = commit_changes_with_full_content.clone();
             sorted_files.sort_by_key(|file| file.file_path.clone());
 
             // Add commit metadata
