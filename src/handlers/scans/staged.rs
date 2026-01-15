@@ -952,7 +952,53 @@ pub fn get_staged_file_hunks(
     })
     .collect();
 
-    let mut sorted = result.into_iter().collect::<Vec<_>>();
+    // Populate full_content for each hunk by reading from the index
+    let mut result_with_full_content = result;
+    for file_hunks in &mut result_with_full_content {
+        let is_new_file = state
+            .new_files
+            .get(&file_hunks.file_path)
+            .copied()
+            .unwrap_or(false);
+
+        // Get the file content from the index
+        if let Some(index_entry) = index.get_path(std::path::Path::new(&file_hunks.file_path), 0) {
+            if let Ok(blob) = repo.find_blob(index_entry.id) {
+                if let Ok(file_content) = std::str::from_utf8(blob.content()) {
+                    let lines: Vec<&str> = file_content.lines().collect();
+
+                    for hunk in &mut file_hunks.hunks {
+                        // For new files, read all lines from start_line to the end of file
+                        if is_new_file {
+                            let start_idx = (hunk.start_line.saturating_sub(1)).min(lines.len());
+                            let hunk_lines = &lines[start_idx..];
+                            hunk.full_content = hunk_lines.join("\n");
+                            if !hunk.full_content.is_empty() && file_content.ends_with('\n') {
+                                hunk.full_content.push('\n');
+                            }
+                        } else {
+                            // For modified files, read the exact range
+                            let start_idx = (hunk.start_line.saturating_sub(1)).min(lines.len());
+                            let end_idx = hunk.end_line.min(lines.len());
+
+                            if start_idx < end_idx {
+                                let hunk_lines = &lines[start_idx..end_idx];
+                                hunk.full_content = hunk_lines.join("\n");
+                                // Add trailing newline if the original file has it and this isn't the last line
+                                if !hunk.full_content.is_empty() && end_idx < lines.len() {
+                                    hunk.full_content.push('\n');
+                                } else if end_idx == lines.len() && file_content.ends_with('\n') {
+                                    hunk.full_content.push('\n');
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sorted = result_with_full_content.into_iter().collect::<Vec<_>>();
     sorted.sort_by_key(|file| file.file_path.clone());
 
     Ok(sorted)
