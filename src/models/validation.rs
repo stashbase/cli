@@ -30,7 +30,8 @@ pub enum CmdArgInputValidationError {
     MissingProjectEnvironment,
     // argument not flag
     MissingEnvironmentIdentifierArgument,
-    ConflictingScopeAndProjectEnvironment
+    ConflictingScopeAndProjectEnvironment,
+    DuplicateScope,
 }
 
 #[derive(Debug, Serialize)]
@@ -471,6 +472,10 @@ impl CmdArgInputValidationError {
             CmdArgInputValidationError::ConflictingScopeAndProjectEnvironment => (
                 "Cannot use --scope=environment with --project or --environment flags.",
                 "Remove the -p/--project and -e/--environment flags when using an environment-scoped API key."
+            ),
+            CmdArgInputValidationError::DuplicateScope => (
+                "Scope specified multiple times.",
+                "Use '--scope' argument only once.",
             ),
         }
     }
