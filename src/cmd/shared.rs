@@ -1,6 +1,9 @@
 use clap::Args;
 
-use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
+use crate::models::{
+    scope::Scope,
+    validation::{CmdArgInputValidationError, InputValidationError},
+};
 
 #[derive(Debug, Args)]
 pub struct SharedProjectEnvArgs {
@@ -23,6 +26,22 @@ pub struct SharedProjectEnvArgs {
         hide_long_help = true
     )]
     pub environment: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct SharedScopeArgs {
+    /// Scope
+    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    pub scope: Option<Scope>,
+}
+
+#[derive(Debug, Args)]
+pub struct SharedProjectEnvScopeArgs {
+    #[clap(flatten)]
+    pub project_env: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 }
 
 pub fn try_get_project_environment(
@@ -74,4 +93,16 @@ pub fn try_get_project_environment(
     };
 
     Ok((project, environment))
+}
+
+pub fn try_get_scope(
+    root_scope: Option<&Scope>,
+    subcommand_scope: Option<&Scope>,
+) -> Result<Option<Scope>, InputValidationError> {
+    if root_scope.is_some() && subcommand_scope.is_some() {
+        let error = InputValidationError::CmdArgs(CmdArgInputValidationError::DuplicateScope);
+        return Err(error);
+    }
+
+    Ok(root_scope.cloned().or_else(|| subcommand_scope.cloned()))
 }
