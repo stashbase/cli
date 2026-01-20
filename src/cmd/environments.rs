@@ -5,7 +5,10 @@ use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
 use super::{config::OutputFormat, secrets::SecretsFileFormat};
-use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
+use crate::{
+    cmd::shared::Scope,
+    models::validation::{CmdArgInputValidationError, InputValidationError},
+};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "environments <COMMAND> -p <PROJECT> [OPTIONS]")]
@@ -160,13 +163,17 @@ pub struct GetEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Project name or id
+    /// Environment name or id
     #[arg(value_name = "NAME_OR_ID")]
-    pub identifier: String,
+    pub identifier: Option<String>,
 
     /// Format output
     #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
