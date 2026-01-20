@@ -10,8 +10,23 @@ use super::client;
 
 pub struct ListArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
+}
+
+fn get_webhooks_path(
+    project: Option<String>,
+    environment: Option<String>,
+    path: Option<String>,
+) -> ApiPath {
+    match (project, environment) {
+        (Some(project), Some(environment)) => ApiPath::Webhooks {
+            project,
+            environment,
+            path,
+        },
+        _ => ApiPath::WebhooksEnvScope { path },
+    }
 }
 
 pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse, OutputError> {
@@ -21,12 +36,10 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse, OutputError> 
         environment,
     } = args;
 
+    let path = get_webhooks_path(project, environment, None);
+
     let args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project,
-            environment,
-            path: None,
-        },
+        path,
         query: None,
         api_key,
     };
@@ -36,8 +49,8 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse, OutputError> 
 
 pub struct GetArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub with_secret: bool,
 }
@@ -56,12 +69,10 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse, OutputError> {
         false => None,
     };
 
+    let path = get_webhooks_path(project, environment, Some(webhook_id));
+
     let args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project,
-            environment,
-            path: Some(webhook_id),
-        },
+        path,
         query,
         api_key,
     };
@@ -72,8 +83,8 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse, OutputError> {
 // create
 pub struct CreateArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub return_secret: bool,
     pub data: CreateWebhookPayload,
 }
@@ -84,12 +95,10 @@ pub async fn create(args: CreateArgs) -> Result<RequestApiOptionResponse, Output
         false => None,
     };
 
+    let path = get_webhooks_path(args.project, args.environment, None);
+
     let req_args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project: args.project,
-            environment: args.environment,
-            path: None,
-        },
+        path,
         query,
         api_key: args.api_key,
     };
@@ -100,20 +109,20 @@ pub async fn create(args: CreateArgs) -> Result<RequestApiOptionResponse, Output
 // update
 pub struct TestArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
 }
 
 pub async fn test(args: TestArgs) -> Result<RequestApiOptionResponse, OutputError> {
-    let path = format!("{}/test", args.webhook_id);
+    let path = get_webhooks_path(
+        args.project,
+        args.environment,
+        Some(format!("{}/test", args.webhook_id)),
+    );
 
     let req_args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project: args.project,
-            environment: args.environment,
-            path: Some(path),
-        },
+        path,
         query: None,
         api_key: args.api_key,
     };
@@ -124,19 +133,17 @@ pub async fn test(args: TestArgs) -> Result<RequestApiOptionResponse, OutputErro
 // update
 pub struct UpdateArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub data: UpdateWebhookPayload,
 }
 
 pub async fn update(args: UpdateArgs) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_webhooks_path(args.project, args.environment, Some(args.webhook_id));
+
     let req_args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project: args.project,
-            environment: args.environment,
-            path: Some(args.webhook_id),
-        },
+        path,
         query: None,
         api_key: args.api_key,
     };
@@ -155,14 +162,14 @@ pub struct UpdateStatusArgs {
 pub async fn update_status(
     args: UpdateStatusArgs,
 ) -> Result<RequestApiOptionResponse, OutputError> {
-    let path = format!("{}/status", args.webhook_id);
+    let path = get_webhooks_path(
+        Some(args.project),
+        Some(args.environment),
+        Some(format!("{}/status", args.webhook_id)),
+    );
 
     let req_args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project: args.project,
-            environment: args.environment,
-            path: Some(path),
-        },
+        path,
         query: None,
         api_key: args.api_key,
     };
@@ -173,14 +180,14 @@ pub async fn update_status(
 pub type GetSecretArgs = RotateArgs;
 
 pub async fn get_secret(args: GetSecretArgs) -> Result<GetRequestApiResponse, OutputError> {
-    let path = format!("{}/signing-secret", args.webhook_id);
+    let path = get_webhooks_path(
+        args.project,
+        args.environment,
+        Some(format!("{}/signing-secret", args.webhook_id)),
+    );
 
     let req_args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project: args.project,
-            environment: args.environment,
-            path: Some(path),
-        },
+        path,
         query: None,
         api_key: args.api_key,
     };
@@ -191,21 +198,21 @@ pub async fn get_secret(args: GetSecretArgs) -> Result<GetRequestApiResponse, Ou
 // update
 pub struct RotateArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub json_format: bool,
 }
 
 pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse, OutputError> {
-    let path = format!("{}/signing-secret", args.webhook_id);
+    let path = get_webhooks_path(
+        args.project,
+        args.environment,
+        Some(format!("{}/signing-secret", args.webhook_id)),
+    );
 
     let req_args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project: args.project,
-            environment: args.environment,
-            path: Some(path),
-        },
+        path,
         query: None,
         api_key: args.api_key,
     };
@@ -216,18 +223,14 @@ pub async fn rotate_secret(args: RotateArgs) -> Result<RequestApiOptionResponse,
 // delete
 pub struct DeleteArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
 }
 
 pub async fn delete(args: DeleteArgs) -> Result<DeleteRequestApiResponse, OutputError> {
     let req_args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project: args.project,
-            environment: args.environment,
-            path: Some(args.webhook_id),
-        },
+        path: get_webhooks_path(args.project, args.environment, Some(args.webhook_id)),
         query: None,
         api_key: args.api_key,
     };
@@ -238,8 +241,8 @@ pub async fn delete(args: DeleteArgs) -> Result<DeleteRequestApiResponse, Output
 // Logs
 pub struct ListLogsArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub page: Option<usize>,
     pub page_size: Option<usize>,
@@ -255,7 +258,7 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse, Outp
         page_size,
     } = args;
 
-    let path = format!("{}/logs", webhook_id);
+    let path = get_webhooks_path(project, environment, Some(format!("{}/logs", webhook_id)));
 
     let mut query = vec![];
 
@@ -268,11 +271,7 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse, Outp
     }
 
     let args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project,
-            environment,
-            path: Some(path),
-        },
+        path,
         query: if query.is_empty() { None } else { Some(query) },
         api_key,
     };
@@ -282,18 +281,15 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse, Outp
 
 pub async fn get_dashboard_url(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     webhook_id: &str,
 ) -> Result<GetRequestApiResponse, OutputError> {
     let subpath = format!("{}/dashboard-url", webhook_id);
 
+    let path = get_webhooks_path(project, environment, Some(subpath));
     let args = RequestArgs {
-        path: ApiPath::Webhooks {
-            project,
-            environment,
-            path: Some(subpath),
-        },
+        path,
         query: None,
         api_key,
     };
