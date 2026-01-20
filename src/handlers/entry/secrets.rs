@@ -18,7 +18,9 @@ use crate::{
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
     models::secrets::SecretsSearchOutputFormat,
-    utils::validation::validate_project_environment_identifier,
+    utils::{
+        scope::detect_scope_from_api_key, validation::validate_project_environment_identifier,
+    },
 };
 
 fn get_output_format(
@@ -34,6 +36,7 @@ fn get_output_format(
 
 pub async fn handle_secrets_commands(
     cmd: SecretArgs,
+    scope: Option<Scope>,
     api_key: String,
     raw_output: bool,
     expand_refs: Option<bool>,
@@ -73,8 +76,13 @@ pub async fn handle_secrets_commands(
         return Ok(());
     }
 
-    let scope = cmd.get_scope();
-    let is_environment_scope = scope == Some(&Scope::Environment);
+    let scope_value = cmd.get_scope().or(scope.as_ref()).map(|s| match s {
+        Scope::Environment => Scope::Environment,
+        Scope::Workspace => Scope::Workspace,
+        Scope::Auto => detect_scope_from_api_key(&api_key),
+    });
+
+    let is_environment_scope = scope_value == Some(Scope::Environment);
 
     let mut project: Option<String> = None;
     let mut environment: Option<String> = None;
