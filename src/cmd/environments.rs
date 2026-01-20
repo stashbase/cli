@@ -199,7 +199,11 @@ pub struct OpenEnvironment {
 
     /// Project name or id
     #[arg(value_name = "NAME_OR_ID")]
-    pub identifier: String,
+    pub identifier: Option<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
