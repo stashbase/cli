@@ -30,6 +30,7 @@ pub enum CmdArgInputValidationError {
     MissingProjectEnvironment,
     // argument not flag
     MissingEnvironmentIdentifierArgument,
+    ConflictingScopeAndProjectEnvironment
 }
 
 #[derive(Debug, Serialize)]
@@ -466,6 +467,10 @@ impl CmdArgInputValidationError {
             CmdArgInputValidationError::MissingEnvironmentIdentifierArgument => (
                 "Environment identifier not specified.",
                 "Provide the environment identifier as a value <NAME_OR_ID> (e.g. 'prod/dev').",
+            ),
+            CmdArgInputValidationError::ConflictingScopeAndProjectEnvironment => (
+                "Cannot use --scope=environment with --project or --environment flags.",
+                "Remove the -p/--project and -e/--environment flags when using an environment-scoped API key."
             ),
         }
     }
