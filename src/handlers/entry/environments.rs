@@ -1,9 +1,10 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::{
     cmd::{
         config::OutputFormat,
         environments::{EnvironmentCommands, EnvironmentSubcommand},
+        shared::Scope,
     },
     handlers::environments::{
         compare::{handle_compare_environments, HandleCompareEnvironmentsArgs},
@@ -14,6 +15,7 @@ use crate::{
         open::handle_open_environment,
         update::{handle_update_environment, HandleUpdateEnvironmentArgs},
     },
+    models::validation::{CmdArgInputValidationError, InputValidationError},
     utils::output::get_output_format,
 };
 
@@ -24,6 +26,53 @@ pub async fn handle_environment_commands(
     silent: bool,
     default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
+    if let EnvironmentSubcommand::Get(get_cmd) = &cmd.subcommand {
+        let format = get_output_format(
+            raw_output,
+            default_output_format.clone(),
+            get_cmd.format.clone(),
+        );
+
+        let scope = get_cmd.scope.clone();
+
+        if scope == Some(Scope::Environment) {
+            handle_get_environment(api_key.clone(), format, silent, None, None).await?;
+        } else {
+            match get_cmd.identifier.clone() {
+                Some(identifier) => {
+                    let project = cmd.try_get_project()?;
+
+                    handle_get_environment(
+                        api_key.clone(),
+                        format,
+                        silent,
+                        Some(project),
+                        Some(identifier),
+                    )
+                    .await?;
+                }
+                None => {
+                    cmd.try_get_project()?;
+
+                    let error = InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::MissingEnvironmentIdentifierArgument,
+                    );
+                    let formatted_err = error.format_error_output(format == OutputFormat::Json)?;
+
+                    if !silent {
+                        eprintln!();
+                    }
+
+                    bail!(formatted_err);
+                }
+            }
+        }
+
+        return Ok(());
+    } else {
+        //
+    };
+
     let project = cmd.try_get_project()?;
 
     match cmd.subcommand {
@@ -44,10 +93,7 @@ pub async fn handle_environment_commands(
             handle_list_environments(args).await?;
         }
 
-        EnvironmentSubcommand::Get(args) => {
-            let format = get_output_format(raw_output, default_output_format, args.format);
-            handle_get_environment(api_key, format, silent, project, args.identifier).await?;
-        }
+        EnvironmentSubcommand::Get(_) => unreachable!(),
         EnvironmentSubcommand::Open(args) => {
             handle_open_environment(api_key, project, args.identifier, raw_output, silent).await?;
         }
