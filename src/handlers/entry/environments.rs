@@ -18,7 +18,7 @@ use crate::{
         scope::Scope,
         validation::{CmdArgInputValidationError, InputValidationError},
     },
-    utils::{output::get_output_format, scope::detect_scope_from_api_key},
+    utils::output::get_output_format,
 };
 
 pub async fn handle_environment_commands(

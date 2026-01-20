@@ -5,7 +5,6 @@ pub mod human_datetime;
 pub mod interaction;
 pub mod output;
 pub mod scans;
-pub mod scope;
 pub mod secrets;
 pub mod separator;
 pub mod spinner;
