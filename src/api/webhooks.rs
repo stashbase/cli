@@ -153,8 +153,8 @@ pub async fn update(args: UpdateArgs) -> Result<RequestApiOptionResponse, Output
 
 pub struct UpdateStatusArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub data: UpdateWebhookStatusPayload,
 }
@@ -163,8 +163,8 @@ pub async fn update_status(
     args: UpdateStatusArgs,
 ) -> Result<RequestApiOptionResponse, OutputError> {
     let path = get_webhooks_path(
-        Some(args.project),
-        Some(args.environment),
+        args.project,
+        args.environment,
         Some(format!("{}/status", args.webhook_id)),
     );
 
