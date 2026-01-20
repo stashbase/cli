@@ -28,6 +28,8 @@ pub enum CmdArgInputValidationError {
     MissingEnvironment,
     DuplicateEnvironment,
     MissingProjectEnvironment,
+    // argument not flag
+    MissingEnvironmentIdentifierArgument,
 }
 
 #[derive(Debug, Serialize)]
@@ -459,6 +461,11 @@ impl CmdArgInputValidationError {
             CmdArgInputValidationError::MissingProjectEnvironment => (
                 "Project and environment not specified.",
                 "Use '-p/--project' and '-e/--environment' arguments.",
+            ),
+            // argument not flag
+            CmdArgInputValidationError::MissingEnvironmentIdentifierArgument => (
+                "Environment identifier not specified.",
+                "Provide the environment identifier as a value <NAME_OR_ID> (e.g. 'prod/dev').",
             ),
         }
     }
