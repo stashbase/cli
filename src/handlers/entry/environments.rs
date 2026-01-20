@@ -23,7 +23,6 @@ use crate::{
 
 pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
-    scope: Option<Scope>,
     api_key: String,
     raw_output: bool,
     silent: bool,
@@ -36,13 +35,7 @@ pub async fn handle_environment_commands(
             get_cmd.format.clone(),
         );
 
-        let scope_value = get_cmd.scope.as_ref().or(scope.as_ref()).map(|s| match s {
-            Scope::Environment => Scope::Environment,
-            Scope::Workspace => Scope::Workspace,
-            Scope::Auto => detect_scope_from_api_key(&api_key),
-        });
-
-        if scope_value == Some(Scope::Environment) {
+        if get_cmd.scope == Some(Scope::Environment) {
             handle_get_environment(api_key.clone(), format, silent, None, None).await?;
         } else {
             match get_cmd.identifier.clone() {
@@ -77,13 +70,7 @@ pub async fn handle_environment_commands(
 
         return Ok(());
     } else if let EnvironmentSubcommand::Open(open_cmd) = &cmd.subcommand {
-        let scope_value = open_cmd.scope.as_ref().or(scope.as_ref()).map(|s| match s {
-            Scope::Environment => Scope::Environment,
-            Scope::Workspace => Scope::Workspace,
-            Scope::Auto => detect_scope_from_api_key(&api_key),
-        });
-
-        if scope_value == Some(Scope::Environment) {
+        if open_cmd.scope == Some(Scope::Environment) {
             handle_open_environment(api_key.clone(), None, None, raw_output, silent).await?;
         } else {
             match open_cmd.identifier.clone() {
