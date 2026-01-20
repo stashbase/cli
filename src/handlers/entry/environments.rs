@@ -69,8 +69,43 @@ pub async fn handle_environment_commands(
         }
 
         return Ok(());
-    } else {
-        //
+    } else if let EnvironmentSubcommand::Open(open_cmd) = &cmd.subcommand {
+        let scope = open_cmd.scope.clone();
+
+        if scope == Some(Scope::Environment) {
+            handle_open_environment(api_key.clone(), None, None, raw_output, silent).await?;
+        } else {
+            match open_cmd.identifier.clone() {
+                Some(identifier) => {
+                    let project = cmd.try_get_project()?;
+
+                    handle_open_environment(
+                        api_key.clone(),
+                        Some(project),
+                        Some(identifier),
+                        raw_output,
+                        silent,
+                    )
+                    .await?;
+                }
+                None => {
+                    cmd.try_get_project()?;
+
+                    let error = InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::MissingEnvironmentIdentifierArgument,
+                    );
+                    let formatted_err = error.format_error_output(raw_output)?;
+
+                    if !silent {
+                        eprintln!();
+                    }
+
+                    bail!(formatted_err);
+                }
+            }
+        }
+
+        return Ok(());
     };
 
     let project = cmd.try_get_project()?;
@@ -93,10 +128,6 @@ pub async fn handle_environment_commands(
             handle_list_environments(args).await?;
         }
 
-        EnvironmentSubcommand::Get(_) => unreachable!(),
-        EnvironmentSubcommand::Open(args) => {
-            handle_open_environment(api_key, project, args.identifier, raw_output, silent).await?;
-        }
         EnvironmentSubcommand::Create(args) => {
             let args = HandleCreateEnvironmentArgs {
                 api_key,
@@ -156,6 +187,8 @@ pub async fn handle_environment_commands(
 
             handle_compare_environments(handler_args).await?;
         }
+        EnvironmentSubcommand::Get(_) => unreachable!(),
+        EnvironmentSubcommand::Open(_) => unreachable!(),
     }
 
     Ok(())
