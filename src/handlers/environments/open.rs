@@ -14,22 +14,27 @@ pub struct GetEnvUrlResponse {
 
 pub async fn handle_open_environment(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     json_format: bool,
     silent: bool,
 ) -> Result<()> {
-    let input_validation_res =
-        validate_project_environment_identifier(&project, &environment, true);
+    if project.is_some() && environment.is_some() {
+        let input_validation_res = validate_project_environment_identifier(
+            project.as_ref().unwrap(),
+            environment.as_ref().unwrap(),
+            true,
+        );
 
-    if let Err(err) = input_validation_res {
-        let formatted_err = err.format_error_output(json_format)?;
+        if let Err(err) = input_validation_res {
+            let formatted_err = err.format_error_output(json_format)?;
 
-        if !silent {
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(formatted_err);
         }
-
-        bail!(formatted_err);
     }
 
     // OK
@@ -40,7 +45,7 @@ pub async fn handle_open_environment(
         None
     };
 
-    let project_res = environments::get_url(api_key, Some(project), Some(environment)).await;
+    let project_res = environments::get_url(api_key, project, environment).await;
 
     if let Err(err) = project_res {
         if let Some(mut spinner) = spinner {
