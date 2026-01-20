@@ -17,6 +17,9 @@ pub struct RequestArgs {
 #[derive(Debug)]
 pub enum ApiPath {
     Projects(Option<String>),
+    EnvironmentEnvScope {
+        path: Option<String>,
+    },
     Environments {
         project: String,
         path: Option<String>,
@@ -52,6 +55,10 @@ impl fmt::Display for ApiPath {
             ApiPath::Projects(p) => match p {
                 Some(value) => write!(f, "v1/projects/{}", value),
                 None => write!(f, "v1/projects"),
+            },
+            ApiPath::EnvironmentEnvScope { path } => match path {
+                Some(value) => write!(f, "v1/environment/{}", value),
+                None => write!(f, "v1/environment"),
             },
             ApiPath::Environments { project, path } => match path {
                 Some(value) => write!(f, "v1/projects/{}/environments/{}", project, value),
