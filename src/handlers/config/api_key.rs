@@ -21,7 +21,6 @@ pub fn set_api_key(api_key: Option<String>) {
 
     let res = config::update_config(UpdateConfig {
         api_key: Some(api_key_value),
-        scope: None,
         output_format: None,
         expand_refs: None,
     });

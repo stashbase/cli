@@ -89,7 +89,6 @@ pub async fn handle_cli(args: Cli) {
         }
 
         let api_key = api_key.unwrap();
-        let scope = config.scope;
 
         let result = match args.entity_type {
             EntityType::Whoami => {
@@ -165,15 +164,8 @@ pub async fn handle_cli(args: Cli) {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_webhook_commands(
-                    cmd,
-                    scope,
-                    api_key,
-                    silent,
-                    raw_output,
-                    default_output_format,
-                )
-                .await
+                handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
+                    .await
             }
             EntityType::Run(args) => {
                 let args = HandleRunArgs {
