@@ -125,7 +125,7 @@ fn select_scope(current: Option<Scope>) -> Scope {
     };
 
     let selection = Select::with_theme(&theme)
-        .with_prompt("Select default command/API scope")
+        .with_prompt("Scope for environment-level commands")
         .items(&items)
         .default(default_index)
         .interact()
