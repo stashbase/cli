@@ -1,7 +1,10 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::config::{OutputFormat, SecretsOutputFormat},
+    cmd::{
+        config::{OutputFormat, SecretsOutputFormat},
+        shared::Scope,
+    },
     config::config,
     models::config::{Config, OutputFormatConfig, UpdateConfig},
     utils::interaction::input_password,
@@ -22,6 +25,7 @@ pub fn setup(existing_config: Config) -> Result<()> {
     };
 
     let api_key = input_password(api_key_prompt);
+    let scope = select_scope(existing_config.scope);
 
     let current_output_format = existing_config.ouput_format;
 
@@ -37,6 +41,7 @@ pub fn setup(existing_config: Config) -> Result<()> {
 
     let updated_config = UpdateConfig {
         api_key,
+        scope: Some(scope),
         expand_refs: Some(expand_refs.unwrap_or(false)),
         output_format: Some(OutputFormatConfig {
             general: Some(new_output_format),
@@ -101,6 +106,36 @@ fn select_secrets_output_format(current: Option<SecretsOutputFormat>) -> Secrets
         3 => SecretsOutputFormat::Yaml,
         4 => SecretsOutputFormat::Json,
         _ => SecretsOutputFormat::List,
+    }
+}
+
+fn select_scope(current: Option<Scope>) -> Scope {
+    let theme = ColorfulTheme::default();
+
+    let items = [
+        "Auto (auto-detect from API key)",
+        "Workspace",
+        "Environment",
+    ];
+
+    let default_index = match current.unwrap_or_default() {
+        Scope::Auto => 0,
+        Scope::Workspace => 1,
+        Scope::Environment => 2,
+    };
+
+    let selection = Select::with_theme(&theme)
+        .with_prompt("Select default command/API scope")
+        .items(&items)
+        .default(default_index)
+        .interact()
+        .unwrap_or(default_index);
+
+    match selection {
+        0 => Scope::Auto,
+        1 => Scope::Workspace,
+        2 => Scope::Environment,
+        _ => Scope::Auto,
     }
 }
 

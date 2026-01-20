@@ -3,3 +3,4 @@ pub mod expand_refs;
 pub mod output;
 pub mod output_secrets;
 pub mod reset;
+pub mod scope;
