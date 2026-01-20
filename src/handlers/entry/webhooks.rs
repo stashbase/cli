@@ -80,8 +80,9 @@ pub async fn handle_webhook_commands(
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
 ) -> anyhow::Result<()> {
+    let scope = cmd.get_scope();
     // required options
-    let is_environment_scope = cmd.scope == Scope::Environment;
+    let is_environment_scope = scope == Some(&Scope::Environment);
 
     let mut project: Option<String> = None;
     let mut environment: Option<String> = None;

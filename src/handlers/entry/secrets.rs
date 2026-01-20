@@ -4,6 +4,7 @@ use crate::{
     cmd::{
         config::SecretsOutputFormat,
         secrets::{SecretArgs, SecretSubcommand},
+        shared::Scope,
     },
     handlers::secrets::{
         create::{handle_create_secrets, HandleCreateSecretsArgs},
@@ -72,28 +73,40 @@ pub async fn handle_secrets_commands(
         return Ok(());
     }
 
-    let project_env_res = cmd.try_get_project_environment();
+    let scope = cmd.get_scope();
+    let is_environment_scope = scope == Some(&Scope::Environment);
 
-    if let Err(err) = project_env_res {
-        let formatted_err = err.format_error_output(raw_output)?;
+    let mut project: Option<String> = None;
+    let mut environment: Option<String> = None;
 
-        if !silent {
-            eprintln!();
+    if !is_environment_scope {
+        let project_env_res = cmd.try_get_project_environment();
+
+        if let Err(err) = project_env_res {
+            let formatted_err = err.format_error_output(raw_output)?;
+
+            if !silent {
+                eprintln!();
+            }
+            bail!(formatted_err);
         }
-        bail!(formatted_err);
-    }
 
-    let (project, environment) = project_env_res.unwrap();
+        let (p, env) = project_env_res.unwrap();
 
-    let validation_res = validate_project_environment_identifier(&project, &environment, false);
+        let validation_res =
+            validate_project_environment_identifier(p.as_ref(), env.as_ref(), false);
 
-    if let Err(err) = validation_res {
-        let formatted_err = err.format_error_output(raw_output)?;
+        if let Err(err) = validation_res {
+            let formatted_err = err.format_error_output(raw_output)?;
 
-        if !silent {
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+            bail!(formatted_err);
         }
-        bail!(formatted_err);
+
+        project = Some(p);
+        environment = Some(env);
     }
 
     match cmd.subcommand {
