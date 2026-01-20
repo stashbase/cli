@@ -40,7 +40,7 @@ pub async fn handle_open_environment(
         None
     };
 
-    let project_res = environments::get_url(api_key, project, environment).await;
+    let project_res = environments::get_url(api_key, Some(project), Some(environment)).await;
 
     if let Err(err) = project_res {
         if let Some(mut spinner) = spinner {
