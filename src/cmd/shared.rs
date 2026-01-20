@@ -1,8 +1,11 @@
+use std::fmt::Display;
+
 use clap::{Args, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
 
-#[derive(Debug, ValueEnum, Default, Clone, PartialEq)]
+#[derive(Debug, ValueEnum, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Scope {
     #[default]
     Auto,
@@ -10,6 +13,15 @@ pub enum Scope {
     Environment,
 }
 
+impl Display for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Workspace => write!(f, "workspace"),
+            Self::Environment => write!(f, "environment"),
+        }
+    }
+}
 #[derive(Debug, Args)]
 pub struct SharedProjectEnvArgs {
     /// Project name

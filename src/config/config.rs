@@ -69,6 +69,7 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
     let mut config = get_config()?;
 
     let UpdateConfig {
+        scope,
         api_key,
         output_format,
         expand_refs,
@@ -76,6 +77,10 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
 
     if let Some(new_api_key) = api_key {
         config.api_key = Some(new_api_key);
+    }
+
+    if let Some(new_scope) = scope {
+        config.scope = Some(new_scope);
     }
 
     if let Some(new_expand_refs) = expand_refs {

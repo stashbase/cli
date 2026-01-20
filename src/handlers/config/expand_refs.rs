@@ -13,6 +13,7 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
     let enabled = enabled.unwrap();
 
     let res = config::update_config(UpdateConfig {
+        scope: None,
         api_key: None,
         output_format: None,
         expand_refs: Some(enabled),
