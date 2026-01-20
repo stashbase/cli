@@ -123,8 +123,15 @@ pub async fn handle_cli(args: Cli) {
                     Some(o) => o.general,
                     None => None,
                 };
-                handle_environment_commands(cmd, api_key, raw_output, silent, default_output_format)
-                    .await
+                handle_environment_commands(
+                    cmd,
+                    scope,
+                    api_key,
+                    raw_output,
+                    silent,
+                    default_output_format,
+                )
+                .await
             }
             EntityType::Config(_) => {
                 unreachable!()

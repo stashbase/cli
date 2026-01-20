@@ -4,7 +4,6 @@ use crate::{
     cmd::{
         config::OutputFormat,
         environments::{EnvironmentCommands, EnvironmentSubcommand},
-        shared::Scope,
     },
     handlers::environments::{
         compare::{handle_compare_environments, HandleCompareEnvironmentsArgs},
@@ -15,12 +14,16 @@ use crate::{
         open::handle_open_environment,
         update::{handle_update_environment, HandleUpdateEnvironmentArgs},
     },
-    models::validation::{CmdArgInputValidationError, InputValidationError},
-    utils::output::get_output_format,
+    models::{
+        scope::Scope,
+        validation::{CmdArgInputValidationError, InputValidationError},
+    },
+    utils::{output::get_output_format, scope::detect_scope_from_api_key},
 };
 
 pub async fn handle_environment_commands(
     cmd: EnvironmentCommands,
+    scope: Option<Scope>,
     api_key: String,
     raw_output: bool,
     silent: bool,
@@ -33,9 +36,13 @@ pub async fn handle_environment_commands(
             get_cmd.format.clone(),
         );
 
-        let scope = get_cmd.scope.clone();
+        let scope_value = get_cmd.scope.as_ref().or(scope.as_ref()).map(|s| match s {
+            Scope::Environment => Scope::Environment,
+            Scope::Workspace => Scope::Workspace,
+            Scope::Auto => detect_scope_from_api_key(&api_key),
+        });
 
-        if scope == Some(Scope::Environment) {
+        if scope_value == Some(Scope::Environment) {
             handle_get_environment(api_key.clone(), format, silent, None, None).await?;
         } else {
             match get_cmd.identifier.clone() {
@@ -70,9 +77,13 @@ pub async fn handle_environment_commands(
 
         return Ok(());
     } else if let EnvironmentSubcommand::Open(open_cmd) = &cmd.subcommand {
-        let scope = open_cmd.scope.clone();
+        let scope_value = open_cmd.scope.as_ref().or(scope.as_ref()).map(|s| match s {
+            Scope::Environment => Scope::Environment,
+            Scope::Workspace => Scope::Workspace,
+            Scope::Auto => detect_scope_from_api_key(&api_key),
+        });
 
-        if scope == Some(Scope::Environment) {
+        if scope_value == Some(Scope::Environment) {
             handle_open_environment(api_key.clone(), None, None, raw_output, silent).await?;
         } else {
             match open_cmd.identifier.clone() {

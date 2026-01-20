@@ -4,7 +4,6 @@ use crate::{
     cmd::{
         config::SecretsOutputFormat,
         secrets::{SecretArgs, SecretSubcommand},
-        shared::Scope,
     },
     handlers::secrets::{
         create::{handle_create_secrets, HandleCreateSecretsArgs},
@@ -17,7 +16,7 @@ use crate::{
         update::{handle_update_secrets, HandleUpdateSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
-    models::secrets::SecretsSearchOutputFormat,
+    models::{scope::Scope, secrets::SecretsSearchOutputFormat},
     utils::{
         scope::detect_scope_from_api_key, validation::validate_project_environment_identifier,
     },

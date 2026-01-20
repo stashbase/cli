@@ -1,4 +1,4 @@
-use crate::cmd::shared::Scope;
+use crate::models::scope::Scope;
 
 /// Detect CLI scope from API key
 pub fn detect_scope_from_api_key(api_key: &str) -> Scope {
