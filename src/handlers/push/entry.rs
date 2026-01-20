@@ -384,7 +384,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     };
 
     // file
-    let res = secrets::set_sercrets(api_key, project, environment, &secrets).await;
+    let res = secrets::set_sercrets(api_key, Some(project), Some(environment), &secrets).await;
 
     if let Err(err) = res {
         if let Some(ref mut spinner) = spinner {
