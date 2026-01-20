@@ -1,6 +1,6 @@
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::models::validation::InputValidationError;
+use crate::{cmd::shared::Scope, models::validation::InputValidationError};
 
 use super::{
     config::OutputFormat,
@@ -25,14 +25,6 @@ pub struct WebhookCommand {
 
     #[arg(long = "scope", value_enum, default_value_t = Scope::Auto)]
     pub scope: Scope,
-}
-
-#[derive(Debug, ValueEnum, Default, Clone, PartialEq)]
-pub enum Scope {
-    #[default]
-    Auto,
-    Workspace,
-    Environment,
 }
 
 impl WebhookCommand {
