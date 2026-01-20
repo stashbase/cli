@@ -1,12 +1,12 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::{
-        config::{OutputFormat, SecretsOutputFormat},
-        shared::Scope,
-    },
+    cmd::config::{OutputFormat, SecretsOutputFormat},
     config::config,
-    models::config::{Config, OutputFormatConfig, UpdateConfig},
+    models::{
+        config::{Config, OutputFormatConfig, UpdateConfig},
+        scope::Scope,
+    },
     utils::interaction::input_password,
 };
 use dialoguer::{theme::ColorfulTheme, Confirm, Select};

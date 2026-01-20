@@ -3,7 +3,6 @@ use anyhow::bail;
 use crate::{
     cmd::{
         config::OutputFormat,
-        shared::Scope,
         webhooks::{WebhookCommand, WebhookSubcommand},
     },
     handlers::webhooks::{
@@ -19,7 +18,7 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
-    models::validation::InputValidationError,
+    models::{scope::Scope, validation::InputValidationError},
     utils::{
         output::get_output_format,
         scope::detect_scope_from_api_key,

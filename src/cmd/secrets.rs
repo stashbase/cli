@@ -2,9 +2,8 @@ use std::fmt::Display;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::{
-    cmd::shared::Scope,
-    models::{secrets::SecretsSearchOutputFormat, validation::InputValidationError},
+use crate::models::{
+    scope::Scope, secrets::SecretsSearchOutputFormat, validation::InputValidationError,
 };
 
 use super::{

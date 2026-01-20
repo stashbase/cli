@@ -1,6 +1,6 @@
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
 
-use crate::{cmd::shared::Scope, models::validation::InputValidationError};
+use crate::models::{scope::Scope, validation::InputValidationError};
 
 use super::{
     config::OutputFormat,

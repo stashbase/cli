@@ -5,9 +5,9 @@ use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
 use super::{config::OutputFormat, secrets::SecretsFileFormat};
-use crate::{
-    cmd::shared::Scope,
-    models::validation::{CmdArgInputValidationError, InputValidationError},
+use crate::models::{
+    scope::Scope,
+    validation::{CmdArgInputValidationError, InputValidationError},
 };
 
 #[derive(Debug, Args)]

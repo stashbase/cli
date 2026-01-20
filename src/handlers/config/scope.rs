@@ -1,5 +1,6 @@
 use crate::{
-    cmd::shared::Scope, config::config, models::config::UpdateConfig,
+    config::config,
+    models::{config::UpdateConfig, scope::Scope},
     utils::output::ColorizeIfColoredOutput,
 };
 

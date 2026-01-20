@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::{
-    config::{OutputFormat, SecretsOutputFormat},
-    shared::Scope,
-};
+use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
+use crate::models::scope::Scope;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
