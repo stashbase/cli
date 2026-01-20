@@ -13,8 +13,8 @@ use crate::{
 
 pub struct RotateWebhookSecretArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub json_format: bool,
     pub silent: bool,
