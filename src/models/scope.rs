@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, ValueEnum)]
 pub enum Scope {
     #[default]
-    #[serde(rename = "workspace")]
+    #[clap(alias = "ws")]
     Workspace,
-    #[serde(rename = "environment")]
+    #[clap(alias = "env")]
     Environment,
 }
 
