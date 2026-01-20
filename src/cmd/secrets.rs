@@ -26,8 +26,9 @@ pub struct SecretArgs {
     #[clap(subcommand)]
     pub subcommand: SecretSubcommand,
 
-    #[arg(long = "scope", value_enum, default_value_t = Scope::Auto)]
-    pub scope: Scope,
+    // Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 impl SecretArgs {
@@ -38,6 +39,16 @@ impl SecretArgs {
         let (project, environment) = self.subcommand.get_project_environment();
 
         try_get_project_environment(root_project, root_environment, project, environment)
+    }
+
+    pub fn get_scope(&self) -> Option<&Scope> {
+        let subcommand_scope = self.subcommand.get_scope();
+
+        if subcommand_scope.is_some() {
+            return subcommand_scope;
+        }
+
+        self.scope.as_ref()
     }
 }
 
@@ -85,6 +96,19 @@ impl SecretSubcommand {
                 diff_secrets.shared_args.project.as_deref(),
                 diff_secrets.shared_args.environment.as_deref(),
             ),
+        }
+    }
+    pub fn get_scope(&self) -> Option<&Scope> {
+        match self {
+            SecretSubcommand::List(l) => l.scope.as_ref(),
+            SecretSubcommand::Get(g) => g.scope.as_ref(),
+            SecretSubcommand::Set(s) => s.scope.as_ref(),
+            SecretSubcommand::Create(c) => c.scope.as_ref(),
+            SecretSubcommand::Update(u) => u.scope.as_ref(),
+            SecretSubcommand::Upload(u) => u.scope.as_ref(),
+            SecretSubcommand::Delete(d) => d.scope.as_ref(),
+            SecretSubcommand::Diff(_) => None,
+            SecretSubcommand::Search(_) => None,
         }
     }
 }
@@ -146,6 +170,10 @@ pub struct ListSecrets {
     /// Expand references to their values
     #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -164,6 +192,10 @@ pub struct GetSecrets {
     /// Expand references to their values
     #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -183,6 +215,10 @@ pub struct DeleteSecrets {
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -198,6 +234,10 @@ pub struct SetSecrets {
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
     #[clap(long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -213,6 +253,10 @@ pub struct CreateSecrets {
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
     #[clap(long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -232,6 +276,10 @@ pub struct UploadSecrets {
     /// Ignore secret comments
     #[arg(long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -251,6 +299,10 @@ pub struct UpdateSecrets {
     /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
     #[clap(long = "comments", short = 'c', num_args = 1..)]
     pub comments: Vec<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, ValueEnum, Copy, Clone, PartialEq, Eq, Default)]
@@ -284,6 +336,10 @@ pub struct SetComment {
 
     /// Comment
     pub comment: String,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -295,6 +351,10 @@ pub struct RenameSecrets {
     /// Secrets to rename: NAME_1=NEW_NAME_1 NAME_2=NEW_NAME_2
     #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
