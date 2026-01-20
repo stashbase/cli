@@ -8,8 +8,11 @@ use crate::models::validation::{CmdArgInputValidationError, InputValidationError
 #[derive(Debug, ValueEnum, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Scope {
     #[default]
+    #[serde(rename = "auto")]
     Auto,
+    #[serde(rename = "workspace")]
     Workspace,
+    #[serde(rename = "environment")]
     Environment,
 }
 
