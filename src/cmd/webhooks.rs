@@ -27,7 +27,7 @@ pub struct WebhookCommand {
     pub scope: Scope,
 }
 
-#[derive(Debug, ValueEnum, Default, Clone)]
+#[derive(Debug, ValueEnum, Default, Clone, PartialEq)]
 pub enum Scope {
     #[default]
     Auto,
