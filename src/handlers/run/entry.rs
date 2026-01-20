@@ -376,8 +376,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     let res = secrets::pull(
         api_key,
-        project.clone(),
-        environment.clone(),
+        Some(project.clone()),
+        Some(environment.clone()),
         only,
         exclude,
         false,

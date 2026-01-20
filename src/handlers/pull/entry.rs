@@ -295,8 +295,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
     let res = secrets::pull(
         api_key,
-        project.clone(),
-        environment.clone(),
+        Some(project.clone()),
+        Some(environment.clone()),
         only,
         exclude,
         with_comment,
