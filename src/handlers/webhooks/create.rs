@@ -12,8 +12,8 @@ use crate::{
 
 pub struct CreateWebhookArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub return_secret: bool,
     pub enable: bool,
     // payload

@@ -14,8 +14,8 @@ use crate::{
 #[derive(Debug)]
 pub struct GetWebhookArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub with_secret: bool,
     pub format: OutputFormat,
