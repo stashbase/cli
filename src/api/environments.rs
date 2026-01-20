@@ -57,16 +57,21 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
 
 pub async fn get(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
 ) -> Result<GetRequestApiResponse, OutputError> {
-    let args = RequestArgs {
-        api_key,
-        query: None,
-        path: ApiPath::Environments {
+    let path = match (project, environment) {
+        (Some(project), Some(environment)) => ApiPath::Environments {
             project,
             path: Some(environment),
         },
+        _ => ApiPath::EnvironmentEnvScope { path: None },
+    };
+
+    let args = RequestArgs {
+        api_key,
+        query: None,
+        path,
     };
 
     client::get_request(args).await
