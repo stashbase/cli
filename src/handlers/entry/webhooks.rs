@@ -21,7 +21,6 @@ use crate::{
     models::{scope::Scope, validation::InputValidationError},
     utils::{
         output::get_output_format,
-        scope::detect_scope_from_api_key,
         validation::{
             validate_project_environment_identifier, validate_webhook_description,
             validate_webhook_id, validate_webhook_url,
@@ -75,21 +74,14 @@ fn validate_input(
 
 pub async fn handle_webhook_commands(
     cmd: WebhookCommand,
-    scope: Option<Scope>,
     api_key: String,
     silent: bool,
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
 ) -> anyhow::Result<()> {
-    let scope_value = cmd.get_scope().or(scope.as_ref()).map(|s| match s {
-        Scope::Environment => Scope::Environment,
-        Scope::Workspace => Scope::Workspace,
-        Scope::Auto => detect_scope_from_api_key(&api_key),
-    });
+    let is_environment_scope = cmd.get_scope() == Some(&Scope::Environment);
 
     // required options
-    let is_environment_scope = scope_value == Some(Scope::Environment);
-
     let mut project: Option<String> = None;
     let mut environment: Option<String> = None;
 
