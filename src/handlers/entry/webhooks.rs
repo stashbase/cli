@@ -79,7 +79,17 @@ pub async fn handle_webhook_commands(
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
 ) -> anyhow::Result<()> {
-    let scope = cmd.get_scope().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let scope = match cmd.get_scope() {
+        Ok(s) => s,
+        Err(e) => {
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(e.format_error_output(raw_output)?);
+        }
+    };
+
     let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
 
     // required options
