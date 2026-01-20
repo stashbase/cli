@@ -4,7 +4,7 @@ use crate::models::{scope::Scope, validation::InputValidationError};
 
 use super::{
     config::OutputFormat,
-    shared::{try_get_project_environment, SharedProjectEnvArgs},
+    shared::{try_get_project_environment, try_get_scope, SharedProjectEnvArgs, SharedScopeArgs},
 };
 
 #[derive(Debug, Args)]
@@ -20,12 +20,12 @@ pub struct WebhookCommand {
     #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
 
-    #[clap(subcommand)]
-    pub subcommand: WebhookSubcommand,
-
     /// Scope
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
+
+    #[clap(subcommand)]
+    pub subcommand: WebhookSubcommand,
 }
 
 impl WebhookCommand {
@@ -38,14 +38,11 @@ impl WebhookCommand {
         try_get_project_environment(root_project, root_environment, project, environment)
     }
 
-    pub fn get_scope(&self) -> Option<&Scope> {
+    pub fn get_scope(&self) -> Result<Option<Scope>, InputValidationError> {
+        let root_scope = self.scope.as_ref();
         let subcommand_scope = self.subcommand.get_scope();
 
-        if subcommand_scope.is_some() {
-            return subcommand_scope;
-        }
-
-        self.scope.as_ref()
+        try_get_scope(root_scope, subcommand_scope)
     }
 }
 
@@ -176,20 +173,21 @@ impl WebhookSubcommand {
             ),
         }
     }
+
     pub fn get_scope(&self) -> Option<&Scope> {
         match self {
-            WebhookSubcommand::List(l) => l.scope.as_ref(),
-            WebhookSubcommand::Get(g) => g.scope.as_ref(),
-            WebhookSubcommand::Create(c) => c.scope.as_ref(),
-            WebhookSubcommand::Update(u) => u.scope.as_ref(),
-            WebhookSubcommand::Enable(e) => e.scope.as_ref(),
-            WebhookSubcommand::Disable(d) => d.scope.as_ref(),
-            WebhookSubcommand::Test(t) => t.scope.as_ref(),
-            WebhookSubcommand::RotateSecret(r) => r.scope.as_ref(),
-            WebhookSubcommand::Delete(d) => d.scope.as_ref(),
-            WebhookSubcommand::Logs(l) => l.scope.as_ref(),
-            WebhookSubcommand::Open(o) => o.scope.as_ref(),
-            WebhookSubcommand::GetSecret(s) => s.scope.as_ref(),
+            WebhookSubcommand::List(l) => l.scope_args.scope.as_ref(),
+            WebhookSubcommand::Get(g) => g.scope_args.scope.as_ref(),
+            WebhookSubcommand::Create(c) => c.scope_args.scope.as_ref(),
+            WebhookSubcommand::Update(u) => u.scope_args.scope.as_ref(),
+            WebhookSubcommand::Enable(e) => e.scope_args.scope.as_ref(),
+            WebhookSubcommand::Disable(d) => d.scope_args.scope.as_ref(),
+            WebhookSubcommand::Test(t) => t.scope_args.scope.as_ref(),
+            WebhookSubcommand::RotateSecret(r) => r.scope_args.scope.as_ref(),
+            WebhookSubcommand::Delete(d) => d.scope_args.scope.as_ref(),
+            WebhookSubcommand::Logs(l) => l.scope_args.scope.as_ref(),
+            WebhookSubcommand::Open(o) => o.scope_args.scope.as_ref(),
+            WebhookSubcommand::GetSecret(s) => s.scope_args.scope.as_ref(),
         }
     }
 }
@@ -201,15 +199,14 @@ pub struct ListWebhooks {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     // #[arg(value_enum, short = 'p', long = "page")]
     // pub page: Option<usize>,
     /// Format output
     #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -217,6 +214,9 @@ pub struct ListWebhooks {
 pub struct GetWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -228,10 +228,6 @@ pub struct GetWebhook {
     /// Format output
     #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -242,12 +238,11 @@ pub struct GetSigningSecret {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Id of webhook
     pub webhook_id: String,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -256,16 +251,15 @@ pub struct DeleteWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Id of webhook
     pub webhook_id: String,
 
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -274,12 +268,11 @@ pub struct TestWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Id of webhook
     pub webhook_id: String,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -287,6 +280,9 @@ pub struct TestWebhook {
 pub struct CreateWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// URL endpoint
     pub url: String,
@@ -302,10 +298,6 @@ pub struct CreateWebhook {
     /// Return signing secret
     #[arg(long = "return-secret")]
     pub return_secret: bool,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -313,6 +305,9 @@ pub struct CreateWebhook {
 pub struct UpdateWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -324,10 +319,6 @@ pub struct UpdateWebhook {
     /// Webhook description
     #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -335,6 +326,9 @@ pub struct UpdateWebhook {
 pub struct WebhookLogs {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -350,10 +344,6 @@ pub struct WebhookLogs {
     /// Items per page
     #[arg(long = "page-size")]
     pub page_size: Option<usize>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -362,12 +352,11 @@ pub struct OpenWebhooks {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Id of webhook
     pub webhook_id: Option<String>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -378,16 +367,15 @@ pub struct SetEnableStatus {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Id of webhook
     pub webhook_id: String,
 
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -398,14 +386,13 @@ pub struct RoateteWebhookSecret {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Id of webhook
     pub webhook_id: String,
 
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
