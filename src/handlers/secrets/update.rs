@@ -22,8 +22,8 @@ use crate::{
 
 pub struct HandleUpdateSecretsArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub new_names: Vec<String>,
     pub values: Vec<String>,
     pub comment: Vec<String>,

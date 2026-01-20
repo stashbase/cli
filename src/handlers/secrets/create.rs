@@ -19,8 +19,8 @@ use crate::{
 
 pub struct HandleCreateSecretsArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub values: Vec<String>,
     pub comments: Vec<String>,
     pub json_format: bool,

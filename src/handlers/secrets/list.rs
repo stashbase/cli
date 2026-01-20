@@ -17,8 +17,8 @@ use crate::{
 
 pub struct HandleListSecretsArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     // pub search: Option<String>,
     pub format: SecretsOutputFormat,
     pub only_names: bool,

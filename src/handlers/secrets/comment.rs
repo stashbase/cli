@@ -20,8 +20,8 @@ use crate::{
 
 pub struct HandleCommentArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub name: String,
     pub comment: String,
     pub json_format: bool,
@@ -102,20 +102,24 @@ pub async fn handle_update_comment(args: HandleCommentArgs) -> anyhow::Result<()
 }
 
 fn validate_input(
-    project: &str,
-    environment: &str,
+    project: &Option<String>,
+    environment: &Option<String>,
     name: &str,
 ) -> Result<(), InputValidationError> {
-    let project_name_validation_res = validate_project_name(project, false, false);
+    if project.is_some() && environment.is_some() {
+        let project_name_validation_res =
+            validate_project_name(project.as_ref().unwrap(), false, false);
 
-    if let Err(err) = project_name_validation_res {
-        return Err(err);
-    }
+        if let Err(err) = project_name_validation_res {
+            return Err(err);
+        }
 
-    let env_validation_res = validate_environment_name(environment, false, false);
+        let env_validation_res =
+            validate_environment_name(environment.as_ref().unwrap(), false, false);
 
-    if let Err(err) = env_validation_res {
-        return Err(err);
+        if let Err(err) = env_validation_res {
+            return Err(err);
+        }
     }
 
     let name_valid = validate_secret_name(&name);
