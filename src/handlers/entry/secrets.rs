@@ -72,7 +72,7 @@ pub async fn handle_secrets_commands(
         return Ok(());
     }
 
-    let is_environment_scope = cmd.get_scope() == Some(&Scope::Environment);
+    let is_environment_scope = cmd.get_scope() == &Scope::Environment;
 
     let mut project: Option<String> = None;
     let mut environment: Option<String> = None;

@@ -26,8 +26,8 @@ pub struct SecretArgs {
     pub subcommand: SecretSubcommand,
 
     // Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 impl SecretArgs {
@@ -40,14 +40,13 @@ impl SecretArgs {
         try_get_project_environment(root_project, root_environment, project, environment)
     }
 
-    pub fn get_scope(&self) -> Option<&Scope> {
+    pub fn get_scope(&self) -> &Scope {
         let subcommand_scope = self.subcommand.get_scope();
 
-        if subcommand_scope.is_some() {
-            return subcommand_scope;
+        match subcommand_scope {
+            Some(scope) => scope,
+            None => &self.scope,
         }
-
-        self.scope.as_ref()
     }
 }
 
@@ -99,13 +98,13 @@ impl SecretSubcommand {
     }
     pub fn get_scope(&self) -> Option<&Scope> {
         match self {
-            SecretSubcommand::List(l) => l.scope.as_ref(),
-            SecretSubcommand::Get(g) => g.scope.as_ref(),
-            SecretSubcommand::Set(s) => s.scope.as_ref(),
-            SecretSubcommand::Create(c) => c.scope.as_ref(),
-            SecretSubcommand::Update(u) => u.scope.as_ref(),
-            SecretSubcommand::Upload(u) => u.scope.as_ref(),
-            SecretSubcommand::Delete(d) => d.scope.as_ref(),
+            SecretSubcommand::List(l) => Some(&l.scope),
+            SecretSubcommand::Get(g) => Some(&g.scope),
+            SecretSubcommand::Set(s) => Some(&s.scope),
+            SecretSubcommand::Create(c) => Some(&c.scope),
+            SecretSubcommand::Update(u) => Some(&u.scope),
+            SecretSubcommand::Upload(u) => Some(&u.scope),
+            SecretSubcommand::Delete(d) => Some(&d.scope),
             SecretSubcommand::Diff(_) => None,
             SecretSubcommand::Search(_) => None,
         }
@@ -171,8 +170,8 @@ pub struct ListSecrets {
     pub expand_refs: Option<bool>,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -193,8 +192,8 @@ pub struct GetSecrets {
     pub expand_refs: Option<bool>,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -216,8 +215,8 @@ pub struct DeleteSecrets {
     pub force: bool,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -235,8 +234,8 @@ pub struct SetSecrets {
     pub comments: Vec<String>,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -254,8 +253,8 @@ pub struct CreateSecrets {
     pub comments: Vec<String>,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -277,8 +276,8 @@ pub struct UploadSecrets {
     pub ignore_comments: Option<bool>,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -300,8 +299,8 @@ pub struct UpdateSecrets {
     pub comments: Vec<String>,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, ValueEnum, Copy, Clone, PartialEq, Eq, Default)]
@@ -337,8 +336,8 @@ pub struct SetComment {
     pub comment: String,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -352,8 +351,8 @@ pub struct RenameSecrets {
     pub secrets: Vec<String>,
 
     /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
+    #[arg(long = "scope", value_enum, default_value = "workspace")]
+    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
