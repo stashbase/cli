@@ -3,7 +3,8 @@ use anyhow::bail;
 use crate::{
     cmd::{
         config::OutputFormat,
-        webhooks::{Scope, WebhookCommand, WebhookSubcommand},
+        shared::Scope,
+        webhooks::{WebhookCommand, WebhookSubcommand},
     },
     handlers::webhooks::{
         create::{handle_create_webhook, CreateWebhookArgs},

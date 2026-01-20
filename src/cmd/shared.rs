@@ -1,6 +1,14 @@
-use clap::Args;
+use clap::{Args, ValueEnum};
 
 use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
+
+#[derive(Debug, ValueEnum, Default, Clone, PartialEq)]
+pub enum Scope {
+    #[default]
+    Auto,
+    Workspace,
+    Environment,
+}
 
 #[derive(Debug, Args)]
 pub struct SharedProjectEnvArgs {
