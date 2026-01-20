@@ -23,8 +23,9 @@ pub struct WebhookCommand {
     #[clap(subcommand)]
     pub subcommand: WebhookSubcommand,
 
-    #[arg(long = "scope", value_enum, default_value_t = Scope::Auto)]
-    pub scope: Scope,
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 impl WebhookCommand {
@@ -35,6 +36,16 @@ impl WebhookCommand {
         let (project, environment) = self.subcommand.get_project_environment();
 
         try_get_project_environment(root_project, root_environment, project, environment)
+    }
+
+    pub fn get_scope(&self) -> Option<&Scope> {
+        let subcommand_scope = self.subcommand.get_scope();
+
+        if subcommand_scope.is_some() {
+            return subcommand_scope;
+        }
+
+        self.scope.as_ref()
     }
 }
 
@@ -165,6 +176,22 @@ impl WebhookSubcommand {
             ),
         }
     }
+    pub fn get_scope(&self) -> Option<&Scope> {
+        match self {
+            WebhookSubcommand::List(l) => l.scope.as_ref(),
+            WebhookSubcommand::Get(g) => g.scope.as_ref(),
+            WebhookSubcommand::Create(c) => c.scope.as_ref(),
+            WebhookSubcommand::Update(u) => u.scope.as_ref(),
+            WebhookSubcommand::Enable(e) => e.scope.as_ref(),
+            WebhookSubcommand::Disable(d) => d.scope.as_ref(),
+            WebhookSubcommand::Test(t) => t.scope.as_ref(),
+            WebhookSubcommand::RotateSecret(r) => r.scope.as_ref(),
+            WebhookSubcommand::Delete(d) => d.scope.as_ref(),
+            WebhookSubcommand::Logs(l) => l.scope.as_ref(),
+            WebhookSubcommand::Open(o) => o.scope.as_ref(),
+            WebhookSubcommand::GetSecret(s) => s.scope.as_ref(),
+        }
+    }
 }
 
 // TODO: sort
@@ -179,6 +206,10 @@ pub struct ListWebhooks {
     /// Format output
     #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -197,6 +228,10 @@ pub struct GetWebhook {
     /// Format output
     #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -209,6 +244,10 @@ pub struct GetSigningSecret {
 
     /// Id of webhook
     pub webhook_id: String,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -223,6 +262,10 @@ pub struct DeleteWebhook {
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -233,6 +276,10 @@ pub struct TestWebhook {
 
     /// Id of webhook
     pub webhook_id: String,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -255,6 +302,10 @@ pub struct CreateWebhook {
     /// Return signing secret
     #[arg(long = "return-secret")]
     pub return_secret: bool,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -273,6 +324,10 @@ pub struct UpdateWebhook {
     /// Webhook description
     #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -295,6 +350,10 @@ pub struct WebhookLogs {
     /// Items per page
     #[arg(long = "page-size")]
     pub page_size: Option<usize>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -305,6 +364,10 @@ pub struct OpenWebhooks {
 
     /// Id of webhook
     pub webhook_id: Option<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -321,6 +384,10 @@ pub struct SetEnableStatus {
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -337,4 +404,8 @@ pub struct RoateteWebhookSecret {
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
