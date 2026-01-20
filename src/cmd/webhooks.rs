@@ -1,4 +1,4 @@
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 use crate::models::validation::InputValidationError;
 
@@ -8,7 +8,9 @@ use super::{
 };
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(
+    override_usage = "webhooks <COMMAND> -p <PROJECT> -e <ENVIRONMENT> / --scope <SCOPE> [OPTIONS]"
+)]
 pub struct WebhookCommand {
     /// Project name
     #[arg(short = 'p', long = "project", required = false)]
@@ -20,6 +22,17 @@ pub struct WebhookCommand {
 
     #[clap(subcommand)]
     pub subcommand: WebhookSubcommand,
+
+    #[arg(long = "scope", value_enum, default_value_t = Scope::Auto)]
+    pub scope: Scope,
+}
+
+#[derive(Debug, ValueEnum, Default, Clone)]
+pub enum Scope {
+    #[default]
+    Auto,
+    Workspace,
+    Environment,
 }
 
 impl WebhookCommand {
