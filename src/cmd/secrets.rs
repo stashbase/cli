@@ -2,7 +2,10 @@ use std::fmt::Display;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::models::{secrets::SecretsSearchOutputFormat, validation::InputValidationError};
+use crate::{
+    cmd::shared::Scope,
+    models::{secrets::SecretsSearchOutputFormat, validation::InputValidationError},
+};
 
 use super::{
     config::SecretsOutputFormat,
@@ -22,6 +25,9 @@ pub struct SecretArgs {
 
     #[clap(subcommand)]
     pub subcommand: SecretSubcommand,
+
+    #[arg(long = "scope", value_enum, default_value_t = Scope::Auto)]
+    pub scope: Scope,
 }
 
 impl SecretArgs {
