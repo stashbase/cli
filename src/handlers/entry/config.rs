@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::{
     cmd::config::{
         ApiKeySubcommand, ConfigCommand, ConfigSubcommand, ExpandRefsSubcommand, OutputSubcommand,
-        ScopeSubcommand, SecretsOutputSubcommand,
+        SecretsOutputSubcommand,
     },
     handlers::config::{
         api_key::{self, get_first_3_and_last_5},
@@ -11,7 +11,6 @@ use crate::{
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
         reset::reset_config,
-        scope::{print_scope, set_scope},
     },
     models::config::Config,
 };
@@ -60,14 +59,6 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 } else {
                     print_output_format_not_set()
                 }
-            }
-        },
-        ConfigSubcommand::Scope(s) => match s.subcommand {
-            ScopeSubcommand::Set(s) => {
-                set_scope(s.scope);
-            }
-            ScopeSubcommand::Print => {
-                print_scope(&config.clone().scope.unwrap_or_default());
             }
         },
         ConfigSubcommand::Print(args) => {

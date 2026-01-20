@@ -68,9 +68,6 @@ pub enum ConfigSubcommand {
     /// Expand secrets references to their values
     ExpandRefs(ExpandRefsCommand),
 
-    /// Default command/API scope
-    Scope(ScopeCommand),
-
     /// Print current config
     Print(PrintConfig),
     /// Reset config file
@@ -171,27 +168,6 @@ pub enum ExpandRefsSubcommand {
 #[command(override_usage = "config expand-refs set <ENABLED> [OPTIONS]")]
 pub struct SetExpandRefs {
     pub enabled: Option<bool>,
-}
-
-#[derive(Debug, Args)]
-pub struct ScopeCommand {
-    #[clap(subcommand)]
-    pub subcommand: ScopeSubcommand,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum ScopeSubcommand {
-    /// Set default command/API scope
-    Set(SetScope),
-
-    /// Print current default command/API scope
-    Print,
-}
-
-#[derive(Debug, Args)]
-#[command(override_usage = "config scope set <SCOPE> [OPTIONS]")]
-pub struct SetScope {
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]

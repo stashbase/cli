@@ -5,7 +5,6 @@ use crate::models::scope::Scope;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub scope: Option<Scope>,
     pub api_key: Option<String>,
     pub expand_refs: Option<bool>,
     pub ouput_format: Option<OutputFormatConfig>,
@@ -29,7 +28,6 @@ impl OutputFormatConfig {
 impl Config {
     pub fn new() -> Self {
         Self {
-            scope: None,
             api_key: None,
             ouput_format: None,
             expand_refs: None,
@@ -37,15 +35,9 @@ impl Config {
     }
     pub fn is_empty(&self) -> bool {
         if let Some(output_format) = &self.ouput_format {
-            self.api_key.is_none()
-                && self.scope.is_none()
-                && output_format.is_empty()
-                && self.expand_refs.is_none()
+            self.api_key.is_none() && output_format.is_empty() && self.expand_refs.is_none()
         } else {
-            self.api_key.is_none()
-                && self.scope.is_none()
-                && self.ouput_format.is_none()
-                && self.expand_refs.is_none()
+            self.api_key.is_none() && self.ouput_format.is_none() && self.expand_refs.is_none()
         }
     }
 }
@@ -58,7 +50,6 @@ impl OutputFormatConfig {
 
 #[derive(Debug)]
 pub struct UpdateConfig {
-    pub scope: Option<Scope>,
     pub api_key: Option<String>,
     pub expand_refs: Option<bool>,
     pub output_format: Option<OutputFormatConfig>,
