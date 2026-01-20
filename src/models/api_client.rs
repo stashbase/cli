@@ -21,10 +21,12 @@ pub enum ApiPath {
         project: String,
         path: Option<String>,
     },
-
     Webhooks {
         project: String,
         environment: String,
+        path: Option<String>,
+    },
+    WebhooksEnvScope {
         path: Option<String>,
     },
     Secrets {
@@ -77,6 +79,11 @@ impl fmt::Display for ApiPath {
                     write!(f, "v1/workspace/{}", p)
                 }
                 None => write!(f, "v1/workspace"),
+            },
+
+            ApiPath::WebhooksEnvScope { path } => match path {
+                Some(p) => write!(f, "v1/webhooks/{}", p),
+                None => write!(f, "v1/webhooks"),
             },
             ApiPath::Webhooks {
                 project,
