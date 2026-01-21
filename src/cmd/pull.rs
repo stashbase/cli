@@ -38,7 +38,7 @@ pub struct PullCommand {
     pub config_file: Option<String>,
 
     /// API scope
-    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 
     /// Target file path if not specified in the config
