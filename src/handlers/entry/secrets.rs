@@ -16,7 +16,13 @@ use crate::{
         update::{handle_update_secrets, HandleUpdateSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
-    models::{scope::Scope, secrets::SecretsSearchOutputFormat},
+    models::{
+        scope::Scope,
+        secrets::SecretsSearchOutputFormat,
+        validation::{
+            CmdArgInputValidationError, InputValidationError, SecretsInputValidationError,
+        },
+    },
     utils::validation::validate_project_environment_identifier,
 };
 
@@ -40,6 +46,21 @@ pub async fn handle_secrets_commands(
     default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
     if let SecretSubcommand::Search(args) = cmd.subcommand {
+        // Check if scope is provided for commands that don't support it
+        if cmd.scope.is_some() || args.scope.is_some() {
+            let error = InputValidationError::CmdArgs(
+                CmdArgInputValidationError::ScopeNotSupportedForCommand,
+            );
+
+            let formatted_err = error.format_error_output(raw_output)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(formatted_err);
+        }
+
         let format = match raw_output {
             true => SecretsSearchOutputFormat::Json,
             false => match args.format {
