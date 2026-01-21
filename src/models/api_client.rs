@@ -84,8 +84,8 @@ impl fmt::Display for ApiPath {
                 ),
             },
             ApiPath::SecretsEnvScope { path } => match path {
-                Some(p) => write!(f, "v1/secrets/{}", p),
-                None => write!(f, "v1/secrets"),
+                Some(p) => write!(f, "v1/environment/secrets/{}", p),
+                None => write!(f, "v1/environment/secrets"),
             },
             ApiPath::Scan { path } => write!(f, "v1/scan/{}", path),
             ApiPath::Workspace { path } => match path {
@@ -96,8 +96,8 @@ impl fmt::Display for ApiPath {
             },
 
             ApiPath::WebhooksEnvScope { path } => match path {
-                Some(p) => write!(f, "v1/webhooks/{}", p),
-                None => write!(f, "v1/webhooks"),
+                Some(p) => write!(f, "v1/environment/webhooks/{}", p),
+                None => write!(f, "v1/environment/webhooks"),
             },
             ApiPath::Webhooks {
                 project,
