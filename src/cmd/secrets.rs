@@ -24,7 +24,7 @@ pub struct SecretArgs {
     #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
 
-    // API scope
+    /// API scope
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 
