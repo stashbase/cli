@@ -5,9 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, ValueEnum)]
 pub enum Scope {
+    /// Uses --project/--environment or config defaults
     #[default]
     #[clap(alias = "ws")]
     Workspace,
+    /// No project/environment flags allowed, requires environment-scoped API authentication
     #[clap(alias = "env")]
     Environment,
 }
