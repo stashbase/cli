@@ -19,9 +19,7 @@ use crate::{
     models::{
         scope::Scope,
         secrets::SecretsSearchOutputFormat,
-        validation::{
-            CmdArgInputValidationError, InputValidationError, SecretsInputValidationError,
-        },
+        validation::{CmdArgInputValidationError, InputValidationError},
     },
     utils::validation::validate_project_environment_identifier,
 };
