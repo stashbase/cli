@@ -7,6 +7,7 @@ use crate::{
     models::{
         api_client::RequestApiOptionResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
+        scope::Scope,
         secrets::{FormatSecrets, Secret, ValidateSecrets},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
@@ -30,7 +31,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 #[derive(Debug)]
 pub struct HandlePushArgs {
     pub api_key: String,
-    pub scope: Option<crate::models::scope::Scope>,
+    pub scope: Option<Scope>,
 
     pub config_file_path: Option<String>,
     //
@@ -63,7 +64,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     } = args;
 
     // Handle environment scope - workspace scope behaves like no scope
-    let is_environment_scope = scope.as_ref() == Some(&crate::models::scope::Scope::Environment);
+    let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
 
     let config_action_command = ConfigActionCommand::Push;
 

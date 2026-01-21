@@ -70,7 +70,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     } = args;
 
     // Handle environment scope - workspace scope behaves like no scope
-    let is_environment_scope = scope.as_ref() == Some(&crate::models::scope::Scope::Environment);
+    let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
 
     let project: Option<String>;
     let environment: Option<String>;
