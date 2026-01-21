@@ -8,7 +8,7 @@ use crate::models::{
 
 use super::{
     config::SecretsOutputFormat,
-    shared::{try_get_project_environment, SharedProjectEnvArgs},
+    shared::{try_get_project_environment, try_get_scope, SharedProjectEnvArgs, SharedScopeArgs},
 };
 
 #[derive(Debug, Args)]
@@ -26,8 +26,8 @@ pub struct SecretArgs {
     pub subcommand: SecretSubcommand,
 
     // Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 impl SecretArgs {
@@ -40,13 +40,27 @@ impl SecretArgs {
         try_get_project_environment(root_project, root_environment, project, environment)
     }
 
-    pub fn get_scope(&self) -> &Scope {
+    pub fn get_scope(&self) -> Result<Scope, InputValidationError> {
+        let root_scope = self.scope.as_ref();
         let subcommand_scope = self.subcommand.get_scope();
 
-        match subcommand_scope {
-            Some(scope) => scope,
-            None => &self.scope,
+        // Check if scope is provided for commands that don't support it
+        if subcommand_scope.is_none() && root_scope.is_some() {
+            return Err(InputValidationError::CmdArgs(
+                crate::models::validation::CmdArgInputValidationError::ScopeNotSupportedForCommand,
+            ));
         }
+
+        // For commands that don't support scope, return default workspace scope
+        if subcommand_scope.is_none() {
+            return Ok(Scope::Workspace);
+        }
+
+        // Use the validation function for commands that do support scope
+        let resolved_scope = try_get_scope(root_scope, subcommand_scope)?;
+
+        // If no scope provided, default to workspace
+        Ok(resolved_scope.unwrap_or(Scope::Workspace))
     }
 }
 
@@ -98,13 +112,13 @@ impl SecretSubcommand {
     }
     pub fn get_scope(&self) -> Option<&Scope> {
         match self {
-            SecretSubcommand::List(l) => Some(&l.scope),
-            SecretSubcommand::Get(g) => Some(&g.scope),
-            SecretSubcommand::Set(s) => Some(&s.scope),
-            SecretSubcommand::Create(c) => Some(&c.scope),
-            SecretSubcommand::Update(u) => Some(&u.scope),
-            SecretSubcommand::Upload(u) => Some(&u.scope),
-            SecretSubcommand::Delete(d) => Some(&d.scope),
+            SecretSubcommand::List(l) => l.scope_args.scope.as_ref(),
+            SecretSubcommand::Get(g) => g.scope_args.scope.as_ref(),
+            SecretSubcommand::Set(s) => s.scope_args.scope.as_ref(),
+            SecretSubcommand::Create(c) => c.scope_args.scope.as_ref(),
+            SecretSubcommand::Update(u) => u.scope_args.scope.as_ref(),
+            SecretSubcommand::Upload(u) => u.scope_args.scope.as_ref(),
+            SecretSubcommand::Delete(d) => d.scope_args.scope.as_ref(),
             SecretSubcommand::Diff(_) => None,
             SecretSubcommand::Search(_) => None,
         }
@@ -157,6 +171,9 @@ pub struct ListSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
@@ -168,10 +185,6 @@ pub struct ListSecrets {
     /// Expand references to their values
     #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -179,6 +192,9 @@ pub struct ListSecrets {
 pub struct GetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     // #[clap(short='v', long="k", value_parser, num_args = 1.., value_delimiter = ' ')]
     pub names: Vec<String>,
@@ -190,10 +206,6 @@ pub struct GetSecrets {
     /// Expand references to their values
     #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -201,6 +213,9 @@ pub struct GetSecrets {
 pub struct DeleteSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Secrets (names) to delete
     #[clap(num_args = 1.., value_delimiter = ' ')]
@@ -213,10 +228,6 @@ pub struct DeleteSecrets {
     /// Proceed without confirmation
     #[arg(long = "force")]
     pub force: bool,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -225,6 +236,9 @@ pub struct SetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Secrets to set: NAME_1=VAL_1 NAME_2=VAL_2
     #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
@@ -232,10 +246,6 @@ pub struct SetSecrets {
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
     #[clap(long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -244,6 +254,9 @@ pub struct CreateSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Secrets to create: NAME_1=VAL_1 NAME_2=VAL_2
     #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
@@ -251,10 +264,6 @@ pub struct CreateSecrets {
     /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
     #[clap(long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -262,6 +271,9 @@ pub struct CreateSecrets {
 pub struct UploadSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     // NOTE: for now only accepts .env
     /// Path to file (dotenv format)
@@ -274,10 +286,6 @@ pub struct UploadSecrets {
     /// Ignore secret comments
     #[arg(long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -298,9 +306,8 @@ pub struct UpdateSecrets {
     #[clap(long = "comments", short = 'c', num_args = 1..)]
     pub comments: Vec<String>,
 
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 }
 
 #[derive(Debug, ValueEnum, Copy, Clone, PartialEq, Eq, Default)]
