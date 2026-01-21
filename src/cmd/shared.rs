@@ -30,7 +30,7 @@ pub struct SharedProjectEnvArgs {
 
 #[derive(Debug, Args)]
 pub struct SharedScopeArgs {
-    /// Scope
+    /// API scope
     #[arg(long = "scope", value_enum, hide = false, hide_long_help = false)]
     pub scope: Option<Scope>,
 }
