@@ -12,8 +12,8 @@ pub struct SharedProjectEnvArgs {
         short = 'p',
         long = "project",
         required = false,
-        hide = true,
-        hide_long_help = true
+        hide = false,
+        hide_long_help = false
     )]
     pub project: Option<String>,
 
@@ -22,8 +22,8 @@ pub struct SharedProjectEnvArgs {
         short = 'e',
         long = "environment",
         required = false,
-        hide = true,
-        hide_long_help = true
+        hide = false,
+        hide_long_help = false
     )]
     pub environment: Option<String>,
 }
@@ -31,7 +31,7 @@ pub struct SharedProjectEnvArgs {
 #[derive(Debug, Args)]
 pub struct SharedScopeArgs {
     /// Scope
-    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    #[arg(long = "scope", value_enum, hide = false, hide_long_help = false)]
     pub scope: Option<Scope>,
 }
 
