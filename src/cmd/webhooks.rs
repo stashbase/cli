@@ -9,7 +9,7 @@ use super::{
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "webhooks <COMMAND> -p <PROJECT> -e <ENVIRONMENT> / --scope <SCOPE> [OPTIONS]"
+    override_usage = "webhooks <COMMAND> (-p <PROJECT> -e <ENVIRONMENT> | --scope=environment) [OPTIONS]"
 )]
 pub struct WebhookCommand {
     /// Project name
@@ -194,7 +194,7 @@ impl WebhookSubcommand {
 
 // TODO: sort
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks list [OPTIONS]")]
 pub struct ListWebhooks {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -210,7 +210,7 @@ pub struct ListWebhooks {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks get <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks get <WEBHOOK_ID> [OPTIONS]")]
 pub struct GetWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -231,9 +231,7 @@ pub struct GetWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "webhooks get-secret <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
+#[command(override_usage = "webhooks get-secret <WEBHOOK_ID> [OPTIONS]")]
 pub struct GetSigningSecret {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -246,7 +244,7 @@ pub struct GetSigningSecret {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks delete <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks delete <WEBHOOK_ID> [OPTIONS]")]
 pub struct DeleteWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -263,7 +261,7 @@ pub struct DeleteWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks test <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks test <WEBHOOK_ID> [OPTIONS]")]
 pub struct TestWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -276,7 +274,7 @@ pub struct TestWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks create <URL> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks create <URL> [OPTIONS]")]
 pub struct CreateWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -301,7 +299,7 @@ pub struct CreateWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks update <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks update <WEBHOOK_ID> [OPTIONS]")]
 pub struct UpdateWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -322,7 +320,7 @@ pub struct UpdateWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks logs <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks logs <WEBHOOK_ID> [OPTIONS]")]
 pub struct WebhookLogs {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -347,7 +345,7 @@ pub struct WebhookLogs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks open [WEBHOOK_ID] -p <PROJECT> -e <ENVIRONMENT>")]
+#[command(override_usage = "webhooks open <WEBHOOK_ID> [OPTIONS]")]
 pub struct OpenWebhooks {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -360,9 +358,7 @@ pub struct OpenWebhooks {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "webhooks enable/disable <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
+#[command(override_usage = "webhooks enable/disable <WEBHOOK_ID> [OPTIONS]")]
 pub struct SetEnableStatus {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -379,9 +375,7 @@ pub struct SetEnableStatus {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "webhooks rotate-secret <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
+#[command(override_usage = "webhooks rotate-secret <WEBHOOK_ID> [OPTIONS]")]
 pub struct RoateteWebhookSecret {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
