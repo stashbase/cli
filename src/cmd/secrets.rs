@@ -119,6 +119,7 @@ impl SecretSubcommand {
             SecretSubcommand::Update(u) => u.scope_args.scope.as_ref(),
             SecretSubcommand::Upload(u) => u.scope_args.scope.as_ref(),
             SecretSubcommand::Delete(d) => d.scope_args.scope.as_ref(),
+            // NOTE: diff and search commands don't support scope but its added for custom error handling
             SecretSubcommand::Diff(_) => None,
             SecretSubcommand::Search(_) => None,
         }
@@ -388,6 +389,9 @@ pub struct SearchSecrets {
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsSearchOutputFormat>,
+
+    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
@@ -414,4 +418,8 @@ pub struct DiffSecrets {
     /// Show secret values
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
+
+    // Scope
+    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    pub scope: Option<Scope>,
 }
