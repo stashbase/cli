@@ -32,6 +32,7 @@ pub enum CmdArgInputValidationError {
     MissingEnvironmentIdentifierArgument,
     ConflictingScopeAndProjectEnvironment,
     DuplicateScope,
+    ScopeNotSupportedForCommand,
 }
 
 #[derive(Debug, Serialize)]
@@ -476,6 +477,10 @@ impl CmdArgInputValidationError {
             CmdArgInputValidationError::DuplicateScope => (
                 "Scope specified multiple times.",
                 "Use '--scope' argument only once.",
+            ),
+            CmdArgInputValidationError::ScopeNotSupportedForCommand => (
+                "Scope is not supported for this command.",
+                "Remove the '--scope' argument for this command.",
             ),
         }
     }
