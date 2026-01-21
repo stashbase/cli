@@ -244,6 +244,21 @@ pub async fn handle_secrets_commands(
             handle_upload_secrets(args).await?;
         }
         SecretSubcommand::Diff(args) => {
+            // Check if scope is provided for commands that don't support it
+            if cmd.scope.is_some() || args.scope.is_some() {
+                let error = InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::ScopeNotSupportedForCommand,
+                );
+
+                let formatted_err = error.format_error_output(raw_output)?;
+
+                if !silent {
+                    eprintln!();
+                }
+
+                bail!(formatted_err);
+            }
+
             let args = HandleSecretsDiffArgs {
                 api_key,
                 silent,
