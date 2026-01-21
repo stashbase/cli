@@ -16,6 +16,7 @@ use crate::{
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
+        scope::Scope,
         secrets::Secret,
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
@@ -36,6 +37,7 @@ use crate::{
 #[derive(Debug)]
 pub struct HandlePullArgs {
     pub api_key: String,
+    pub scope: Option<Scope>,
 
     pub only: Vec<String>,
     pub exclude: Vec<String>,
@@ -53,6 +55,7 @@ pub struct HandlePullArgs {
 pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     let HandlePullArgs {
         api_key,
+        scope,
         file,
         mut set,
         mut target_file,
@@ -66,31 +69,136 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         silent,
     } = args;
 
+    // Handle environment scope - workspace scope behaves like no scope
+    let is_environment_scope = scope.as_ref() == Some(&crate::models::scope::Scope::Environment);
+
     let project: Option<String>;
     let environment: Option<String>;
     let mut setted_secrets = HashMap::<String, String>::new();
 
     let config_action_command = ConfigActionCommand::Pull;
 
-    // LOAD from file
-    let selected_config_item =
-        EnvConfigItem::select_from_file(file.clone(), &config_action_command)?;
-    debug!("file_config: {:?}", selected_config_item);
+    // Handle environment scope differently - skip config file loading
+    if is_environment_scope {
+        // For environment scope, we don't need config file
+        project = None;
+        environment = None;
+    } else {
+        // LOAD from file
+        let selected_config_item =
+            EnvConfigItem::select_from_file(file.clone(), &config_action_command)?;
+        debug!("file_config: {:?}", selected_config_item);
 
-    if let Some(config) = selected_config_item {
-        debug!("config: {:?}", config);
+        if let Some(config) = selected_config_item {
+            debug!("config: {:?}", config);
 
-        if let None = target_file {
-            let target_file_path = config.get_pull_target_file();
-            target_file = target_file_path;
+            if let None = target_file {
+                let target_file_path = config.get_pull_target_file();
+                target_file = target_file_path;
+            }
+
+            if let None = target_file {
+                let err = InputValidationError::PushPullEnvironment(
+                    PushPullInputValidationError::NoFileSpecified { is_push: false },
+                );
+
+                let formatted_err = err.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+
+                bail!(formatted_err);
+            }
+
+            if let None = format {
+                let format_config = config.get_pull_format();
+                format = format_config;
+            }
+
+            let secrets_config = config.get_pull_secrets();
+
+            // expand refs
+            if let Some(expand_refs_val) = secrets_config.expand_refs {
+                if expand_refs.is_none() {
+                    expand_refs = Some(expand_refs_val);
+                }
+            }
+
+            // ignore comments
+            if let Some(ignore_comments_val) = secrets_config.ignore_comments {
+                if ignore_comments.is_none() {
+                    ignore_comments = Some(ignore_comments_val);
+                }
+            }
+
+            // print
+            // if let Some(print_secrets_val) = secrets_config.print {
+            //     print_secrets = Some(print_secrets_val);
+            // }
+
+            // only
+            if let Some(only_val) = secrets_config.only {
+                if only_val.is_empty() == false {
+                    for only_secret in only_val {
+                        let already_exists = only.contains(&only_secret);
+
+                        if !already_exists {
+                            only.push(only_secret);
+                        }
+                    }
+                }
+            }
+
+            // exclude
+            if let Some(exclude_val) = secrets_config.exclude {
+                if exclude_val.is_empty() == false {
+                    for exclude_secret in exclude_val {
+                        let already_exists = exclude.contains(&exclude_secret);
+
+                        if !already_exists {
+                            exclude.push(exclude_secret);
+                        }
+                    }
+                }
+            }
+
+            // set
+            if let Some(set_val) = secrets_config.set {
+                if set_val.is_empty() == false {
+                    let mut set_secrets_from_file = Vec::new();
+
+                    for (name, value) in set_val {
+                        let name_value_str = format!("{}={}", name, value);
+
+                        if set.contains(&name_value_str) == false {
+                            set_secrets_from_file.push(name_value_str);
+                        }
+                    }
+
+                    set = [set_secrets_from_file, set].concat();
+                }
+            }
+
+            project = Some(config.project);
+            environment = Some(config.environment);
+        } else {
+            // eprintln!("\nRun command exited");
+            // eprintln!("Run command exited");
+            return Ok(());
         }
+    }
 
-        if let None = target_file {
-            let err = InputValidationError::PushPullEnvironment(
-                PushPullInputValidationError::NoFileSpecified { is_push: false },
-            );
+    // Validation logic - skip for environment scope
+    if !is_environment_scope {
+        let project_ref = project.as_ref().unwrap();
+        let environment_ref = environment.as_ref().unwrap();
 
-            let formatted_err = err.format_error_output(json_format)?;
+        let validation_res =
+            validate_project_environment_identifier(project_ref, environment_ref, true);
+
+        if let Err(e) = validation_res {
+            let formatted_err = e.format_error_output(json_format)?;
 
             if !silent {
                 eprintln!();
@@ -98,98 +206,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
             bail!(formatted_err);
         }
-
-        if let None = format {
-            let format_config = config.get_pull_format();
-            format = format_config;
-        }
-
-        let secrets_config = config.get_pull_secrets();
-
-        // expand refs
-        if let Some(expand_refs_val) = secrets_config.expand_refs {
-            if expand_refs.is_none() {
-                expand_refs = Some(expand_refs_val);
-            }
-        }
-
-        // ignore comments
-        if let Some(ignore_comments_val) = secrets_config.ignore_comments {
-            if ignore_comments.is_none() {
-                ignore_comments = Some(ignore_comments_val);
-            }
-        }
-
-        // print
-        // if let Some(print_secrets_val) = secrets_config.print {
-        //     print_secrets = Some(print_secrets_val);
-        // }
-
-        // only
-        if let Some(only_val) = secrets_config.only {
-            if only_val.is_empty() == false {
-                for only_secret in only_val {
-                    let already_exists = only.contains(&only_secret);
-
-                    if !already_exists {
-                        only.push(only_secret);
-                    }
-                }
-            }
-        }
-
-        // exclude
-        if let Some(exclude_val) = secrets_config.exclude {
-            if exclude_val.is_empty() == false {
-                for exclude_secret in exclude_val {
-                    let already_exists = exclude.contains(&exclude_secret);
-
-                    if !already_exists {
-                        exclude.push(exclude_secret);
-                    }
-                }
-            }
-        }
-
-        // set
-        if let Some(set_val) = secrets_config.set {
-            if set_val.is_empty() == false {
-                let mut set_secrets_from_file = Vec::new();
-
-                for (name, value) in set_val {
-                    let name_value_str = format!("{}={}", name, value);
-
-                    if set.contains(&name_value_str) == false {
-                        set_secrets_from_file.push(name_value_str);
-                    }
-                }
-
-                set = [set_secrets_from_file, set].concat();
-            }
-        }
-
-        project = Some(config.project);
-        environment = Some(config.environment);
-    } else {
-        // eprintln!("\nRun command exited");
-        // eprintln!("Run command exited");
-        return Ok(());
-    }
-
-    let project = project.unwrap();
-    let environment = environment.unwrap();
-
-    let validation_res =
-        validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
-
-    if let Err(e) = validation_res {
-        let formatted_err = e.format_error_output(json_format)?;
-
-        if !silent {
-            eprintln!();
-        }
-
-        bail!(formatted_err);
     }
 
     if !only.is_empty() && !exclude.is_empty() {
@@ -293,10 +309,18 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         None => true, // default to true
     };
 
+    // Determine project and environment for API call
+    let (api_project, api_environment) = if is_environment_scope {
+        // For environment scope, pass None (relies on environment-scoped API key)
+        (None, None)
+    } else {
+        (project.clone(), environment.clone())
+    };
+
     let res = secrets::pull(
         api_key,
-        Some(project.clone()),
-        Some(environment.clone()),
+        api_project,
+        api_environment,
         only,
         exclude,
         with_comment,
@@ -450,10 +474,15 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                             SecretsOutputFormat::try_from(f).unwrap();
 
                                         let str = format_secrets(secrets, &secrets_format);
-                                        let prefix = format!(
-                                        "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
-                                        project, environment,
-                                    );
+                                        let prefix = if is_environment_scope {
+                                            "## ------\n## Environment Scope\n## ------\n\n"
+                                                .to_string()
+                                        } else {
+                                            format!(
+                                                "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
+                                                project.as_ref().unwrap(), environment.as_ref().unwrap(),
+                                            )
+                                        };
 
                                         prefix + &str
                                     }
@@ -547,10 +576,14 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     let secrets_format = SecretsOutputFormat::try_from(f).unwrap();
 
                                     let str = format_secrets(secrets, &secrets_format);
-                                    let prefix = format!(
-                                        "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
-                                        project, environment,
-                                    );
+                                    let prefix = if is_environment_scope {
+                                        "## ------\n## Environment Scope\n## ------\n\n".to_string()
+                                    } else {
+                                        format!(
+                                            "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
+                                            project.as_ref().unwrap(), environment.as_ref().unwrap(),
+                                        )
+                                    };
 
                                     prefix + &str
                                 }
