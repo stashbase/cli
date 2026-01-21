@@ -167,20 +167,39 @@ pub async fn handle_cli(args: Cli) {
                 handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
                     .await
             }
-            EntityType::Run(args) => {
+            EntityType::Run(run_cmd) => {
+                // Validate scope conflicts
+                if let Err(err) = run_cmd.validate_scope_conflicts() {
+                    match err.format_error_output(raw_output) {
+                        Ok(formatted_err) => {
+                            if !silent {
+                                eprintln!();
+                            }
+
+                            eprintln!("{}", formatted_err);
+                            return;
+                        }
+                        Err(format_err) => {
+                            eprintln!("Error formatting validation error: {:?}", format_err);
+                            return;
+                        }
+                    }
+                }
+
                 let args = HandleRunArgs {
                     api_key,
-                    project: args.project,
-                    environment: args.environment,
-                    command: args.command,
-                    exclude: args.exclude,
-                    only: args.only,
-                    set: args.set,
-                    file: args.config_file,
-                    expand_refs: args.expand_refs,
-                    print_secrets: args.print_secrets,
+                    project: run_cmd.project,
+                    environment: run_cmd.environment,
+                    command: run_cmd.command,
+                    exclude: run_cmd.exclude,
+                    only: run_cmd.only,
+                    set: run_cmd.set,
+                    file: run_cmd.config_file,
+                    expand_refs: run_cmd.expand_refs,
+                    print_secrets: run_cmd.print_secrets,
                     json_format: raw_output,
                     silent,
+                    scope: run_cmd.scope,
                 };
 
                 handle_load_env_run(args).await
