@@ -43,7 +43,6 @@ pub struct AuthedUserData {
 pub struct AuthedUserResponse {
     #[serde(rename = "type")]
     pub type_field: String, // always "user"
-    pub scope: String, // "workspace"
     pub data: AuthedUserData,
 }
 
@@ -73,7 +72,6 @@ pub struct AuthedEnvironmentAccountData {
 pub struct AuthedEnvironmentAccountResponse {
     #[serde(rename = "type")]
     pub type_field: String, // always "environment_account"
-    pub scope: String, // "environment"
     pub data: AuthedEnvironmentAccountData,
 }
 
@@ -102,44 +100,34 @@ pub struct AuthedServiceAccountData {
 pub struct AuthedServiceAccountResponse {
     #[serde(rename = "type")]
     pub type_field: String, // always "service_account"
-    pub scope: String, // "workspace"
     pub data: AuthedServiceAccountData,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CurrentAuthResponse {
-    User {
-        scope: String,
-        data: AuthedUserData,
-    },
-    EnvironmentAccount {
-        scope: String,
-        data: AuthedEnvironmentAccountData,
-    },
-    ServiceAccount {
-        scope: String,
-        data: AuthedServiceAccountData,
-    },
+    User { data: AuthedUserData },
+    EnvironmentAccount { data: AuthedEnvironmentAccountData },
+    ServiceAccount { data: AuthedServiceAccountData },
 }
 
 impl std::fmt::Display for CurrentAuthResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CurrentAuthResponse::User { scope, data } => {
-                let message = format!("Authenticated as User (scope: {scope})");
+            CurrentAuthResponse::User { data } => {
+                let message = format!("Authenticated as User:");
                 writeln!(f, "{}", message)?;
                 write!(f, "{}", data)?;
                 Ok(())
             }
-            CurrentAuthResponse::ServiceAccount { scope, data } => {
-                let message = format!("Authenticated as Service Account (scope: {scope})");
+            CurrentAuthResponse::ServiceAccount { data } => {
+                let message = format!("Authenticated as Service Account:");
                 writeln!(f, "{}", message)?;
                 write!(f, "{}", data)?;
                 Ok(())
             }
-            CurrentAuthResponse::EnvironmentAccount { scope, data } => {
-                let message = format!("Authenticated as Environment Account (scope: {scope})");
+            CurrentAuthResponse::EnvironmentAccount { data } => {
+                let message = format!("Authenticated as Environment Account:");
                 writeln!(f, "{}", message)?;
                 write!(f, "{}", data)?;
                 Ok(())
