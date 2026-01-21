@@ -92,5 +92,5 @@ pub fn try_get_scope(
         return Err(error);
     }
 
-    Ok(root_scope.cloned().or_else(|| subcommand_scope.cloned()))
+    Ok(subcommand_scope.cloned().or_else(|| root_scope.cloned()))
 }
