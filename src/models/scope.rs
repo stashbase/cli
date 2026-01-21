@@ -4,6 +4,7 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, ValueEnum)]
+/// API scope
 pub enum Scope {
     /// Uses --project/--environment or config defaults
     #[default]
