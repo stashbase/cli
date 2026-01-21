@@ -158,7 +158,9 @@ impl fmt::Display for EnvSortBy {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments get <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
+#[command(
+    override_usage = "environments get <NAME_OR_ID> (-p <PROJECT> | --scope=environment) [OPTIONS]"
+)]
 pub struct GetEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,

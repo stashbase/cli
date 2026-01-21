@@ -13,7 +13,7 @@ use super::{
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> / --scope <SCOPE> [OPTIONS]"
+    override_usage = "secrets <COMMAND> (-p <PROJECT> -e <ENVIRONMENT> | --scope=environment) [OPTIONS]"
 )]
 pub struct SecretArgs {
     /// Project name
@@ -169,7 +169,7 @@ pub enum SecretSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets list [OPTIONS]")]
 pub struct ListSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -191,7 +191,7 @@ pub struct ListSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets get [NAMES] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets get <NAMES> [OPTIONS]")]
 pub struct GetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -212,7 +212,7 @@ pub struct GetSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets DELETE [NAMES] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets delete <NAMES> [OPTIONS]")]
 pub struct DeleteSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -234,7 +234,7 @@ pub struct DeleteSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets SET [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets SET [SECRETS] [OPTIONS]")]
 pub struct SetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -252,7 +252,7 @@ pub struct SetSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets CREATE [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets create <SECRETS> [OPTIONS]")]
 pub struct CreateSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -270,7 +270,7 @@ pub struct CreateSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets upload <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets upload <FILE_PATH> [OPTIONS]")]
 pub struct UploadSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
