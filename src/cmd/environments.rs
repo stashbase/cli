@@ -171,7 +171,7 @@ pub struct GetEnvironment {
     #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
 
-    /// Scope
+    /// API scope
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 }
