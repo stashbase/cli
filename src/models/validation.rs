@@ -34,6 +34,8 @@ pub enum CmdArgInputValidationError {
     DuplicateScope,
     ScopeNotSupportedForCommand,
     ConflictingScopeAndConfigFile,
+    ConfigFileRequired,
+    FileRequiredForEnvironmentScope,
 }
 
 #[derive(Debug, Serialize)]
@@ -486,6 +488,14 @@ impl CmdArgInputValidationError {
             CmdArgInputValidationError::ConflictingScopeAndConfigFile => (
                 "Cannot use --scope with --config flag.",
                 "Remove either the --scope or --config flag.",
+            ),
+            CmdArgInputValidationError::ConfigFileRequired => (
+                "Config file is required when no scope is specified.",
+                "Use --config flag to specify a config file or use --scope.",
+            ),
+            CmdArgInputValidationError::FileRequiredForEnvironmentScope => (
+                "Target file is required when using environment scope.",
+                "Use --file flag to specify the output file path.",
             ),
         }
     }
