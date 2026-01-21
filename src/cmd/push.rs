@@ -15,7 +15,7 @@ pub struct PushCommand {
     #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// Scope
+    /// API scope
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 
