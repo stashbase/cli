@@ -27,7 +27,7 @@ pub struct SecretArgs {
     #[clap(subcommand)]
     pub subcommand: SecretSubcommand,
 
-    // Scope
+    // API scope
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 }
