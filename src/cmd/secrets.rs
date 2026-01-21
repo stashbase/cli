@@ -234,7 +234,7 @@ pub struct DeleteSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets SET [SECRETS] [OPTIONS]")]
+#[command(override_usage = "secrets SET <SECRETS> [OPTIONS]")]
 pub struct SetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -292,7 +292,7 @@ pub struct UploadSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets update -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets update [OPTIONS]")]
 pub struct UpdateSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -339,30 +339,28 @@ pub struct SetComment {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Secret name
     pub name: String,
 
     /// Comment
     pub comment: String,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets rename [SECETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets rename <SECRETS> [OPTIONS]")]
 pub struct RenameSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Secrets to rename: NAME_1=NEW_NAME_1 NAME_2=NEW_NAME_2
     #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum, default_value = "workspace")]
-    pub scope: Scope,
 }
 
 #[derive(Debug, Args)]
@@ -397,7 +395,7 @@ pub struct SearchSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets diff <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets diff <FILE_PATH> [OPTIONS]")]
 pub struct DiffSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -421,7 +419,6 @@ pub struct DiffSecrets {
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
 
-    // Scope
     #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
     pub scope: Option<Scope>,
 }
