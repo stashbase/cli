@@ -159,7 +159,7 @@ impl fmt::Display for EnvSortBy {
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "environments get <NAME_OR_ID> (-p <PROJECT> | --scope=environment) [OPTIONS]"
+    override_usage = "environments get (<IDENTIFIER> -p <PROJECT> | --scope=environment) [OPTIONS]"
 )]
 pub struct GetEnvironment {
     #[clap(flatten)]
@@ -169,13 +169,13 @@ pub struct GetEnvironment {
     #[arg(value_name = "NAME_OR_ID")]
     pub identifier: Option<String>,
 
-    /// Format output
-    #[arg(short = 'f', long = "format")]
-    pub format: Option<OutputFormat>,
-
     /// API scope
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
+
+    /// Format output
+    #[arg(short = 'f', long = "format")]
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]
