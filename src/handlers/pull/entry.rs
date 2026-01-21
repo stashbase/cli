@@ -475,8 +475,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                                         let str = format_secrets(secrets, &secrets_format);
                                         let prefix = if is_environment_scope {
-                                            "## ------\n## Environment Scope\n## ------\n\n"
-                                                .to_string()
+                                            format!("")
                                         } else {
                                             format!(
                                                 "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
