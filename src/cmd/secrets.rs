@@ -12,7 +12,9 @@ use super::{
 };
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(
+    override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> / --scope <SCOPE> [OPTIONS]"
+)]
 pub struct SecretArgs {
     /// Project name
     #[arg(short = 'p', long = "project", required = false)]
