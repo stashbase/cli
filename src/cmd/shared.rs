@@ -8,30 +8,18 @@ use crate::models::{
 #[derive(Debug, Args)]
 pub struct SharedProjectEnvArgs {
     /// Project name
-    #[arg(
-        short = 'p',
-        long = "project",
-        required = false,
-        hide = false,
-        hide_long_help = false
-    )]
+    #[arg(short = 'p', long = "project", required = false)]
     pub project: Option<String>,
 
     /// Environment name
-    #[arg(
-        short = 'e',
-        long = "environment",
-        required = false,
-        hide = false,
-        hide_long_help = false
-    )]
+    #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub struct SharedScopeArgs {
     /// API scope [default: workspace]
-    #[arg(long = "scope", value_enum, hide = false, hide_long_help = false)]
+    #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 }
 
