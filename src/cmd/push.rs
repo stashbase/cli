@@ -9,15 +9,15 @@ use crate::models::{
 pub type PushFormat = PullFormat;
 
 #[derive(Debug, Args)]
-#[command(override_usage = "push [OPTIONS] / --scope <SCOPE> [OPTIONS]")]
+#[command(override_usage = "push [OPTIONS]")]
 pub struct PushCommand {
-    /// Scope
-    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
-    pub scope: Option<Scope>,
-
     /// Relative path to a config file (default: stashbase.yaml)
     #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 
     /// Target file path if not specified in the config
     #[arg(long = "file")]

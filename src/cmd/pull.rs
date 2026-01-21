@@ -31,15 +31,15 @@ impl TryFrom<PullFormat> for SecretsOutputFormat {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "pull [OPTIONS] / --scope <SCOPE> [OPTIONS]")]
+#[command(override_usage = "pull [OPTIONS]")]
 pub struct PullCommand {
-    /// Scope
-    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
-    pub scope: Option<Scope>,
-
     /// Relative path to a config file (default: stashbase.yaml)
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    pub scope: Option<Scope>,
 
     /// Target file path if not specified in the config
     #[arg(long = "file")]

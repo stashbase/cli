@@ -7,7 +7,7 @@ use crate::models::{
 };
 
 #[derive(Debug, Args)]
-#[command(override_usage = "run [OPTIONS] [COMMAND]...")]
+#[command(override_usage = "run [OPTIONS]")]
 pub struct RunCommand {
     /// Command to run
     #[clap(num_args = 1..)]
@@ -16,6 +16,10 @@ pub struct RunCommand {
     /// Relative path to a config file (default: stashbase.yaml)
     #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// Scope
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 
     /// Project name or id
     #[arg(short = 'p', long = "project")]
@@ -44,10 +48,6 @@ pub struct RunCommand {
     /// Print loaded secrets
     #[arg(value_enum, long = "print-secrets")]
     pub print_secrets: Option<PrintSecrets>,
-
-    /// Scope
-    #[arg(long = "scope", value_enum)]
-    pub scope: Option<Scope>,
 }
 
 impl RunCommand {
