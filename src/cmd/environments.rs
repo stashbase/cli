@@ -169,7 +169,7 @@ pub struct GetEnvironment {
     #[arg(value_name = "NAME_OR_ID")]
     pub identifier: Option<String>,
 
-    /// API scope
+    /// API scope [default: workspace]
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 

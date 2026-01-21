@@ -17,7 +17,7 @@ pub struct RunCommand {
     #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
 
-    /// API scope
+    /// API scope [default: workspace]
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 
