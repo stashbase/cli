@@ -18,19 +18,25 @@ pub async fn handle_get_environment(
     api_key: String,
     format: OutputFormat,
     silent: bool,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
 ) -> Result<()> {
-    let input_valid = validate_project_environment_identifier(&project, &environment, true);
+    if project.is_some() && environment.is_some() {
+        let input_valid = validate_project_environment_identifier(
+            project.as_ref().unwrap(),
+            environment.as_ref().unwrap(),
+            true,
+        );
 
-    if let Err(err) = input_valid {
-        let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
+        if let Err(err) = input_valid {
+            let formatted_err = err.format_error_output(format == OutputFormat::Json)?;
 
-        if !silent {
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(formatted_err);
         }
-
-        bail!(formatted_err);
     }
 
     // OK

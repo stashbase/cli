@@ -2,6 +2,10 @@ use clap::{Args, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 use super::config::SecretsOutputFormat;
+use crate::models::{
+    scope::Scope,
+    validation::{CmdArgInputValidationError, InputValidationError},
+};
 
 #[derive(Serialize, Deserialize, Debug, ValueEnum, Clone, PartialEq, Eq)]
 pub enum PullFormat {
@@ -32,6 +36,10 @@ pub struct PullCommand {
     /// Relative path to a config file (default: stashbase.yaml)
     #[arg(value_enum, short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// API scope [default: workspace]
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 
     /// Target file path if not specified in the config
     #[arg(long = "file")]
@@ -71,4 +79,44 @@ pub struct PullCommand {
     /// Ignore secret comments
     #[arg(long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
+}
+
+impl PullCommand {
+    pub fn validate_scope_conflicts(&self) -> Result<(), InputValidationError> {
+        if let Some(scope) = &self.scope {
+            // Only restrict config file when using environment scope
+            // Workspace scope behaves like no scope (allows config file)
+            if *scope == Scope::Environment {
+                // If environment scope is provided, don't allow config file flag
+                if self.config_file.is_some() {
+                    return Err(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::ConflictingScopeAndConfigFile,
+                    ));
+                }
+
+                // Environment scope requires --file flag since no config file
+                if self.file.is_none() {
+                    return Err(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::FileRequiredForEnvironmentScope,
+                    ));
+                }
+            } else {
+                // Workspace scope - require config file
+                if self.config_file.is_none() {
+                    return Err(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::ConfigFileRequired,
+                    ));
+                }
+            }
+        } else {
+            // No scope specified - require config file
+            if self.config_file.is_none() {
+                return Err(InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::ConfigFileRequired,
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }

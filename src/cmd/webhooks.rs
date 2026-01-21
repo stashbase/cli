@@ -1,14 +1,16 @@
 use clap::{Args, Subcommand};
 
-use crate::models::validation::InputValidationError;
+use crate::models::{scope::Scope, validation::InputValidationError};
 
 use super::{
     config::OutputFormat,
-    shared::{try_get_project_environment, SharedProjectEnvArgs},
+    shared::{try_get_project_environment, try_get_scope, SharedProjectEnvArgs, SharedScopeArgs},
 };
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(
+    override_usage = "webhooks <COMMAND> (-p <PROJECT> -e <ENVIRONMENT> | --scope=environment) [OPTIONS]"
+)]
 pub struct WebhookCommand {
     /// Project name
     #[arg(short = 'p', long = "project", required = false)]
@@ -17,6 +19,10 @@ pub struct WebhookCommand {
     /// Environment name
     #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
+
+    /// API scope [default: workspace]
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 
     #[clap(subcommand)]
     pub subcommand: WebhookSubcommand,
@@ -30,6 +36,13 @@ impl WebhookCommand {
         let (project, environment) = self.subcommand.get_project_environment();
 
         try_get_project_environment(root_project, root_environment, project, environment)
+    }
+
+    pub fn get_scope(&self) -> Result<Option<Scope>, InputValidationError> {
+        let root_scope = self.scope.as_ref();
+        let subcommand_scope = self.subcommand.get_scope();
+
+        try_get_scope(root_scope, subcommand_scope)
     }
 }
 
@@ -160,14 +173,34 @@ impl WebhookSubcommand {
             ),
         }
     }
+
+    pub fn get_scope(&self) -> Option<&Scope> {
+        match self {
+            WebhookSubcommand::List(l) => l.scope_args.scope.as_ref(),
+            WebhookSubcommand::Get(g) => g.scope_args.scope.as_ref(),
+            WebhookSubcommand::Create(c) => c.scope_args.scope.as_ref(),
+            WebhookSubcommand::Update(u) => u.scope_args.scope.as_ref(),
+            WebhookSubcommand::Enable(e) => e.scope_args.scope.as_ref(),
+            WebhookSubcommand::Disable(d) => d.scope_args.scope.as_ref(),
+            WebhookSubcommand::Test(t) => t.scope_args.scope.as_ref(),
+            WebhookSubcommand::RotateSecret(r) => r.scope_args.scope.as_ref(),
+            WebhookSubcommand::Delete(d) => d.scope_args.scope.as_ref(),
+            WebhookSubcommand::Logs(l) => l.scope_args.scope.as_ref(),
+            WebhookSubcommand::Open(o) => o.scope_args.scope.as_ref(),
+            WebhookSubcommand::GetSecret(s) => s.scope_args.scope.as_ref(),
+        }
+    }
 }
 
 // TODO: sort
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks list [OPTIONS]")]
 pub struct ListWebhooks {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     // #[arg(value_enum, short = 'p', long = "page")]
     // pub page: Option<usize>,
@@ -177,10 +210,13 @@ pub struct ListWebhooks {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks get <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks get <WEBHOOK_ID> [OPTIONS]")]
 pub struct GetWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -195,22 +231,26 @@ pub struct GetWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "webhooks get-secret <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
+#[command(override_usage = "webhooks get-secret <WEBHOOK_ID> [OPTIONS]")]
 pub struct GetSigningSecret {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks delete <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks delete <WEBHOOK_ID> [OPTIONS]")]
 pub struct DeleteWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -221,20 +261,26 @@ pub struct DeleteWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks test <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks test <WEBHOOK_ID> [OPTIONS]")]
 pub struct TestWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks create <URL> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks create <URL> [OPTIONS]")]
 pub struct CreateWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// URL endpoint
     pub url: String,
@@ -253,10 +299,13 @@ pub struct CreateWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks update <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks update <WEBHOOK_ID> [OPTIONS]")]
 pub struct UpdateWebhook {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -271,10 +320,13 @@ pub struct UpdateWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks logs <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "webhooks logs <WEBHOOK_ID> [OPTIONS]")]
 pub struct WebhookLogs {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -293,22 +345,26 @@ pub struct WebhookLogs {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks open [WEBHOOK_ID] -p <PROJECT> -e <ENVIRONMENT>")]
+#[command(override_usage = "webhooks open <WEBHOOK_ID> [OPTIONS]")]
 pub struct OpenWebhooks {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: Option<String>,
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "webhooks enable/disable <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
+#[command(override_usage = "webhooks enable/disable <WEBHOOK_ID> [OPTIONS]")]
 pub struct SetEnableStatus {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,
@@ -319,12 +375,13 @@ pub struct SetEnableStatus {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "webhooks rotate-secret <WEBHOOK_ID> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
+#[command(override_usage = "webhooks rotate-secret <WEBHOOK_ID> [OPTIONS]")]
 pub struct RoateteWebhookSecret {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Id of webhook
     pub webhook_id: String,

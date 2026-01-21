@@ -57,16 +57,21 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
 
 pub async fn get(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
 ) -> Result<GetRequestApiResponse, OutputError> {
-    let args = RequestArgs {
-        api_key,
-        query: None,
-        path: ApiPath::Environments {
+    let path = match (project, environment) {
+        (Some(project), Some(environment)) => ApiPath::Environments {
             project,
             path: Some(environment),
         },
+        _ => ApiPath::EnvironmentEnvScope { path: None },
+    };
+
+    let args = RequestArgs {
+        api_key,
+        query: None,
+        path,
     };
 
     client::get_request(args).await
@@ -74,16 +79,26 @@ pub async fn get(
 
 pub async fn get_url(
     api_key: String,
-    project: String,
-    identifier: String,
+    project: Option<String>,
+    identifier: Option<String>,
 ) -> Result<GetRequestApiResponse, OutputError> {
-    let subpath = format!("{}/dashboard-url", identifier);
+    let subpath = match identifier {
+        Some(identifier) => format!("{}/dashboard-url", identifier),
+        None => "dashboard-url".to_string(),
+    };
 
-    let args = RequestArgs {
-        path: ApiPath::Environments {
+    let path = match project {
+        Some(project) => ApiPath::Environments {
             project,
             path: Some(subpath),
         },
+        None => ApiPath::EnvironmentEnvScope {
+            path: Some(subpath),
+        },
+    };
+
+    let args = RequestArgs {
+        path,
         query: None,
         api_key,
     };

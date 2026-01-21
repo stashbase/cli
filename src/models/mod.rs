@@ -6,6 +6,7 @@ pub mod environments;
 pub mod generate;
 pub mod projects;
 pub mod scans;
+pub mod scope;
 pub mod secrets;
 pub mod shared;
 pub mod validation;

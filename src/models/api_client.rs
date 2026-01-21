@@ -17,19 +17,27 @@ pub struct RequestArgs {
 #[derive(Debug)]
 pub enum ApiPath {
     Projects(Option<String>),
+    EnvironmentEnvScope {
+        path: Option<String>,
+    },
     Environments {
         project: String,
         path: Option<String>,
     },
-
     Webhooks {
         project: String,
         environment: String,
         path: Option<String>,
     },
+    WebhooksEnvScope {
+        path: Option<String>,
+    },
     Secrets {
         project: String,
         environment: String,
+        path: Option<String>,
+    },
+    SecretsEnvScope {
         path: Option<String>,
     },
     SearchSecrets {
@@ -51,6 +59,10 @@ impl fmt::Display for ApiPath {
                 Some(value) => write!(f, "v1/projects/{}", value),
                 None => write!(f, "v1/projects"),
             },
+            ApiPath::EnvironmentEnvScope { path } => match path {
+                Some(value) => write!(f, "v1/environment/{}", value),
+                None => write!(f, "v1/environment"),
+            },
             ApiPath::Environments { project, path } => match path {
                 Some(value) => write!(f, "v1/projects/{}/environments/{}", project, value),
                 None => write!(f, "v1/projects/{}/environments", project),
@@ -71,12 +83,21 @@ impl fmt::Display for ApiPath {
                     project, environment,
                 ),
             },
+            ApiPath::SecretsEnvScope { path } => match path {
+                Some(p) => write!(f, "v1/environment/secrets/{}", p),
+                None => write!(f, "v1/environment/secrets"),
+            },
             ApiPath::Scan { path } => write!(f, "v1/scan/{}", path),
             ApiPath::Workspace { path } => match path {
                 Some(p) => {
                     write!(f, "v1/workspace/{}", p)
                 }
                 None => write!(f, "v1/workspace"),
+            },
+
+            ApiPath::WebhooksEnvScope { path } => match path {
+                Some(p) => write!(f, "v1/environment/webhooks/{}", p),
+                None => write!(f, "v1/environment/webhooks"),
             },
             ApiPath::Webhooks {
                 project,

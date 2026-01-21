@@ -7,6 +7,7 @@ use crate::{
     models::{
         api_client::RequestApiOptionResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
+        scope::Scope,
         secrets::{FormatSecrets, Secret, ValidateSecrets},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
@@ -30,6 +31,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 #[derive(Debug)]
 pub struct HandlePushArgs {
     pub api_key: String,
+    pub scope: Option<Scope>,
 
     pub config_file_path: Option<String>,
     //
@@ -48,6 +50,7 @@ pub struct HandlePushArgs {
 pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let HandlePushArgs {
         api_key,
+        scope,
         config_file_path,
         only,
         exclude,
@@ -60,11 +63,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         silent,
     } = args;
 
-    let config_action_command = ConfigActionCommand::Push;
+    // Handle environment scope - workspace scope behaves like no scope
+    let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
 
-    let selected_config_item =
-        EnvConfigItem::select_from_file(config_file_path.clone(), &config_action_command)?;
-    debug!("file_config: {:?}", selected_config_item);
+    let config_action_command = ConfigActionCommand::Push;
 
     let project: Option<String>;
     let environment: Option<String>;
@@ -72,79 +74,90 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     let mut only_set: HashSet<_> = only.into_iter().collect();
     let mut exclude_set: HashSet<_> = exclude.into_iter().collect();
 
-    if let Some(config) = selected_config_item {
-        debug!("config: {:?}", config);
-
-        if let None = target_file {
-            let target_file_path = config.get_push_target_file();
-            target_file = target_file_path;
-        }
-
-        if let None = target_file {
-            let err = InputValidationError::PushPullEnvironment(
-                PushPullInputValidationError::NoFileSpecified { is_push: true },
-            );
-            let error_output = err.format_error_output(json_format)?;
-
-            if !silent {
-                eprintln!();
-            }
-            bail!(error_output);
-        }
-
-        if let None = format {
-            let format_config = config.get_push_format();
-            format = format_config;
-        }
-
-        let secrets_config = config.get_push_secrets();
-
-        // expand refs
-        if let Some(expand_refs_val) = secrets_config.expand_refs {
-            if expand_refs.is_none() {
-                expand_refs = Some(expand_refs_val);
-            }
-        }
-
-        if let Some(ignore_comments_val) = secrets_config.ignore_comments {
-            if ignore_comments.is_none() {
-                ignore_comments = Some(ignore_comments_val);
-            }
-        }
-
-        if let Some(only_secrets_config) = secrets_config.only {
-            for only_secret in only_secrets_config {
-                only_set.insert(only_secret);
-            }
-        }
-
-        if let Some(exclude_secrets_config) = secrets_config.exclude {
-            for exclude_secret in exclude_secrets_config {
-                exclude_set.insert(exclude_secret);
-            }
-        }
-
-        // set
-        if let Some(set_val) = secrets_config.set {
-            if set_val.is_empty() == false {
-                let mut set_secrets_from_file = Vec::new();
-
-                for (name, value) in set_val {
-                    let name_value_str = format!("{}={}", name, value);
-
-                    if set.contains(&name_value_str) == false {
-                        set_secrets_from_file.push(name_value_str);
-                    }
-                }
-
-                set = [set_secrets_from_file, set].concat();
-            }
-        }
-
-        project = Some(config.project);
-        environment = Some(config.environment);
+    // Handle environment scope differently - skip config file loading
+    if is_environment_scope {
+        // For environment scope, we don't need config file
+        project = None;
+        environment = None;
     } else {
-        return Ok(());
+        let selected_config_item =
+            EnvConfigItem::select_from_file(config_file_path.clone(), &config_action_command)?;
+        debug!("file_config: {:?}", selected_config_item);
+
+        if let Some(config) = selected_config_item {
+            debug!("config: {:?}", config);
+
+            if let None = target_file {
+                let target_file_path = config.get_push_target_file();
+                target_file = target_file_path;
+            }
+
+            if let None = target_file {
+                let err = InputValidationError::PushPullEnvironment(
+                    PushPullInputValidationError::NoFileSpecified { is_push: true },
+                );
+                let error_output = err.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+                bail!(error_output);
+            }
+
+            if let None = format {
+                let format_config = config.get_push_format();
+                format = format_config;
+            }
+
+            let secrets_config = config.get_push_secrets();
+
+            // expand refs
+            if let Some(expand_refs_val) = secrets_config.expand_refs {
+                if expand_refs.is_none() {
+                    expand_refs = Some(expand_refs_val);
+                }
+            }
+
+            if let Some(ignore_comments_val) = secrets_config.ignore_comments {
+                if ignore_comments.is_none() {
+                    ignore_comments = Some(ignore_comments_val);
+                }
+            }
+
+            if let Some(only_secrets_config) = secrets_config.only {
+                for only_secret in only_secrets_config {
+                    only_set.insert(only_secret);
+                }
+            }
+
+            if let Some(exclude_secrets_config) = secrets_config.exclude {
+                for exclude_secret in exclude_secrets_config {
+                    exclude_set.insert(exclude_secret);
+                }
+            }
+
+            // set
+            if let Some(set_val) = secrets_config.set {
+                if set_val.is_empty() == false {
+                    let mut set_secrets_from_file = Vec::new();
+
+                    for (name, value) in set_val {
+                        let name_value_str = format!("{}={}", name, value);
+
+                        if set.contains(&name_value_str) == false {
+                            set_secrets_from_file.push(name_value_str);
+                        }
+                    }
+
+                    set = [set_secrets_from_file, set].concat();
+                }
+            }
+
+            project = Some(config.project);
+            environment = Some(config.environment);
+        } else {
+            return Ok(());
+        }
     }
 
     let input_path = target_file.unwrap();
@@ -195,20 +208,22 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         bail!(error_output);
     }
 
-    // validate project and environment
-    let project = project.unwrap();
-    let environment = environment.unwrap();
+    // Validation logic - skip for environment scope
+    if !is_environment_scope {
+        let project_ref = project.as_ref().unwrap();
+        let environment_ref = environment.as_ref().unwrap();
 
-    let validation_res =
-        validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
+        let validation_res =
+            validate_project_environment_identifier(project_ref, environment_ref, true);
 
-    if let Err(e) = validation_res {
-        let error_output = e.format_error_output(json_format)?;
+        if let Err(e) = validation_res {
+            let error_output = e.format_error_output(json_format)?;
 
-        if !silent {
-            eprintln!();
+            if !silent {
+                eprintln!();
+            }
+            bail!(error_output);
         }
-        bail!(error_output);
     }
 
     //  process, format and validate secrets
@@ -383,8 +398,16 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         None
     };
 
+    // Determine project and environment for API call
+    let (api_project, api_environment) = if is_environment_scope {
+        // For environment scope, pass None (relies on environment-scoped API key)
+        (None, None)
+    } else {
+        (project.clone(), environment.clone())
+    };
+
     // file
-    let res = secrets::set_sercrets(api_key, project, environment, &secrets).await;
+    let res = secrets::set_sercrets(api_key, api_project, api_environment, &secrets).await;
 
     if let Err(err) = res {
         if let Some(ref mut spinner) = spinner {

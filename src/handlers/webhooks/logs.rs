@@ -15,8 +15,8 @@ use crate::{
 #[derive(Debug)]
 pub struct ListWebhookLogsArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub webhook_id: String,
     pub page: Option<usize>,
     pub format: OutputFormat,

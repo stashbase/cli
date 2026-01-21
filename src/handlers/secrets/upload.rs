@@ -21,8 +21,8 @@ use crate::{
 
 pub struct HandleUploadSecretsArgs {
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub file_path: String,
     pub format: Option<SecretsFileFormat>,
     pub ignore_comments: bool,

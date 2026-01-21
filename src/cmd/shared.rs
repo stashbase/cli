@@ -1,28 +1,35 @@
 use clap::Args;
 
-use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
+use crate::models::{
+    scope::Scope,
+    validation::{CmdArgInputValidationError, InputValidationError},
+};
 
 #[derive(Debug, Args)]
 pub struct SharedProjectEnvArgs {
     /// Project name
-    #[arg(
-        short = 'p',
-        long = "project",
-        required = false,
-        hide = true,
-        hide_long_help = true
-    )]
+    #[arg(short = 'p', long = "project", required = false)]
     pub project: Option<String>,
 
     /// Environment name
-    #[arg(
-        short = 'e',
-        long = "environment",
-        required = false,
-        hide = true,
-        hide_long_help = true
-    )]
+    #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct SharedScopeArgs {
+    /// API scope [default: workspace]
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
+}
+
+#[derive(Debug, Args)]
+pub struct SharedProjectEnvScopeArgs {
+    #[clap(flatten)]
+    pub project_env: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 }
 
 pub fn try_get_project_environment(
@@ -74,4 +81,16 @@ pub fn try_get_project_environment(
     };
 
     Ok((project, environment))
+}
+
+pub fn try_get_scope(
+    root_scope: Option<&Scope>,
+    subcommand_scope: Option<&Scope>,
+) -> Result<Option<Scope>, InputValidationError> {
+    if root_scope.is_some() && subcommand_scope.is_some() {
+        let error = InputValidationError::CmdArgs(CmdArgInputValidationError::DuplicateScope);
+        return Err(error);
+    }
+
+    Ok(subcommand_scope.cloned().or_else(|| root_scope.cloned()))
 }

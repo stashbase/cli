@@ -14,8 +14,8 @@ pub struct GetEnvWebhookUrlResponse {
 
 pub async fn handle_open_environment_webhook(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     webhook_id: Option<String>,
     json_format: bool,
     silent: bool,

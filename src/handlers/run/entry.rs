@@ -11,6 +11,7 @@ use crate::{
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
+        scope::Scope,
         secrets::{PrintSecrets, SecretOnlyName, SecretWithoutComment},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
@@ -46,6 +47,7 @@ pub struct HandleRunArgs {
     pub expand_refs: Option<bool>,
     pub json_format: bool,
     pub silent: bool,
+    pub scope: Option<Scope>,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
@@ -62,9 +64,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         mut print_secrets,
         json_format,
         silent,
+        scope,
     } = args;
 
-    if file.is_some() && (project.is_some() || environment.is_some()) {
+    // Handle environment scope - workspace scope behaves like no scope
+    let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
+
+    if !is_environment_scope && file.is_some() && (project.is_some() || environment.is_some()) {
         let error = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::FileArgWithInline,
         );
@@ -90,7 +96,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     let mut setted_secrets = HashMap::<String, String>::new();
 
-    if let (Some(_), Some(_)) = (&project, &environment) {
+    if is_environment_scope {
+        // For environment scope, load from API (not from file)
+        is_from_file = false;
+    } else if let (Some(_), Some(_)) = (&project, &environment) {
         is_from_file = false;
     } else if let Some(_) = project {
         // missing env arg
@@ -187,19 +196,20 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         }
     }
 
-    let project = project.unwrap();
-    let environment = environment.unwrap();
+    // Only validate project/environment if not using environment scope
+    if !is_environment_scope {
+        if let (Some(ref proj), Some(ref env)) = (&project, &environment) {
+            let validation_res = validate_project_environment_identifier(proj, env, true);
 
-    let validation_res =
-        validate_project_environment_identifier(project.as_ref(), environment.as_ref(), true);
+            if let Err(e) = validation_res {
+                let formatted_err = e.format_error_output(json_format)?;
 
-    if let Err(e) = validation_res {
-        let formatted_err = e.format_error_output(json_format)?;
-
-        if !silent {
-            eprintln!();
+                if !silent {
+                    eprintln!();
+                }
+                bail!(formatted_err);
+            }
         }
-        bail!(formatted_err);
     }
 
     if !only.is_empty() && !exclude.is_empty() {
@@ -374,10 +384,18 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     // )
     // .await;
 
+    // Determine project and environment for API call
+    let (api_project, api_environment) = if is_environment_scope {
+        // For environment scope, pass None (relies on environment-scoped API key)
+        (None, None)
+    } else {
+        (project.clone(), environment.clone())
+    };
+
     let res = secrets::pull(
         api_key,
-        project.clone(),
-        environment.clone(),
+        api_project,
+        api_environment,
         only,
         exclude,
         false,

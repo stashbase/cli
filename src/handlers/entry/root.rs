@@ -167,36 +167,70 @@ pub async fn handle_cli(args: Cli) {
                 handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
                     .await
             }
-            EntityType::Run(args) => {
+            EntityType::Run(run_cmd) => {
+                // Validate scope conflicts
+                if let Err(err) = run_cmd.validate_scope_conflicts() {
+                    match err.format_error_output(raw_output) {
+                        Ok(formatted_err) => {
+                            if !silent {
+                                eprintln!();
+                            }
+
+                            eprintln!("{}", formatted_err);
+                            return;
+                        }
+                        Err(format_err) => {
+                            eprintln!("Error formatting validation error: {:?}", format_err);
+                            return;
+                        }
+                    }
+                }
+
                 let args = HandleRunArgs {
                     api_key,
-                    project: args.project,
-                    environment: args.environment,
-                    command: args.command,
-                    exclude: args.exclude,
-                    only: args.only,
-                    set: args.set,
-                    file: args.config_file,
-                    expand_refs: args.expand_refs,
-                    print_secrets: args.print_secrets,
+                    project: run_cmd.project,
+                    environment: run_cmd.environment,
+                    command: run_cmd.command,
+                    exclude: run_cmd.exclude,
+                    only: run_cmd.only,
+                    set: run_cmd.set,
+                    file: run_cmd.config_file,
+                    expand_refs: run_cmd.expand_refs,
+                    print_secrets: run_cmd.print_secrets,
                     json_format: raw_output,
                     silent,
+                    scope: run_cmd.scope,
                 };
 
                 handle_load_env_run(args).await
             }
-            EntityType::Pull(args) => {
+            EntityType::Pull(pull_cmd) => {
+                // Validate scope conflicts
+                if let Err(e) = pull_cmd.validate_scope_conflicts() {
+                    if !silent {
+                        eprintln!();
+                    }
+
+                    eprintln!(
+                        "{}",
+                        e.format_error_output(raw_output)
+                            .unwrap_or_else(|_| "Error formatting validation error".to_string())
+                    );
+                    return;
+                }
+
                 let args = HandlePullArgs {
                     api_key,
-                    file: args.config_file,
-                    set: args.set,
-                    target_file: args.file,
-                    format: args.format,
-                    only: args.only,
-                    exclude: args.exclude,
-                    expand_refs: args.expand_refs,
-                    ignore_comments: args.ignore_comments,
-                    overwrite_file: args.overwrite,
+                    scope: pull_cmd.scope,
+                    file: pull_cmd.config_file,
+                    set: pull_cmd.set,
+                    target_file: pull_cmd.file,
+                    format: pull_cmd.format,
+                    only: pull_cmd.only,
+                    exclude: pull_cmd.exclude,
+                    expand_refs: pull_cmd.expand_refs,
+                    ignore_comments: pull_cmd.ignore_comments,
+                    overwrite_file: pull_cmd.overwrite,
                     json_format: raw_output,
                     silent,
                 };
@@ -204,17 +238,32 @@ pub async fn handle_cli(args: Cli) {
                 handle_pull(args).await
             }
 
-            EntityType::Push(args) => {
+            EntityType::Push(push_cmd) => {
+                // Validate scope conflicts
+                if let Err(e) = push_cmd.validate_scope_conflicts() {
+                    if !silent {
+                        eprintln!();
+                    }
+
+                    eprintln!(
+                        "{}",
+                        e.format_error_output(raw_output)
+                            .unwrap_or_else(|_| "Error formatting validation error".to_string())
+                    );
+                    return;
+                }
+
                 let args = HandlePushArgs {
                     api_key,
-                    config_file_path: args.config_file,
-                    target_file: args.file,
-                    format: args.format,
-                    only: args.only,
-                    exclude: args.exclude,
-                    set: args.set,
-                    expand_refs: args.expand_refs,
-                    ignore_comments: args.ignore_comments,
+                    scope: push_cmd.scope,
+                    config_file_path: push_cmd.config_file,
+                    target_file: push_cmd.file,
+                    format: push_cmd.format,
+                    only: push_cmd.only,
+                    exclude: push_cmd.exclude,
+                    set: push_cmd.set,
+                    expand_refs: push_cmd.expand_refs,
+                    ignore_comments: push_cmd.ignore_comments,
                     json_format: raw_output,
                     silent,
                 };

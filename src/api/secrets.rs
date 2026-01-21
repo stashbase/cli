@@ -7,10 +7,25 @@ use crate::models::{
     secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload, UpdateSecretsPayload},
 };
 
+fn get_secrets_path(
+    project: Option<String>,
+    environment: Option<String>,
+    path: Option<String>,
+) -> ApiPath {
+    match (project, environment) {
+        (Some(project), Some(environment)) => ApiPath::Secrets {
+            project,
+            environment,
+            path,
+        },
+        _ => ApiPath::SecretsEnvScope { path },
+    }
+}
+
 pub async fn list(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     only_names: bool,
     omit: Option<Vec<String>>,
     only: Option<Vec<String>>,
@@ -32,12 +47,10 @@ pub async fn list(
         query_str.push(("only".to_string(), only.join(",")));
     }
 
+    let path = get_secrets_path(project, environment, None);
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: None,
-        },
+        path,
         query: match !query_str.is_empty() {
             true => Some(query_str),
             false => None,
@@ -50,8 +63,8 @@ pub async fn list(
 
 pub async fn pull(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     only: Vec<String>,
     exclude: Vec<String>,
     with_comment: bool,
@@ -80,12 +93,10 @@ pub async fn pull(
         query.push(("omit".to_string(), "comment".to_string()));
     }
 
+    let path = get_secrets_path(project, environment, None);
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: None,
-        },
+        path,
         query: Some(query),
         api_key,
     };
@@ -95,17 +106,15 @@ pub async fn pull(
 
 pub async fn update_comment(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     name: String,
     data: &UpdateSecretCommentPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_secrets_path(project, environment, Some(name));
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: Some(format!("{}", name)),
-        },
+        path,
         query: None,
         api_key,
     };
@@ -115,16 +124,14 @@ pub async fn update_comment(
 
 pub async fn delete(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     secrets_to_delete: &Vec<String>,
 ) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_secrets_path(project, environment, Some(String::from("delete")));
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: Some(String::from("delete")),
-        },
+        path,
         query: None,
         api_key,
     };
@@ -134,15 +141,13 @@ pub async fn delete(
 
 pub async fn delete_all(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
 ) -> Result<DeleteRequestApiResponse, OutputError> {
+    let path = get_secrets_path(project, environment, Some(String::from("all")));
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: Some(String::from("all")),
-        },
+        path,
         query: None,
         api_key,
     };
@@ -152,16 +157,14 @@ pub async fn delete_all(
 
 pub async fn create_secrets(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     data: &Vec<Secret>,
 ) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_secrets_path(project, environment, None);
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: None,
-        },
+        path,
         query: None,
         api_key,
     };
@@ -171,16 +174,14 @@ pub async fn create_secrets(
 
 pub async fn set_sercrets(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     data: &Vec<Secret>,
 ) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_secrets_path(project, environment, None);
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: None,
-        },
+        path,
         query: None,
         api_key,
     };
@@ -190,16 +191,14 @@ pub async fn set_sercrets(
 
 pub async fn update_secrets(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     data: &UpdateSecretsPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_secrets_path(project, environment, None);
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: None,
-        },
+        path,
         query: None,
         api_key,
     };
@@ -209,16 +208,14 @@ pub async fn update_secrets(
 
 pub async fn rename_secrets(
     api_key: String,
-    project: String,
-    environment: String,
+    project: Option<String>,
+    environment: Option<String>,
     data: &RenameSecretsPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_secrets_path(project, environment, None);
+
     let args = RequestArgs {
-        path: ApiPath::Secrets {
-            project,
-            environment,
-            path: None,
-        },
+        path,
         query: None,
         api_key,
     };

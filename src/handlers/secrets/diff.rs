@@ -24,8 +24,8 @@ use crate::{
 pub struct HandleSecretsDiffArgs {
     pub silent: bool,
     pub api_key: String,
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
     pub file_path: String,
     pub format: Option<SecretsFileFormat>,
     pub json_format: bool,

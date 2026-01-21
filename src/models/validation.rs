@@ -28,6 +28,14 @@ pub enum CmdArgInputValidationError {
     MissingEnvironment,
     DuplicateEnvironment,
     MissingProjectEnvironment,
+    // argument not flag
+    MissingEnvironmentIdentifierArgument,
+    ConflictingScopeAndProjectEnvironment,
+    DuplicateScope,
+    ScopeNotSupportedForCommand,
+    ConflictingScopeAndConfigFile,
+    ConfigFileRequired,
+    FileRequiredForEnvironmentScope,
 }
 
 #[derive(Debug, Serialize)]
@@ -459,6 +467,35 @@ impl CmdArgInputValidationError {
             CmdArgInputValidationError::MissingProjectEnvironment => (
                 "Project and environment not specified.",
                 "Use '-p/--project' and '-e/--environment' arguments.",
+            ),
+            // argument not flag
+            CmdArgInputValidationError::MissingEnvironmentIdentifierArgument => (
+                "Environment identifier not specified.",
+                "Provide the environment identifier as a value <NAME_OR_ID> (e.g. 'prod/dev').",
+            ),
+            CmdArgInputValidationError::ConflictingScopeAndProjectEnvironment => (
+                "Cannot use --scope=environment with --project or --environment flags.",
+                "Remove the -p/--project and -e/--environment flags when using an environment-scoped API key."
+            ),
+            CmdArgInputValidationError::DuplicateScope => (
+                "Scope specified multiple times.",
+                "Use '--scope' argument only once.",
+            ),
+            CmdArgInputValidationError::ScopeNotSupportedForCommand => (
+                "Scope is not supported for this command.",
+                "Remove the '--scope' argument for this command.",
+            ),
+            CmdArgInputValidationError::ConflictingScopeAndConfigFile => (
+                "Cannot use --scope=environment with --config flag.",
+                "Remove either the --scope=environment or --config flag.",
+            ),
+            CmdArgInputValidationError::ConfigFileRequired => (
+                "Config file is required when not using environment scope.",
+                "Use --config flag to specify a config file or use --scope=environment.",
+            ),
+            CmdArgInputValidationError::FileRequiredForEnvironmentScope => (
+                "Target file is required when using environment scope.",
+                "Use --file flag to specify the output file path.",
             ),
         }
     }

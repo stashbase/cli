@@ -16,7 +16,11 @@ use crate::{
         update::{handle_update_secrets, HandleUpdateSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
     },
-    models::secrets::SecretsSearchOutputFormat,
+    models::{
+        scope::Scope,
+        secrets::SecretsSearchOutputFormat,
+        validation::{CmdArgInputValidationError, InputValidationError},
+    },
     utils::validation::validate_project_environment_identifier,
 };
 
@@ -40,6 +44,21 @@ pub async fn handle_secrets_commands(
     default_output_format: Option<SecretsOutputFormat>,
 ) -> Result<()> {
     if let SecretSubcommand::Search(args) = cmd.subcommand {
+        // Check if scope is provided for commands that don't support it
+        if cmd.scope.is_some() || args.scope.is_some() {
+            let error = InputValidationError::CmdArgs(
+                CmdArgInputValidationError::ScopeNotSupportedForCommand,
+            );
+
+            let formatted_err = error.format_error_output(raw_output)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(formatted_err);
+        }
+
         let format = match raw_output {
             true => SecretsSearchOutputFormat::Json,
             false => match args.format {
@@ -72,28 +91,50 @@ pub async fn handle_secrets_commands(
         return Ok(());
     }
 
-    let project_env_res = cmd.try_get_project_environment();
+    let scope = match cmd.get_scope() {
+        Ok(s) => s,
+        Err(e) => {
+            if !silent {
+                eprintln!();
+            }
 
-    if let Err(err) = project_env_res {
-        let formatted_err = err.format_error_output(raw_output)?;
-
-        if !silent {
-            eprintln!();
+            bail!(e.format_error_output(raw_output)?);
         }
-        bail!(formatted_err);
-    }
+    };
 
-    let (project, environment) = project_env_res.unwrap();
+    let is_environment_scope = scope == Scope::Environment;
 
-    let validation_res = validate_project_environment_identifier(&project, &environment, false);
+    let mut project: Option<String> = None;
+    let mut environment: Option<String> = None;
 
-    if let Err(err) = validation_res {
-        let formatted_err = err.format_error_output(raw_output)?;
+    if !is_environment_scope {
+        let project_env_res = cmd.try_get_project_environment();
 
-        if !silent {
-            eprintln!();
+        if let Err(err) = project_env_res {
+            let formatted_err = err.format_error_output(raw_output)?;
+
+            if !silent {
+                eprintln!();
+            }
+            bail!(formatted_err);
         }
-        bail!(formatted_err);
+
+        let (p, env) = project_env_res.unwrap();
+
+        let validation_res =
+            validate_project_environment_identifier(p.as_ref(), env.as_ref(), false);
+
+        if let Err(err) = validation_res {
+            let formatted_err = err.format_error_output(raw_output)?;
+
+            if !silent {
+                eprintln!();
+            }
+            bail!(formatted_err);
+        }
+
+        project = Some(p);
+        environment = Some(env);
     }
 
     match cmd.subcommand {
@@ -201,6 +242,21 @@ pub async fn handle_secrets_commands(
             handle_upload_secrets(args).await?;
         }
         SecretSubcommand::Diff(args) => {
+            // Check if scope is provided for commands that don't support it
+            if cmd.scope.is_some() || args.scope.is_some() {
+                let error = InputValidationError::CmdArgs(
+                    CmdArgInputValidationError::ScopeNotSupportedForCommand,
+                );
+
+                let formatted_err = error.format_error_output(raw_output)?;
+
+                if !silent {
+                    eprintln!();
+                }
+
+                bail!(formatted_err);
+            }
+
             let args = HandleSecretsDiffArgs {
                 api_key,
                 silent,

@@ -1,9 +1,13 @@
 use clap::Args;
 
-use crate::models::secrets::PrintSecrets;
+use crate::models::{
+    scope::Scope,
+    secrets::PrintSecrets,
+    validation::{CmdArgInputValidationError, InputValidationError},
+};
 
 #[derive(Debug, Args)]
-#[command(override_usage = "run [OPTIONS] [COMMAND]...")]
+#[command(override_usage = "run [OPTIONS]")]
 pub struct RunCommand {
     /// Command to run
     #[clap(num_args = 1..)]
@@ -12,6 +16,10 @@ pub struct RunCommand {
     /// Relative path to a config file (default: stashbase.yaml)
     #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
+
+    /// API scope [default: workspace]
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 
     /// Project name or id
     #[arg(short = 'p', long = "project")]
@@ -40,4 +48,30 @@ pub struct RunCommand {
     /// Print loaded secrets
     #[arg(value_enum, long = "print-secrets")]
     pub print_secrets: Option<PrintSecrets>,
+}
+
+impl RunCommand {
+    pub fn validate_scope_conflicts(&self) -> Result<(), InputValidationError> {
+        if let Some(scope) = &self.scope {
+            // Only restrict flags when using environment scope
+            // Workspace scope behaves like no scope (allows project/environment/config)
+            if *scope == Scope::Environment {
+                // If environment scope is provided, don't allow project and environment flags
+                if self.project.is_some() || self.environment.is_some() {
+                    return Err(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::ConflictingScopeAndProjectEnvironment,
+                    ));
+                }
+
+                // If environment scope is provided, don't allow config file flag
+                if self.config_file.is_some() {
+                    return Err(InputValidationError::CmdArgs(
+                        CmdArgInputValidationError::ConflictingScopeAndConfigFile,
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }

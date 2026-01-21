@@ -2,15 +2,19 @@ use std::fmt::Display;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::models::{secrets::SecretsSearchOutputFormat, validation::InputValidationError};
+use crate::models::{
+    scope::Scope, secrets::SecretsSearchOutputFormat, validation::InputValidationError,
+};
 
 use super::{
     config::SecretsOutputFormat,
-    shared::{try_get_project_environment, SharedProjectEnvArgs},
+    shared::{try_get_project_environment, try_get_scope, SharedProjectEnvArgs, SharedScopeArgs},
 };
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets <COMMAND> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(
+    override_usage = "secrets <COMMAND> (-p <PROJECT> -e <ENVIRONMENT> | --scope=environment) [OPTIONS]"
+)]
 pub struct SecretArgs {
     /// Project name
     #[arg(short = 'p', long = "project", required = false)]
@@ -19,6 +23,10 @@ pub struct SecretArgs {
     /// Environment name
     #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
+
+    /// API scope [default: workspace]
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 
     #[clap(subcommand)]
     pub subcommand: SecretSubcommand,
@@ -32,6 +40,29 @@ impl SecretArgs {
         let (project, environment) = self.subcommand.get_project_environment();
 
         try_get_project_environment(root_project, root_environment, project, environment)
+    }
+
+    pub fn get_scope(&self) -> Result<Scope, InputValidationError> {
+        let root_scope = self.scope.as_ref();
+        let subcommand_scope = self.subcommand.get_scope();
+
+        // Check if scope is provided for commands that don't support it
+        if subcommand_scope.is_none() && root_scope.is_some() {
+            return Err(InputValidationError::CmdArgs(
+                crate::models::validation::CmdArgInputValidationError::ScopeNotSupportedForCommand,
+            ));
+        }
+
+        // For commands that don't support scope, return default workspace scope
+        if subcommand_scope.is_none() {
+            return Ok(Scope::Workspace);
+        }
+
+        // Use the validation function for commands that do support scope
+        let resolved_scope = try_get_scope(root_scope, subcommand_scope)?;
+
+        // If no scope provided, default to workspace
+        Ok(resolved_scope.unwrap_or(Scope::Workspace))
     }
 }
 
@@ -81,6 +112,20 @@ impl SecretSubcommand {
             ),
         }
     }
+    pub fn get_scope(&self) -> Option<&Scope> {
+        match self {
+            SecretSubcommand::List(l) => l.scope_args.scope.as_ref(),
+            SecretSubcommand::Get(g) => g.scope_args.scope.as_ref(),
+            SecretSubcommand::Set(s) => s.scope_args.scope.as_ref(),
+            SecretSubcommand::Create(c) => c.scope_args.scope.as_ref(),
+            SecretSubcommand::Update(u) => u.scope_args.scope.as_ref(),
+            SecretSubcommand::Upload(u) => u.scope_args.scope.as_ref(),
+            SecretSubcommand::Delete(d) => d.scope_args.scope.as_ref(),
+            // NOTE: diff and search commands don't support scope but its added for custom error handling
+            SecretSubcommand::Diff(_) => None,
+            SecretSubcommand::Search(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -124,10 +169,13 @@ pub enum SecretSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets list -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets list [OPTIONS]")]
 pub struct ListSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
@@ -143,10 +191,13 @@ pub struct ListSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets get [NAMES] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets get <NAMES> [OPTIONS]")]
 pub struct GetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     // #[clap(short='v', long="k", value_parser, num_args = 1.., value_delimiter = ' ')]
     pub names: Vec<String>,
@@ -161,10 +212,13 @@ pub struct GetSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets DELETE [NAMES] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets delete <NAMES> [OPTIONS]")]
 pub struct DeleteSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Secrets (names) to delete
     #[clap(num_args = 1.., value_delimiter = ' ')]
@@ -180,10 +234,13 @@ pub struct DeleteSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets SET [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets SET <SECRETS> [OPTIONS]")]
 pub struct SetSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Secrets to set: NAME_1=VAL_1 NAME_2=VAL_2
     #[clap(num_args = 1..)]
@@ -195,10 +252,13 @@ pub struct SetSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets CREATE [SECRETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets create <SECRETS> [OPTIONS]")]
 pub struct CreateSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Secrets to create: NAME_1=VAL_1 NAME_2=VAL_2
     #[clap(num_args = 1..)]
@@ -210,10 +270,13 @@ pub struct CreateSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets upload <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets upload <FILE_PATH> [OPTIONS]")]
 pub struct UploadSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     // NOTE: for now only accepts .env
     /// Path to file (dotenv format)
@@ -229,7 +292,7 @@ pub struct UploadSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets update -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets update [OPTIONS]")]
 pub struct UpdateSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -245,6 +308,9 @@ pub struct UpdateSecrets {
     /// Comments to update (format: NAME=COMMENT). Use original name even if renaming
     #[clap(long = "comments", short = 'c', num_args = 1..)]
     pub comments: Vec<String>,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 }
 
 #[derive(Debug, ValueEnum, Copy, Clone, PartialEq, Eq, Default)]
@@ -273,6 +339,9 @@ pub struct SetComment {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
     /// Secret name
     pub name: String,
 
@@ -281,10 +350,13 @@ pub struct SetComment {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets rename [SECETS] -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets rename <SECRETS> [OPTIONS]")]
 pub struct RenameSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
 
     /// Secrets to rename: NAME_1=NEW_NAME_1 NAME_2=NEW_NAME_2
     #[clap(num_args = 1..)]
@@ -317,10 +389,13 @@ pub struct SearchSecrets {
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsSearchOutputFormat>,
+
+    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets diff <FILE_PATH> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]")]
+#[command(override_usage = "secrets diff <FILE_PATH> [OPTIONS]")]
 pub struct DiffSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
@@ -343,4 +418,7 @@ pub struct DiffSecrets {
     /// Show secret values
     #[arg(value_enum, long = "show-values")]
     pub show_values: bool,
+
+    #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
+    pub scope: Option<Scope>,
 }

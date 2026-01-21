@@ -18,7 +18,7 @@ use crate::{
         update::{handle_update_webhook, UpdateWebhookArgs},
         update_status::{handle_update_webhook_status, UpdateWebhookStatusArgs},
     },
-    models::validation::InputValidationError,
+    models::{scope::Scope, validation::InputValidationError},
     utils::{
         output::get_output_format,
         validation::{
@@ -29,15 +29,21 @@ use crate::{
 };
 
 fn validate_input(
-    project: &str,
-    environment: &str,
+    project: &Option<String>,
+    environment: &Option<String>,
     subcommand: &WebhookSubcommand,
 ) -> Result<(), InputValidationError> {
-    // validate project and environment
-    let input_valid = validate_project_environment_identifier(project, environment, false);
+    if project.is_some() && environment.is_some() {
+        // validate project and environment
+        let input_valid = validate_project_environment_identifier(
+            project.as_ref().unwrap(),
+            environment.as_ref().unwrap(),
+            false,
+        );
 
-    if let Err(err) = input_valid {
-        return Err(err);
+        if let Err(err) = input_valid {
+            return Err(err);
+        }
     }
 
     // validate webhook id
@@ -73,19 +79,40 @@ pub async fn handle_webhook_commands(
     raw_output: bool,
     default_output_format: Option<OutputFormat>,
 ) -> anyhow::Result<()> {
-    // required options
-    let project_env_res = cmd.try_get_project_environment();
+    let scope = match cmd.get_scope() {
+        Ok(s) => s,
+        Err(e) => {
+            if !silent {
+                eprintln!();
+            }
 
-    if let Err(err) = project_env_res {
-        let formatted_err = err.format_error_output(raw_output)?;
-
-        if !silent {
-            eprintln!();
+            bail!(e.format_error_output(raw_output)?);
         }
-        bail!(formatted_err);
-    }
+    };
 
-    let (project, environment) = project_env_res.unwrap();
+    let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
+
+    // required options
+    let mut project: Option<String> = None;
+    let mut environment: Option<String> = None;
+
+    if !is_environment_scope {
+        let project_env_res = cmd.try_get_project_environment();
+
+        if let Err(err) = project_env_res {
+            let formatted_err = err.format_error_output(raw_output)?;
+
+            if !silent {
+                eprintln!();
+            }
+            bail!(formatted_err);
+        }
+
+        let (p, env) = project_env_res.unwrap();
+
+        project = Some(p);
+        environment = Some(env);
+    }
 
     // other input
     let validation_res = validate_input(&project, &environment, &cmd.subcommand);

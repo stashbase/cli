@@ -5,7 +5,10 @@ use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
 use super::{config::OutputFormat, secrets::SecretsFileFormat};
-use crate::models::validation::{CmdArgInputValidationError, InputValidationError};
+use crate::models::{
+    scope::Scope,
+    validation::{CmdArgInputValidationError, InputValidationError},
+};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "environments <COMMAND> -p <PROJECT> [OPTIONS]")]
@@ -155,14 +158,20 @@ impl fmt::Display for EnvSortBy {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "environments get <NAME_OR_ID> -p <PROJECT> [OPTIONS]")]
+#[command(
+    override_usage = "environments get (<NAME_OR_ID> -p <PROJECT> | --scope=environment) [OPTIONS]"
+)]
 pub struct GetEnvironment {
     #[clap(flatten)]
     pub shared_args: SharedProjectArgs,
 
-    /// Project name or id
+    /// Environment name or id
     #[arg(value_name = "NAME_OR_ID")]
-    pub identifier: String,
+    pub identifier: Option<String>,
+
+    /// API scope [default: workspace]
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 
     /// Format output
     #[arg(short = 'f', long = "format")]
@@ -192,7 +201,11 @@ pub struct OpenEnvironment {
 
     /// Project name or id
     #[arg(value_name = "NAME_OR_ID")]
-    pub identifier: String,
+    pub identifier: Option<String>,
+
+    /// API scope [default: workspace]
+    #[arg(long = "scope", value_enum)]
+    pub scope: Option<Scope>,
 }
 
 #[derive(Debug, Args)]
