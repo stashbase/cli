@@ -24,12 +24,12 @@ pub struct SecretArgs {
     #[arg(short = 'e', long = "environment", required = false)]
     pub environment: Option<String>,
 
-    #[clap(subcommand)]
-    pub subcommand: SecretSubcommand,
-
     // API scope
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
+
+    #[clap(subcommand)]
+    pub subcommand: SecretSubcommand,
 }
 
 impl SecretArgs {
