@@ -203,7 +203,7 @@ pub struct OpenEnvironment {
     #[arg(value_name = "NAME_OR_ID")]
     pub identifier: Option<String>,
 
-    /// Scope
+    /// API scope [default: workspace]
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
 }
