@@ -33,6 +33,7 @@ pub enum CmdArgInputValidationError {
     ConflictingScopeAndProjectEnvironment,
     DuplicateScope,
     ScopeNotSupportedForCommand,
+    ConflictingScopeAndConfigFile,
 }
 
 #[derive(Debug, Serialize)]
@@ -481,6 +482,10 @@ impl CmdArgInputValidationError {
             CmdArgInputValidationError::ScopeNotSupportedForCommand => (
                 "Scope is not supported for this command.",
                 "Remove the '--scope' argument for this command.",
+            ),
+            CmdArgInputValidationError::ConflictingScopeAndConfigFile => (
+                "Cannot use --scope with --config flag.",
+                "Remove either the --scope or --config flag.",
             ),
         }
     }
