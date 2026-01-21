@@ -486,12 +486,12 @@ impl CmdArgInputValidationError {
                 "Remove the '--scope' argument for this command.",
             ),
             CmdArgInputValidationError::ConflictingScopeAndConfigFile => (
-                "Cannot use --scope with --config flag.",
-                "Remove either the --scope or --config flag.",
+                "Cannot use --scope=environment with --config flag.",
+                "Remove either the --scope=environment or --config flag.",
             ),
             CmdArgInputValidationError::ConfigFileRequired => (
-                "Config file is required when no scope is specified.",
-                "Use --config flag to specify a config file or use --scope.",
+                "Config file is required when not using environment scope.",
+                "Use --config flag to specify a config file or use --scope=environment.",
             ),
             CmdArgInputValidationError::FileRequiredForEnvironmentScope => (
                 "Target file is required when using environment scope.",
