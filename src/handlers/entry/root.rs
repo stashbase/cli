@@ -238,17 +238,32 @@ pub async fn handle_cli(args: Cli) {
                 handle_pull(args).await
             }
 
-            EntityType::Push(args) => {
+            EntityType::Push(push_cmd) => {
+                // Validate scope conflicts
+                if let Err(e) = push_cmd.validate_scope_conflicts() {
+                    if !silent {
+                        eprintln!();
+                    }
+
+                    eprintln!(
+                        "{}",
+                        e.format_error_output(raw_output)
+                            .unwrap_or_else(|_| "Error formatting validation error".to_string())
+                    );
+                    return;
+                }
+
                 let args = HandlePushArgs {
                     api_key,
-                    config_file_path: args.config_file,
-                    target_file: args.file,
-                    format: args.format,
-                    only: args.only,
-                    exclude: args.exclude,
-                    set: args.set,
-                    expand_refs: args.expand_refs,
-                    ignore_comments: args.ignore_comments,
+                    scope: push_cmd.scope,
+                    config_file_path: push_cmd.config_file,
+                    target_file: push_cmd.file,
+                    format: push_cmd.format,
+                    only: push_cmd.only,
+                    exclude: push_cmd.exclude,
+                    set: push_cmd.set,
+                    expand_refs: push_cmd.expand_refs,
+                    ignore_comments: push_cmd.ignore_comments,
                     json_format: raw_output,
                     silent,
                 };
