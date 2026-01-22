@@ -40,3 +40,6 @@ toml = "0.9.8"
 webbrowser = "1.0.6"
 uuid = { version = "1.18.1", features = ["v4", "v7"] }
 rand = "0.9.2"
+
+[patch.crates-io]
+openssl-sys = { git = "https://github.com/sfackler/rust-openssl", tag = "openssl-sys-v0.9.111" }
