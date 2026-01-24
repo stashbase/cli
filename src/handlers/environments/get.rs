@@ -6,7 +6,10 @@ use crate::{
     cmd::config::OutputFormat,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
-        environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
+        environments::{
+            Environment, TableEnvironment, TableEnvironmentWithProject,
+            TableEnvironmentWithProjectWithoutDescription, TableEnvironmentWithoutDescription,
+        },
     },
     utils::{
         output::get_formatted_json_string, spinner::request_spinner, tables,
@@ -85,16 +88,31 @@ pub async fn handle_get_environment(
                         }
                         OutputFormat::Table => match env.description {
                             Some(_) => {
-                                let table_env: TableEnvironment = env.into();
+                                if let Some(_) = &env.project {
+                                    let table_env: TableEnvironmentWithProject = env.into();
 
-                                let table = tables::build::build_table(&vec![table_env]);
-                                println!("{}", table);
+                                    let table = tables::build::build_table(&vec![table_env]);
+                                    println!("{}", table);
+                                } else {
+                                    let table_env: TableEnvironment = env.into();
+
+                                    let table = tables::build::build_table(&vec![table_env]);
+                                    println!("{}", table);
+                                }
                             }
                             None => {
-                                let table_env: TableEnvironmentWithoutDescription = env.into();
+                                if let Some(_) = &env.project {
+                                    let table_env: TableEnvironmentWithProjectWithoutDescription =
+                                        env.into();
 
-                                let table = tables::build::build_table(&vec![table_env]);
-                                println!("{}", table);
+                                    let table = tables::build::build_table(&vec![table_env]);
+                                    println!("{}", table);
+                                } else {
+                                    let table_env: TableEnvironmentWithoutDescription = env.into();
+
+                                    let table = tables::build::build_table(&vec![table_env]);
+                                    println!("{}", table);
+                                }
                             }
                         },
                     }
