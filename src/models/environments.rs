@@ -3,7 +3,10 @@ use std::fmt::Display;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::utils::{human_datetime::get_human_datetime, output::ColorizeIfColoredOutput};
+use crate::utils::{
+    human_datetime::get_human_datetime,
+    output::{write_indented, ColorizeIfColoredOutput},
+};
 
 use super::secrets::Secret;
 
@@ -185,6 +188,17 @@ impl Display for Environment {
             "Secret count:".green_if_tty(),
             self.secret_count
         )?;
+
+        if let Some(project) = &self.project {
+            writeln!(f, "{}", "Project:".green_if_tty(),)?;
+
+            write_indented(f, 2, &format!("{} {}", "ID:".green_if_tty(), project.id))?;
+            write_indented(
+                f,
+                2,
+                &format!("{} {}", "Name:".green_if_tty(), project.name),
+            )?;
+        }
 
         Ok(())
     }
