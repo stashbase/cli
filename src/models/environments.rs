@@ -44,6 +44,14 @@ pub struct Environment {
     // only for personal auth (api key)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_role: Option<EnvironmentUserRole>,
+
+    pub project: Option<EnvironmentProjectReference>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EnvironmentProjectReference {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
