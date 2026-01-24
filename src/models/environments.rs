@@ -108,6 +108,63 @@ pub struct TableEnvironmentWithoutDescription {
     pub secret_count: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct TableEnvironmentWithProject {
+    #[tabled(rename = "ID", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
+
+    // only for personal auth (api key)
+    #[tabled(rename = "User role", order = 3)]
+    pub user_role: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Description", order = 6)]
+    pub description: Option<String>,
+
+    #[tabled(rename = "Production", order = 4)]
+    pub is_production: bool,
+
+    #[tabled(rename = "Secrets", order = 5)]
+    pub secret_count: usize,
+
+    #[tabled(rename = "Project", order = 7)]
+    pub project: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct TableEnvironmentWithProjectWithoutDescription {
+    #[tabled(rename = "ID", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Name", order = 1)]
+    pub name: String,
+
+    // date string
+    #[tabled(rename = "Created at", order = 2)]
+    pub created_at: String,
+
+    // only for personal auth (api key)
+    #[tabled(rename = "User role", order = 3)]
+    pub user_role: String,
+
+    #[tabled(rename = "Production", order = 4)]
+    pub is_production: bool,
+
+    #[tabled(rename = "Secrets", order = 5)]
+    pub secret_count: usize,
+
+    #[tabled(rename = "Project", order = 6)]
+    pub project: String,
+}
+
 impl From<Environment> for TableEnvironment {
     fn from(env: Environment) -> Self {
         let (formatted, relative) = get_human_datetime(&env.created_at);
@@ -147,6 +204,65 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
             user_role,
             is_production: env.is_production,
             secret_count: env.secret_count,
+        }
+    }
+}
+
+impl From<Environment> for TableEnvironmentWithProject {
+    fn from(env: Environment) -> Self {
+        let (formatted, relative) = get_human_datetime(&env.created_at);
+        let created_at = format!("{} ({})", formatted, relative);
+
+        let user_role = match env.user_role {
+            Some(role) => role.to_string(),
+            None => "---".to_string(),
+        };
+
+        let project = match &env.project {
+            Some(project) => {
+                format!("{} ({})", project.name, project.id)
+            }
+            None => "---".to_string(),
+        };
+
+        Self {
+            id: env.id,
+            created_at,
+            name: env.name,
+            description: env.description,
+            user_role,
+            is_production: env.is_production,
+            secret_count: env.secret_count,
+            project,
+        }
+    }
+}
+
+impl From<Environment> for TableEnvironmentWithProjectWithoutDescription {
+    fn from(env: Environment) -> Self {
+        let (formatted, relative) = get_human_datetime(&env.created_at);
+        let created_at = format!("{} ({})", formatted, relative);
+
+        let user_role = match env.user_role {
+            Some(role) => role.to_string(),
+            None => "---".to_string(),
+        };
+
+        let project = match &env.project {
+            Some(project) => {
+                format!("{} ({})", project.name, project.id)
+            }
+            None => "---".to_string(),
+        };
+
+        Self {
+            id: env.id,
+            created_at,
+            name: env.name,
+            user_role,
+            is_production: env.is_production,
+            secret_count: env.secret_count,
+            project,
         }
     }
 }
