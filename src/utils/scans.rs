@@ -14,7 +14,8 @@ pub static SCAN_CONTEXT_LINES: usize = 10;
 
 const DEFAULT_EXCLUDE_FILE_NAMES: [&str; 4] = [".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"];
 const DEFAULT_EXCLUDE_DIRS: [&str; 3] = ["node_modules/", "vendor/", "vendors/"];
-const DEFAULT_EXCLUDE_FILE_PATTERNS: [&str; 4] = ["top-1000.txt", "*.sops", "*.sops.yaml", "*.lock"];
+const DEFAULT_EXCLUDE_FILE_PATTERNS: [&str; 3] = ["top-1000.txt", "*.sops", "*.sops.yaml"];
+const DEFAULT_EXCLUDE_FILE_EXTENSIONS: [&str; 5] = ["html", "css", "lock", "storyboard", "xib"];
 
 pub fn default_scan_exclude_patterns() -> Vec<String> {
     let mut patterns = Vec::new();
@@ -24,6 +25,11 @@ pub fn default_scan_exclude_patterns() -> Vec<String> {
         DEFAULT_EXCLUDE_FILE_PATTERNS
             .iter()
             .map(|pattern| pattern.to_string()),
+    );
+    patterns.extend(
+        DEFAULT_EXCLUDE_FILE_EXTENSIONS
+            .iter()
+            .map(|ext| format!("*.{}", ext)),
     );
     patterns
 }
@@ -40,7 +46,8 @@ pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) ->
 }
 
 pub fn get_comment_prefix(extension: &str) -> Option<&'static str> {
-    match extension {
+    let extension = extension.to_lowercase();
+    match extension.as_str() {
         "rs" | "js" | "ts" | "tsx" | "jsx" | "vue" | "java" | "cpp" | "c" | "cs" | "go "
         | "php" | "kt" | "scala" | "dart" | "svelte" | "m" | "mm" => Some("//"),
         "py" | "sh" | "toml" | "yaml" | "yml" | "ini" | "r" | "swift" | "rb" | "dockerfile"
@@ -72,7 +79,8 @@ pub fn should_skip_line(line: &str, comment_prefix: &str, skip_comment: &str) ->
 }
 
 pub fn is_binary_file(extension: &str) -> bool {
-    match extension {
+    let extension = extension.to_lowercase();
+    match extension.as_str() {
         // Compiled files
         "exe" | "dll" | "so" | "dylib" | "class" | "o" | "obj" | "pyc" | "pyo" |
         
