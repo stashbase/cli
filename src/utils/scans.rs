@@ -14,7 +14,8 @@ pub static SCAN_CONTEXT_LINES: usize = 10;
 
 const DEFAULT_EXCLUDE_FILE_NAMES: [&str; 4] = [".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"];
 const DEFAULT_EXCLUDE_DIRS: [&str; 3] = ["node_modules/", "vendor/", "vendors/"];
-const DEFAULT_EXCLUDE_FILE_PATTERNS: [&str; 3] = ["top-1000.txt", "*.sops", "*.sops.yaml"];
+const DEFAULT_EXCLUDE_FILE_PATTERNS: [&str; 4] = ["top-1000.txt", "*.sops", "*.sops.yaml", "*.lock"];
+
 pub fn default_scan_exclude_patterns() -> Vec<String> {
     let mut patterns = Vec::new();
     patterns.extend(DEFAULT_EXCLUDE_FILE_NAMES.iter().map(|name| name.to_string()));
