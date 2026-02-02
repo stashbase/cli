@@ -34,7 +34,7 @@ pub struct HandleScanUnpushedCommitHunksArgs {
 
     pub match_project: Option<String>,
     pub match_environments: Vec<String>,
-    pub exclude: Vec<String>,
+    pub exclude_files: Vec<String>,
     pub baseline: Option<String>,
     pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
@@ -60,7 +60,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
         match_environments,
         match_files,
         last_n_commits,
-        exclude: _,
+        exclude_files: _,
     } = args;
 
     let config = match &config_file_path {
@@ -83,10 +83,10 @@ pub async fn handle_scan_unpushed_commit_hunks(
     };
 
     let exclude = config
-        .exclude
+        .excluded_files
         .into_iter()
         .flatten()
-        .chain(args.exclude.into_iter())
+        .chain(args.exclude_files.into_iter())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();

@@ -30,8 +30,8 @@ pub struct ScanStaged {
     pub config_file: Option<String>,
 
     /// Git-like patterns of files and folders to not scan
-    #[clap(short = 'e', long="exclude", num_args = 1..)]
-    pub exclude: Vec<String>,
+    #[clap(long="exclude-files", num_args = 1..)]
+    pub exclude_files: Vec<String>,
 
     /// Output directory for the scan results
     #[arg(short = 'o', long = "output-dir")]
@@ -78,8 +78,8 @@ pub struct ScanCommits {
     pub config_file: Option<String>,
 
     /// Git-like patterns of files and folders to not scan
-    #[clap(short = 'e', long="exclude", num_args = 1..)]
-    pub exclude: Vec<String>,
+    #[clap(long="exclude-files", num_args = 1..)]
+    pub exclude_files: Vec<String>,
 
     /// Output directory for the scan results
     #[arg(short = 'o', long = "output-dir")]

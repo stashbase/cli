@@ -31,7 +31,7 @@ pub struct HandleScanStagedFileHunksArgs {
     pub silent: bool,
     pub json_format: bool,
     //
-    pub exclude: Vec<String>,
+    pub excluded_files: Vec<String>,
     pub baseline: Option<String>,
     pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
@@ -57,7 +57,7 @@ pub async fn handle_scan_staged_file_hunks(
         match_project,
         match_environments,
         match_files,
-        exclude: _,
+        excluded_files,
     } = args;
 
     let config = match &config_file_path {
@@ -80,10 +80,10 @@ pub async fn handle_scan_staged_file_hunks(
     };
 
     let exclude = config
-        .exclude
+        .excluded_files
         .into_iter()
         .flatten()
-        .chain(args.exclude.into_iter())
+        .chain(excluded_files.into_iter())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();

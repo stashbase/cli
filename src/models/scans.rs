@@ -11,7 +11,8 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanConfig {
-    pub exclude: Option<Vec<String>>,
+    #[serde(rename = "excluded-files")]
+    pub excluded_files: Option<Vec<String>>,
 
     #[serde(rename = "output-dir")]
     pub output_dir: Option<String>,
@@ -53,7 +54,7 @@ impl Default for IgnoredSecretsConfig {
 impl Default for ScanConfig {
     fn default() -> Self {
         Self {
-            exclude: None,
+            excluded_files: None,
             output_dir: None,
             ignored_secrets: None,
             match_config: None,
