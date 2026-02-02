@@ -133,7 +133,7 @@ pub async fn handle_scan_staged_file_hunks(
         .into_iter()
         .chain(
             config
-                .ignore_value
+                .ignored_secrets
                 .as_ref()
                 .and_then(|c| c.regexes.as_ref())
                 .into_iter()
@@ -186,7 +186,7 @@ pub async fn handle_scan_staged_file_hunks(
         .into_iter()
         .chain(
             config
-                .ignore_value
+                .ignored_secrets
                 .as_ref()
                 .and_then(|c| c.hashes.as_ref())
                 .into_iter()

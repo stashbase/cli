@@ -16,15 +16,15 @@ pub struct ScanConfig {
     #[serde(rename = "output-dir")]
     pub output_dir: Option<String>,
 
-    #[serde(rename = "ignore-value")]
-    pub ignore_value: Option<IgnoreValueConfig>,
+    #[serde(rename = "ignored-secrets")]
+    pub ignored_secrets: Option<IgnoredSecretsConfig>,
 
     #[serde(rename = "match")]
     pub match_config: Option<MatchConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IgnoreValueConfig {
+pub struct IgnoredSecretsConfig {
     pub hashes: Option<Vec<String>>,
     pub regexes: Option<Vec<String>>,
 }
@@ -41,7 +41,7 @@ pub struct ProjectContextConfig {
     pub environments: Option<Vec<String>>,
 }
 
-impl Default for IgnoreValueConfig {
+impl Default for IgnoredSecretsConfig {
     fn default() -> Self {
         Self {
             hashes: None,
@@ -55,7 +55,7 @@ impl Default for ScanConfig {
         Self {
             exclude: None,
             output_dir: None,
-            ignore_value: None,
+            ignored_secrets: None,
             match_config: None,
         }
     }
@@ -140,7 +140,7 @@ impl IgnoredSecretsPayload {
         Self { hashes, regexes }
     }
 
-    pub fn from_config(config: &IgnoreValueConfig) -> Self {
+    pub fn from_config(config: &IgnoredSecretsConfig) -> Self {
         Self {
             hashes: config.hashes.clone().unwrap_or_default(),
             regexes: config.regexes.clone().unwrap_or_default(),
@@ -152,8 +152,8 @@ impl IgnoredSecretsPayload {
     }
 }
 
-impl From<IgnoreValueConfig> for IgnoredSecretsPayload {
-    fn from(config: IgnoreValueConfig) -> Self {
+impl From<IgnoredSecretsConfig> for IgnoredSecretsPayload {
+    fn from(config: IgnoredSecretsConfig) -> Self {
         Self::from_config(&config)
     }
 }
