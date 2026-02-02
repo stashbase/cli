@@ -180,8 +180,8 @@ pub enum ScanInputValidationError {
     ConfigFileNotFound { path: String },
     ConfigFileRead { path: String, message: String },
     ConfigFileParse { path: String, message: String },
-    InvalidIgnoreValueRegex { regex: String, message: String }, 
-    InvalidIgnoreValueHash { hash: String },
+    InvalidIgnoreSecretRegex { regex: String, message: String }, 
+    InvalidIgnoreSecretHash { hash: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -1053,12 +1053,12 @@ impl ScanInputValidationError {
                 "Failed to parse scan configuration file.",
                 Some("Ensure the config file contains valid YAML format."),
             ),
-            ScanInputValidationError::InvalidIgnoreValueRegex { regex, message } => (
-                "Invalid ignore value regex.",
+            ScanInputValidationError::InvalidIgnoreSecretRegex { regex, message } => (
+                "Invalid ignore secret regex.",
                 Some(Box::leak(format!("Invalid regex '{}': {}", regex, message).into_boxed_str())),
             ),
-            ScanInputValidationError::InvalidIgnoreValueHash { hash } => (
-                "Invalid ignore value hash.",
+            ScanInputValidationError::InvalidIgnoreSecretHash { hash } => (
+                "Invalid ignore secret hash.",
                 Some(Box::leak(format!("Hash: {}", hash).into_boxed_str())),
             ),
         }
