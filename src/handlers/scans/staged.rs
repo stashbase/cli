@@ -3,9 +3,9 @@ use crate::{
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
-            DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks, IgnoreValuePayload,
-            MatchConfigPayload, ProjectContextConfigPayload, ScanConfig, ScanFileChangesPayload,
-            ScanOutputJson,
+            DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks,
+            IgnoredSecretsPayload, MatchConfigPayload, ProjectContextConfigPayload, ScanConfig,
+            ScanFileChangesPayload, ScanOutputJson,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -35,8 +35,8 @@ pub struct HandleScanStagedFileHunksArgs {
     pub baseline: Option<String>,
     pub output_dir: Option<String>,
     pub config_file_path: Option<String>,
-    pub ignore_value_hashes: Vec<String>,
-    pub ignore_value_regexes: Vec<String>,
+    pub ignore_secret_hashes: Vec<String>,
+    pub ignore_secret_regexes: Vec<String>,
     pub match_project: Option<String>,
     pub match_environments: Vec<String>,
     pub match_files: Vec<String>,
@@ -52,8 +52,8 @@ pub async fn handle_scan_staged_file_hunks(
         baseline,
         output_dir,
         config_file_path,
-        ignore_value_hashes,
-        ignore_value_regexes,
+        ignore_secret_hashes,
+        ignore_secret_regexes,
         match_project,
         match_environments,
         match_files,
@@ -126,10 +126,10 @@ pub async fn handle_scan_staged_file_hunks(
         std::process::exit(0);
     }
 
-    let mut ignore_value_payload = IgnoreValuePayload::default();
+    let mut ignored_secrets_payload = IgnoredSecretsPayload::default();
 
     // regexes
-    let all_regexes = ignore_value_regexes
+    let all_regexes = ignore_secret_regexes
         .into_iter()
         .chain(
             config
@@ -161,11 +161,11 @@ pub async fn handle_scan_staged_file_hunks(
 
         match validate_and_dedupe_regexes(all_regexes) {
             Ok(unique_valid_regexes) => {
-                ignore_value_payload.regexes = unique_valid_regexes;
+                ignored_secrets_payload.regexes = unique_valid_regexes;
             }
             Err((regex, message)) => {
                 let scan_error =
-                    ScanInputValidationError::InvalidIgnoreValueRegex { regex, message };
+                    ScanInputValidationError::InvalidIgnoreSecretRegex { regex, message };
 
                 let input_validation_error = InputValidationError::Scan(scan_error);
                 let error_output = input_validation_error.format_error_output(json_format)?;
@@ -182,7 +182,7 @@ pub async fn handle_scan_staged_file_hunks(
     }
 
     // hashes
-    let all_hashes = ignore_value_hashes
+    let all_hashes = ignore_secret_hashes
         .into_iter()
         .chain(
             config
@@ -198,7 +198,7 @@ pub async fn handle_scan_staged_file_hunks(
     if !all_hashes.is_empty() {
         // validate hashes
         if let Some(invalid_hash) = all_hashes.iter().find(|hash| !is_valid_sha256_hash(hash)) {
-            let scan_error = ScanInputValidationError::InvalidIgnoreValueHash {
+            let scan_error = ScanInputValidationError::InvalidIgnoreSecretHash {
                 hash: invalid_hash.clone(),
             };
             let input_validation_error = InputValidationError::Scan(scan_error);
@@ -217,7 +217,7 @@ pub async fn handle_scan_staged_file_hunks(
         let mut sorted_hashes = sorted.clone();
         sorted_hashes.sort();
 
-        ignore_value_payload.hashes = sorted_hashes;
+        ignored_secrets_payload.hashes = sorted_hashes;
     }
 
     let match_config = config.match_config.clone();
@@ -298,9 +298,9 @@ pub async fn handle_scan_staged_file_hunks(
             Some(c) => Some(MatchConfigPayload { project: Some(c) }),
             None => None,
         },
-        ignore_value: match ignore_value_payload.is_empty() {
+        ignored_secrets: match ignored_secrets_payload.is_empty() {
             true => None,
-            false => Some(ignore_value_payload),
+            false => Some(ignored_secrets_payload),
         },
     };
 

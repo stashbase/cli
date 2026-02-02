@@ -38,12 +38,12 @@ pub struct ScanStaged {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(long="ignore-value-hashes", num_args = 1..)]
-    pub ignore_value_hashes: Vec<String>,
+    #[clap(long="ignore-secret-hashes", num_args = 1..)]
+    pub ignore_secret_hashes: Vec<String>,
 
     /// Regexes of secret values to ignore
-    #[clap(long="ignore-value-regexes", num_args = 1..)]
-    pub ignore_value_regexes: Vec<String>,
+    #[clap(long="ignore-secret-regexes", num_args = 1..)]
+    pub ignore_secret_regexes: Vec<String>,
 
     /// Project to find matched secret values
     #[clap(long = "match-project")]
@@ -86,12 +86,12 @@ pub struct ScanCommits {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(long="ignore-value-hashes", num_args = 1..)]
-    pub ignore_value_hashes: Vec<String>,
+    #[clap(long="ignore-secret-hashes", num_args = 1..)]
+    pub ignore_secret_hashes: Vec<String>,
 
     /// Regexes of secret values to ignore
-    #[clap(long="ignore-value-regexes", num_args = 1..)]
-    pub ignore_value_regexes: Vec<String>,
+    #[clap(long="ignore-secret-regexes", num_args = 1..)]
+    pub ignore_secret_regexes: Vec<String>,
 
     /// Project to find matched secret values
     #[clap(long = "match-project")]

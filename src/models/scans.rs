@@ -121,12 +121,12 @@ pub struct FileHunks {
 
 // payloads
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IgnoreValuePayload {
+pub struct IgnoredSecretsPayload {
     pub hashes: Vec<String>,
     pub regexes: Vec<String>,
 }
 
-impl Default for IgnoreValuePayload {
+impl Default for IgnoredSecretsPayload {
     fn default() -> Self {
         Self {
             hashes: Vec::new(),
@@ -135,7 +135,7 @@ impl Default for IgnoreValuePayload {
     }
 }
 
-impl IgnoreValuePayload {
+impl IgnoredSecretsPayload {
     pub fn new(hashes: Vec<String>, regexes: Vec<String>) -> Self {
         Self { hashes, regexes }
     }
@@ -152,7 +152,7 @@ impl IgnoreValuePayload {
     }
 }
 
-impl From<IgnoreValueConfig> for IgnoreValuePayload {
+impl From<IgnoreValueConfig> for IgnoredSecretsPayload {
     fn from(config: IgnoreValueConfig) -> Self {
         Self::from_config(&config)
     }
@@ -174,7 +174,7 @@ pub struct ScanFileChangesPayload {
     pub files: Vec<FileHunks>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_value: Option<IgnoreValuePayload>,
+    pub ignored_secrets: Option<IgnoredSecretsPayload>,
 
     #[serde(skip_serializing_if = "Option::is_none", rename = "match")]
     pub match_config: Option<MatchConfigPayload>,
@@ -185,7 +185,7 @@ pub struct ScanCommitChangesPayload {
     pub commits: Vec<CommitChanges>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_value: Option<IgnoreValuePayload>,
+    pub ignored_secrets: Option<IgnoredSecretsPayload>,
 
     #[serde(skip_serializing_if = "Option::is_none", rename = "match")]
     pub match_config: Option<MatchConfigPayload>,
