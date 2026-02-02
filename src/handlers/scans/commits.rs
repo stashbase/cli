@@ -18,10 +18,10 @@ use crate::{
     utils::{
         output::get_formatted_json_string,
         scans::{
-            file_content_equals, filter_new_findings, get_file_matches, get_latest_scan_file,
-            is_binary_file, is_valid_sha256_hash, load_baseline_results, process_diff_line,
-            save_scan_results, should_exclude_file, update_findings_with_file_matches,
-            SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
+            default_scan_exclude_patterns, file_content_equals, filter_new_findings,
+            get_file_matches, get_latest_scan_file, is_binary_file, is_valid_sha256_hash,
+            load_baseline_results, process_diff_line, save_scan_results, should_exclude_file,
+            update_findings_with_file_matches, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
         validation::validate_project_identifier,
     },
@@ -82,10 +82,9 @@ pub async fn handle_scan_unpushed_commit_hunks(
         None => ScanConfig::default(),
     };
 
-    let exclude = config
-        .excluded_files
+    let exclude = default_scan_exclude_patterns()
         .into_iter()
-        .flatten()
+        .chain(config.excluded_files.into_iter().flatten())
         .chain(args.exclude_files.into_iter())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()

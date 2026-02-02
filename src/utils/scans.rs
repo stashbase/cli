@@ -12,6 +12,21 @@ use git2;
 pub static SCAN_IGNORE_LINE_COMMENT: &str = "@stashbase-ignore";
 pub static SCAN_CONTEXT_LINES: usize = 10;
 
+const DEFAULT_EXCLUDE_FILE_NAMES: [&str; 4] = [".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"];
+const DEFAULT_EXCLUDE_DIRS: [&str; 3] = ["node_modules/", "vendor/", "vendors/"];
+const DEFAULT_EXCLUDE_FILE_PATTERNS: [&str; 3] = ["top-1000.txt", "*.sops", "*.sops.yaml"];
+pub fn default_scan_exclude_patterns() -> Vec<String> {
+    let mut patterns = Vec::new();
+    patterns.extend(DEFAULT_EXCLUDE_FILE_NAMES.iter().map(|name| name.to_string()));
+    patterns.extend(DEFAULT_EXCLUDE_DIRS.iter().map(|dir| dir.to_string()));
+    patterns.extend(
+        DEFAULT_EXCLUDE_FILE_PATTERNS
+            .iter()
+            .map(|pattern| pattern.to_string()),
+    );
+    patterns
+}
+
 pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) -> bool {
     // Only merge if they're close enough
     if (hunk2.start_line as i64 - hunk1.end_line as i64).abs() > max_gap as i64 {
