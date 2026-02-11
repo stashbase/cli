@@ -386,11 +386,14 @@ pub enum ScanError {
     #[serde(rename = "quota.scan_feature_not_available")]
     ScanFeatureNotAvailable,
 
-    #[serde(rename = "validation.invalid_ignore_value_regex")]
-    InvalidIgnoreValueRegex,
+    #[serde(rename = "quota.scan_feature_not_enabled")]
+    ScanFeatureNotEnabled,
 
-    #[serde(rename = "validation.invalid_ignore_value_hash")]
-    InvalidIgnoreValueHash,
+    #[serde(rename = "validation.invalid_ignored_secret_regex", alias = "validation.invalid_ignore_value_regex")]
+    InvalidIgnoredSecretRegex,
+
+    #[serde(rename = "validation.invalid_ignored_secret_hash", alias = "validation.invalid_ignore_value_hash")]
+    InvalidIgnoredSecretHash,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -855,8 +858,8 @@ impl From<ApiError> for OutputError {
             },
             ApiErrorEntity::Scan(e) => match e {
                 ScanError::ScanTpmLimitExhausted => OutputError::Generic(GenericOutputError {
-                    code: Some("rate_limit.scan_tpm_limit_reached".to_string()),
-                    message: "Scan token quota temporarily exhausted. Please wait about a minute for your TPM limit to refresh and try again.".to_string(),
+                    code: Some("rate_limit.scan_tpm_limit_exhausted".to_string()),
+                    message: "Scan token quota exhausted or insufficient for this request. Please wait about a minute for your TPM limit to refresh and try again.".to_string(),
                     hint: None,
                 }),
                 ScanError::ScanRpmLimitReached => OutputError::Generic(GenericOutputError {
@@ -871,12 +874,12 @@ impl From<ApiError> for OutputError {
                 }),
                 ScanError::ScanLimitReached => OutputError::Generic(GenericOutputError {
                     code: Some(format!("quota.scan_limit_reached")),
-                    message: format!("Workspace has reached or would exceed its included scan usage for the plan. Pay-as-you-go (metered) scans are available to continue scanning beyond the included quota, or you can wait until the next billing cycle."),
+                    message: format!("Workspace does not have enough remaining scan quota to process this request. Increase the scan quota or wait until the next billing cycle."),
                     hint: None,
                 }),
                 ScanError::ScanSpendLimitReached => OutputError::Generic(GenericOutputError {
                     code: Some(format!("quota.scan_spend_limit_reached")),
-                    message: format!("Workspace has reached its configured pay-as-you-go spend limit. To continue scanning, workspace owner can increase/delete workspace spend limit or wait until the next billing cycle."),
+                    message: format!("Workspace has reached or would exceed its configured pay-as-you-go spend limit. To continue scanning, workspace owner can increase/delete workspace spend limit or wait until the next billing cycle."),
                     hint: None,
                 }),
                 ScanError::ScanFeatureNotAvailable => OutputError::Generic(GenericOutputError {
@@ -884,20 +887,25 @@ impl From<ApiError> for OutputError {
                     message: format!("Scan feature is not available on the free plan. Please upgrade your workspace to a paid plan."),
                     hint: None,
                 }),
-                ScanError::InvalidIgnoreValueRegex => {
-                    let message = api_error.message.unwrap_or(String::from("Invalid ignore value regex."));
+                ScanError::ScanFeatureNotEnabled => OutputError::Generic(GenericOutputError {
+                    code: Some(format!("quota.scan_feature_not_enabled")),
+                    message: format!("Scan feature is not enabled for this workspace. Please enable the scan feature in your workspace settings in order to use the scan API."),
+                    hint: None,
+                }),
+                ScanError::InvalidIgnoredSecretRegex => {
+                    let message = api_error.message.unwrap_or(String::from("Invalid ignored secret regex."));
 
                     OutputError::Generic(GenericOutputError {
-                        code: Some(format!("validation.invalid_ignore_value_regex")),
+                        code: Some(format!("validation.invalid_ignored_secret_regex")),
                         message,
                         hint: None,
                     })
                 }
-                ScanError::InvalidIgnoreValueHash => {
-                    let message = api_error.message.unwrap_or(String::from("Invalid ignore value hash."));
+                ScanError::InvalidIgnoredSecretHash => {
+                    let message = api_error.message.unwrap_or(String::from("Invalid ignored secret hash."));
 
                     OutputError::Generic(GenericOutputError {
-                        code: Some(format!("validation.invalid_ignore_value_hash")),
+                        code: Some(format!("validation.invalid_ignored_secret_hash")),
                         message,
                         hint: None,
                     })
