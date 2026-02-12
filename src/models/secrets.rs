@@ -151,7 +151,7 @@ impl Display for Secret {
         write!(
             f,
             "{} {}",
-            format!("{}:", self.name).green_if_tty(),
+            format!("{}:", self.name).blue_bold_if_tty(),
             self.value
         )?;
 
@@ -401,8 +401,18 @@ impl Display for ProjectSecretSearchedByName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let environments_str = self.environments.get_names_ids_string();
 
-        writeln!(f, "Secret value: {}", self.value.display())?;
-        writeln!(f, "Environments: {}", environments_str)?;
+        writeln!(
+            f,
+            "{} {}",
+            "Secret value:".blue_bold_if_tty(),
+            self.value.display()
+        )?;
+        writeln!(
+            f,
+            "{} {}",
+            "Environments:".blue_bold_if_tty(),
+            environments_str
+        )?;
 
         Ok(())
     }
@@ -439,8 +449,13 @@ impl Display for ProjectSecretSearchedByValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let environments_str = self.environments.get_names_ids_string();
 
-        writeln!(f, "Secret name: {}", self.name)?;
-        writeln!(f, "Environments: {}", environments_str)?;
+        writeln!(f, "{} {}", "Secret name:".blue_bold_if_tty(), self.name)?;
+        writeln!(
+            f,
+            "{} {}",
+            "Environments:".blue_bold_if_tty(),
+            environments_str
+        )?;
 
         Ok(())
     }
@@ -487,9 +502,24 @@ impl Display for WorkspaceSecretSearchedByName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let environments_str = self.project.environments.get_names_ids_string();
 
-        writeln!(f, "Secret value: {}", self.value.display())?;
-        writeln!(f, "Project: {}", self.project.get_name_id_string())?;
-        writeln!(f, "Environments: {}", environments_str)?;
+        writeln!(
+            f,
+            "{} {}",
+            "Secret value:".blue_bold_if_tty(),
+            self.value.display()
+        )?;
+        writeln!(
+            f,
+            "{} {}",
+            "Project:".blue_bold_if_tty(),
+            self.project.get_name_id_string()
+        )?;
+        writeln!(
+            f,
+            "{} {}",
+            "Environments:".blue_bold_if_tty(),
+            environments_str
+        )?;
 
         Ok(())
     }
@@ -522,9 +552,14 @@ impl Display for WorkspaceSecretSearchedByValue {
         let project_str = self.project.get_name_id_string();
         let environments_str = self.project.environments.get_names_ids_string();
 
-        writeln!(f, "Secret name: {}", self.name)?;
-        writeln!(f, "Project: {}", project_str)?;
-        writeln!(f, "Environments: {}", environments_str)?;
+        writeln!(f, "{} {}", "Secret name:".blue_bold_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "Project:".blue_bold_if_tty(), project_str)?;
+        writeln!(
+            f,
+            "{} {}",
+            "Environments:".blue_bold_if_tty(),
+            environments_str
+        )?;
 
         Ok(())
     }
@@ -777,7 +812,12 @@ pub struct SecretDiffModifiedChangeItem {
 impl Display for SecretsDiff {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.added.len() > 0 {
-            writeln!(f, "Added: ({})", self.added.len())?;
+            writeln!(
+                f,
+                "{} ({})",
+                "Added:".blue_bold_if_tty(),
+                self.added.len()
+            )?;
 
             for secret in &self.added {
                 let mut str = String::new();
@@ -809,7 +849,12 @@ impl Display for SecretsDiff {
 
         if self.missing.len() > 0 {
             writeln!(f, "")?;
-            writeln!(f, "Missing: ({})", self.missing.len())?;
+            writeln!(
+                f,
+                "{} ({})",
+                "Missing:".blue_bold_if_tty(),
+                self.missing.len()
+            )?;
 
             for secret in &self.missing {
                 let mut str = String::new();
@@ -842,7 +887,12 @@ impl Display for SecretsDiff {
 
         if self.modified.len() > 0 {
             writeln!(f, "")?;
-            writeln!(f, "Modified: ({})", self.modified.len())?;
+            writeln!(
+                f,
+                "{} ({})",
+                "Modified:".blue_bold_if_tty(),
+                self.modified.len()
+            )?;
 
             for secret in &self.modified {
                 let str = format!("~ {}", secret.name);

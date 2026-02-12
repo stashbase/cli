@@ -208,20 +208,20 @@ impl From<SingleListProject> for SingleListProjectWithoutDescription {
 
 impl Display for Project {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {}", "Project name:".green_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "Project name:".blue_bold_if_tty(), self.name)?;
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
         writeln!(
             f,
             "{} {} ({})",
-            "Created at:".green_if_tty(),
+            "Created at:".blue_bold_if_tty(),
             formatted,
             relative
         )?;
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
+            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
 
         Ok(())
@@ -235,22 +235,22 @@ impl Display for SingleListProject {
         writeln!(
             f,
             "{} {} ({})",
-            "Created at:".green_if_tty(),
+            "Created at:".blue_bold_if_tty(),
             formatted,
             relative
         )?;
 
-        writeln!(f, "{} {}", "ID:".green_if_tty(), self.id)?;
-        writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
+            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
 
         writeln!(
             f,
             "{} {}",
-            "Environment count:".green_if_tty(),
+            "Environment count:".blue_bold_if_tty(),
             self.environment_count
         )?;
 
@@ -275,25 +275,25 @@ impl Display for SingleProject {
         writeln!(
             f,
             "{} {} ({})",
-            "Created at:".green_if_tty(),
+            "Created at:".blue_bold_if_tty(),
             formatted,
             relative
         )?;
-        writeln!(f, "{} {}", "ID:".green_if_tty(), self.id)?;
-        writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
 
         if let Some(full_access) = &self.full_access {
-            writeln!(f, "{} {}", "Full access:".green_if_tty(), full_access)?;
+            writeln!(f, "{} {}", "Full access:".blue_bold_if_tty(), full_access)?;
         }
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
+            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
 
         writeln!(
             f,
             "{} {}",
-            "Environment count:".green_if_tty(),
+            "Environment count:".blue_bold_if_tty(),
             self.environment_count
         )?;
 

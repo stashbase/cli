@@ -17,7 +17,7 @@ where
             // .with(Style::modern())
             .with(Style::rounded())
             .with(Width::wrap(width).priority::<PriorityMax>())
-            .with(Modify::new(Rows::first()).with(Color::FG_GREEN));
+            .with(Modify::new(Rows::first()).with(Color::BOLD | Color::FG_BLUE));
 
         table.with(term_size_settings);
     } else {

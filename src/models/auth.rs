@@ -1,4 +1,4 @@
-use crate::utils::output::write_indented;
+use crate::utils::output::{write_indented, ColorizeIfColoredOutput};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -115,19 +115,19 @@ impl std::fmt::Display for CurrentAuthResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CurrentAuthResponse::User { data } => {
-                let message = format!("Authenticated as User:");
+                let message = "Authenticated as User:".blue_bold_if_tty();
                 writeln!(f, "{}", message)?;
                 write!(f, "{}", data)?;
                 Ok(())
             }
             CurrentAuthResponse::ServiceAccount { data } => {
-                let message = format!("Authenticated as Service Account:");
+                let message = "Authenticated as Service Account:".blue_bold_if_tty();
                 writeln!(f, "{}", message)?;
                 write!(f, "{}", data)?;
                 Ok(())
             }
             CurrentAuthResponse::EnvironmentAccount { data } => {
-                let message = format!("Authenticated as Environment Account:");
+                let message = "Authenticated as Environment Account:".blue_bold_if_tty();
                 writeln!(f, "{}", message)?;
                 write!(f, "{}", data)?;
                 Ok(())
@@ -138,18 +138,42 @@ impl std::fmt::Display for CurrentAuthResponse {
 
 impl std::fmt::Display for AuthedUserData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write_indented(f, 2, &format!("ID: {}", self.id))?;
-        write_indented(f, 2, &format!("Email: {}", self.email))?;
-        write_indented(f, 2, &format!("Full Name: {}", self.full_name))?;
+        write_indented(f, 2, &format!("{} {}", "ID:".blue_bold_if_tty(), self.id))?;
+        write_indented(
+            f,
+            2,
+            &format!("{} {}", "Email:".blue_bold_if_tty(), self.email),
+        )?;
+        write_indented(
+            f,
+            2,
+            &format!("{} {}", "Full Name:".blue_bold_if_tty(), self.full_name),
+        )?;
         if let Some(display_name) = &self.display_name {
-            write_indented(f, 2, &format!("Display Name: {}", display_name))?;
+            write_indented(
+                f,
+                2,
+                &format!("{} {}", "Display Name:".blue_bold_if_tty(), display_name),
+            )?;
         }
-        write_indented(f, 2, "Workspace:")?;
-        write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
-        write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
-        write_indented(f, 4, &format!("Slug: {}", self.workspace.slug))?;
+        write_indented(f, 2, &"Workspace:".blue_bold_if_tty())?;
+        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "Name:".blue_bold_if_tty(), self.workspace.name),
+        )?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "Slug:".blue_bold_if_tty(), self.workspace.slug),
+        )?;
         if let Some(user_role) = &self.workspace.user_role {
-            write_indented(f, 4, &format!("User Role: {}", user_role))?;
+            write_indented(
+                f,
+                4,
+                &format!("{} {}", "User Role:".blue_bold_if_tty(), user_role),
+            )?;
         }
 
         Ok(())
@@ -158,21 +182,53 @@ impl std::fmt::Display for AuthedUserData {
 
 impl std::fmt::Display for AuthedEnvironmentAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write_indented(f, 2, &format!("ID: {}", self.id))?;
-        write_indented(f, 2, &format!("Name: {}", self.name))?;
-        write_indented(f, 2, "Project:")?;
-        write_indented(f, 4, &format!("ID: {}", self.project.id))?;
-        write_indented(f, 4, &format!("Name: {}", self.project.name))?;
-        write_indented(f, 4, "Environment:")?;
-        write_indented(f, 6, &format!("ID: {}", self.project.environment.id))?;
-        write_indented(f, 6, &format!("Name: {}", self.project.environment.name))?;
-        write_indented(f, 2, "Workspace:")?;
-        write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
-        write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
-        write_indented(f, 4, &format!("Slug: {}", self.workspace.slug))?;
-        write_indented(f, 2, "Permissions:")?;
+        write_indented(f, 2, &format!("{} {}", "ID:".blue_bold_if_tty(), self.id))?;
+        write_indented(f, 2, &format!("{} {}", "Name:".blue_bold_if_tty(), self.name))?;
+        write_indented(f, 2, &"Project:".blue_bold_if_tty())?;
+        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.project.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "Name:".blue_bold_if_tty(), self.project.name),
+        )?;
+        write_indented(f, 4, &"Environment:".blue_bold_if_tty())?;
+        write_indented(
+            f,
+            6,
+            &format!(
+                "{} {}",
+                "ID:".blue_bold_if_tty(),
+                self.project.environment.id
+            ),
+        )?;
+        write_indented(
+            f,
+            6,
+            &format!(
+                "{} {}",
+                "Name:".blue_bold_if_tty(),
+                self.project.environment.name
+            ),
+        )?;
+        write_indented(f, 2, &"Workspace:".blue_bold_if_tty())?;
+        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "Name:".blue_bold_if_tty(), self.workspace.name),
+        )?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "Slug:".blue_bold_if_tty(), self.workspace.slug),
+        )?;
+        write_indented(f, 2, &"Permissions:".blue_bold_if_tty())?;
         for (key, value) in &self.permissions {
-            write_indented(f, 4, &format!("{}: {}", key, value.join(", ")))?;
+            write_indented(
+                f,
+                4,
+                &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+            )?;
         }
         Ok(())
     }
@@ -180,42 +236,74 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
 
 impl std::fmt::Display for AuthedServiceAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write_indented(f, 2, &format!("ID: {}", self.id))?;
-        write_indented(f, 2, &format!("Name: {}", self.name))?;
-        write_indented(f, 2, "Workspace:")?;
-        write_indented(f, 4, &format!("ID: {}", self.workspace.id))?;
-        write_indented(f, 4, &format!("Name: {}", self.workspace.name))?;
-        write_indented(f, 4, &format!("Slug: {}", self.workspace.slug))?;
+        write_indented(f, 2, &format!("{} {}", "ID:".blue_bold_if_tty(), self.id))?;
+        write_indented(f, 2, &format!("{} {}", "Name:".blue_bold_if_tty(), self.name))?;
+        write_indented(f, 2, &"Workspace:".blue_bold_if_tty())?;
+        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "Name:".blue_bold_if_tty(), self.workspace.name),
+        )?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "Slug:".blue_bold_if_tty(), self.workspace.slug),
+        )?;
 
         if let Some(access) = &self.access {
-            write_indented(f, 2, "Access:")?;
-            write_indented(f, 4, &format!("Project Count: {}", access.project_count))?;
+            write_indented(f, 2, &"Access:".blue_bold_if_tty())?;
+            write_indented(
+                f,
+                4,
+                &format!(
+                    "{} {}",
+                    "Project Count:".blue_bold_if_tty(),
+                    access.project_count
+                ),
+            )?;
 
             if let Some(workspace) = &access.workspace {
-                write_indented(f, 4, "Workspace:")?;
-                write_indented(f, 6, "Permissions:")?;
+                write_indented(f, 4, &"Workspace:".blue_bold_if_tty())?;
+                write_indented(f, 6, &"Permissions:".blue_bold_if_tty())?;
 
                 if let Some(permissions) = &workspace.permissions {
                     for (key, value) in permissions {
-                        write_indented(f, 8, &format!("{}: {}", key, value.join(", ")))?;
+                        write_indented(
+                            f,
+                            8,
+                            &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+                        )?;
                     }
                 } else {
                     write_indented(f, 8, "None")?;
                 }
 
                 if let Some(created_project_permissions) = &workspace.created_project_permissions {
-                    write_indented(f, 6, "Created Project Permissions:")?;
+                    write_indented(f, 6, &"Created Project Permissions:".blue_bold_if_tty())?;
                     for (key, value) in created_project_permissions {
-                        write_indented(f, 8, &format!("{}: {}", key, value.join(", ")))?;
+                        write_indented(
+                            f,
+                            8,
+                            &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+                        )?;
                     }
                 }
 
                 if let Some(created_environment_permissions) =
                     &workspace.created_environment_permissions
                 {
-                    write_indented(f, 6, "Created Environment Permissions:")?;
+                    write_indented(
+                        f,
+                        6,
+                        &"Created Environment Permissions:".blue_bold_if_tty(),
+                    )?;
                     for (key, value) in created_environment_permissions {
-                        write_indented(f, 8, &format!("{}: {}", key, value.join(", ")))?;
+                        write_indented(
+                            f,
+                            8,
+                            &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+                        )?;
                     }
                 }
             }

@@ -22,13 +22,13 @@ pub struct ListWebhook {
 impl Display for ListWebhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.enabled == true {
-            writeln!(f, "{} {}", "Enabled:", "true".green_if_tty())?;
+            writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "true")?;
         } else {
-            writeln!(f, "{} {}", "Enabled:", "false".red_if_tty())?;
+            writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "false")?;
         }
 
-        writeln!(f, "{} {}", "ID:", self.id)?;
-        writeln!(f, "{} {}", "URL:", self.url)?;
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
 
         Ok(())
     }
@@ -109,18 +109,24 @@ impl From<Webhook> for TableWebhookNoDescription {
 impl Display for Webhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.enabled == true {
-            writeln!(f, "{} {}", "Enabled:", "true".green_if_tty())?;
+            writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "true")?;
         } else {
-            writeln!(f, "{} {}", "Enabled:", "false".red_if_tty())?;
+            writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "false")?;
         }
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
-        writeln!(f, "{} {} ({})", "Created at:", formatted, relative)?;
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Created at:".blue_bold_if_tty(),
+            formatted,
+            relative
+        )?;
 
-        writeln!(f, "{} {}", "URL:", self.url)?;
+        writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:", description)?;
+            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
 
         Ok(())
@@ -219,27 +225,49 @@ impl TestWebhookResponse {
 impl Display for TestWebhookResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_success() {
-            writeln!(f, "Status: {}", "success".green_if_tty())?;
-            writeln!(f, "HTTP status code: {}", self.status.unwrap())?;
-            writeln!(f, "Response message: Wehbook event delivered")?;
-            writeln!(f, "Webhook URL: {}", self.url)?;
+            writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "success")?;
+            writeln!(
+                f,
+                "{} {}",
+                "HTTP status code:".blue_bold_if_tty(),
+                self.status.unwrap()
+            )?;
+            writeln!(
+                f,
+                "{} Wehbook event delivered",
+                "Response message:".blue_bold_if_tty()
+            )?;
+            writeln!(f, "{} {}", "Webhook URL:".blue_bold_if_tty(), self.url)?;
         } else {
-            writeln!(f, "Status: {}", "failure".red_if_tty())?;
+            writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
 
             if let Some(status) = &self.status {
-                writeln!(f, "HTTP status code: {}", status)?;
-                writeln!(f, "Response message: Failed with status code")?;
+                writeln!(f, "{} {}", "HTTP status code:".blue_bold_if_tty(), status)?;
+                writeln!(
+                    f,
+                    "{} Failed with status code",
+                    "Response message:".blue_bold_if_tty()
+                )?;
             } else {
-                writeln!(f, "HTTP status code: N/A")?;
+                writeln!(f, "{} N/A", "HTTP status code:".blue_bold_if_tty())?;
             }
 
             if let Some(error) = &self.error {
-                writeln!(f, "Response message: {}", error.get_message())?;
+                writeln!(
+                    f,
+                    "{} {}",
+                    "Response message:".blue_bold_if_tty(),
+                    error.get_message()
+                )?;
             } else {
-                writeln!(f, "Response message: Unknown error")?;
+                writeln!(
+                    f,
+                    "{} Unknown error",
+                    "Response message:".blue_bold_if_tty()
+                )?;
             }
 
-            writeln!(f, "Webhook URL: {}", self.url)?;
+            writeln!(f, "{} {}", "Webhook URL:".blue_bold_if_tty(), self.url)?;
         }
 
         Ok(())
@@ -309,14 +337,14 @@ impl Display for WebhookLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(status) = self.status {
             if status == 200 || status == 204 {
-                writeln!(f, "Status: {}", "success".green_if_tty())?;
+                writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "success")?;
                 // writeln!(f, "Response message: Wehbook event delivered")?;
             } else {
-                writeln!(f, "Status: {}", "failure".red_if_tty())?;
+                writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
                 // writeln!(f, "Response message: Failed with status code")?;
             }
         } else {
-            writeln!(f, "Status: {}", "failure".red_if_tty())?;
+            writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
             // if let Some(error_code) = &self.error {
             //     writeln!(f, "Response message: {}", error_code.get_message())?;
             // } else {
@@ -324,31 +352,59 @@ impl Display for WebhookLog {
             // }
         }
 
-        writeln!(f, "Attempt number: {}", self.attempt)?;
+        writeln!(
+            f,
+            "{} {}",
+            "Attempt number:".blue_bold_if_tty(),
+            self.attempt
+        )?;
 
         if let Some(status) = &self.status {
-            writeln!(f, "{} {}", "HTTP status code:", status)?;
+            writeln!(f, "{} {}", "HTTP status code:".blue_bold_if_tty(), status)?;
         } else {
-            writeln!(f, "{} {}", "HTTP status code:", "N/A")?;
+            writeln!(f, "{} {}", "HTTP status code:".blue_bold_if_tty(), "N/A")?;
         }
 
         if let Some(status) = self.status {
             if status == 200 || status == 204 {
-                writeln!(f, "Response message: Wehbook event delivered")?;
+                writeln!(
+                    f,
+                    "{} Wehbook event delivered",
+                    "Response message:".blue_bold_if_tty()
+                )?;
             } else {
-                writeln!(f, "Response message: Failed with status code")?;
+                writeln!(
+                    f,
+                    "{} Failed with status code",
+                    "Response message:".blue_bold_if_tty()
+                )?;
             }
         } else {
             if let Some(error_code) = &self.error {
-                writeln!(f, "Response message: {}", error_code.get_message())?;
+                writeln!(
+                    f,
+                    "{} {}",
+                    "Response message:".blue_bold_if_tty(),
+                    error_code.get_message()
+                )?;
             } else {
-                writeln!(f, "Response message: Unknown error")?;
+                writeln!(
+                    f,
+                    "{} Unknown error",
+                    "Response message:".blue_bold_if_tty()
+                )?;
             }
         }
 
         // writeln!(f, "Attempt number: {}", self.attempt)?;
         let (formatted, relative) = get_human_datetime(&self.processed_at);
-        writeln!(f, "{} {} ({})", "Processed at:", formatted, relative)?;
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Processed at:".blue_bold_if_tty(),
+            formatted,
+            relative
+        )?;
 
         Ok(())
     }

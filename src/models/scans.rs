@@ -339,46 +339,46 @@ impl ScanFinding {
     pub fn get_colored_string(&self) -> String {
         let mut result = String::new();
 
-        result.push_str(&format!("{} {}\n", "File:".green_if_tty(), self.file_path));
+        result.push_str(&format!("{} {}\n", "File:".blue_bold_if_tty(), self.file_path));
         if let Some(line) = self.range.line {
-            result.push_str(&format!("{} {}\n", "Line:".green_if_tty(), line));
+            result.push_str(&format!("{} {}\n", "Line:".blue_bold_if_tty(), line));
         } else {
             let (start_line, end_line) =
                 (self.range.start_line.unwrap(), self.range.end_line.unwrap());
 
             result.push_str(&format!(
                 "{} {}-{}\n",
-                "Range:".green_if_tty(),
+                "Range:".blue_bold_if_tty(),
                 start_line,
                 end_line
             ));
         };
 
-        result.push_str(&format!("{} {}\n", "Preview:".green_if_tty(), self.preview));
+        result.push_str(&format!("{} {}\n", "Preview:".blue_bold_if_tty(), self.preview));
         result.push_str(&format!(
             "{} {}\n",
-            "Severity:".green_if_tty(),
+            "Severity:".blue_bold_if_tty(),
             self.severity
         ));
         result.push_str(&format!(
             "{} {}\n",
-            "Suggested Secret Name:".green_if_tty(),
+            "Suggested Secret Name:".blue_bold_if_tty(),
             self.suggested_secret_name
         ));
         result.push_str(&format!(
             "{} {}",
-            "Value SHA256:".green_if_tty(),
+            "Value SHA256:".blue_bold_if_tty(),
             self.value_sha256
         ));
         if let Some(id) = &self.commit_id {
-            result.push_str(&format!("\n{} {}", "Commit ID:".green_if_tty(), id));
+            result.push_str(&format!("\n{} {}", "Commit ID:".blue_bold_if_tty(), id));
         }
 
         if let Some(matched_secrets) = &self.matched_secrets {
-            result.push_str(&format!("\n{}", "Matched Secrets:".green_if_tty()));
+            result.push_str(&format!("\n{}", "Matched Secrets:".blue_bold_if_tty()));
 
             if let Some(matched_project_secrets) = &matched_secrets.project {
-                result.push_str(&format!("\n  {}", "Project:".green_if_tty()));
+                result.push_str(&format!("\n  {}", "Project:".blue_bold_if_tty()));
 
                 for (index, env) in matched_project_secrets.iter().enumerate() {
                     if index > 0 {
@@ -387,11 +387,11 @@ impl ScanFinding {
 
                     result.push_str(&format!(
                         "\n    - {} {}",
-                        "Secret Name:".green_if_tty(),
+                        "Secret Name:".blue_bold_if_tty(),
                         env.secret_name
                     ));
 
-                    result.push_str(&format!("\n      {}", "Environments:".green_if_tty()));
+                    result.push_str(&format!("\n      {}", "Environments:".blue_bold_if_tty()));
                     for environment in &env.environments {
                         result.push_str(&format!("\n        - {}", environment.name));
 
@@ -403,7 +403,7 @@ impl ScanFinding {
             }
 
             if let Some(matched_file_secrets) = &matched_secrets.files {
-                result.push_str(&format!("\n  {}", "Files:".green_if_tty()));
+                result.push_str(&format!("\n  {}", "Files:".blue_bold_if_tty()));
 
                 for (index, file_secret) in matched_file_secrets.iter().enumerate() {
                     if index > 0 {
@@ -412,13 +412,13 @@ impl ScanFinding {
 
                     result.push_str(&format!(
                         "\n    - {} {}",
-                        "Secret Name:".green_if_tty(),
+                        "Secret Name:".blue_bold_if_tty(),
                         file_secret.secret_name
                     ));
 
                     result.push_str(&format!(
                         "\n      {} {}",
-                        "File Paths:".green_if_tty(),
+                        "File Paths:".blue_bold_if_tty(),
                         file_secret.file_paths.join(", ")
                     ));
                 }

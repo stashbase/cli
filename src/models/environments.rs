@@ -281,38 +281,38 @@ impl Display for Environment {
         writeln!(
             f,
             "{} {} ({})",
-            "Created at:".green_if_tty(),
+            "Created at:".blue_bold_if_tty(),
             formatted,
             relative
         )?;
 
-        writeln!(f, "{} {}", "ID:".green_if_tty(), self.id)?;
-        writeln!(f, "{} {}", "Name:".green_if_tty(), self.name)?;
-        writeln!(f, "{} {}", "Production:".green_if_tty(), self.is_production)?;
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "Production:".blue_bold_if_tty(), self.is_production)?;
 
         if let Some(user_role) = &self.user_role {
-            writeln!(f, "{} {}", "User role:".green_if_tty(), user_role)?;
+            writeln!(f, "{} {}", "User role:".blue_bold_if_tty(), user_role)?;
         }
 
         if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".green_if_tty(), description)?;
+            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
 
         writeln!(
             f,
             "{} {}",
-            "Secret count:".green_if_tty(),
+            "Secret count:".blue_bold_if_tty(),
             self.secret_count
         )?;
 
         if let Some(project) = &self.project {
-            writeln!(f, "{}", "Project:".green_if_tty(),)?;
+            writeln!(f, "{}", "Project:".blue_bold_if_tty(),)?;
 
-            write_indented(f, 2, &format!("{} {}", "ID:".green_if_tty(), project.id))?;
+            write_indented(f, 2, &format!("{} {}", "ID:".blue_bold_if_tty(), project.id))?;
             write_indented(
                 f,
                 2,
-                &format!("{} {}", "Name:".green_if_tty(), project.name),
+                &format!("{} {}", "Name:".blue_bold_if_tty(), project.name),
             )?;
         }
 

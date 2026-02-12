@@ -117,6 +117,7 @@ pub trait ColorizeIfColoredOutput {
     fn red_if_tty(self) -> String;
     fn yellow_if_tty(self) -> String;
     fn blue_if_tty(self) -> String;
+    fn blue_bold_if_tty(self) -> String;
     fn bright_black_if_tty(self) -> String;
     fn bright_blue_if_tty(self) -> String;
 
@@ -158,6 +159,14 @@ impl<T: OwoColorize + std::fmt::Display> ColorizeIfColoredOutput for T {
     fn blue_if_tty(self) -> String {
         if is_color_enabled(true) {
             format!("{}", self.blue())
+        } else {
+            format!("{}", self)
+        }
+    }
+
+    fn blue_bold_if_tty(self) -> String {
+        if is_color_enabled(true) {
+            format!("{}", self.blue().bold())
         } else {
             format!("{}", self)
         }
