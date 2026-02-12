@@ -224,7 +224,7 @@ pub struct ScanFinding {
     pub range: ResultChangeRange,
     pub preview: String,
     pub severity: ScanFindingSeverity,
-    pub suggested_env_variable: String,
+    pub suggested_secret_name: String,
 
     pub value_sha256: String,
 
@@ -276,8 +276,8 @@ impl Display for ScanFinding {
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
         result.push_str(&format!(
-            "Suggested Env. variable: {}\n",
-            self.suggested_env_variable
+            "Suggested Secret Name: {}\n",
+            self.suggested_secret_name
         ));
         result.push_str(&format!("Value SHA256: {}", self.value_sha256));
         if let Some(id) = &self.commit_id {
@@ -362,8 +362,8 @@ impl ScanFinding {
         ));
         result.push_str(&format!(
             "{} {}\n",
-            "Suggested Env. Variable:".green_if_tty(),
-            self.suggested_env_variable
+            "Suggested Secret Name:".green_if_tty(),
+            self.suggested_secret_name
         ));
         result.push_str(&format!(
             "{} {}",
