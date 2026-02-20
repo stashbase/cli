@@ -368,31 +368,22 @@ pub enum WebhookError {
 
 #[derive(Debug, Deserialize)]
 pub enum ScanError {
-    #[serde(rename = "rate_limit.scan_tpm_limit_exhausted")]
-    ScanTpmLimitExhausted,
-
     #[serde(rename = "rate_limit.scan_rpm_limit_reached")]
     ScanRpmLimitReached,
-
-    #[serde(rename = "quota.scan_limit_reached")]
-    ScanLimitReached,
-
-    #[serde(rename = "quota.scan_spend_limit_reached")]
-    ScanSpendLimitReached,
 
     #[serde(rename = "rate_limit.scan_request_too_large")]
     ScanRequestTooLarge,
 
-    #[serde(rename = "quota.scan_feature_not_available")]
-    ScanFeatureNotAvailable,
-
-    #[serde(rename = "quota.scan_feature_not_enabled")]
-    ScanFeatureNotEnabled,
-
-    #[serde(rename = "validation.invalid_ignored_secret_regex", alias = "validation.invalid_ignore_value_regex")]
+    #[serde(
+        rename = "validation.invalid_ignored_secret_regex",
+        alias = "validation.invalid_ignore_value_regex"
+    )]
     InvalidIgnoredSecretRegex,
 
-    #[serde(rename = "validation.invalid_ignored_secret_hash", alias = "validation.invalid_ignore_value_hash")]
+    #[serde(
+        rename = "validation.invalid_ignored_secret_hash",
+        alias = "validation.invalid_ignore_value_hash"
+    )]
     InvalidIgnoredSecretHash,
 }
 
@@ -857,11 +848,6 @@ impl From<ApiError> for OutputError {
                 }
             },
             ApiErrorEntity::Scan(e) => match e {
-                ScanError::ScanTpmLimitExhausted => OutputError::Generic(GenericOutputError {
-                    code: Some("rate_limit.scan_tpm_limit_exhausted".to_string()),
-                    message: "Scan token quota exhausted or insufficient for this request. Please wait about a minute for your TPM limit to refresh and try again.".to_string(),
-                    hint: None,
-                }),
                 ScanError::ScanRpmLimitReached => OutputError::Generic(GenericOutputError {
                     code: Some("rate_limit.scan_rpm_limit_reached".to_string()),
                     message: "You have reached the maximum allowed scan requests per minute. Please wait and try again in about a minute.".to_string(),
@@ -869,27 +855,7 @@ impl From<ApiError> for OutputError {
                 }),
                 ScanError::ScanRequestTooLarge => OutputError::Generic(GenericOutputError {
                     code: Some("rate_limit.scan_request_too_large".to_string()),
-                    message: "Scan request exceeds the maximum allowed size. Please reduce the number of files/commits or split into smaller requests to ensure all content is scanned for secrets.".to_string(),
-                    hint: None,
-                }),
-                ScanError::ScanLimitReached => OutputError::Generic(GenericOutputError {
-                    code: Some(format!("quota.scan_limit_reached")),
-                    message: format!("Workspace does not have enough remaining scan quota to process this request. Increase the scan quota or wait until the next billing cycle."),
-                    hint: None,
-                }),
-                ScanError::ScanSpendLimitReached => OutputError::Generic(GenericOutputError {
-                    code: Some(format!("quota.scan_spend_limit_reached")),
-                    message: format!("Workspace has reached or would exceed its configured pay-as-you-go spend limit. To continue scanning, workspace owner can increase/delete workspace spend limit or wait until the next billing cycle."),
-                    hint: None,
-                }),
-                ScanError::ScanFeatureNotAvailable => OutputError::Generic(GenericOutputError {
-                    code: Some(format!("quota.scan_feature_not_available")),
-                    message: format!("Scan feature is not available on the free plan. Please upgrade your workspace to a paid plan."),
-                    hint: None,
-                }),
-                ScanError::ScanFeatureNotEnabled => OutputError::Generic(GenericOutputError {
-                    code: Some(format!("quota.scan_feature_not_enabled")),
-                    message: format!("Scan feature is not enabled for this workspace. Please enable the scan feature in your workspace settings in order to use the scan API."),
+                    message: "Scan request exceeds direct scan limits (max 200 files, 10,000 diff lines, 1 MB diff content). Please split the scan into smaller requests.".to_string(),
                     hint: None,
                 }),
                 ScanError::InvalidIgnoredSecretRegex => {
