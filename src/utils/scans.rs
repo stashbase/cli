@@ -217,7 +217,7 @@ pub fn compute_finding_hash(finding: &ScanFinding) -> String {
     hasher.update(finding.value_sha256.as_bytes());
     hasher.update(finding.preview.as_bytes());
     hasher.update(finding.severity.to_string().as_bytes());
-    if let Some(commit_id) = &finding.commit_id {
+    if let Some(commit_id) = &finding.commit_sha {
         hasher.update(commit_id.as_bytes());
     }
     format!("{:x}", hasher.finalize())

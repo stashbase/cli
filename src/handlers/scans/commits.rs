@@ -1159,7 +1159,7 @@ pub fn get_unpushed_commit_hunks(
             // Add commit metadata
             if !sorted_files.is_empty() {
                 let change = CommitChanges {
-                    commit_id: current.id().to_string(),
+                    commit_sha: current.id().to_string(),
                     files: sorted_files,
                 };
 

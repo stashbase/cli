@@ -194,7 +194,7 @@ pub struct ScanCommitChangesPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitChanges {
-    pub commit_id: String,
+    pub commit_sha: String,
     pub files: Vec<FileHunks>,
 }
 
@@ -229,7 +229,7 @@ pub struct ScanFinding {
     pub value_sha256: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub commit_id: Option<String>, // only for push commit hunks (pre-push hook)
+    pub commit_sha: Option<String>, // only for push commit hunks (pre-push hook)
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_secrets: Option<MatchedSecrets>,
@@ -277,8 +277,8 @@ impl Display for ScanFinding {
         result.push_str(&format!("Severity: {}\n", self.severity));
         result.push_str(&format!("Category: {}\n", self.category));
         result.push_str(&format!("Value SHA256: {}", self.value_sha256));
-        if let Some(id) = &self.commit_id {
-            result.push_str(&format!("\nCommit ID: {}", id));
+        if let Some(sha) = &self.commit_sha {
+            result.push_str(&format!("\nCommit SHA: {}", sha));
         }
 
         if let Some(matched_secrets) = &self.matched_secrets {
@@ -336,7 +336,11 @@ impl ScanFinding {
     pub fn get_colored_string(&self) -> String {
         let mut result = String::new();
 
-        result.push_str(&format!("{} {}\n", "File:".blue_bold_if_tty(), self.file_path));
+        result.push_str(&format!(
+            "{} {}\n",
+            "File:".blue_bold_if_tty(),
+            self.file_path
+        ));
         if let Some(line) = self.range.line {
             result.push_str(&format!("{} {}\n", "Line:".blue_bold_if_tty(), line));
         } else {
@@ -351,7 +355,11 @@ impl ScanFinding {
             ));
         };
 
-        result.push_str(&format!("{} {}\n", "Preview:".blue_bold_if_tty(), self.preview));
+        result.push_str(&format!(
+            "{} {}\n",
+            "Preview:".blue_bold_if_tty(),
+            self.preview
+        ));
         result.push_str(&format!(
             "{} {}\n",
             "Severity:".blue_bold_if_tty(),
@@ -367,8 +375,8 @@ impl ScanFinding {
             "Value SHA256:".blue_bold_if_tty(),
             self.value_sha256
         ));
-        if let Some(id) = &self.commit_id {
-            result.push_str(&format!("\n{} {}", "Commit ID:".blue_bold_if_tty(), id));
+        if let Some(sha) = &self.commit_sha {
+            result.push_str(&format!("\n{} {}", "Commit SHA:".blue_bold_if_tty(), sha));
         }
 
         if let Some(matched_secrets) = &self.matched_secrets {
