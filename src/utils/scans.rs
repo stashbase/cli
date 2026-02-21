@@ -207,19 +207,16 @@ pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanFinding>, Sc
 pub fn compute_finding_hash(finding: &ScanFinding) -> String {
     let mut hasher = Sha256::new();
     hasher.update(finding.file_path.as_bytes());
-    if let Some(line) = finding.range.line {
-        hasher.update(line.to_string().as_bytes());
-    } else {
-        hasher.update(finding.range.start_line.unwrap().to_string().as_bytes());
-        hasher.update(finding.range.end_line.unwrap().to_string().as_bytes());
-    }
-
+    hasher.update(finding.range.start_line.to_string().as_bytes());
+    hasher.update(finding.range.end_line.to_string().as_bytes());
     hasher.update(finding.value_sha256.as_bytes());
     hasher.update(finding.preview.as_bytes());
     hasher.update(finding.severity.to_string().as_bytes());
+
     if let Some(commit_id) = &finding.commit_sha {
         hasher.update(commit_id.as_bytes());
     }
+
     format!("{:x}", hasher.finalize())
 }
 

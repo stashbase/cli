@@ -86,14 +86,8 @@ impl ScanConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResultChangeRange {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<usize>, // for single line findings
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_line: Option<usize>, // for multiline findings
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_line: Option<usize>, // for multiline findings
+    pub start_line: usize,
+    pub end_line: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -264,14 +258,9 @@ impl Display for ScanFinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         result.push_str(&format!("File: {}\n", self.file_path));
-        if let Some(line) = self.range.line {
-            result.push_str(&format!("Line: {}\n", line));
-        } else {
-            let (start_line, end_line) =
-                (self.range.start_line.unwrap(), self.range.end_line.unwrap());
 
-            result.push_str(&format!("Range: {}-{}\n", start_line, end_line));
-        };
+        let (start_line, end_line) = (self.range.start_line, self.range.end_line);
+        result.push_str(&format!("Range: {}-{}\n", start_line, end_line));
 
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
@@ -341,19 +330,15 @@ impl ScanFinding {
             "File:".blue_bold_if_tty(),
             self.file_path
         ));
-        if let Some(line) = self.range.line {
-            result.push_str(&format!("{} {}\n", "Line:".blue_bold_if_tty(), line));
-        } else {
-            let (start_line, end_line) =
-                (self.range.start_line.unwrap(), self.range.end_line.unwrap());
 
-            result.push_str(&format!(
-                "{} {}-{}\n",
-                "Range:".blue_bold_if_tty(),
-                start_line,
-                end_line
-            ));
-        };
+        let (start_line, end_line) = (self.range.start_line, self.range.end_line);
+
+        result.push_str(&format!(
+            "{} {}-{}\n",
+            "Range:".blue_bold_if_tty(),
+            start_line,
+            end_line
+        ));
 
         result.push_str(&format!(
             "{} {}\n",
