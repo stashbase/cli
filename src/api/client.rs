@@ -35,8 +35,10 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
     let ret_s =
         RetryTransientMiddleware::new_with_policy_and_strategy(retry_policy, RetryReqPolicy);
 
+    let authorization_header_value = format!("Bearer {}", api_key);
+
     let mut headers = HeaderMap::new();
-    headers.insert("x-api-key", api_key.parse().unwrap());
+    headers.insert("Authorization", authorization_header_value.parse().unwrap());
 
     let builder = ClientBuilder::new(
         reqwest::ClientBuilder::new()
