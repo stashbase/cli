@@ -25,7 +25,6 @@ impl TryFrom<PullFormat> for SecretsOutputFormat {
             PullFormat::Dotenv => Ok(SecretsOutputFormat::Dotenv),
             PullFormat::Yaml => Ok(SecretsOutputFormat::Yaml),
             PullFormat::Json => Ok(SecretsOutputFormat::Json),
-            _ => Err(()),
         }
     }
 }
