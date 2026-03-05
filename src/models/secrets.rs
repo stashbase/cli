@@ -225,25 +225,6 @@ pub struct SecretPropertiesToUpdate {
     pub comment: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct UpdateSecretCommentPayload {
-    pub comment: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct RenamedSecret {
-    pub name: String,
-    pub new_name: String,
-}
-
-impl RenamedSecret {
-    pub fn get_name(&self) -> String {
-        self.name.to_string()
-    }
-}
-
-pub type RenameSecretsPayload = Vec<RenamedSecret>;
-
 // response
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateSecretsResponse {
@@ -812,12 +793,7 @@ pub struct SecretDiffModifiedChangeItem {
 impl Display for SecretsDiff {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.added.len() > 0 {
-            writeln!(
-                f,
-                "{} ({})",
-                "Added:".blue_bold_if_tty(),
-                self.added.len()
-            )?;
+            writeln!(f, "{} ({})", "Added:".blue_bold_if_tty(), self.added.len())?;
 
             for secret in &self.added {
                 let mut str = String::new();

@@ -93,14 +93,6 @@ impl SecretSubcommand {
                 u.shared_args.project.as_deref(),
                 u.shared_args.environment.as_deref(),
             ),
-            // SecretSubcommand::Rename(r) => (
-            //     r.shared_args.project.as_deref(),
-            //     r.shared_args.environment.as_deref(),
-            // ),
-            // SecretSubcommand::Comment(c) => (
-            //     c.shared_args.project.as_deref(),
-            //     c.shared_args.environment.as_deref(),
-            // ),
             SecretSubcommand::Delete(d) => (
                 d.shared_args.project.as_deref(),
                 d.shared_args.environment.as_deref(),
@@ -329,38 +321,6 @@ impl Display for SecretsFileFormat {
             Self::Yaml => write!(f, "yaml"),
         }
     }
-}
-
-#[derive(Debug, Args)]
-#[command(
-    override_usage = "secrets comment <NAME> <COMMENT> -p <PROJECT> -e <ENVIRONMENT> [OPTIONS]"
-)]
-pub struct SetComment {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectEnvArgs,
-
-    #[clap(flatten)]
-    pub scope_args: SharedScopeArgs,
-
-    /// Secret name
-    pub name: String,
-
-    /// Comment
-    pub comment: String,
-}
-
-#[derive(Debug, Args)]
-#[command(override_usage = "secrets rename <SECRETS> [OPTIONS]")]
-pub struct RenameSecrets {
-    #[clap(flatten)]
-    pub shared_args: SharedProjectEnvArgs,
-
-    #[clap(flatten)]
-    pub scope_args: SharedScopeArgs,
-
-    /// Secrets to rename: NAME_1=NEW_NAME_1 NAME_2=NEW_NAME_2
-    #[clap(num_args = 1..)]
-    pub secrets: Vec<String>,
 }
 
 #[derive(Debug, Args)]

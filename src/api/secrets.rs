@@ -4,7 +4,7 @@ use crate::models::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
         RequestApiOptionResponse, RequestArgs,
     },
-    secrets::{RenameSecretsPayload, Secret, UpdateSecretCommentPayload, UpdateSecretsPayload},
+    secrets::{Secret, UpdateSecretsPayload},
 };
 
 fn get_secrets_path(
@@ -104,24 +104,6 @@ pub async fn pull(
     client::get_request(args).await
 }
 
-pub async fn update_comment(
-    api_key: String,
-    project: Option<String>,
-    environment: Option<String>,
-    name: String,
-    data: &UpdateSecretCommentPayload,
-) -> Result<RequestApiOptionResponse, OutputError> {
-    let path = get_secrets_path(project, environment, Some(name));
-
-    let args = RequestArgs {
-        path,
-        query: None,
-        api_key,
-    };
-
-    client::patch_request(args, Some(data)).await
-}
-
 pub async fn delete(
     api_key: String,
     project: Option<String>,
@@ -194,23 +176,6 @@ pub async fn update_secrets(
     project: Option<String>,
     environment: Option<String>,
     data: &UpdateSecretsPayload,
-) -> Result<RequestApiOptionResponse, OutputError> {
-    let path = get_secrets_path(project, environment, None);
-
-    let args = RequestArgs {
-        path,
-        query: None,
-        api_key,
-    };
-
-    client::patch_request(args, Some(data)).await
-}
-
-pub async fn rename_secrets(
-    api_key: String,
-    project: Option<String>,
-    environment: Option<String>,
-    data: &RenameSecretsPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
     let path = get_secrets_path(project, environment, None);
 
