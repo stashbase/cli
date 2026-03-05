@@ -288,7 +288,12 @@ impl Display for Environment {
 
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
-        writeln!(f, "{} {}", "Production:".blue_bold_if_tty(), self.is_production)?;
+        writeln!(
+            f,
+            "{} {}",
+            "Production:".blue_bold_if_tty(),
+            self.is_production
+        )?;
 
         if let Some(user_role) = &self.user_role {
             writeln!(f, "{} {}", "User role:".blue_bold_if_tty(), user_role)?;
@@ -308,7 +313,11 @@ impl Display for Environment {
         if let Some(project) = &self.project {
             writeln!(f, "{}", "Project:".blue_bold_if_tty(),)?;
 
-            write_indented(f, 2, &format!("{} {}", "ID:".blue_bold_if_tty(), project.id))?;
+            write_indented(
+                f,
+                2,
+                &format!("{} {}", "ID:".blue_bold_if_tty(), project.id),
+            )?;
             write_indented(
                 f,
                 2,
@@ -351,28 +360,6 @@ pub struct UpdateEnvironmentPayload {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_production: Option<bool>,
-}
-
-// load
-#[derive(Debug, Serialize)]
-pub struct LoadEnvironmentPayload {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub only: Option<Vec<String>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude: Option<Vec<String>>,
-}
-
-impl LoadEnvironmentPayload {
-    pub fn new(only: Option<Vec<String>>, exclude: Option<Vec<String>>) -> Self {
-        Self { only, exclude }
-    }
-}
-
-// NOTE: compare
-#[derive(Debug, Serialize)]
-pub struct CompareEnvironmentsPayload {
-    pub name: String,
 }
 
 pub type CompareEnvironmentsResponse = Vec<CompareEnvironmentsItem>;
