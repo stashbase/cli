@@ -1,9 +1,11 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::cmd::scans::ScanCommands;
 
 use super::{
-    config::ConfigCommand, environments::EnvironmentCommands, generate::GenerateCommand,
+    config::ConfigCommand,
+    environments::EnvironmentCommands,
+    generate::GenerateCommand,
     projects::ProjectCommands, pull::PullCommand, push::PushCommand, run::RunCommand,
     secrets::SecretArgs, setup::SetupCommand, webhooks::WebhookCommand,
 };
@@ -95,7 +97,7 @@ pub enum EntityType {
 
     /// Show details of currently authenticated entity
     #[clap(name = "whoami", aliases = &["me"])]
-    Whoami,
+    Whoami(WhoamiCommand),
 }
 
 impl EntityType {
@@ -106,4 +108,19 @@ impl EntityType {
             _ => true,
         }
     }
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "whoami [OPTIONS]")]
+pub struct WhoamiCommand {
+    /// Output format
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<WhoamiOutputFormat>,
+}
+
+#[derive(Debug, ValueEnum, Clone, Copy)]
+pub enum WhoamiOutputFormat {
+    List,
+    Table,
+    Json,
 }

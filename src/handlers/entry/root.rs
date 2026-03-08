@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use crate::{
     cmd::{
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
-        root::{Cli, EntityType},
+        root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
     handlers::{
@@ -101,14 +101,20 @@ pub async fn handle_cli(args: Cli) {
         let api_key = api_key.unwrap();
 
         let result = match args.entity_type {
-            EntityType::Whoami => {
-                let format = match (raw_output, config.ouput_format.and_then(|o| o.general)) {
-                    (true, _) => OutputFormat::Json,
-                    (false, Some(OutputFormat::Json)) => OutputFormat::Json,
-                    (false, Some(OutputFormat::List)) | (false, Some(OutputFormat::Table)) => {
-                        OutputFormat::List
-                    }
-                    _ => OutputFormat::List,
+            EntityType::Whoami(WhoamiCommand { format }) => {
+                let format = match format {
+                    Some(format) => match format {
+                        WhoamiOutputFormat::Json => OutputFormat::Json,
+                        WhoamiOutputFormat::Table => OutputFormat::Table,
+                        WhoamiOutputFormat::List => OutputFormat::List,
+                    },
+                    None => match (raw_output, config.ouput_format.and_then(|o| o.general)) {
+                        (true, _) => OutputFormat::Json,
+                        (false, Some(OutputFormat::Json)) => OutputFormat::Json,
+                        (false, Some(OutputFormat::Table)) => OutputFormat::Table,
+                        (false, Some(OutputFormat::List)) => OutputFormat::List,
+                        _ => OutputFormat::List,
+                    },
                 };
 
                 let args = GetCurrentAuthDetailsRequestArgs {
