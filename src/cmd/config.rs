@@ -95,11 +95,7 @@ pub struct SetApiKey {
 
 #[derive(Debug, Args)]
 #[command(override_usage = "config api-key print [OPTIONS]")]
-pub struct PrintApiKey {
-    /// Print full api key token
-    #[arg(long = "full")]
-    pub full: bool,
-}
+pub struct PrintApiKey {}
 
 //
 

@@ -33,18 +33,14 @@ pub fn set_api_key(api_key: Option<String>) {
     }
 }
 
-pub fn print_api_key(api_key: &Option<String>, full: bool) {
+pub fn print_api_key(api_key: &Option<String>) {
     if let Some(api_key) = api_key {
-        if full {
-            println!("{}", api_key);
-        } else {
-            let formatted = get_first_3_and_last_5(api_key);
+        let formatted = get_first_3_and_last_5(api_key);
 
-            if let Some(formatted) = formatted {
-                println!("{}...{}", formatted.0, formatted.1);
-            } else {
-                println!("{}", api_key);
-            }
+        if let Some(formatted) = formatted {
+            println!("{}...{}", formatted.0, formatted.1);
+        } else {
+            println!("***");
         }
     } else {
         eprintln!("{}", "No API key set.");

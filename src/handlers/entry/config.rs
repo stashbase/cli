@@ -25,8 +25,8 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
             ApiKeySubcommand::Set(s) => {
                 api_key::set_api_key(s.value);
             }
-            ApiKeySubcommand::Print(p) => {
-                api_key::print_api_key(&config.api_key, p.full);
+            ApiKeySubcommand::Print(_) => {
+                api_key::print_api_key(&config.api_key);
             }
         },
         ConfigSubcommand::Output(o) => match o.subcommand {
