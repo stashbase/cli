@@ -10,7 +10,7 @@ use crate::{
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         secrets::{
-            Secret, SecretDiffModified, SecretDiffModifiedChange, SecretDiffModifiedChangeItem,
+            SecretDiffModified, SecretDiffModifiedChange, SecretDiffModifiedChangeItem,
             SecretOptional, SecretsDiff,
         },
         validation::{InputValidationError, SecretsInputValidationError},

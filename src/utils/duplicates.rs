@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[allow(dead_code)]
 pub fn find_duplicates(array: &Vec<String>) -> Vec<String> {
     let mut item_count = HashMap::new();
 

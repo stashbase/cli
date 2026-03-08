@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Password, Select};
 
 pub fn confirm_opt(prompt: &str) -> Option<bool> {

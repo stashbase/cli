@@ -119,7 +119,7 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
                         println!("{}", print_string);
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     let error = OutputError::failed_to_deserialize_response_body();
                     let formatted_err =
                         error.format_error_output(format == SecretsOutputFormat::Json)?;

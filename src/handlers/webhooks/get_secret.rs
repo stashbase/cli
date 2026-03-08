@@ -26,7 +26,6 @@ impl From<GetWebhookSecretArgs> for webhooks::GetSecretArgs {
             project: args.project,
             environment: args.environment,
             webhook_id: args.webhook_id,
-            json_format: args.json_format,
         }
     }
 }
@@ -77,7 +76,7 @@ pub async fn handle_get_webhook_secret(args: GetWebhookSecretArgs) -> Result<()>
                         println!("{}", data.signing_secret);
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }

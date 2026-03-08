@@ -128,7 +128,7 @@ pub async fn handle_create_project(
                             }
                         }
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
                         }

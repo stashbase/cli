@@ -98,7 +98,7 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                         }
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }
@@ -134,7 +134,7 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
             //             println!("{}", table);
             //         }
             //     },
-            //     Err(e) => {
+            //     Err(_e) => {
             //         spinner.stop_and_persist("", "");
             //         debug!("Err: {}", e);
             //         bail!("Something went wrong")

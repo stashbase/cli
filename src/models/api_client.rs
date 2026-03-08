@@ -131,6 +131,7 @@ impl fmt::Display for ApiPath {
 // NOTE: GET
 #[derive(Debug)]
 pub struct GetApiResponseOk {
+    #[allow(dead_code)]
     pub status: StatusCode,
     pub text: String,
 }
@@ -150,6 +151,7 @@ pub enum RequestApiOptionResponse {
 
 #[derive(Debug)]
 pub struct OptionResponseOk {
+    #[allow(dead_code)]
     pub status: StatusCode,
     pub text: Option<String>,
 }

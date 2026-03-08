@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use clap::ValueEnum;
 use linked_hash_map::LinkedHashMap;
 use linked_hash_set::LinkedHashSet;
@@ -796,7 +798,7 @@ impl Display for SecretsDiff {
             writeln!(f, "{} ({})", "Added:".blue_bold_if_tty(), self.added.len())?;
 
             for secret in &self.added {
-                let mut str = String::new();
+                let mut str: String;
 
                 if secret.value.is_some() {
                     if secret.value.as_ref().unwrap().contains("\n") {
@@ -833,7 +835,7 @@ impl Display for SecretsDiff {
             )?;
 
             for secret in &self.missing {
-                let mut str = String::new();
+                let mut str: String;
 
                 if secret.value.is_some() {
                     if secret.value.as_ref().unwrap().contains("\n") {

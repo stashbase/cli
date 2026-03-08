@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use core::fmt;
 use colored_json::to_colored_json_auto;
 use serde::Serialize;

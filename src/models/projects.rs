@@ -36,6 +36,7 @@ pub struct UpdateProjectPayload {
 pub struct CreateProjectResponse {
     pub id: String,
 
+    #[allow(dead_code)]
     #[serde(skip_serializing)]
     pub name: String,
 

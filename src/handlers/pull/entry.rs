@@ -684,6 +684,7 @@ fn write_file(file_path: &str, file_string: String) -> Result<()> {
     }
 }
 
+#[allow(dead_code)]
 pub fn load_from_file(
     relative_path: Option<String>,
     config_action_command: &ConfigActionCommand,

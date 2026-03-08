@@ -150,7 +150,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                         }
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }

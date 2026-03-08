@@ -60,7 +60,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     if !values.is_empty() {
         let name_value_pairs = separator::key_value(values);
 
-        if let Err(err) = name_value_pairs {
+        if let Err(_err) = name_value_pairs {
             let error =
                 InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
 
@@ -93,7 +93,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     if !new_names.is_empty() {
         let name_value_pairs = separator::key_value(new_names);
 
-        if let Err(err) = name_value_pairs {
+        if let Err(_err) = name_value_pairs {
             let error =
                 InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);
 

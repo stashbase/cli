@@ -27,7 +27,6 @@ impl From<RotateWebhookSecretArgs> for webhooks::RotateArgs {
             project: args.project,
             environment: args.environment,
             webhook_id: args.webhook_id,
-            json_format: args.json_format,
         }
     }
 }

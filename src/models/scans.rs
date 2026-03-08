@@ -131,6 +131,7 @@ impl Default for IgnoredSecretsPayload {
 }
 
 impl IgnoredSecretsPayload {
+    #[allow(dead_code)]
     pub fn new(hashes: Vec<String>, regexes: Vec<String>) -> Self {
         Self { hashes, regexes }
     }

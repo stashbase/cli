@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use sha2::{Sha256, Digest};
 use anyhow::{Result};
 use std::{collections::{HashMap, HashSet}, fs, path::Path};

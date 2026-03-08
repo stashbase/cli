@@ -162,7 +162,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                         }
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }
