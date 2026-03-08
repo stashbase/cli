@@ -1,4 +1,5 @@
-use log::debug;
+use std::env;
+
 use reqwest::{header::HeaderMap, Method};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{
@@ -12,7 +13,16 @@ use crate::models::api_client::{
     RequestApiOptionResponse, RequestArgs,
 };
 
-const API_URL: &str = "http://localhost:5000";
+const DEFAULT_API_URL: &str = "https://api.stashbase.com";
+const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
+
+fn get_api_url() -> String {
+    env::var(API_URL_ENV_VAR)
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_API_URL.to_string())
+}
 
 struct RetryReqPolicy;
 impl RetryableStrategy for RetryReqPolicy {
@@ -72,7 +82,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 
 pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, OutputError> {
     let client = build_client(args.api_key);
-    let full_path = format!("{}/{}", API_URL, args.path);
+    let full_path = format!("{}/{}", get_api_url(), args.path);
 
     let res = client
         .request(reqwest::Method::GET, full_path)
@@ -119,7 +129,7 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, Out
 
 pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiResponse, OutputError> {
     let client = build_client(args.api_key);
-    let full_path = format!("{}/{}", API_URL, args.path);
+    let full_path = format!("{}/{}", get_api_url(), args.path);
 
     let res = client
         .request(reqwest::Method::DELETE, full_path)
@@ -211,11 +221,9 @@ async fn post_patch_put<T: serde::Serialize>(
     method: Method,
 ) -> Result<RequestApiOptionResponse, OutputError> {
     let client = build_client(args.api_key);
-    let full_path = format!("{}/{}", API_URL, args.path);
+    let full_path = format!("{}/{}", get_api_url(), args.path);
 
     let mut headers = HeaderMap::new();
-
-    debug!("Query: {:#?}", args.query);
 
     let res = match data {
         Some(data) => {
