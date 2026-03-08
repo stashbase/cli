@@ -109,37 +109,6 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                     bail!(formatted_err);
                 }
             }
-
-            // match webhooks {
-            //     Ok(webhooks) => match format {
-            //         EnvironmentFormat::List => {
-            //             for (i, p) in webhooks.iter().enumerate() {
-            //                 if i == webhooks.len() - 1 {
-            //                     print!("{}", p);
-            //                 } else {
-            //                     println!("{}", p);
-            //                 }
-            //             }
-            //         }
-            //         EnvironmentFormat::Json => {
-            //             spinner.stop_and_persist("", "");
-            //             let value = serde_json::to_value(&webhooks).unwrap();
-            //             let pretty = to_colored_json_auto(&value).unwrap();
-            //
-            //             println!("{}", pretty);
-            //         }
-            //         EnvironmentFormat::Table => {
-            //             let reversed = webhooks.into_iter().rev().collect();
-            //             let table = tables::build::build_table(&reversed);
-            //             println!("{}", table);
-            //         }
-            //     },
-            //     Err(_e) => {
-            //         spinner.stop_and_persist("", "");
-            //         debug!("Err: {}", e);
-            //         bail!("Something went wrong")
-            //     }
-            // }
         }
         GetRequestApiResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
