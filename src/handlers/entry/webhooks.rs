@@ -175,7 +175,6 @@ pub async fn handle_webhook_commands(
                 environment,
                 url: cmd_args.url,
                 description: cmd_args.description,
-                return_secret: cmd_args.return_secret,
                 enable: cmd_args.enable,
                 json_format: raw_output,
                 silent,

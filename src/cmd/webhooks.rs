@@ -289,13 +289,9 @@ pub struct CreateWebhook {
     #[arg(short = 'd', long = "description")]
     pub description: Option<String>,
 
-    /// Return signing secret
+    /// Enable webhook on create
     #[arg(long = "enable")]
     pub enable: bool,
-
-    /// Return signing secret
-    #[arg(long = "return-secret")]
-    pub return_secret: bool,
 }
 
 #[derive(Debug, Args)]

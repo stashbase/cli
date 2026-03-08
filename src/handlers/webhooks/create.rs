@@ -1,5 +1,4 @@
 use anyhow::{bail, Result};
-use log::debug;
 
 use crate::{
     api::webhooks,
@@ -14,7 +13,6 @@ pub struct CreateWebhookArgs {
     pub api_key: String,
     pub project: Option<String>,
     pub environment: Option<String>,
-    pub return_secret: bool,
     pub enable: bool,
     // payload
     pub url: String,
@@ -30,7 +28,6 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
         environment,
         url,
         description,
-        return_secret,
         enable,
         json_format,
         silent,
@@ -40,7 +37,6 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
         api_key,
         project,
         environment,
-        return_secret,
         data: CreateWebhookPayload {
             url,
             description,
@@ -68,64 +64,62 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        RequestApiOptionResponse::Ok(data) => {
-            debug!("{:#?}", &data.text);
+        RequestApiOptionResponse::Ok(data) => match data.text {
+            Some(text_data) => {
+                let webhook = serde_json::from_str::<CreateWebhookResponse>(&text_data);
 
-            match data.text {
-                Some(text_data) => {
-                    let webhook = serde_json::from_str::<CreateWebhookResponse>(&text_data);
-
-                    match webhook {
-                        Ok(webhook) => {
-                            if json_format {
-                                if let Some(mut spinner) = spinner {
-                                    spinner.stop_and_persist("", "");
-                                }
-
-                                let json_str = get_formatted_json_string(&webhook, true).unwrap();
-                                println!("{}", json_str);
-
-                                return Ok(());
-                            }
-
-                            if !silent {
-                                if let Some(mut spinner) = spinner {
-                                    let msg = match enable {
-                                        true => "Webhook created and enabled.",
-                                        false => "Webhook created.",
-                                    };
-
-                                    spinner.stop_with_message(msg);
-                                }
-                            }
-
-                            println!("ID: {}", webhook.id);
-                            println!("Signing secret: {}", webhook.signing_secret);
-                        }
-                        Err(_) => {
+                match webhook {
+                    Ok(webhook) => {
+                        if json_format {
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
+                            let json_str = get_formatted_json_string(
+                                &serde_json::json!({ "id": webhook.id }),
+                                true,
+                            )
+                            .unwrap();
+                            println!("{}", json_str);
 
-                            let error = OutputError::failed_to_deserialize_response_body();
-                            let formatted_err = error.format_error_output(json_format)?;
-
-                            bail!(formatted_err);
+                            return Ok(());
                         }
-                    }
-                }
-                None => {
-                    if let Some(mut spinner) = spinner {
-                        spinner.stop_and_persist("", "");
-                    }
 
-                    let error = OutputError::failed_to_deserialize_response_body();
-                    let formatted_err = error.format_error_output(json_format)?;
+                        if !silent {
+                            if let Some(mut spinner) = spinner {
+                                let msg = match enable {
+                                    true => "Webhook created and enabled.",
+                                    false => "Webhook created.",
+                                };
 
-                    bail!(formatted_err);
+                                spinner.stop_with_message(msg);
+                            }
+                        }
+
+                        println!("ID: {}", webhook.id);
+                    }
+                    Err(_) => {
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        let error = OutputError::failed_to_deserialize_response_body();
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        bail!(formatted_err);
+                    }
                 }
             }
-        }
+            None => {
+                if let Some(mut spinner) = spinner {
+                    spinner.stop_and_persist("", "");
+                }
+
+                let error = OutputError::failed_to_deserialize_response_body();
+                let formatted_err = error.format_error_output(json_format)?;
+
+                bail!(formatted_err);
+            }
+        },
         RequestApiOptionResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");

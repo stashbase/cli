@@ -85,21 +85,15 @@ pub struct CreateArgs {
     pub api_key: String,
     pub project: Option<String>,
     pub environment: Option<String>,
-    pub return_secret: bool,
     pub data: CreateWebhookPayload,
 }
 
 pub async fn create(args: CreateArgs) -> Result<RequestApiOptionResponse, OutputError> {
-    let query = match args.return_secret {
-        true => Some(vec![("return_secret".to_string(), "true".to_string())]),
-        false => None,
-    };
-
     let path = get_webhooks_path(args.project, args.environment, None);
 
     let req_args = RequestArgs {
         path,
-        query,
+        query: None,
         api_key: args.api_key,
     };
 

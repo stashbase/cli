@@ -148,7 +148,8 @@ pub struct CreateWebhookPayload {
 pub struct CreateWebhookResponse {
     pub id: String,
 
-    pub signing_secret: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signing_secret: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
