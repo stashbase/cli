@@ -1,4 +1,7 @@
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 use clap::Parser;
 use cmd::root::Cli;
@@ -17,6 +20,8 @@ mod utils;
 
 pub static SUBPROCESS_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 pub static COLOR_CHOICE: OnceCell<ColorChoice> = OnceCell::new();
+pub static REQUEST_TIMEOUT_SECS: OnceCell<u64> = OnceCell::new();
+pub static REQUEST_ABORTED: AtomicBool = AtomicBool::new(false);
 
 fn main() {
     init_logger();
@@ -24,8 +29,13 @@ fn main() {
 
     let args = Cli::parse();
     set_color_choice(args.color);
+    set_request_timeout_secs(args.timeout);
 
     handle_cli(args);
+
+    if REQUEST_ABORTED.load(Ordering::SeqCst) {
+        std::process::exit(130);
+    }
 }
 
 fn set_handlers() {
@@ -37,8 +47,10 @@ fn set_handlers() {
 
             eprintln!("");
 
-            // exit process
-            std::process::exit(0);
+            let already_aborted = REQUEST_ABORTED.swap(true, Ordering::SeqCst);
+            if already_aborted {
+                std::process::exit(130);
+            }
         }
     })
     .expect("Error setting Ctrl-C handler");
@@ -46,4 +58,9 @@ fn set_handlers() {
 
 fn set_color_choice(color_choice: ColorChoice) {
     COLOR_CHOICE.set(color_choice).unwrap();
+}
+
+fn set_request_timeout_secs(timeout_secs: Option<u64>) {
+    let timeout = timeout_secs.unwrap_or(30);
+    REQUEST_TIMEOUT_SECS.set(timeout).unwrap();
 }

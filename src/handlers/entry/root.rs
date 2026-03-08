@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use crate::{
     cmd::{
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
@@ -22,7 +24,8 @@ use crate::{
         setup::setup,
     },
     models::{config::Config, validation::InputValidationError},
-    utils::env::get_stashbase_api_key,
+    utils::{env::get_stashbase_api_key, output::ColorizeIfColoredOutput},
+    REQUEST_ABORTED,
 };
 
 #[tokio::main()]
@@ -270,6 +273,10 @@ pub async fn handle_cli(args: Cli) {
         };
 
         if let Err(err) = result {
+            if REQUEST_ABORTED.load(Ordering::SeqCst) {
+                eprintln!("{}", "Request aborted".red_if_tty_stderr());
+                return;
+            }
             eprintln!("{:?}", err);
         }
     } else {
@@ -284,6 +291,10 @@ pub async fn handle_cli(args: Cli) {
         }
 
         let err = config.unwrap_err();
+        if REQUEST_ABORTED.load(Ordering::SeqCst) {
+            eprintln!("{}", "Request aborted".red_if_tty_stderr());
+            return;
+        }
         eprintln!("{:?}", err);
     }
 }

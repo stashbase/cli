@@ -30,6 +30,10 @@ pub struct Cli {
     #[arg(long, value_enum, global = true, default_value = "auto")]
     pub color: ColorChoice,
 
+    /// HTTP request timeout in seconds
+    #[arg(long = "timeout", global = true, value_parser = clap::value_parser!(u64).range(1..=600))]
+    pub timeout: Option<u64>,
+
     #[clap(subcommand)]
     pub entity_type: EntityType,
 }

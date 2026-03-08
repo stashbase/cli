@@ -1,17 +1,22 @@
 use std::env;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use reqwest::{header::HeaderMap, Method};
+use reqwest_middleware::RequestBuilder;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{
     default_on_request_failure, policies::ExponentialBackoff, RetryTransientMiddleware, Retryable,
     RetryableStrategy,
 };
+use tokio::time::sleep;
 
 use crate::models::api_client::{
     ApiErrorResponse, DeleteApiResponseOk, DeleteRequestApiResponse, GenericOutputError,
     GetApiResponseOk, GetRequestApiResponse, OptionResponseOk, OutputError,
     RequestApiOptionResponse, RequestArgs,
 };
+use crate::{REQUEST_ABORTED, REQUEST_TIMEOUT_SECS};
 
 const DEFAULT_API_URL: &str = "https://api.stashbase.com";
 const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
@@ -58,7 +63,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 
     let builder = ClientBuilder::new(
         reqwest::ClientBuilder::new()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(Duration::from_secs(get_request_timeout_secs()))
             .default_headers(headers)
             .user_agent("stashbase/cli/0.1.0")
             .build()
@@ -68,6 +73,50 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
 
     let client = builder.build();
     client
+}
+
+fn get_request_timeout_secs() -> u64 {
+    REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30)
+}
+
+fn map_send_error(error: &reqwest_middleware::Error) -> OutputError {
+    if REQUEST_ABORTED.load(Ordering::SeqCst) {
+        return OutputError::request_aborted();
+    }
+
+    let error_message = error.to_string().to_ascii_lowercase();
+    if error_message.contains("timed out") || error_message.contains("timeout") {
+        return OutputError::request_timed_out();
+    }
+
+    OutputError::cannot_connect()
+}
+
+async fn wait_for_abort() {
+    loop {
+        if REQUEST_ABORTED.load(Ordering::SeqCst) {
+            return;
+        }
+
+        sleep(Duration::from_millis(50)).await;
+    }
+}
+
+async fn send_with_abort(builder: RequestBuilder) -> Result<reqwest::Response, OutputError> {
+    if REQUEST_ABORTED.load(Ordering::SeqCst) {
+        return Err(OutputError::request_aborted());
+    }
+
+    let send_future = builder.send();
+
+    tokio::select! {
+        res = send_future => {
+            res.map_err(|err| map_send_error(&err))
+        }
+        _ = wait_for_abort() => {
+            Err(OutputError::request_aborted())
+        }
+    }
 }
 
 // pub fn get_request(args: GetRequestArgs) -> RequestBuilder {
@@ -90,18 +139,12 @@ pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, Out
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", get_api_url(), args.path);
 
-    let res = client
-        .request(reqwest::Method::GET, full_path)
-        .query(&args.query)
-        .send()
-        .await;
-
-    if let Err(_) = &res {
-        let err = OutputError::cannot_connect();
-        return Err(err);
-    }
-
-    let res = res.unwrap();
+    let res = send_with_abort(
+        client
+            .request(reqwest::Method::GET, full_path)
+            .query(&args.query),
+    )
+    .await?;
     let status = res.status();
 
     if status.is_success() {
@@ -137,18 +180,12 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
     let client = build_client(args.api_key);
     let full_path = format!("{}/{}", get_api_url(), args.path);
 
-    let res = client
-        .request(reqwest::Method::DELETE, full_path)
-        .query(&args.query)
-        .send()
-        .await;
-
-    if let Err(_) = &res {
-        let err = OutputError::cannot_connect();
-        return Err(err);
-    }
-
-    let res = res.unwrap();
+    let res = send_with_abort(
+        client
+            .request(reqwest::Method::DELETE, full_path)
+            .query(&args.query),
+    )
+    .await?;
     let status = res.status();
 
     if status.is_success() {
@@ -231,7 +268,7 @@ async fn post_patch_put<T: serde::Serialize>(
 
     let mut headers = HeaderMap::new();
 
-    let res = match data {
+    let request_builder = match data {
         Some(data) => {
             headers.insert("Content-Type", "application/json".parse().unwrap());
 
@@ -240,25 +277,13 @@ async fn post_patch_put<T: serde::Serialize>(
                 .headers(headers)
                 .query(&args.query)
                 .body(serde_json::to_string(&data).unwrap())
-                .send()
-                .await
         }
-        None => {
-            client
-                .request(method, full_path)
-                .headers(headers)
-                .query(&args.query)
-                .send()
-                .await
-        }
+        None => client
+            .request(method, full_path)
+            .headers(headers)
+            .query(&args.query),
     };
-
-    if let Err(_) = &res {
-        let err = OutputError::cannot_connect();
-        return Err(err);
-    }
-
-    let res = res.unwrap();
+    let res = send_with_abort(request_builder).await?;
     let status = res.status();
 
     if status.is_success() {

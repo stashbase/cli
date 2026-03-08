@@ -453,6 +453,22 @@ impl OutputError {
         })
     }
 
+    pub fn request_timed_out() -> OutputError {
+        OutputError::Generic(GenericOutputError {
+            code: Some("request.timeout".to_string()),
+            message: "Request timed out.".to_string(),
+            hint: Some("Increase timeout with --timeout and try again.".to_string()),
+        })
+    }
+
+    pub fn request_aborted() -> OutputError {
+        OutputError::Generic(GenericOutputError {
+            code: Some("request.aborted".to_string()),
+            message: "Request canceled by user.".to_string(),
+            hint: None,
+        })
+    }
+
     pub fn get_message(&self) -> &str {
         match self {
             OutputError::Generic(e) => &e.message,
