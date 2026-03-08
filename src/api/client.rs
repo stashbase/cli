@@ -15,12 +15,18 @@ use crate::models::api_client::{
 
 const DEFAULT_API_URL: &str = "https://api.stashbase.com";
 const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
+const BUILD_TIME_API_URL: Option<&str> = option_env!("STASHBASE_API_URL");
 
 fn get_api_url() -> String {
     env::var(API_URL_ENV_VAR)
         .ok()
         .map(|v| v.trim().trim_end_matches('/').to_string())
         .filter(|v| !v.is_empty())
+        .or_else(|| {
+            BUILD_TIME_API_URL
+                .map(|v| v.trim().trim_end_matches('/').to_string())
+                .filter(|v| !v.is_empty())
+        })
         .unwrap_or_else(|| DEFAULT_API_URL.to_string())
 }
 
