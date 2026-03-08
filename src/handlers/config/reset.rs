@@ -1,5 +1,8 @@
 use crate::{
-    config::config::{create_config, get_config_path},
+    config::{
+        config::{create_config, get_config_path},
+        secure_store,
+    },
     utils::interaction,
 };
 use anyhow::Result;
@@ -16,6 +19,7 @@ pub fn reset_config(force: bool) -> Result<()> {
 
     let config_path = get_config_path()?;
     create_config(config_path.as_path())?;
+    let _ = secure_store::delete_api_key();
 
     Ok(())
 }

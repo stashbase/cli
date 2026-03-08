@@ -5,6 +5,7 @@ use crate::{
         ApiKeySubcommand, ConfigCommand, ConfigSubcommand, ExpandRefsSubcommand, OutputSubcommand,
         SecretsOutputSubcommand,
     },
+    config::secure_store,
     handlers::config::{
         api_key::{self, get_first_3_and_last_5},
         expand_refs::{print_expand_refs_config, set_expand_refs_config},
@@ -26,7 +27,11 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 api_key::set_api_key(s.value);
             }
             ApiKeySubcommand::Print(_) => {
-                api_key::print_api_key(&config.api_key);
+                let key = match secure_store::get_api_key() {
+                    Ok(value) => value.or(config.api_key.clone()),
+                    Err(_) => config.api_key.clone(),
+                };
+                api_key::print_api_key(&key);
             }
         },
         ConfigSubcommand::Output(o) => match o.subcommand {

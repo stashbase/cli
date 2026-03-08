@@ -5,7 +5,7 @@ use crate::{
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType},
     },
-    config::config,
+    config::{config, secure_store},
     handlers::{
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
@@ -53,10 +53,23 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
+        let secure_store_api_key = secure_store::get_api_key().ok().flatten();
+        let mut legacy_config_api_key = config.api_key.clone();
+
+        if secure_store_api_key.is_none() {
+            if let Some(legacy_key) = legacy_config_api_key.clone() {
+                if secure_store::set_api_key(&legacy_key).is_ok() {
+                    let _ = config::clear_legacy_api_key();
+                    legacy_config_api_key = None;
+                }
+            }
+        }
+
         let api_key = args
             .api_key
             .or_else(|| get_stashbase_api_key())
-            .or_else(|| config.api_key);
+            .or(secure_store_api_key)
+            .or(legacy_config_api_key);
 
         let raw_output = args.raw;
         let silent = args.silent;

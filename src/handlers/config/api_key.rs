@@ -1,8 +1,7 @@
 // use anyhow::Result;
 
 use crate::{
-    config::config,
-    models::config::UpdateConfig,
+    config::{config, secure_store},
     utils::{interaction::input_password, output::ColorizeIfColoredOutput},
 };
 
@@ -19,17 +18,33 @@ pub fn set_api_key(api_key: Option<String>) {
         },
     };
 
-    let res = config::update_config(UpdateConfig {
-        api_key: Some(api_key_value),
-        output_format: None,
-        expand_refs: None,
-    });
+    let store_res = secure_store::set_api_key(&api_key_value);
 
-    if let Err(err) = res {
-        eprintln!("{} {}", "Error:".red_if_tty_stderr(), err);
+    if let Err(store_err) = store_res {
+        let fallback_res = config::update_config(crate::models::config::UpdateConfig {
+            api_key: Some(api_key_value),
+            output_format: None,
+            expand_refs: None,
+        });
+
+        if let Err(fallback_err) = fallback_res {
+            eprintln!("{} {}", "Error:".red_if_tty_stderr(), fallback_err);
+            return;
+        }
+
+        eprintln!(
+            "{} {}",
+            "Warning:".yellow_if_tty_stderr(),
+            "Secure key storage unavailable, using encrypted-by-permissions config fallback."
+        );
+        eprintln!(
+            "{} {}",
+            "Reason:".yellow_if_tty_stderr(),
+            store_err.to_string()
+        );
     } else {
-        let msg = format!("API Key set.");
-        println!("{}", msg);
+        let _ = config::clear_legacy_api_key();
+        println!("API key set.");
     }
 }
 

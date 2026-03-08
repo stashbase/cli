@@ -57,6 +57,16 @@ You can generate an API key in your Stashbase workspace by going to API Keys -> 
 stashbase config set api-key <API_KEY>
 ```
 
+### API key storage
+
+`stashbase config set api-key` stores your API key in the OS secure credential store:
+- macOS: Keychain
+- Linux: Secret Service (`secret-tool`)
+- Windows: DPAPI-encrypted local secret file
+
+The CLI config file is now used for non-sensitive settings and is written with owner-only permissions on Unix systems.
+If secure storage is unavailable, the CLI falls back to config-file storage and prints a warning.
+
 ### List projects
 
 ```bash

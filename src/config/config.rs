@@ -5,18 +5,56 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
-use log::debug;
 
 use crate::models::config::{Config, OutputFormatConfig, UpdateConfig};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(unix)]
+const CONFIG_DIR_MODE: u32 = 0o700;
+#[cfg(unix)]
+const CONFIG_FILE_MODE: u32 = 0o600;
+
+fn ensure_config_dir(config_dir: &Path) -> Result<()> {
+    fs::create_dir_all(config_dir)?;
+    apply_secure_dir_permissions(config_dir)?;
+    Ok(())
+}
+
+fn apply_secure_file_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(CONFIG_FILE_MODE))?;
+    }
+
+    Ok(())
+}
+
+fn apply_secure_dir_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, fs::Permissions::from_mode(CONFIG_DIR_MODE))?;
+    }
+
+    Ok(())
+}
+
+fn write_config(path: &Path, config: &Config) -> Result<()> {
+    let config_string = toml::to_string(config)?;
+    fs::write(path, config_string)?;
+    apply_secure_file_permissions(path)?;
+    Ok(())
+}
 
 pub fn create_config(path: &Path) -> Result<String> {
     let new_config = Config::new();
 
     let toml_string = toml::to_string(&new_config)
         .with_context(|| format!("Could not create toml config file."))?;
-    debug!("new toml string: {}", &toml_string);
 
     fs::write(path, &toml_string)?;
+    apply_secure_file_permissions(path)?;
 
     Ok(toml_string)
 }
@@ -27,8 +65,7 @@ pub fn get_config_path() -> Result<PathBuf> {
     match dir_path {
         Some(dirs) => {
             let config_dir = dirs.config_dir();
-            // Create the directory if it doesn't exist
-            fs::create_dir_all(config_dir)?;
+            ensure_config_dir(config_dir)?;
             // Return the full path to the config file
             Ok(config_dir.join("config.toml"))
         }
@@ -44,6 +81,7 @@ pub fn get_config() -> Result<Config> {
 
         match config_file_exists {
             true => {
+                apply_secure_file_permissions(&config_file_path)?;
                 let content = fs::read_to_string(&config_file_path)?;
                 let data =
                     toml::from_str::<Config>(&content).context("Could not parse config file.")?;
@@ -51,8 +89,7 @@ pub fn get_config() -> Result<Config> {
                 Ok(data)
             }
             false => {
-                // Ensure the config directory exists
-                fs::create_dir_all(config_dir)?;
+                ensure_config_dir(config_dir)?;
                 let new_config = create_config(&config_file_path)?;
                 let data = toml::from_str::<Config>(&new_config)?;
 
@@ -75,7 +112,11 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
     } = args;
 
     if let Some(new_api_key) = api_key {
-        config.api_key = Some(new_api_key);
+        config.api_key = if new_api_key.is_empty() {
+            None
+        } else {
+            Some(new_api_key)
+        };
     }
 
     if let Some(new_expand_refs) = expand_refs {
@@ -99,8 +140,12 @@ pub fn update_config(args: UpdateConfig) -> Result<()> {
         config.ouput_format = Some(new_format_config);
     }
 
-    let config_string = toml::to_string(&config)?;
-    fs::write(config_path, config_string)?;
+    write_config(&config_path, &config)
+}
 
-    Ok(())
+pub fn clear_legacy_api_key() -> Result<()> {
+    let config_path = get_config_path()?;
+    let mut config = get_config()?;
+    config.api_key = None;
+    write_config(&config_path, &config)
 }

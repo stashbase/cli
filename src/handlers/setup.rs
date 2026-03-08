@@ -2,9 +2,9 @@ use anyhow::Result;
 
 use crate::{
     cmd::config::{OutputFormat, SecretsOutputFormat},
-    config::config,
+    config::{config, secure_store},
     models::config::{Config, OutputFormatConfig, UpdateConfig},
-    utils::interaction::input_password,
+    utils::{interaction::input_password, output::ColorizeIfColoredOutput},
 };
 use dialoguer::{theme::ColorfulTheme, Confirm, Select};
 
@@ -13,7 +13,8 @@ pub fn setup(existing_config: Config) -> Result<()> {
     //
     eprintln!("Welcome! This will guide you through configuring the Stashbase CLI.");
 
-    let has_api_key = existing_config.api_key.is_some();
+    let has_api_key =
+        existing_config.api_key.is_some() || secure_store::get_api_key()?.is_some();
 
     let api_key_prompt = if has_api_key {
         "Enter your API key (leave empty to keep existing)"
@@ -22,6 +23,7 @@ pub fn setup(existing_config: Config) -> Result<()> {
     };
 
     let api_key = input_password(api_key_prompt);
+    let api_key_to_store = api_key.clone();
 
     let current_output_format = existing_config.ouput_format;
 
@@ -36,7 +38,7 @@ pub fn setup(existing_config: Config) -> Result<()> {
     let expand_refs = select_expand_secret_references();
 
     let updated_config = UpdateConfig {
-        api_key,
+        api_key: None,
         expand_refs: Some(expand_refs.unwrap_or(false)),
         output_format: Some(OutputFormatConfig {
             general: Some(new_output_format),
@@ -45,6 +47,28 @@ pub fn setup(existing_config: Config) -> Result<()> {
     };
 
     config::update_config(updated_config)?;
+    if let Some(api_key) = api_key_to_store {
+        if let Err(store_err) = secure_store::set_api_key(&api_key) {
+            config::update_config(UpdateConfig {
+                api_key: Some(api_key),
+                expand_refs: None,
+                output_format: None,
+            })?;
+
+            eprintln!(
+                "{} {}",
+                "Warning:".yellow_if_tty_stderr(),
+                "Secure key storage unavailable, using encrypted-by-permissions config fallback."
+            );
+            eprintln!(
+                "{} {}",
+                "Reason:".yellow_if_tty_stderr(),
+                store_err.to_string()
+            );
+        } else {
+            config::clear_legacy_api_key()?;
+        }
+    }
     eprintln!("\nSetup completed.");
 
     Ok(())
