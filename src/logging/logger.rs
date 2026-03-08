@@ -1,10 +1,9 @@
-use env_logger::Builder;
-use log::LevelFilter;
+use env_logger::{Builder, Env};
 use owo_colors::OwoColorize;
 use std::io::Write;
 
 pub fn init_logger() {
-    Builder::new()
+    Builder::from_env(Env::default().default_filter_or("warn"))
         .format(|buf, record| {
             let msg = match record.level() {
                 log::Level::Error => "ERROR".to_string().red().bold().to_string(),
@@ -23,6 +22,5 @@ pub fn init_logger() {
                 record.args()
             )
         })
-        .filter(None, LevelFilter::Debug)
         .init()
 }

@@ -51,8 +51,6 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
     let name_value_pairs = separator::key_value(values);
 
-    debug!("{:#?}", name_value_pairs);
-
     if let Err(_) = name_value_pairs {
         if !silent {
             eprintln!();
@@ -67,7 +65,6 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
     let name_value_pairs = name_value_pairs.unwrap();
 
     let comment_pairs = separator::key_value(comments);
-    debug!("{:#?}", comment_pairs);
 
     if let Err(_) = comment_pairs {
         let error = InputValidationError::Secrets(SecretsInputValidationError::NameValueSeparator);

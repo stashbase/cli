@@ -84,7 +84,6 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
     match res {
         GetRequestApiResponse::Ok(data) => {
             let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
-            debug!("{:#?}", &secrets);
 
             match secrets {
                 Ok(secrets) => {

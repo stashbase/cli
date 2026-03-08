@@ -82,11 +82,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     } else {
         let selected_config_item =
             EnvConfigItem::select_from_file(config_file_path.clone(), &config_action_command)?;
-        debug!("file_config: {:?}", selected_config_item);
-
         if let Some(config) = selected_config_item {
-            debug!("config: {:?}", config);
-
             if let None = target_file {
                 let target_file_path = config.get_push_target_file();
                 target_file = target_file_path;

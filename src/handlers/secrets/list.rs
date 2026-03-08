@@ -130,8 +130,6 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
 
                 match secrets {
                     Ok(secrets) => {
-                        debug!("{:#?}", &secrets);
-
                         if secrets.is_empty() {
                             if format == SecretsOutputFormat::Json {
                                 let json_str = get_formatted_json_string(&secrets, true).unwrap();

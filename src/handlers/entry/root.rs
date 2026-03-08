@@ -1,5 +1,3 @@
-use log::debug;
-
 use crate::{
     cmd::{
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
@@ -29,8 +27,6 @@ use crate::{
 
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
-    debug!("args: {:?}", args);
-
     if let EntityType::Generate(cmd) = args.entity_type {
         if let Err(e) = handle_generate_command(cmd, args.raw) {
             eprintln!("{:?}", e);
@@ -39,8 +35,6 @@ pub async fn handle_cli(args: Cli) {
     }
 
     let config = config::get_config();
-    debug!("config: {:?}", config);
-
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
             if let Err(err) = handle_config_commands(cmd, &config) {

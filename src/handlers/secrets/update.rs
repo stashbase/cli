@@ -193,7 +193,6 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
     }
 
     let res = res.unwrap();
-    debug!("Response: {:#?}", &res);
 
     match res {
         RequestApiOptionResponse::Ok(res) => match res.text {

@@ -319,9 +319,6 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         }
     }
 
-    debug!("{:#?} EXCLUDE", exclude);
-    debug!("{:#?} ONLY", only);
-
     let only_len = only.len();
 
     if is_from_file && !silent {
@@ -615,8 +612,6 @@ async fn handle_run(
     }
     // success msg
 
-    debug!("{:#?}", &secrets);
-
     if print_secrets.is_some() && !silent {
         let print_masked = print_secrets
             .as_ref()
@@ -668,7 +663,6 @@ async fn handle_run(
         }
     }
 
-    debug!("{:#?}", command);
     // let mut parts = command.split_whitespace();
     // Get the first part as the command itself
     // let command = parts.next().expect("No command specified");

@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 use linked_hash_set::LinkedHashSet;
-use log::debug;
 use regex::Regex;
 use std::{collections::HashMap, fs, path::Path};
 
@@ -703,18 +702,12 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
     for (index, item) in splitted.iter().enumerate() {
         let trimmed = item.trim();
 
-        debug!("{}", trimmed);
-        debug!("{}", trimmed.len());
-
         let is_empty = trimmed.len() == 0;
         let is_comment = trimmed.starts_with("#");
 
         if !is_empty && !is_comment {
             match item.split_once(delimiter) {
                 Some((name, value)) => {
-                    debug!("{}", name);
-                    debug!("{}", value);
-
                     let uppercase_name = name.to_uppercase();
                     let formatted_name = regex.replace_all(&uppercase_name, "_").trim().to_owned();
                     let formatted_value = value.trim().to_owned();

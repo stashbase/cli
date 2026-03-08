@@ -2,7 +2,6 @@ use std::sync::Mutex;
 
 use clap::Parser;
 use cmd::root::Cli;
-use log::debug;
 use logging::logger::init_logger;
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -24,8 +23,6 @@ fn main() {
     set_handlers();
 
     let args = Cli::parse();
-    debug!("Args: {:?}", args);
-
     set_color_choice(args.color);
 
     handle_cli(args);

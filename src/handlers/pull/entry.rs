@@ -87,11 +87,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         // LOAD from file
         let selected_config_item =
             EnvConfigItem::select_from_file(file.clone(), &config_action_command)?;
-        debug!("file_config: {:?}", selected_config_item);
-
         if let Some(config) = selected_config_item {
-            debug!("config: {:?}", config);
-
             if let None = target_file {
                 let target_file_path = config.get_pull_target_file();
                 target_file = target_file_path;
@@ -287,7 +283,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         }
     }
 
-    debug!("{:#?}", exclude);
     let only_len = only.len();
 
     // eprintln!();
@@ -755,11 +750,8 @@ pub fn load_from_file(
                 // select project
                 let selection = select("Select environment config", items);
 
-                debug!("selection: {:?}", selection);
-
                 if let Some(selection) = selection {
                     let item = deserialized_config[selection].clone();
-                    debug!("item: {:?}", item);
 
                     return Ok(Some(item));
                 } else {
