@@ -87,7 +87,9 @@ pub async fn pull(
         false => Vec::with_capacity(1),
     };
 
-    query.push(("expand_refs".to_string(), expand_refs.to_string()));
+    if expand_refs == true {
+        query.push(("expand_refs".to_string(), expand_refs.to_string()));
+    }
 
     if with_comment == false {
         query.push(("omit".to_string(), "comment".to_string()));
