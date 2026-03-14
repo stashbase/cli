@@ -39,7 +39,7 @@ pub async fn list(
 
     if only_names {
         query_str.push(("omit".to_string(), "value,comment".to_string()));
-    } else {
+    } else if expand_refs == true {
         query_str.push(("expand_refs".to_string(), expand_refs.to_string()));
     }
 
