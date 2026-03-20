@@ -46,8 +46,16 @@ pub struct RunCommand {
     pub expand_refs: Option<bool>,
 
     /// Print loaded secrets
-    #[arg(value_enum, long = "print-secrets")]
+    #[arg(
+        value_enum,
+        long = "print-secrets",
+        conflicts_with = "no_print_secrets"
+    )]
     pub print_secrets: Option<PrintSecrets>,
+
+    /// Do not print loaded secrets (overrides config file setting)
+    #[arg(long = "no-print-secrets")]
+    pub no_print_secrets: bool,
 }
 
 impl RunCommand {

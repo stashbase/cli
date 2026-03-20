@@ -43,6 +43,7 @@ pub struct HandleRunArgs {
     pub exclude: Vec<String>,
     pub set: Vec<String>,
     pub print_secrets: Option<PrintSecrets>,
+    pub no_print_secrets: bool,
     pub file: Option<String>,
     pub expand_refs: Option<bool>,
     pub json_format: bool,
@@ -62,10 +63,15 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         mut exclude,
         mut expand_refs,
         mut print_secrets,
+        no_print_secrets,
         json_format,
         silent,
         scope,
     } = args;
+
+    if no_print_secrets {
+        print_secrets = None;
+    }
 
     // Handle environment scope - workspace scope behaves like no scope
     let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
@@ -139,8 +145,12 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             }
 
             // print
-            if let Some(print_secrets_val) = secrets_config.print.clone() {
-                print_secrets = Some(print_secrets_val);
+            if !no_print_secrets {
+                if let Some(print_secrets_val) = secrets_config.print.clone() {
+                    if print_secrets.is_none() {
+                        print_secrets = Some(print_secrets_val);
+                    }
+                }
             }
 
             // only

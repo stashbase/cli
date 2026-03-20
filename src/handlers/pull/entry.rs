@@ -48,6 +48,7 @@ pub struct HandlePullArgs {
     pub expand_refs: Option<bool>,
     pub ignore_comments: Option<bool>,
     pub print_secrets: Option<PrintSecrets>,
+    pub no_print_secrets: bool,
     pub overwrite_file: bool,
     pub json_format: bool,
     pub silent: bool,
@@ -66,10 +67,15 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut expand_refs,
         mut ignore_comments,
         mut print_secrets,
+        no_print_secrets,
         overwrite_file,
         json_format,
         silent,
     } = args;
+
+    if no_print_secrets {
+        print_secrets = None;
+    }
 
     // Handle environment scope - workspace scope behaves like no scope
     let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
@@ -131,9 +137,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             }
 
             // print
-            if let Some(print_secrets_val) = secrets_config.print {
-                if print_secrets.is_none() {
-                    print_secrets = Some(print_secrets_val);
+            if !no_print_secrets {
+                if let Some(print_secrets_val) = secrets_config.print {
+                    if print_secrets.is_none() {
+                        print_secrets = Some(print_secrets_val);
+                    }
                 }
             }
 

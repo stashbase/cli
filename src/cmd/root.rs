@@ -3,9 +3,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::cmd::scans::ScanCommands;
 
 use super::{
-    config::ConfigCommand,
-    environments::EnvironmentCommands,
-    generate::GenerateCommand,
+    config::ConfigCommand, environments::EnvironmentCommands, generate::GenerateCommand,
     projects::ProjectCommands, pull::PullCommand, push::PushCommand, run::RunCommand,
     secrets::SecretArgs, setup::SetupCommand, webhooks::WebhookCommand,
 };
