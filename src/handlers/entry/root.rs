@@ -246,6 +246,7 @@ pub async fn handle_cli(args: Cli) {
                     exclude: pull_cmd.exclude,
                     expand_refs: pull_cmd.expand_refs,
                     ignore_comments: pull_cmd.ignore_comments,
+                    print_secrets: pull_cmd.print_secrets,
                     overwrite_file: pull_cmd.overwrite,
                     json_format: raw_output,
                     silent,

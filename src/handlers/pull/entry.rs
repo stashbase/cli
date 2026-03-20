@@ -17,7 +17,7 @@ use crate::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
         scope::Scope,
-        secrets::Secret,
+        secrets::{PrintSecrets, Secret, SecretOnlyName, SecretWithoutComment},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError,
             PushPullInputValidationError, YamlEnvConfigError,
@@ -47,6 +47,7 @@ pub struct HandlePullArgs {
     pub format: Option<PullFormat>,
     pub expand_refs: Option<bool>,
     pub ignore_comments: Option<bool>,
+    pub print_secrets: Option<PrintSecrets>,
     pub overwrite_file: bool,
     pub json_format: bool,
     pub silent: bool,
@@ -64,6 +65,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         mut exclude,
         mut expand_refs,
         mut ignore_comments,
+        mut print_secrets,
         overwrite_file,
         json_format,
         silent,
@@ -129,9 +131,11 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             }
 
             // print
-            // if let Some(print_secrets_val) = secrets_config.print {
-            //     print_secrets = Some(print_secrets_val);
-            // }
+            if let Some(print_secrets_val) = secrets_config.print {
+                if print_secrets.is_none() {
+                    print_secrets = Some(print_secrets_val);
+                }
+            }
 
             // only
             if let Some(only_val) = secrets_config.only {
@@ -468,7 +472,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                         let secrets_format =
                                             SecretsOutputFormat::try_from(f).unwrap();
 
-                                        let str = format_secrets(secrets, &secrets_format);
+                                        let str = format_secrets(secrets.clone(), &secrets_format);
                                         let prefix = if is_environment_scope {
                                             format!("")
                                         } else {
@@ -488,6 +492,12 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                             match file_res {
                                 Ok(_) => {
+                                    if !silent {
+                                        if let Some(ps) = &print_secrets {
+                                            print_secrets_output(&secrets, ps, json_format);
+                                        }
+                                    }
+
                                     if !silent {
                                         if json_format {
                                             let message = serde_json::json!({
@@ -569,7 +579,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     // yaml or dotenv
                                     let secrets_format = SecretsOutputFormat::try_from(f).unwrap();
 
-                                    let str = format_secrets(secrets, &secrets_format);
+                                    let str = format_secrets(secrets.clone(), &secrets_format);
                                     let prefix = if is_environment_scope {
                                         "## ------\n## Environment Scope\n## ------\n\n".to_string()
                                     } else {
@@ -589,6 +599,12 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                         match file_res {
                             Ok(_) => {
+                                if !silent {
+                                    if let Some(ps) = &print_secrets {
+                                        print_secrets_output(&secrets, ps, json_format);
+                                    }
+                                }
+
                                 if !file_exists {
                                     if json_format {
                                         if let Some(ref mut spinner) = spinner {
@@ -681,6 +697,64 @@ fn write_file(file_path: &str, file_string: String) -> Result<()> {
     match file.write_all(file_string.as_bytes()) {
         Ok(_) => Ok(()),
         Err(e) => bail!(e),
+    }
+}
+
+fn print_secrets_output(secrets: &[Secret], print_secrets: &PrintSecrets, json_format: bool) {
+    if print_secrets.is_masked() {
+        let masked_secrets: Vec<SecretWithoutComment> = secrets
+            .iter()
+            .map(|secret| SecretWithoutComment {
+                name: secret.name.clone(),
+                value: if secret.value.len() <= 3 {
+                    "*".repeat(6)
+                } else {
+                    format!("{}{}", &secret.value[..3], "*".repeat(6))
+                },
+            })
+            .collect();
+
+        if json_format {
+            if let Ok(json_str) = get_formatted_json_string(&masked_secrets, true) {
+                println!("{}\n", json_str);
+            }
+        } else {
+            let table = crate::utils::tables::build::build_table(&masked_secrets);
+            println!("{}\n", table);
+        }
+    } else if print_secrets.is_name() {
+        let names: Vec<SecretOnlyName> = secrets
+            .iter()
+            .map(|secret| SecretOnlyName {
+                name: secret.name.clone(),
+            })
+            .collect();
+
+        if json_format {
+            if let Ok(json_str) = get_formatted_json_string(&names, true) {
+                println!("{}\n", json_str);
+            }
+        } else {
+            let table = crate::utils::tables::build::build_table(&names);
+            println!("{}\n", table);
+        }
+    } else {
+        let full_secrets: Vec<SecretWithoutComment> = secrets
+            .iter()
+            .map(|secret| SecretWithoutComment {
+                name: secret.name.clone(),
+                value: secret.value.clone(),
+            })
+            .collect();
+
+        if json_format {
+            if let Ok(json_str) = get_formatted_json_string(&full_secrets, true) {
+                println!("{}\n", json_str);
+            }
+        } else {
+            let table = crate::utils::tables::build::build_table(&full_secrets);
+            println!("{}\n", table);
+        }
     }
 }
 

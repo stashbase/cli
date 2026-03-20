@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::config::SecretsOutputFormat;
 use crate::models::{
     scope::Scope,
+    secrets::PrintSecrets,
     validation::{CmdArgInputValidationError, InputValidationError},
 };
 
@@ -78,6 +79,10 @@ pub struct PullCommand {
     /// Ignore secret comments
     #[arg(long = "ignore-comments")]
     pub ignore_comments: Option<bool>,
+
+    /// Print pulled secrets
+    #[arg(value_enum, long = "print-secrets")]
+    pub print_secrets: Option<PrintSecrets>,
 }
 
 impl PullCommand {
