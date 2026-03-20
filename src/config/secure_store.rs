@@ -1,8 +1,8 @@
 use std::process::Command;
-#[cfg(target_os = "linux")]
-use std::{io::Write, process::Stdio};
 #[cfg(target_os = "windows")]
 use std::{fs, path::PathBuf};
+#[cfg(target_os = "linux")]
+use std::{io::Write, process::Stdio};
 
 use anyhow::{anyhow, Result};
 #[cfg(target_os = "windows")]

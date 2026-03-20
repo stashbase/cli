@@ -1,27 +1,39 @@
 #![allow(dead_code)]
 
-use sha2::{Sha256, Digest};
-use anyhow::{Result};
-use std::{collections::{HashMap, HashSet}, fs, path::Path};
-use ignore::gitignore::GitignoreBuilder;
 use crate::models::{
-    scans::{DiffHunk, FileChangesScanResponse, ScanFinding, ChangeRangeWithHash, MatchedSecrets, MatchedFileSecret},
+    scans::{
+        ChangeRangeWithHash, DiffHunk, FileChangesScanResponse, MatchedFileSecret, MatchedSecrets,
+        ScanFinding,
+    },
     validation::ScanInputValidationError,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use anyhow::Result;
 use git2;
+use ignore::gitignore::GitignoreBuilder;
+use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 pub static SCAN_IGNORE_LINE_COMMENT: &str = "@stashbase-ignore";
 pub static SCAN_CONTEXT_LINES: usize = 10;
 
-const DEFAULT_EXCLUDE_FILE_NAMES: [&str; 4] = [".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"];
+const DEFAULT_EXCLUDE_FILE_NAMES: [&str; 4] =
+    [".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"];
 const DEFAULT_EXCLUDE_DIRS: [&str; 3] = ["node_modules/", "vendor/", "vendors/"];
 const DEFAULT_EXCLUDE_FILE_PATTERNS: [&str; 3] = ["top-1000.txt", "*.sops", "*.sops.yaml"];
 const DEFAULT_EXCLUDE_FILE_EXTENSIONS: [&str; 5] = ["html", "css", "lock", "storyboard", "xib"];
 
 pub fn default_scan_exclude_patterns() -> Vec<String> {
     let mut patterns = Vec::new();
-    patterns.extend(DEFAULT_EXCLUDE_FILE_NAMES.iter().map(|name| name.to_string()));
+    patterns.extend(
+        DEFAULT_EXCLUDE_FILE_NAMES
+            .iter()
+            .map(|name| name.to_string()),
+    );
     patterns.extend(DEFAULT_EXCLUDE_DIRS.iter().map(|dir| dir.to_string()));
     patterns.extend(
         DEFAULT_EXCLUDE_FILE_PATTERNS
@@ -43,8 +55,7 @@ pub fn should_merge_hunks(hunk1: &DiffHunk, hunk2: &DiffHunk, max_gap: usize) ->
     }
 
     // Check for context overlap
-    hunk1.end_line >= hunk2.start_line
-        || (hunk2.start_line - hunk1.end_line) <= max_gap
+    hunk1.end_line >= hunk2.start_line || (hunk2.start_line - hunk1.end_line) <= max_gap
 }
 
 pub fn get_comment_prefix(extension: &str) -> Option<&'static str> {
@@ -108,21 +119,28 @@ pub fn is_binary_file(extension: &str) -> bool {
     }
 }
 
-
-pub fn should_exclude_file(file_path: &str, exclude_patterns: &[String]) -> Result<bool, ScanInputValidationError> {
+pub fn should_exclude_file(
+    file_path: &str,
+    exclude_patterns: &[String],
+) -> Result<bool, ScanInputValidationError> {
     let mut builder = GitignoreBuilder::new("/"); // Root directory
-    
+
     for pattern in exclude_patterns {
-        builder.add_line(None, pattern).map_err(|e| ScanInputValidationError::InvalidExcludePattern { 
-            pattern: pattern.clone(),
-            message: e.to_string()
+        builder.add_line(None, pattern).map_err(|e| {
+            ScanInputValidationError::InvalidExcludePattern {
+                pattern: pattern.clone(),
+                message: e.to_string(),
+            }
         })?;
     }
-    
-    let gitignore = builder.build().map_err(|e| ScanInputValidationError::GitignoreBuilderError {
-        message: e.to_string()
-    })?;
-    
+
+    let gitignore =
+        builder
+            .build()
+            .map_err(|e| ScanInputValidationError::GitignoreBuilderError {
+                message: e.to_string(),
+            })?;
+
     Ok(gitignore.matched(Path::new(file_path), false).is_ignore())
 }
 
@@ -182,7 +200,9 @@ pub fn is_valid_sha256_hash(hash: &str) -> bool {
     hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanFinding>, ScanInputValidationError> {
+pub fn load_baseline_results(
+    baseline_path: &str,
+) -> Result<Vec<ScanFinding>, ScanInputValidationError> {
     let content = fs::read_to_string(baseline_path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             ScanInputValidationError::BaselineFileNotFound {
@@ -196,12 +216,13 @@ pub fn load_baseline_results(baseline_path: &str) -> Result<Vec<ScanFinding>, Sc
         }
     })?;
 
-    let baseline_response: FileChangesScanResponse = serde_json::from_str(&content).map_err(|e| {
-        ScanInputValidationError::BaselineFileParse {
-            path: baseline_path.to_string(),
-            message: e.to_string(),
-        }
-    })?;
+    let baseline_response: FileChangesScanResponse =
+        serde_json::from_str(&content).map_err(|e| {
+            ScanInputValidationError::BaselineFileParse {
+                path: baseline_path.to_string(),
+                message: e.to_string(),
+            }
+        })?;
 
     Ok(baseline_response.findings)
 }
@@ -230,19 +251,18 @@ pub fn filter_new_findings(
         .iter()
         .map(|finding| compute_finding_hash(finding))
         .collect();
-    
-   let filtered_findings = current_findings
+
+    let filtered_findings = current_findings
         .into_iter()
-        .filter(|finding| {
-            !baseline_hashes.contains(&compute_finding_hash(finding))
-        })
+        .filter(|finding| !baseline_hashes.contains(&compute_finding_hash(finding)))
         .collect::<Vec<_>>();
 
     let mut sorted_findings: Vec<_> = filtered_findings.into_iter().collect();
 
     sorted_findings.sort_by(|a, b| {
-        (b.severity.clone() as i32).cmp(&(a.severity.clone() as i32)) // by severity, descending
-            .then(a.file_path.cmp(&b.file_path))      // then by file path
+        (b.severity.clone() as i32)
+            .cmp(&(a.severity.clone() as i32)) // by severity, descending
+            .then(a.file_path.cmp(&b.file_path)) // then by file path
             .then(a.range.start_line.cmp(&b.range.start_line)) // then by start line
     });
 
@@ -296,10 +316,8 @@ pub fn process_diff_line(
     // Check for removed ignore comments
     if line.origin() == '-' {
         if let Some(comment_prefix) = get_comment_prefix(extension) {
-            let line_without_comment_prefix = content
-                .trim()
-                .trim_start_matches(comment_prefix)
-                .trim();
+            let line_without_comment_prefix =
+                content.trim().trim_start_matches(comment_prefix).trim();
 
             if line_without_comment_prefix.starts_with(ignore_line_comment) {
                 // This is a removed ignore comment - treat it as a change
@@ -316,7 +334,11 @@ pub fn process_diff_line(
                             let content_exists = last_hunk
                                 .changes
                                 .as_ref()
-                                .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                                .map(|changes| {
+                                    changes
+                                        .iter()
+                                        .any(|change| change.content_hash == content_hash)
+                                })
                                 .unwrap_or(false);
 
                             if !content_exists {
@@ -339,7 +361,11 @@ pub fn process_diff_line(
                         let content_exists = last_hunk
                             .changes
                             .as_ref()
-                            .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                            .map(|changes| {
+                                changes
+                                    .iter()
+                                    .any(|change| change.content_hash == content_hash)
+                            })
                             .unwrap_or(false);
 
                         if !content_exists {
@@ -363,7 +389,8 @@ pub fn process_diff_line(
         let should_skip = if let Some(comment_prefix) = get_comment_prefix(extension) {
             let prev = prev_line.trim().to_string();
             let should_skip = should_skip_line(&prev, comment_prefix, ignore_line_comment);
-            let line_without_comment_prefix = content.trim().trim_start_matches(comment_prefix).trim();
+            let line_without_comment_prefix =
+                content.trim().trim_start_matches(comment_prefix).trim();
 
             should_skip || line_without_comment_prefix.starts_with(ignore_line_comment)
         } else {
@@ -385,7 +412,11 @@ pub fn process_diff_line(
                         let content_exists = last_hunk
                             .changes
                             .as_ref()
-                            .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                            .map(|changes| {
+                                changes
+                                    .iter()
+                                    .any(|change| change.content_hash == content_hash)
+                            })
                             .unwrap_or(false);
 
                         if !content_exists {
@@ -413,7 +444,11 @@ pub fn process_diff_line(
                         let content_exists = last_hunk
                             .changes
                             .as_ref()
-                            .map(|changes| changes.iter().any(|change| change.content_hash == content_hash))
+                            .map(|changes| {
+                                changes
+                                    .iter()
+                                    .any(|change| change.content_hash == content_hash)
+                            })
                             .unwrap_or(false);
 
                         if !content_exists {
@@ -441,30 +476,33 @@ pub fn process_diff_line(
 
 // find matched secrets in a files
 // retruns hashmap of file path to a vector of (secret name, secret value hash)
-pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashMap<String, Vec<(String, String)>> {
+pub fn get_file_matches(
+    files: Vec<String>,
+    findings: Vec<ScanFinding>,
+) -> HashMap<String, Vec<(String, String)>> {
     use crate::{cmd::secrets::SecretsFileFormat, utils::secrets::read_secrets_from_file};
     use std::path::Path;
-    
+
     let mut matches: HashMap<String, Vec<(String, String)>> = HashMap::with_capacity(files.len());
-    
+
     // Create a set of finding value hashes for quick lookup
     let finding_hashes: HashSet<String> = findings
         .iter()
         .map(|finding| finding.value_sha256.clone())
         .collect();
-    
+
     // Early exit if no findings to match against
     if finding_hashes.is_empty() {
         return matches;
     }
-    
+
     for file_path in files {
         let path = Path::new(&file_path);
-        
+
         if !path.exists() {
             continue;
         }
-        
+
         // Determine format from file extension
         let target_format = if file_path.ends_with(".yaml") || file_path.ends_with(".yml") {
             SecretsFileFormat::Yaml
@@ -473,23 +511,23 @@ pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashM
         } else {
             SecretsFileFormat::Dotenv
         };
-        
+
         // Try to read secrets from file
         if let Ok(secrets) = read_secrets_from_file(path, &target_format) {
             let mut file_matches = Vec::with_capacity(secrets.len().min(finding_hashes.len()));
-            
+
             for secret in secrets {
                 // Hash the secret value using SHA256
                 let mut hasher = Sha256::new();
                 hasher.update(secret.value.as_bytes());
                 let value_hash = format!("{:x}", hasher.finalize());
-                
+
                 // Check if this hash matches any finding
                 if finding_hashes.contains(&value_hash) {
                     file_matches.push((secret.name, value_hash));
                 }
             }
-            
+
             if !file_matches.is_empty() {
                 matches.insert(file_path, file_matches);
             }
@@ -499,10 +537,14 @@ pub fn get_file_matches(files: Vec<String>, findings: Vec<ScanFinding>) -> HashM
     matches
 }
 
-pub fn update_findings_with_file_matches(findings: &mut Vec<ScanFinding>, file_matches: HashMap<String, Vec<(String, String)>>) {
+pub fn update_findings_with_file_matches(
+    findings: &mut Vec<ScanFinding>,
+    file_matches: HashMap<String, Vec<(String, String)>>,
+) {
     // Build a reverse index: value_hash -> Vec<(file_path, secret_name)>
-    let mut hash_to_matches: HashMap<String, Vec<(String, String)>> = HashMap::with_capacity(file_matches.len());
-    
+    let mut hash_to_matches: HashMap<String, Vec<(String, String)>> =
+        HashMap::with_capacity(file_matches.len());
+
     for (file_path, matches) in file_matches {
         for (secret_name, value_hash) in matches {
             hash_to_matches
@@ -516,10 +558,12 @@ pub fn update_findings_with_file_matches(findings: &mut Vec<ScanFinding>, file_m
     for finding in findings.iter_mut() {
         if let Some(matches) = hash_to_matches.get(&finding.value_sha256) {
             // Ensure matched_secrets is initialized
-            let matched_secrets = finding.matched_secrets.get_or_insert_with(|| MatchedSecrets {
-                project: None,
-                files: Some(Vec::new()),
-            });
+            let matched_secrets = finding
+                .matched_secrets
+                .get_or_insert_with(|| MatchedSecrets {
+                    project: None,
+                    files: Some(Vec::new()),
+                });
 
             // Ensure files is initialized
             let files = matched_secrets.files.get_or_insert_with(Vec::new);
@@ -536,7 +580,9 @@ pub fn update_findings_with_file_matches(findings: &mut Vec<ScanFinding>, file_m
             // Update or create MatchedFileSecret entries
             for (secret_name, file_paths_set) in secret_to_files {
                 // Find existing secret by name
-                if let Some(existing_secret) = files.iter_mut().find(|f| f.secret_name == secret_name) {
+                if let Some(existing_secret) =
+                    files.iter_mut().find(|f| f.secret_name == secret_name)
+                {
                     // Secret exists, merge file paths
                     for file_path in file_paths_set {
                         let file_path_string = file_path.to_string();

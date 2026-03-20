@@ -157,7 +157,11 @@ impl std::fmt::Display for AuthedUserData {
             )?;
         }
         write_indented(f, 2, &"Workspace:".blue_bold_if_tty())?;
-        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id),
+        )?;
         write_indented(
             f,
             4,
@@ -183,9 +187,17 @@ impl std::fmt::Display for AuthedUserData {
 impl std::fmt::Display for AuthedEnvironmentAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write_indented(f, 2, &format!("{} {}", "ID:".blue_bold_if_tty(), self.id))?;
-        write_indented(f, 2, &format!("{} {}", "Name:".blue_bold_if_tty(), self.name))?;
+        write_indented(
+            f,
+            2,
+            &format!("{} {}", "Name:".blue_bold_if_tty(), self.name),
+        )?;
         write_indented(f, 2, &"Project:".blue_bold_if_tty())?;
-        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.project.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "ID:".blue_bold_if_tty(), self.project.id),
+        )?;
         write_indented(
             f,
             4,
@@ -211,7 +223,11 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
             ),
         )?;
         write_indented(f, 2, &"Workspace:".blue_bold_if_tty())?;
-        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id),
+        )?;
         write_indented(
             f,
             4,
@@ -227,7 +243,11 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
             write_indented(
                 f,
                 4,
-                &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+                &format!(
+                    "{} {}",
+                    format!("{}:", key).blue_bold_if_tty(),
+                    value.join(", ")
+                ),
             )?;
         }
         Ok(())
@@ -237,9 +257,17 @@ impl std::fmt::Display for AuthedEnvironmentAccountData {
 impl std::fmt::Display for AuthedServiceAccountData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write_indented(f, 2, &format!("{} {}", "ID:".blue_bold_if_tty(), self.id))?;
-        write_indented(f, 2, &format!("{} {}", "Name:".blue_bold_if_tty(), self.name))?;
+        write_indented(
+            f,
+            2,
+            &format!("{} {}", "Name:".blue_bold_if_tty(), self.name),
+        )?;
         write_indented(f, 2, &"Workspace:".blue_bold_if_tty())?;
-        write_indented(f, 4, &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id))?;
+        write_indented(
+            f,
+            4,
+            &format!("{} {}", "ID:".blue_bold_if_tty(), self.workspace.id),
+        )?;
         write_indented(
             f,
             4,
@@ -272,7 +300,11 @@ impl std::fmt::Display for AuthedServiceAccountData {
                         write_indented(
                             f,
                             8,
-                            &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+                            &format!(
+                                "{} {}",
+                                format!("{}:", key).blue_bold_if_tty(),
+                                value.join(", ")
+                            ),
                         )?;
                     }
                 } else {
@@ -285,7 +317,11 @@ impl std::fmt::Display for AuthedServiceAccountData {
                         write_indented(
                             f,
                             8,
-                            &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+                            &format!(
+                                "{} {}",
+                                format!("{}:", key).blue_bold_if_tty(),
+                                value.join(", ")
+                            ),
                         )?;
                     }
                 }
@@ -293,16 +329,16 @@ impl std::fmt::Display for AuthedServiceAccountData {
                 if let Some(created_environment_permissions) =
                     &workspace.created_environment_permissions
                 {
-                    write_indented(
-                        f,
-                        6,
-                        &"Created Environment Permissions:".blue_bold_if_tty(),
-                    )?;
+                    write_indented(f, 6, &"Created Environment Permissions:".blue_bold_if_tty())?;
                     for (key, value) in created_environment_permissions {
                         write_indented(
                             f,
                             8,
-                            &format!("{} {}", format!("{}:", key).blue_bold_if_tty(), value.join(", ")),
+                            &format!(
+                                "{} {}",
+                                format!("{}:", key).blue_bold_if_tty(),
+                                value.join(", ")
+                            ),
                         )?;
                     }
                 }

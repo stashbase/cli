@@ -4,9 +4,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     api::webhooks,
-    models::{
-        api_client::RequestApiOptionResponse,
-    },
+    models::api_client::RequestApiOptionResponse,
     utils::{interaction, spinner::request_spinner},
 };
 

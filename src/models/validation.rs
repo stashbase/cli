@@ -1,13 +1,12 @@
 #![allow(dead_code)]
 
-use core::fmt;
 use colored_json::to_colored_json_auto;
-use serde::Serialize;
+use core::fmt;
 use owo_colors::OwoColorize;
+use serde::Serialize;
 
 use crate::utils::output::{get_formatted_json_string, is_color_enabled};
 
- 
 #[derive(Debug, Serialize)]
 pub enum InputValidationError {
     MissingApiKey,
@@ -45,9 +44,9 @@ pub enum ProjectInputValidationError {
     NameTooShort { is_root: bool },
     NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
-    
+
     InvalidIdentifierFormat { is_root: bool },
-    DescriptionTooLong,   
+    DescriptionTooLong,
     NameUsingIdFormat,
 
     SearchTooShort,
@@ -117,7 +116,7 @@ pub enum EnvironmentsInputValidationError {
     NameTooShort { is_root: bool },
     NameTooLong { is_root: bool },
     NameFormat { is_root: bool },
-    
+
     InvalidIdentifierFormat { is_root: bool },
     NameUsingIdFormat,
     DescriptionTooLong,
@@ -163,8 +162,8 @@ pub enum LoadEnvironmentInputValidationError {
 
 #[derive(Debug, Serialize)]
 pub enum ScanInputValidationError {
-    FailedToSaveScanResults { output_dir: String, message: String },  
-    MissingMatchProjectIdentifier, 
+    FailedToSaveScanResults { output_dir: String, message: String },
+    MissingMatchProjectIdentifier,
     BaselineFileNotFound { path: String },
     BaselineFileRead { path: String, message: String },
     BaselineFileParse { path: String, message: String },
@@ -182,7 +181,7 @@ pub enum ScanInputValidationError {
     ConfigFileNotFound { path: String },
     ConfigFileRead { path: String, message: String },
     ConfigFileParse { path: String, message: String },
-    InvalidIgnoreSecretRegex { regex: String, message: String }, 
+    InvalidIgnoreSecretRegex { regex: String, message: String },
     InvalidIgnoreSecretHash { hash: String },
 }
 
@@ -273,14 +272,14 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
             write!(f, "\n  Hint: {}", hint)?;
         }
 
-            if !secrets_names.is_empty() {
-                let formatted_secrets = secrets_names
-                    .iter()
-                    .map(|s| format!("\"{}\"", s))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+        if !secrets_names.is_empty() {
+            let formatted_secrets = secrets_names
+                .iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect::<Vec<_>>()
+                .join(", ");
 
-                write!(f, "\n  Secrets: {}", formatted_secrets)?;
+            write!(f, "\n  Secrets: {}", formatted_secrets)?;
         }
 
         Ok(())
@@ -290,7 +289,6 @@ impl fmt::Display for LoadEnvironmentInputValidationError {
 impl fmt::Display for PushPullInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
-
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg),)?;
@@ -306,7 +304,6 @@ impl fmt::Display for PushPullInputValidationError {
 impl fmt::Display for WebhookInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
-
 
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg),)?;
@@ -353,7 +350,6 @@ impl fmt::Display for YamlEnvConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
 
-
         if let Some(hint) = hint {
             writeln!(f, "{}", format!("  Message: {}", msg))?;
             write!(f, "{}", format!("  Hint: {}", hint))?;
@@ -393,9 +389,13 @@ impl fmt::Display for InputValidationError {
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
             InputValidationError::Scan(inner) => write!(f, "{}", inner),
             InputValidationError::MissingApiKey => {
-                writeln!(f, "{}", format!("  Message: {}", "API key is required for this command."))?;
+                writeln!(
+                    f,
+                    "{}",
+                    format!("  Message: {}", "API key is required for this command.")
+                )?;
                 write!(f, "{}", format!("  Hint: {}", "Use '--api-key' argument or set it in the config file using 'stashbase config set-api-key <your-api-key>'."))
-            },
+            }
         }
     }
 }
@@ -432,10 +432,13 @@ impl InputValidationError {
         }
 
         let wrapper = ErrorWrapper {
-            error: ErrorData { data: &self.to_struct(), error_type: match self {
-                InputValidationError::MissingApiKey => "authentication_error",
-                _ => "input_validation_error",
-            } },
+            error: ErrorData {
+                data: &self.to_struct(),
+                error_type: match self {
+                    InputValidationError::MissingApiKey => "authentication_error",
+                    _ => "input_validation_error",
+                },
+            },
         };
         serde_json::to_value(&wrapper)
     }
@@ -444,7 +447,6 @@ impl InputValidationError {
         let json_str = get_formatted_json_string(&self, false)?;
         Ok(json_str)
     }
-
 }
 
 impl CmdArgInputValidationError {
@@ -615,7 +617,9 @@ impl WebhookInputValidationError {
 }
 
 impl SecretsInputValidationError {
-    pub fn message_and_hint_and_secrets(&self) -> (&'static str, Option<&'static str>, Vec<String>) {
+    pub fn message_and_hint_and_secrets(
+        &self,
+    ) -> (&'static str, Option<&'static str>, Vec<String>) {
         match self {
             SecretsInputValidationError::NoSecretsToCreate => (
                 "No secrets to create provided.",
@@ -837,16 +841,16 @@ impl YamlEnvConfigError {
             YamlEnvConfigError::FileNotFound { custom_path } => match custom_path {
                 true => (
                     "No config file found.",
-                    Some("Make sure the specified file exists.")
+                    Some("Make sure the specified file exists."),
                 ),
                 false => (
                     "No 'stashbase.yaml' file found.",
-                    Some("Create file or use '-c' flag for custom file path.")
+                    Some("Create file or use '-c' flag for custom file path."),
                 ),
             },
             YamlEnvConfigError::NoEntries => (
                 "No entries found in 'stashbase.yaml'.",
-                Some("Add at least one entry to the file.")
+                Some("Add at least one entry to the file."),
             ),
             YamlEnvConfigError::FailedToRead {
                 custom_path,
@@ -854,11 +858,11 @@ impl YamlEnvConfigError {
             } => match custom_path {
                 true => (
                     "Failed to read the specified config file.",
-                    Some(Box::leak(message.clone().into_boxed_str()))
+                    Some(Box::leak(message.clone().into_boxed_str())),
                 ),
                 false => (
                     "Failed to read 'stashbase.yaml' file.",
-                    Some(Box::leak(message.clone().into_boxed_str()))
+                    Some(Box::leak(message.clone().into_boxed_str())),
                 ),
             },
         }
@@ -866,7 +870,9 @@ impl YamlEnvConfigError {
 }
 
 impl LoadEnvironmentInputValidationError {
-    pub fn message_and_hint_and_secrets(&self) -> (&'static str, Option<&'static str>, Vec<String>) {
+    pub fn message_and_hint_and_secrets(
+        &self,
+    ) -> (&'static str, Option<&'static str>, Vec<String>) {
         match self {
             LoadEnvironmentInputValidationError::UseOfBothExcludeAndOnly => (
                 "Use of both --exclude and --only flag.",
@@ -1127,7 +1133,5 @@ impl InputValidationError {
                 }
             }
         };
-
     }
-
 }

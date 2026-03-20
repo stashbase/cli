@@ -13,8 +13,7 @@ pub fn setup(existing_config: Config) -> Result<()> {
     //
     eprintln!("Welcome! This will guide you through configuring the Stashbase CLI.");
 
-    let has_api_key =
-        existing_config.api_key.is_some() || secure_store::get_api_key()?.is_some();
+    let has_api_key = existing_config.api_key.is_some() || secure_store::get_api_key()?.is_some();
 
     let api_key_prompt = if has_api_key {
         "Enter your API key (leave empty to keep existing)"
