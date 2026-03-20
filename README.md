@@ -104,6 +104,9 @@ stashbase generate random base64 --length 32 --uppercase
 ## scan staged files to be committed
 stashbase scan staged
 
+## scan all changed files (staged and unstaged)
+stashbase scan changes
+
 ## scan commits to be pushed to remote
 stashbase scan commits
 ```

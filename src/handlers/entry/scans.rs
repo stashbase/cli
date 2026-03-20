@@ -4,7 +4,10 @@ use crate::{
     cmd::scans::{ScanCommands, ScanSubcommand},
     handlers::scans::{
         commits::{handle_scan_unpushed_commit_hunks, HandleScanUnpushedCommitHunksArgs},
-        staged::{handle_scan_staged_file_hunks, HandleScanStagedFileHunksArgs},
+        staged::{
+            handle_scan_changed_file_hunks, handle_scan_staged_file_hunks,
+            HandleScanStagedFileHunksArgs,
+        },
     },
 };
 
@@ -32,6 +35,24 @@ pub async fn handle_scan_commands(
             };
 
             handle_scan_staged_file_hunks(args).await?;
+        }
+        ScanSubcommand::Changes(args) => {
+            let args = HandleScanStagedFileHunksArgs {
+                api_key,
+                silent,
+                json_format: raw_output,
+                excluded_files: args.exclude_files,
+                baseline: args.baseline,
+                output_dir: args.output_dir,
+                config_file_path: args.config_file,
+                ignore_secret_hashes: args.ignore_secret_hashes,
+                ignore_secret_regexes: args.ignore_secret_regexes,
+                match_environments: args.match_environments,
+                match_project: args.match_project,
+                match_files: args.match_files,
+            };
+
+            handle_scan_changed_file_hunks(args).await?;
         }
         ScanSubcommand::Commits(args) => {
             let args = HandleScanUnpushedCommitHunksArgs {

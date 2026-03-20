@@ -24,7 +24,7 @@ use anyhow::Result;
 use git2::Repository;
 use regex::Regex;
 use spinoff::{spinners, Color, Spinner, Streams};
-use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::Path, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fs, io::IsTerminal, path::Path, rc::Rc};
 
 pub struct HandleScanStagedFileHunksArgs {
     pub api_key: String,
@@ -42,8 +42,72 @@ pub struct HandleScanStagedFileHunksArgs {
     pub match_files: Vec<String>,
 }
 
+#[derive(Clone, Copy)]
+enum FileScanMode {
+    Staged,
+    Changed,
+}
+
+impl FileScanMode {
+    fn no_changes_message(self) -> &'static str {
+        match self {
+            FileScanMode::Staged => "No staged changes to scan.",
+            FileScanMode::Changed => "No changed files to scan.",
+        }
+    }
+
+    fn scanning_message(self) -> &'static str {
+        match self {
+            FileScanMode::Staged => "Scanning staged changes...",
+            FileScanMode::Changed => "Scanning changed files...",
+        }
+    }
+
+    fn no_secrets_message(self) -> &'static str {
+        match self {
+            FileScanMode::Staged => "No secrets detected in staged changes!",
+            FileScanMode::Changed => "No secrets detected in changed files!",
+        }
+    }
+
+    fn findings_match_message(self) -> &'static str {
+        match self {
+            FileScanMode::Staged => {
+                "Potential secrets detected in staged changes, findings match previous scan."
+            }
+            FileScanMode::Changed => {
+                "Potential secrets detected in changed files, findings match previous scan."
+            }
+        }
+    }
+
+    fn findings_saved_message(self) -> &'static str {
+        match self {
+            FileScanMode::Staged => {
+                "Potential secrets detected in staged changes. Scan findings saved to file."
+            }
+            FileScanMode::Changed => {
+                "Potential secrets detected in changed files. Scan findings saved to file."
+            }
+        }
+    }
+}
+
 pub async fn handle_scan_staged_file_hunks(
     args: HandleScanStagedFileHunksArgs,
+) -> Result<(), anyhow::Error> {
+    handle_scan_file_hunks(args, FileScanMode::Staged).await
+}
+
+pub async fn handle_scan_changed_file_hunks(
+    args: HandleScanStagedFileHunksArgs,
+) -> Result<(), anyhow::Error> {
+    handle_scan_file_hunks(args, FileScanMode::Changed).await
+}
+
+async fn handle_scan_file_hunks(
+    args: HandleScanStagedFileHunksArgs,
+    mode: FileScanMode,
 ) -> Result<(), anyhow::Error> {
     let HandleScanStagedFileHunksArgs {
         api_key,
@@ -87,14 +151,22 @@ pub async fn handle_scan_staged_file_hunks(
         .into_iter()
         .collect::<Vec<_>>();
 
-    let staged_files_result = get_staged_file_hunks(
-        SCAN_CONTEXT_LINES,
-        &SCAN_IGNORE_LINE_COMMENT,
-        &exclude,
-        config_file_path.as_deref(),
-    );
+    let file_hunks_result = match mode {
+        FileScanMode::Staged => get_staged_file_hunks(
+            SCAN_CONTEXT_LINES,
+            &SCAN_IGNORE_LINE_COMMENT,
+            &exclude,
+            config_file_path.as_deref(),
+        ),
+        FileScanMode::Changed => get_changed_file_hunks(
+            SCAN_CONTEXT_LINES,
+            &SCAN_IGNORE_LINE_COMMENT,
+            &exclude,
+            config_file_path.as_deref(),
+        ),
+    };
 
-    if let Err(e) = staged_files_result {
+    if let Err(e) = file_hunks_result {
         let input_validation_error = InputValidationError::Scan(e);
         let error_output = input_validation_error.format_error_output(json_format)?;
 
@@ -107,18 +179,18 @@ pub async fn handle_scan_staged_file_hunks(
         std::process::exit(1);
     }
 
-    let staged_files = staged_files_result.unwrap();
+    let file_hunks = file_hunks_result.unwrap();
 
-    if staged_files.is_empty() {
+    if file_hunks.is_empty() {
         if !silent {
             if json_format {
                 let message = serde_json::json!({
-                    "message": "No staged changes to scan."
+                    "message": mode.no_changes_message()
                 });
                 let pretty = get_formatted_json_string(&message, false).unwrap();
                 println!("\n{}", pretty);
             } else {
-                println!("No staged changes to scan.");
+                println!("{}", mode.no_changes_message());
             }
         }
 
@@ -292,7 +364,7 @@ pub async fn handle_scan_staged_file_hunks(
     }
 
     let data = ScanFileChangesPayload {
-        files: staged_files,
+        files: file_hunks,
         match_config: match project_context_config {
             Some(c) => Some(MatchConfigPayload { project: Some(c) }),
             None => None,
@@ -306,7 +378,7 @@ pub async fn handle_scan_staged_file_hunks(
     let spinner = if !silent {
         Some(Spinner::new_with_stream(
             spinners::Dots,
-            "Scanning staged changes...",
+            mode.scanning_message(),
             Color::Cyan,
             Streams::Stderr,
         ))
@@ -401,7 +473,7 @@ pub async fn handle_scan_staged_file_hunks(
                         }
 
                         let output_res =
-                            output_scan_findings(filtered_data, json_format, &output_dir);
+                            output_scan_findings(filtered_data, json_format, &output_dir, mode);
 
                         if let Err(e) = output_res {
                             let scan_error = ScanInputValidationError::FailedToSaveScanResults {
@@ -480,6 +552,7 @@ fn output_scan_findings(
     response: FileChangesScanResponse,
     json_format: bool,
     output_dir: &Option<String>,
+    mode: FileScanMode,
 ) -> Result<()> {
     let is_empty = response.findings.is_empty();
 
@@ -490,7 +563,7 @@ fn output_scan_findings(
         if let Some(output_dir) = output_dir {
             if is_empty {
                 let message = ScanOutputJson {
-                    message: "No secrets detected in staged changes!".to_string(),
+                    message: mode.no_secrets_message().to_string(),
                     skipped_files: response.skipped_files,
                     skipped_commits: None,
                     file_path: None,
@@ -508,7 +581,7 @@ fn output_scan_findings(
 
                         if content_equals {
                             let message = ScanOutputJson {
-                                message: "Potential secrets detected in staged changes, findings match previous scan.".to_string(),
+                                message: mode.findings_match_message().to_string(),
                                 file_path: Some(file_path),
                                 skipped_files: response.skipped_files,
                                 skipped_commits: None,
@@ -519,7 +592,7 @@ fn output_scan_findings(
                         } else {
                             let file_path = save_scan_results(output_dir, &pretty_json)?;
                             let message = ScanOutputJson {
-                                message: "Potential secrets detected in staged changes. Scan findings saved to file.".to_string(),
+                                message: mode.findings_saved_message().to_string(),
                                 file_path: Some(file_path),
                                 skipped_files: response.skipped_files,
                                 skipped_commits: None,
@@ -533,7 +606,7 @@ fn output_scan_findings(
                         let file_path = save_scan_results(output_dir, &pretty_json)?;
 
                         let message = ScanOutputJson {
-                            message: "Potential secrets detected in staged changes. Scan findings saved to file.".to_string(),
+                            message: mode.findings_saved_message().to_string(),
                             file_path: Some(file_path),
                             skipped_files: response.skipped_files,
                             skipped_commits: None,
@@ -550,7 +623,7 @@ fn output_scan_findings(
         }
     } else {
         if is_empty {
-            eprintln!("No secrets detected in staged changes!");
+            eprintln!("{}", mode.no_secrets_message());
         } else {
             if let Some(output_dir) = output_dir {
                 let latest_file = get_latest_scan_file(output_dir);
@@ -561,7 +634,7 @@ fn output_scan_findings(
                         let content_equals = file_content_equals(&file_path, &pretty_json);
 
                         if content_equals {
-                            eprintln!("Potential secrets detected in staged changes, findings match previous scan. File path: {}", file_path);
+                            eprintln!("{} File path: {}", mode.findings_match_message(), file_path);
                         } else {
                             let file_path = save_scan_results(output_dir, &pretty_json)?;
                             eprintln!("Potential secrets detected in your changes. Scan findings saved to: {}", file_path);
@@ -619,6 +692,37 @@ pub fn get_staged_file_hunks(
     exclude_patterns: &[String],
     config_file_path: Option<&str>,
 ) -> Result<Vec<FileHunks>, ScanInputValidationError> {
+    get_file_hunks(
+        context_lines,
+        ignore_line_comment,
+        exclude_patterns,
+        config_file_path,
+        FileScanMode::Staged,
+    )
+}
+
+pub fn get_changed_file_hunks(
+    context_lines: usize,
+    ignore_line_comment: &str,
+    exclude_patterns: &[String],
+    config_file_path: Option<&str>,
+) -> Result<Vec<FileHunks>, ScanInputValidationError> {
+    get_file_hunks(
+        context_lines,
+        ignore_line_comment,
+        exclude_patterns,
+        config_file_path,
+        FileScanMode::Changed,
+    )
+}
+
+fn get_file_hunks(
+    context_lines: usize,
+    ignore_line_comment: &str,
+    exclude_patterns: &[String],
+    config_file_path: Option<&str>,
+    mode: FileScanMode,
+) -> Result<Vec<FileHunks>, ScanInputValidationError> {
     let repo = Repository::open(".").map_err(|e| {
         if e.code() == git2::ErrorCode::NotFound {
             ScanInputValidationError::GitRepositoryNotFound
@@ -673,12 +777,22 @@ pub fn get_staged_file_hunks(
     let mut diff_opts = git2::DiffOptions::new();
     diff_opts.context_lines(context_lines as u32);
     diff_opts.show_binary(false);
+    if matches!(mode, FileScanMode::Changed) {
+        diff_opts.include_untracked(true);
+        diff_opts.recurse_untracked_dirs(true);
+    }
 
-    let diff = repo
-        .diff_tree_to_index(Some(&head_tree), Some(&index), Some(&mut diff_opts))
-        .map_err(|e| ScanInputValidationError::GitDiffGeneration {
-            message: e.message().to_string(),
-        })?;
+    let diff = match mode {
+        FileScanMode::Staged => {
+            repo.diff_tree_to_index(Some(&head_tree), Some(&index), Some(&mut diff_opts))
+        }
+        FileScanMode::Changed => {
+            repo.diff_tree_to_workdir_with_index(Some(&head_tree), Some(&mut diff_opts))
+        }
+    }
+    .map_err(|e| ScanInputValidationError::GitDiffGeneration {
+        message: e.message().to_string(),
+    })?;
 
     let state = Rc::new(RefCell::new(DiffProcessingState::new()));
 
@@ -733,7 +847,8 @@ pub fn get_staged_file_hunks(
                     return true;
                 }
 
-                let is_new_file = delta.status() == git2::Delta::Added;
+                let is_new_file = delta.status() == git2::Delta::Added
+                    || delta.status() == git2::Delta::Untracked;
                 state.new_files.insert(file_path.clone(), is_new_file);
 
                 if is_new_file {
@@ -951,7 +1066,7 @@ pub fn get_staged_file_hunks(
     })
     .collect();
 
-    // Populate full_content for each hunk by reading from the index
+    // Populate full_content for each hunk by reading from the selected source
     let mut result_with_full_content = result;
     for file_hunks in &mut result_with_full_content {
         let is_new_file = state
@@ -960,36 +1075,50 @@ pub fn get_staged_file_hunks(
             .copied()
             .unwrap_or(false);
 
-        // Get the file content from the index
-        if let Some(index_entry) = index.get_path(std::path::Path::new(&file_hunks.file_path), 0) {
-            if let Ok(blob) = repo.find_blob(index_entry.id) {
-                if let Ok(file_content) = std::str::from_utf8(blob.content()) {
-                    let lines: Vec<&str> = file_content.lines().collect();
+        let file_content = match mode {
+            FileScanMode::Staged => {
+                if let Some(index_entry) =
+                    index.get_path(std::path::Path::new(&file_hunks.file_path), 0)
+                {
+                    if let Ok(blob) = repo.find_blob(index_entry.id) {
+                        std::str::from_utf8(blob.content())
+                            .ok()
+                            .map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            FileScanMode::Changed => fs::read_to_string(&file_hunks.file_path).ok(),
+        };
 
-                    for hunk in &mut file_hunks.hunks {
-                        // For new files, read all lines from start_line to the end of file
-                        if is_new_file {
-                            let start_idx = (hunk.start_line.saturating_sub(1)).min(lines.len());
-                            let hunk_lines = &lines[start_idx..];
-                            hunk.full_content = hunk_lines.join("\n");
-                            if !hunk.full_content.is_empty() && file_content.ends_with('\n') {
-                                hunk.full_content.push('\n');
-                            }
-                        } else {
-                            // For modified files, read the exact range
-                            let start_idx = (hunk.start_line.saturating_sub(1)).min(lines.len());
-                            let end_idx = hunk.end_line.min(lines.len());
+        if let Some(file_content) = file_content {
+            let lines: Vec<&str> = file_content.lines().collect();
 
-                            if start_idx < end_idx {
-                                let hunk_lines = &lines[start_idx..end_idx];
-                                hunk.full_content = hunk_lines.join("\n");
-                                // Add trailing newline if the original file has it and this isn't the last line
-                                if !hunk.full_content.is_empty() && end_idx < lines.len() {
-                                    hunk.full_content.push('\n');
-                                } else if end_idx == lines.len() && file_content.ends_with('\n') {
-                                    hunk.full_content.push('\n');
-                                }
-                            }
+            for hunk in &mut file_hunks.hunks {
+                // For new files, read all lines from start_line to the end of file
+                if is_new_file {
+                    let start_idx = (hunk.start_line.saturating_sub(1)).min(lines.len());
+                    let hunk_lines = &lines[start_idx..];
+                    hunk.full_content = hunk_lines.join("\n");
+                    if !hunk.full_content.is_empty() && file_content.ends_with('\n') {
+                        hunk.full_content.push('\n');
+                    }
+                } else {
+                    // For modified files, read the exact range
+                    let start_idx = (hunk.start_line.saturating_sub(1)).min(lines.len());
+                    let end_idx = hunk.end_line.min(lines.len());
+
+                    if start_idx < end_idx {
+                        let hunk_lines = &lines[start_idx..end_idx];
+                        hunk.full_content = hunk_lines.join("\n");
+                        // Add trailing newline if the original file has it and this isn't the last line
+                        if !hunk.full_content.is_empty() && end_idx < lines.len() {
+                            hunk.full_content.push('\n');
+                        } else if end_idx == lines.len() && file_content.ends_with('\n') {
+                            hunk.full_content.push('\n');
                         }
                     }
                 }
