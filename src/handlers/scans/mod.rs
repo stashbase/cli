@@ -1,2 +1,2 @@
 pub mod commits;
-pub mod staged;
+pub mod files;
