@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     fs::{self, File},
     io::Write,
@@ -12,7 +12,9 @@ use spinoff::{spinners, Color, Spinner, Streams};
 use crate::{
     api::secrets,
     cmd::{config::SecretsOutputFormat, pull::PullFormat},
-    handlers::run::entry::{get_set_name_comment_pairs, get_set_name_value_pairs},
+    handlers::run::entry::{
+        get_set_name_comment_pairs, get_set_name_value_pairs, validate_no_duplicate_set_names,
+    },
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
@@ -77,6 +79,15 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
     if no_print_secrets {
         print_secrets = None;
+    }
+
+    if let Err(error) = validate_no_duplicate_set_names(&set) {
+        let formatted_err = error.format_error_output(json_format)?;
+
+        if !silent {
+            eprintln!();
+        }
+        bail!(formatted_err);
     }
 
     // Handle environment scope - workspace scope behaves like no scope
@@ -178,8 +189,17 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             if let Some(set_val) = secrets_config.set {
                 if set_val.is_empty() == false {
                     let mut set_secrets_from_file = Vec::new();
+                    let mut seen_set_names = HashSet::new();
+                    let mut duplicate_set_names = Vec::new();
+                    let mut duplicate_set_seen = HashSet::new();
 
                     for item in set_val {
+                        if !seen_set_names.insert(item.key.clone())
+                            && duplicate_set_seen.insert(item.key.clone())
+                        {
+                            duplicate_set_names.push(item.key.clone());
+                        }
+
                         if ignore_comments != Some(true) {
                             if let Some(comment) = item.comment {
                                 config_set_comments.insert(item.key.clone(), comment);
@@ -191,6 +211,20 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         if set.contains(&name_value_str) == false {
                             set_secrets_from_file.push(name_value_str);
                         }
+                    }
+
+                    if !duplicate_set_names.is_empty() {
+                        let error = InputValidationError::LoadEnvironment(
+                            LoadEnvironmentInputValidationError::SetDuplicateNames(
+                                duplicate_set_names,
+                            ),
+                        );
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        if !silent {
+                            eprintln!();
+                        }
+                        bail!(formatted_err);
                     }
                     set = [set_secrets_from_file, set].concat();
                 }

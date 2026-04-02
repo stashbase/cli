@@ -3,7 +3,9 @@ use std::{collections::HashSet, path::Path};
 use crate::{
     api::secrets,
     cmd::{pull::PullFormat, push::PushFormat, secrets::SecretsFileFormat},
-    handlers::run::entry::{get_set_name_comment_pairs, get_set_name_value_pairs},
+    handlers::run::entry::{
+        get_set_name_comment_pairs, get_set_name_value_pairs, validate_no_duplicate_set_names,
+    },
     models::{
         api_client::RequestApiOptionResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
@@ -64,6 +66,15 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         json_format,
         silent,
     } = args;
+
+    if let Err(error) = validate_no_duplicate_set_names(&set) {
+        let error_output = error.format_error_output(json_format)?;
+
+        if !silent {
+            eprintln!();
+        }
+        bail!(error_output);
+    }
 
     // Handle environment scope - workspace scope behaves like no scope
     let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
@@ -139,8 +150,17 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             if let Some(set_val) = secrets_config.set {
                 if set_val.is_empty() == false {
                     let mut set_secrets_from_file = Vec::new();
+                    let mut seen_set_names = HashSet::new();
+                    let mut duplicate_set_names = Vec::new();
+                    let mut duplicate_set_seen = HashSet::new();
 
                     for item in set_val {
+                        if !seen_set_names.insert(item.key.clone())
+                            && duplicate_set_seen.insert(item.key.clone())
+                        {
+                            duplicate_set_names.push(item.key.clone());
+                        }
+
                         if ignore_comments != Some(true) {
                             if let Some(comment) = item.comment {
                                 config_set_comments.insert(item.key.clone(), comment);
@@ -152,6 +172,20 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                         if set.contains(&name_value_str) == false {
                             set_secrets_from_file.push(name_value_str);
                         }
+                    }
+
+                    if !duplicate_set_names.is_empty() {
+                        let error = InputValidationError::LoadEnvironment(
+                            LoadEnvironmentInputValidationError::SetDuplicateNames(
+                                duplicate_set_names,
+                            ),
+                        );
+                        let error_output = error.format_error_output(json_format)?;
+
+                        if !silent {
+                            eprintln!();
+                        }
+                        bail!(error_output);
                     }
 
                     set = [set_secrets_from_file, set].concat();

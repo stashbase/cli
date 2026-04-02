@@ -158,6 +158,7 @@ pub enum LoadEnvironmentInputValidationError {
     SetSecretNamesFormat(Vec<String>),
     SetSecretNamesTooShort(Vec<String>),
     SetSecretNamesTooLong(Vec<String>),
+    SetDuplicateNames(Vec<String>),
     SetCommentWithoutSet(Vec<String>),
 }
 
@@ -943,6 +944,11 @@ impl LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::SetSecretNamesTooLong(secrets) => (
                 "Set secret names are too long.",
                 Some("Maximum length for secret name is 255 characters."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::SetDuplicateNames(secrets) => (
+                "Duplicate set secret names found.",
+                Some("Each secret name can appear only once per input source."),
                 secrets.clone()
             ),
             LoadEnvironmentInputValidationError::SetCommentWithoutSet(secrets) => (

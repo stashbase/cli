@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::bail;
 use log::debug;
@@ -100,6 +100,15 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         bail!(formatted_err);
     }
 
+    if let Err(error) = validate_no_duplicate_set_names(&set) {
+        let formatted_err = error.format_error_output(json_format)?;
+
+        if !silent {
+            eprintln!();
+        }
+        bail!(formatted_err);
+    }
+
     let mut is_from_file = true;
 
     let mut setted_secrets = HashMap::<String, String>::new();
@@ -185,13 +194,36 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             if let Some(set_val) = secrets_config.set {
                 if set_val.is_empty() == false {
                     let mut set_secrets_from_file = Vec::new();
+                    let mut seen_set_names = HashSet::new();
+                    let mut duplicate_set_names = Vec::new();
+                    let mut duplicate_set_seen = HashSet::new();
 
                     for item in set_val {
+                        if !seen_set_names.insert(item.key.clone())
+                            && duplicate_set_seen.insert(item.key.clone())
+                        {
+                            duplicate_set_names.push(item.key.clone());
+                        }
+
                         let name_value_str = format!("{}={}", item.key, item.value);
 
                         if set.contains(&name_value_str) == false {
                             set_secrets_from_file.push(name_value_str);
                         }
+                    }
+
+                    if !duplicate_set_names.is_empty() {
+                        let error = InputValidationError::LoadEnvironment(
+                            LoadEnvironmentInputValidationError::SetDuplicateNames(
+                                duplicate_set_names,
+                            ),
+                        );
+                        let formatted_err = error.format_error_output(json_format)?;
+
+                        if !silent {
+                            eprintln!();
+                        }
+                        bail!(formatted_err);
                     }
 
                     set = [set_secrets_from_file, set].concat();
@@ -791,6 +823,34 @@ pub fn get_set_name_value_pairs(
             return Err(error);
         }
     }
+}
+
+pub fn validate_no_duplicate_set_names(values: &[String]) -> Result<(), InputValidationError> {
+    let name_value_pairs = get_set_name_value_pairs(values.to_vec())?;
+    let duplicate_names = get_duplicate_names(&name_value_pairs);
+
+    if !duplicate_names.is_empty() {
+        let error = InputValidationError::LoadEnvironment(
+            LoadEnvironmentInputValidationError::SetDuplicateNames(duplicate_names),
+        );
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+pub fn get_duplicate_names(pairs: &[(String, String)]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut duplicate_names = Vec::new();
+    let mut duplicate_seen = HashSet::new();
+
+    for (name, _) in pairs {
+        if !seen.insert(name.clone()) && duplicate_seen.insert(name.clone()) {
+            duplicate_names.push(name.clone());
+        }
+    }
+
+    duplicate_names
 }
 
 pub fn get_set_name_comment_pairs(
