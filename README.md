@@ -105,6 +105,9 @@ stashbase generate hash "my-secret-value" --algorithm sha512
 
 # generate random passphrase
 stashbase generate passphrase --words 6 --separator "-"
+
+# generate SSH key pair
+stashbase generate ssh-keypair --out ~/.ssh/id_stashbase --comment "you@company.com"
 ```
 
 ### Scan for hardcoded secrets

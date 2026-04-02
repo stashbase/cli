@@ -22,6 +22,10 @@ pub enum GenerateSubcommand {
     /// Generate random passphrase
     #[clap(alias = "phrase")]
     Passphrase(GeneratePassphrase),
+
+    /// Generate SSH key pair
+    #[clap(name = "ssh-keypair", alias = "ssh")]
+    SshKeypair(GenerateSshKeypair),
 }
 
 #[derive(Debug, Args)]
@@ -171,4 +175,51 @@ pub struct GeneratePassphrase {
     /// Make passphrase uppercase
     #[arg(long = "uppercase")]
     pub uppercase: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "generate ssh-keypair [OPTIONS]")]
+pub struct GenerateSshKeypair {
+    /// SSH key algorithm
+    #[arg(short = 't', long = "type", value_enum, default_value = "ed25519")]
+    pub key_type: GenerateSshKeyType,
+
+    /// Key size in bits (RSA only, default: 4096)
+    #[arg(short = 'b', long = "bits", value_parser = clap::value_parser!(u16).range(2048..=16384))]
+    pub bits: Option<u16>,
+
+    /// Key comment
+    #[arg(short = 'c', long = "comment", default_value = "stashbase@local")]
+    pub comment: String,
+
+    /// Private key output path
+    #[arg(short = 'o', long = "out", default_value = "~/.ssh/id_stashbase")]
+    pub out: String,
+
+    /// Passphrase for private key (empty by default)
+    #[arg(long = "passphrase")]
+    pub passphrase: Option<String>,
+
+    /// Overwrite existing key files
+    #[arg(long = "force")]
+    pub force: bool,
+
+    /// Print generated public key content
+    #[arg(long = "print-public")]
+    pub print_public: bool,
+}
+
+#[derive(Debug, ValueEnum, Clone, Copy, PartialEq, Eq)]
+pub enum GenerateSshKeyType {
+    Ed25519,
+    Rsa,
+}
+
+impl GenerateSshKeyType {
+    pub fn as_ssh_keygen_type(&self) -> &'static str {
+        match self {
+            GenerateSshKeyType::Ed25519 => "ed25519",
+            GenerateSshKeyType::Rsa => "rsa",
+        }
+    }
 }
