@@ -158,6 +158,7 @@ pub enum LoadEnvironmentInputValidationError {
     SetSecretNamesFormat(Vec<String>),
     SetSecretNamesTooShort(Vec<String>),
     SetSecretNamesTooLong(Vec<String>),
+    SetCommentWithoutSet(Vec<String>),
 }
 
 #[derive(Debug, Serialize)]
@@ -942,6 +943,11 @@ impl LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::SetSecretNamesTooLong(secrets) => (
                 "Set secret names are too long.",
                 Some("Maximum length for secret name is 255 characters."),
+                secrets.clone()
+            ),
+            LoadEnvironmentInputValidationError::SetCommentWithoutSet(secrets) => (
+                "Set comment references unknown secret names.",
+                Some("Provide matching '--set NAME=VALUE' for each '--set-comment NAME=COMMENT'."),
                 secrets.clone()
             ),
         }

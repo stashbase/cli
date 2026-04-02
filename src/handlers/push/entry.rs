@@ -3,7 +3,7 @@ use std::{collections::HashSet, path::Path};
 use crate::{
     api::secrets,
     cmd::{pull::PullFormat, push::PushFormat, secrets::SecretsFileFormat},
-    handlers::run::entry::get_set_name_value_pairs,
+    handlers::run::entry::{get_set_name_comment_pairs, get_set_name_value_pairs},
     models::{
         api_client::RequestApiOptionResponse,
         config_env::{ConfigActionCommand, EnvConfigItem},
@@ -40,6 +40,7 @@ pub struct HandlePushArgs {
     //
     pub only: Vec<String>,
     pub set: Vec<String>,
+    pub set_comments: Vec<String>,
     pub exclude: Vec<String>,
     pub expand_refs: Option<bool>,
     pub ignore_comments: Option<bool>,
@@ -56,6 +57,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         exclude,
         mut expand_refs,
         mut set,
+        set_comments,
         mut format,
         mut target_file,
         mut ignore_comments,
@@ -73,6 +75,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     let mut only_set: HashSet<_> = only.into_iter().collect();
     let mut exclude_set: HashSet<_> = exclude.into_iter().collect();
+    let mut config_set_comments = std::collections::HashMap::<String, String>::new();
 
     // Handle environment scope differently - skip config file loading
     if is_environment_scope {
@@ -137,8 +140,14 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                 if set_val.is_empty() == false {
                     let mut set_secrets_from_file = Vec::new();
 
-                    for (name, value) in set_val {
-                        let name_value_str = format!("{}={}", name, value);
+                    for item in set_val {
+                        if ignore_comments != Some(true) {
+                            if let Some(comment) = item.comment {
+                                config_set_comments.insert(item.key.clone(), comment);
+                            }
+                        }
+
+                        let name_value_str = format!("{}={}", item.key, item.value);
 
                         if set.contains(&name_value_str) == false {
                             set_secrets_from_file.push(name_value_str);
@@ -155,6 +164,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             return Ok(());
         }
     }
+
+    let should_ignore_comments = ignore_comments == Some(true);
 
     let input_path = target_file.unwrap();
     let path = Path::new(&input_path);
@@ -314,18 +325,69 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
         match name_values_pairs {
             Ok(set_secrets) => {
+                let set_secret_names: HashSet<String> =
+                    set_secrets.iter().map(|(name, _)| name.clone()).collect();
+
+                if !should_ignore_comments && !set_comments.is_empty() {
+                    let comments_pairs = get_set_name_comment_pairs(set_comments);
+
+                    match comments_pairs {
+                        Ok(comments) => {
+                            let mut missing_set_names = Vec::<String>::new();
+
+                            for (name, comment) in comments {
+                                if set_secret_names.contains(&name) {
+                                    config_set_comments.insert(name, comment);
+                                } else {
+                                    missing_set_names.push(name);
+                                }
+                            }
+
+                            if !missing_set_names.is_empty() {
+                                let error = InputValidationError::LoadEnvironment(
+                                    LoadEnvironmentInputValidationError::SetCommentWithoutSet(
+                                        missing_set_names,
+                                    ),
+                                );
+                                let error_output = error.format_error_output(json_format)?;
+
+                                if !silent {
+                                    eprintln!();
+                                }
+                                bail!(error_output);
+                            }
+                        }
+                        Err(e) => {
+                            let error_output = e.format_error_output(json_format)?;
+
+                            if !silent {
+                                eprintln!();
+                            }
+                            bail!(error_output);
+                        }
+                    }
+                }
+
                 for (name, value) in set_secrets {
+                    let config_comment = if should_ignore_comments {
+                        None
+                    } else {
+                        config_set_comments.get(&name).cloned()
+                    };
                     // find index
                     let index = secrets.iter().position(|secret| secret.name == name);
 
                     if let Some(index) = index {
                         let existing_secret = &mut secrets[index];
                         existing_secret.value = value;
+                        if config_comment.is_some() {
+                            existing_secret.comment = config_comment;
+                        }
                     } else {
                         let new_secret = Secret {
                             name,
                             value,
-                            comment: None,
+                            comment: config_comment,
                         };
 
                         secrets.push(new_secret);
@@ -337,6 +399,36 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                     eprintln!();
                 }
                 bail!(e);
+            }
+        }
+    } else if !should_ignore_comments && !set_comments.is_empty() {
+        let comments_pairs = get_set_name_comment_pairs(set_comments);
+
+        match comments_pairs {
+            Ok(comments) => {
+                let missing_set_names = comments
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect::<Vec<String>>();
+                let error = InputValidationError::LoadEnvironment(
+                    LoadEnvironmentInputValidationError::SetCommentWithoutSet(
+                        missing_set_names,
+                    ),
+                );
+                let error_output = error.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+                bail!(error_output);
+            }
+            Err(e) => {
+                let error_output = e.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+                bail!(error_output);
             }
         }
     }

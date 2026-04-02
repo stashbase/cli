@@ -12,7 +12,7 @@ use spinoff::{spinners, Color, Spinner, Streams};
 use crate::{
     api::secrets,
     cmd::{config::SecretsOutputFormat, pull::PullFormat},
-    handlers::run::entry::get_set_name_value_pairs,
+    handlers::run::entry::{get_set_name_comment_pairs, get_set_name_value_pairs},
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         config_env::{ConfigActionCommand, EnvConfigItem},
@@ -42,6 +42,7 @@ pub struct HandlePullArgs {
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
+    pub set_comments: Vec<String>,
     pub file: Option<String>,
     pub target_file: Option<String>,
     pub format: Option<PullFormat>,
@@ -60,6 +61,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         scope,
         file,
         mut set,
+        set_comments,
         mut target_file,
         mut format,
         mut only,
@@ -82,7 +84,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
     let project: Option<String>;
     let environment: Option<String>;
-    let mut setted_secrets = HashMap::<String, String>::new();
+    let mut setted_secrets = HashMap::<String, Secret>::new();
+    let mut config_set_comments = HashMap::<String, String>::new();
 
     let config_action_command = ConfigActionCommand::Pull;
 
@@ -176,14 +179,19 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 if set_val.is_empty() == false {
                     let mut set_secrets_from_file = Vec::new();
 
-                    for (name, value) in set_val {
-                        let name_value_str = format!("{}={}", name, value);
+                    for item in set_val {
+                        if ignore_comments != Some(true) {
+                            if let Some(comment) = item.comment {
+                                config_set_comments.insert(item.key.clone(), comment);
+                            }
+                        }
+
+                        let name_value_str = format!("{}={}", item.key, item.value);
 
                         if set.contains(&name_value_str) == false {
                             set_secrets_from_file.push(name_value_str);
                         }
                     }
-
                     set = [set_secrets_from_file, set].concat();
                 }
             }
@@ -196,6 +204,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             return Ok(());
         }
     }
+
+    let should_ignore_comments = ignore_comments == Some(true);
 
     // Validation logic - skip for environment scope
     if !is_environment_scope {
@@ -268,7 +278,18 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         match name_values_pairs {
             Ok(secrets) => {
                 for (name, value) in secrets {
-                    setted_secrets.insert(name, value);
+                    let comment = if should_ignore_comments {
+                        None
+                    } else {
+                        config_set_comments.get(&name).cloned()
+                    };
+                    let secret = Secret {
+                        name: name.clone(),
+                        value,
+                        comment,
+                    };
+
+                    setted_secrets.insert(name, secret);
                 }
             }
             Err(e) => {
@@ -283,10 +304,49 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         }
     }
 
+    if !should_ignore_comments && !set_comments.is_empty() {
+        let comments_pairs = get_set_name_comment_pairs(set_comments);
+
+        match comments_pairs {
+            Ok(comments) => {
+                let mut missing_set_names = Vec::<String>::new();
+
+                for (name, comment) in comments {
+                    if let Some(secret) = setted_secrets.get_mut(&name) {
+                        secret.comment = Some(comment);
+                    } else {
+                        missing_set_names.push(name);
+                    }
+                }
+
+                if !missing_set_names.is_empty() {
+                    let error = InputValidationError::LoadEnvironment(
+                        LoadEnvironmentInputValidationError::SetCommentWithoutSet(
+                            missing_set_names,
+                        ),
+                    );
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    if !silent {
+                        eprintln!();
+                    }
+                    bail!(formatted_err);
+                }
+            }
+            Err(e) => {
+                let formatted_err = e.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+                bail!(formatted_err);
+            }
+        }
+    }
+
     // exclude manually
     if !setted_secrets.is_empty() {
-        for secret in setted_secrets.iter() {
-            let name = secret.0;
+        for name in setted_secrets.keys() {
 
             let exists = exclude.contains(&name);
             if !exists {
@@ -424,13 +484,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                         if let Some(true) = confirmation {
                             if !setted_secrets.is_empty() {
-                                for (name, value) in setted_secrets {
-                                    let secret = Secret {
-                                        name,
-                                        value,
-                                        comment: None,
-                                    };
-
+                                for (_, secret) in setted_secrets {
                                     secrets.push(secret);
                                 }
                             }
@@ -535,13 +589,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                         }
                     } else {
                         if !setted_secrets.is_empty() {
-                            for (name, value) in setted_secrets {
-                                let secret = Secret {
-                                    name,
-                                    value,
-                                    comment: None,
-                                };
-
+                            for (_, secret) in setted_secrets {
                                 secrets.push(secret);
                             }
                         }

@@ -42,6 +42,7 @@ pub struct HandleRunArgs {
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
+    pub set_comments: Vec<String>,
     pub print_secrets: Option<PrintSecrets>,
     pub no_print_secrets: bool,
     pub file: Option<String>,
@@ -57,6 +58,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         command,
         file,
         mut set,
+        set_comments,
         mut project,
         mut environment,
         mut only,
@@ -184,8 +186,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 if set_val.is_empty() == false {
                     let mut set_secrets_from_file = Vec::new();
 
-                    for (name, value) in set_val {
-                        let name_value_str = format!("{}={}", name, value);
+                    for item in set_val {
+                        let name_value_str = format!("{}={}", item.key, item.value);
 
                         if set.contains(&name_value_str) == false {
                             set_secrets_from_file.push(name_value_str);
@@ -272,6 +274,44 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             Ok(secrets) => {
                 for (name, value) in secrets {
                     setted_secrets.insert(name, value);
+                }
+            }
+            Err(e) => {
+                let formatted_err = e.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+                bail!(formatted_err);
+            }
+        }
+    }
+
+    if !set_comments.is_empty() {
+        let comments_pairs = get_set_name_comment_pairs(set_comments);
+
+        match comments_pairs {
+            Ok(comments) => {
+                let mut missing_set_names = Vec::<String>::new();
+
+                for (name, _) in comments {
+                    if !setted_secrets.contains_key(&name) {
+                        missing_set_names.push(name);
+                    }
+                }
+
+                if !missing_set_names.is_empty() {
+                    let error = InputValidationError::LoadEnvironment(
+                        LoadEnvironmentInputValidationError::SetCommentWithoutSet(
+                            missing_set_names,
+                        ),
+                    );
+                    let formatted_err = error.format_error_output(json_format)?;
+
+                    if !silent {
+                        eprintln!();
+                    }
+                    bail!(formatted_err);
                 }
             }
             Err(e) => {
@@ -749,6 +789,39 @@ pub fn get_set_name_value_pairs(
             );
 
             return Err(error);
+        }
+    }
+}
+
+pub fn get_set_name_comment_pairs(
+    comments: Vec<String>,
+) -> Result<Vec<(String, String)>, InputValidationError> {
+    let name_comment_pairs_res = separator::key_value(comments);
+
+    match name_comment_pairs_res {
+        Ok(name_comment_pairs) => {
+            let names = name_comment_pairs
+                .iter()
+                .map(|kv| format!("{}", kv.0))
+                .collect::<Vec<String>>();
+
+            let names_validation = validate_secret_names(&names);
+
+            match names_validation {
+                Ok(_) => Ok(name_comment_pairs),
+                Err(err) => {
+                    let mapped_err = map_secret_to_load_set_secrets_error(&err);
+                    let error = InputValidationError::LoadEnvironment(mapped_err);
+                    Err(error)
+                }
+            }
+        }
+        Err(_) => {
+            let error = InputValidationError::LoadEnvironment(
+                LoadEnvironmentInputValidationError::SetSecretNameValueSeparator,
+            );
+
+            Err(error)
         }
     }
 }

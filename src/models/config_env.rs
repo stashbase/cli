@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap, env};
+use std::env;
 
 use anyhow::{bail, Result};
 use log::debug;
@@ -29,6 +29,13 @@ pub struct EnvConfigItem {
 
     // only for push
     pub push: Option<PushActionConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretSetConfigItem {
+    pub key: String,
+    pub value: String,
+    pub comment: Option<String>,
 }
 
 pub enum ConfigActionCommand {
@@ -155,7 +162,8 @@ impl EnvConfigItem {
         let self_secrets = self.secrets.as_ref();
         let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
-        let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
+        let mut set: Option<Vec<SecretSetConfigItem>> =
+            self_secrets.and_then(|s| s.set.to_owned());
 
         let mut expand_refs: Option<bool> = None;
         let mut ignore_comments: Option<bool> = None;
@@ -194,7 +202,8 @@ impl EnvConfigItem {
         let self_secrets = self.secrets.as_ref();
         let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
-        let mut set: Option<HashMap<String, String>> = self_secrets.and_then(|s| s.set.to_owned());
+        let mut set: Option<Vec<SecretSetConfigItem>> =
+            self_secrets.and_then(|s| s.set.to_owned());
 
         let mut expand_refs: Option<bool> = None;
         let mut print_secrets: Option<PrintSecrets> = None;
@@ -255,7 +264,7 @@ impl PushSecretsConfig {
     fn new(
         only: Option<Vec<String>>,
         exclude: Option<Vec<String>>,
-        set: Option<HashMap<String, String>>,
+        set: Option<Vec<SecretSetConfigItem>>,
         expand_refs: Option<bool>,
         ignore_comments: Option<bool>,
     ) -> Self {
@@ -273,7 +282,7 @@ impl PushSecretsConfig {
 pub struct PushSecretsConfig {
     pub only: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
-    pub set: Option<HashMap<String, String>>,
+    pub set: Option<Vec<SecretSetConfigItem>>,
 
     #[serde(rename = "expand-refs")]
     pub expand_refs: Option<bool>,
@@ -298,7 +307,7 @@ pub struct PullSecretsConfig {
     pub only: Option<Vec<String>>,
     // Exclude secret names
     pub exclude: Option<Vec<String>>,
-    pub set: Option<HashMap<String, String>>,
+    pub set: Option<Vec<SecretSetConfigItem>>,
 
     #[serde(rename = "ignore-comments")]
     pub ignore_comments: Option<bool>,
@@ -311,7 +320,7 @@ impl PullSecretsConfig {
     fn new(
         only: Option<Vec<String>>,
         exclude: Option<Vec<String>>,
-        set: Option<HashMap<String, String>>,
+        set: Option<Vec<SecretSetConfigItem>>,
         expand_refs: Option<bool>,
         print: Option<PrintSecrets>,
         ignore_comments: Option<bool>,

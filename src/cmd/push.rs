@@ -39,6 +39,10 @@ pub struct PushCommand {
     #[clap(long="set", num_args = 1..)]
     pub set: Vec<String>,
 
+    /// Manually set secret comments
+    #[clap(long = "set-comment", num_args = 1..)]
+    pub set_comment: Vec<String>,
+
     /// Expand references to their values
     #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
