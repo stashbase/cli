@@ -1,7 +1,8 @@
 use crate::{
     cmd::generate::{GenerateCommand, GenerateSubcommand, GenerateUuidSubcommand},
     handlers::generate::{
-        hash::handle_generate_hash, random::handle_generate_random_string,
+        hash::handle_generate_hash, passphrase::handle_generate_passphrase,
+        random::handle_generate_random_string,
         uuid::{handle_generate_uuid_v4, handle_generate_uuid_v7},
     },
     models::generate::Encoding,
@@ -23,6 +24,9 @@ pub fn handle_generate_command(cmd: GenerateCommand, json_format: bool) -> Resul
         }
         GenerateSubcommand::Hash(args) => {
             handle_generate_hash(args.value, args.algorithm, json_format, args.uppercase)
+        }
+        GenerateSubcommand::Passphrase(args) => {
+            handle_generate_passphrase(args.words, args.separator, json_format, args.uppercase)
         }
     }
 

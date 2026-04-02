@@ -102,6 +102,9 @@ stashbase generate hash "my-secret-value"
 
 # generate SHA-512 hash from value
 stashbase generate hash "my-secret-value" --algorithm sha512
+
+# generate random passphrase
+stashbase generate passphrase --words 6 --separator "-"
 ```
 
 ### Scan for hardcoded secrets

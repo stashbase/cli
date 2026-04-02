@@ -79,7 +79,7 @@ pub enum EntityType {
     #[clap(name = "webhooks", aliases = &["web"])]
     Webhooks(WebhookCommand),
 
-    /// Generate random string, UUID, or hash
+    /// Generate random string, UUID, hash, or passphrase
     #[clap(name = "generate", aliases = &["gen"])]
     Generate(GenerateCommand),
 

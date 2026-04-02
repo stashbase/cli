@@ -18,6 +18,10 @@ pub enum GenerateSubcommand {
 
     /// Generate hash from value
     Hash(GenerateHash),
+
+    /// Generate random passphrase
+    #[clap(alias = "phrase")]
+    Passphrase(GeneratePassphrase),
 }
 
 #[derive(Debug, Args)]
@@ -151,4 +155,20 @@ pub enum GenerateHashAlgorithm {
     Sha256,
     Sha384,
     Sha512,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "generate passphrase [OPTIONS]")]
+pub struct GeneratePassphrase {
+    /// Number of words in passphrase
+    #[arg(short = 'w', long = "words", default_value = "6", value_parser = clap::value_parser!(u8).range(3..=24))]
+    pub words: u8,
+
+    /// Separator between words
+    #[arg(short = 's', long = "separator", default_value = "-")]
+    pub separator: String,
+
+    /// Make passphrase uppercase
+    #[arg(long = "uppercase")]
+    pub uppercase: bool,
 }
