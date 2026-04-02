@@ -85,7 +85,7 @@ stashbase environments list -p <PROJECT_ID_OR_NAME>
 stashbase secrets list -p <PROJECT_ID_OR_NAME> -e <ENVIRONMENT_ID_OR_NAME>
 ```
 
-### Generate random string (utility)
+### Generate utility values
 
 ```bash
 # generate random uuid v4
@@ -96,6 +96,12 @@ stashbase generate random hex --bytes 16 --uppercase
 
 # generate random base64 string
 stashbase generate random base64 --length 32 --uppercase
+
+# generate SHA-256 hash from value
+stashbase generate hash "my-secret-value"
+
+# generate SHA-512 hash from value
+stashbase generate hash "my-secret-value" --algorithm sha512
 ```
 
 ### Scan for hardcoded secrets

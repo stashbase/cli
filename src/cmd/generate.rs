@@ -1,4 +1,4 @@
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "generate <COMMAND> [OPTIONS]")]
@@ -15,6 +15,9 @@ pub enum GenerateSubcommand {
     /// Generate random string
     #[clap(alias = "rand")]
     Random(GenerateRandomString),
+
+    /// Generate hash from value
+    Hash(GenerateHash),
 }
 
 #[derive(Debug, Args)]
@@ -124,4 +127,28 @@ pub struct GenerateRandomOptions {
     /// Make the random string uppercase
     #[arg(long = "uppercase")]
     pub uppercase: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "generate hash <VALUE> [OPTIONS]")]
+pub struct GenerateHash {
+    /// Value to hash
+    #[arg(value_name = "VALUE")]
+    pub value: String,
+
+    /// Hash algorithm
+    #[arg(short = 'a', long = "algorithm", value_enum, default_value = "sha256")]
+    pub algorithm: GenerateHashAlgorithm,
+
+    /// Make hash uppercase
+    #[arg(long = "uppercase")]
+    pub uppercase: bool,
+}
+
+#[derive(Debug, ValueEnum, Clone, Copy)]
+pub enum GenerateHashAlgorithm {
+    Sha224,
+    Sha256,
+    Sha384,
+    Sha512,
 }
