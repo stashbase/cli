@@ -5,12 +5,19 @@
     only:
       - USER_ID
     # set:
-    #   DATABASE_URL: THIS_IS_DB_URL
-    #   DATABASE_URLs: THIS_IS_DB_URL
-    #   dsad: dsada
-    #   DATABASES_URL: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786
-    #   DATABASES_URL2: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786
-    #   XXDATABASES_URL2: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786jkhvdfjlksghvhjkdfgjv
+    #   - key: DATABASE_URL
+    #     value: THIS_IS_DB_URL
+    #     comment: Database URL for local dev
+    #   - key: DATABASE_URLs
+    #     value: THIS_IS_DB_URL
+    #   - key: dsad
+    #     value: dsada
+    #   - key: DATABASES_URL
+    #     value: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786
+    #   - key: DATABASES_URL2
+    #     value: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786
+    #   - key: XXDATABASES_URL2
+    #     value: THIS_IS_DB_URLdshjkfgdosfg78ew6r790236749845y62035623786jkhvdfjlksghvhjkdfgjv
   pull:
     output: .local.env
     format: dotenv
