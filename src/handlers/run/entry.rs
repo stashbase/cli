@@ -199,13 +199,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     let mut duplicate_set_seen = HashSet::new();
 
                     for item in set_val {
-                        if !seen_set_names.insert(item.key.clone())
-                            && duplicate_set_seen.insert(item.key.clone())
+                        if !seen_set_names.insert(item.name.clone())
+                            && duplicate_set_seen.insert(item.name.clone())
                         {
-                            duplicate_set_names.push(item.key.clone());
+                            duplicate_set_names.push(item.name.clone());
                         }
 
-                        let name_value_str = format!("{}={}", item.key, item.value);
+                        let name_value_str = format!("{}={}", item.name, item.value);
 
                         if set.contains(&name_value_str) == false {
                             set_secrets_from_file.push(name_value_str);

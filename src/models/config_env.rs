@@ -33,7 +33,8 @@ pub struct EnvConfigItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecretSetConfigItem {
-    pub key: String,
+    #[serde(alias = "key")]
+    pub name: String,
     pub value: String,
     pub comment: Option<String>,
 }
