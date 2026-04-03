@@ -41,7 +41,7 @@ pub enum ApiPath {
         path: Option<String>,
     },
     SearchSecrets {
-        project: Option<String>,
+        project: String,
     },
     Scan {
         path: String,
@@ -119,10 +119,7 @@ impl fmt::Display for ApiPath {
                     )
                 }
             },
-            ApiPath::SearchSecrets { project } => match project {
-                Some(p) => write!(f, "v1/projects/{}/secrets-search", p),
-                None => write!(f, "v1/secrets-search"),
-            },
+            ApiPath::SearchSecrets { project } => write!(f, "v1/projects/{}/secrets-search", project),
             ApiPath::Whoami => write!(f, "v1/whoami"),
         }
     }

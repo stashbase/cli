@@ -192,7 +192,7 @@ pub async fn update_secrets(
 
 pub async fn search_secrets(
     api_key: String,
-    project: &Option<String>,
+    project: &String,
     name: &Option<String>,
     value: &Option<String>,
     show_values: bool,
@@ -216,7 +216,7 @@ pub async fn search_secrets(
 
     let args = RequestArgs {
         path: ApiPath::SearchSecrets {
-            project: project.as_ref().map(|p| p.to_string()),
+            project: project.to_string(),
         },
         query: Some(query),
         api_key,

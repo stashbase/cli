@@ -13,9 +13,7 @@ use crate::{
         secrets::{
             ProjectSecretSearchedByName, ProjectSecretSearchedByNameTable,
             ProjectSecretSearchedByValue, ProjectSecretSearchedByValueTable,
-            SecretsSearchOutputFormat, WorkspaceSecretSearchedByName,
-            WorkspaceSecretSearchedByNameTable, WorkspaceSecretSearchedByValue,
-            WorkspaceSecretSearchedByValueTable,
+            SecretsSearchOutputFormat,
         },
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -29,7 +27,7 @@ use crate::{
 
 pub struct HandleSearchSecretsArgs {
     pub api_key: String,
-    pub project: Option<String>,
+    pub project: String,
     pub format: SecretsSearchOutputFormat,
     pub name: Option<String>,
     pub value: Option<String>,
@@ -50,18 +48,15 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         silent,
     } = args;
 
-    if let Some(project) = &project {
-        let validation_res = validate_project_identifier(project, false);
+    let validation_res = validate_project_identifier(&project, false);
 
-        if let Err(err) = validation_res {
-            let error_output =
-                err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
+    if let Err(err) = validation_res {
+        let error_output = err.format_error_output(format == SecretsSearchOutputFormat::Json)?;
 
-            if !silent {
-                eprintln!();
-            }
-            bail!(error_output);
+        if !silent {
+            eprintln!();
         }
+        bail!(error_output);
     }
 
     if name.is_none() && value.is_none() {
@@ -159,27 +154,15 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
     let res = res.unwrap();
 
     match res {
-        GetRequestApiResponse::Ok(data) => match project {
-            Some(_) => match search_by_name {
-                true => handle_search_secrets_response::<
-                    ProjectSecretSearchedByName,
-                    ProjectSecretSearchedByNameTable,
-                >(spinner, format, data, silent)?,
-                false => handle_search_secrets_response::<
-                    ProjectSecretSearchedByValue,
-                    ProjectSecretSearchedByValueTable,
-                >(spinner, format, data, silent)?,
-            },
-            None => match search_by_name {
-                true => handle_search_secrets_response::<
-                    WorkspaceSecretSearchedByName,
-                    WorkspaceSecretSearchedByNameTable,
-                >(spinner, format, data, silent)?,
-                false => handle_search_secrets_response::<
-                    WorkspaceSecretSearchedByValue,
-                    WorkspaceSecretSearchedByValueTable,
-                >(spinner, format, data, silent)?,
-            },
+        GetRequestApiResponse::Ok(data) => match search_by_name {
+            true => handle_search_secrets_response::<
+                ProjectSecretSearchedByName,
+                ProjectSecretSearchedByNameTable,
+            >(spinner, format, data, silent)?,
+            false => handle_search_secrets_response::<
+                ProjectSecretSearchedByValue,
+                ProjectSecretSearchedByValueTable,
+            >(spinner, format, data, silent)?,
         },
         GetRequestApiResponse::Err(err) => {
             if let Some(mut spinner) = spinner {

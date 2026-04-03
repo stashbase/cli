@@ -97,7 +97,9 @@ impl SecretSubcommand {
                 d.shared_args.project.as_deref(),
                 d.shared_args.environment.as_deref(),
             ),
-            SecretSubcommand::Search(search_secrets) => (search_secrets.project.as_deref(), None),
+            SecretSubcommand::Search(search_secrets) => {
+                (Some(search_secrets.project.as_str()), None)
+            }
             SecretSubcommand::Diff(diff_secrets) => (
                 diff_secrets.shared_args.project.as_deref(),
                 diff_secrets.shared_args.environment.as_deref(),
@@ -324,11 +326,11 @@ impl Display for SecretsFileFormat {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets search [OPTIONS]")]
+#[command(override_usage = "secrets search -p <PROJECT> [OPTIONS]")]
 pub struct SearchSecrets {
     /// Project name
-    #[arg(value_enum, short = 'p', long = "project", required = false)]
-    pub project: Option<String>,
+    #[arg(value_enum, short = 'p', long = "project", required = true)]
+    pub project: String,
 
     /// Secret name to search for
     #[arg(value_enum, long = "name", required = false)]
