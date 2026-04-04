@@ -119,7 +119,9 @@ impl fmt::Display for ApiPath {
                     )
                 }
             },
-            ApiPath::SearchSecrets { project } => write!(f, "v1/projects/{}/secrets-search", project),
+            ApiPath::SearchSecrets { project } => {
+                write!(f, "v1/projects/{}/secrets/search", project)
+            }
             ApiPath::Whoami => write!(f, "v1/whoami"),
         }
     }
