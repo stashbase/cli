@@ -82,7 +82,7 @@ pub async fn handle_secrets_commands(
             project: args.project,
             name: args.name,
             value: args.value,
-            show_values: args.show_values,
+            return_values: args.return_values,
             with_ids: args.with_ids,
         };
 

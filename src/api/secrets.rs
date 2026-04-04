@@ -195,7 +195,7 @@ pub async fn search_secrets(
     project: &String,
     name: &Option<String>,
     value: &Option<String>,
-    show_values: bool,
+    return_values: bool,
     with_ids: bool,
 ) -> Result<GetRequestApiResponse, OutputError> {
     let mut query = vec![];
@@ -203,8 +203,8 @@ pub async fn search_secrets(
     if let Some(name) = name {
         query.push(("name".to_string(), name.to_string()));
 
-        if show_values {
-            query.push(("show_values".to_string(), "true".to_string()));
+        if return_values {
+            query.push(("return_values".to_string(), "true".to_string()));
         }
     } else if let Some(value) = value {
         query.push(("value".to_string(), value.to_string()));

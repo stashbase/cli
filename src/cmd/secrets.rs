@@ -341,8 +341,8 @@ pub struct SearchSecrets {
     pub value: Option<String>,
 
     /// Reveal secret values, for search by name
-    #[arg(value_enum, long = "show-values")]
-    pub show_values: bool,
+    #[arg(value_enum, long = "return-values")]
+    pub return_values: bool,
 
     /// Display also IDs of the projects and environments
     #[arg(value_enum, long = "with-ids")]
