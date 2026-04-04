@@ -83,7 +83,6 @@ pub async fn handle_secrets_commands(
             name: args.name,
             value: args.value,
             return_values: args.return_values,
-            with_ids: args.with_ids,
         };
 
         handle_search_secrets(args).await?;

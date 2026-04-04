@@ -32,7 +32,6 @@ pub struct HandleSearchSecretsArgs {
     pub name: Option<String>,
     pub value: Option<String>,
     pub return_values: bool,
-    pub with_ids: bool,
     pub silent: bool,
 }
 
@@ -44,7 +43,6 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
         name,
         value,
         return_values,
-        with_ids,
         silent,
     } = args;
 
@@ -138,8 +136,7 @@ pub async fn handle_search_secrets(args: HandleSearchSecretsArgs) -> Result<()> 
     } else {
         None
     };
-    let res =
-        secrets::search_secrets(api_key, &project, &name, &value, return_values, with_ids).await;
+    let res = secrets::search_secrets(api_key, &project, &name, &value, return_values).await;
 
     if let Err(err) = res {
         if let Some(mut spinner) = spinner {

@@ -344,10 +344,6 @@ pub struct SearchSecrets {
     #[arg(value_enum, long = "return-values")]
     pub return_values: bool,
 
-    /// Display also IDs of the projects and environments
-    #[arg(value_enum, long = "with-ids")]
-    pub with_ids: bool,
-
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsSearchOutputFormat>,
