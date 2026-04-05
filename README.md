@@ -131,6 +131,9 @@ stashbase doctor
 
 # include live API auth check
 stashbase doctor --auth-check
+
+# show detailed diagnostics
+stashbase doctor --verbose
 ```
 
 ## License

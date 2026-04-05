@@ -31,6 +31,8 @@ struct DoctorCheck {
     name: String,
     status: DoctorStatus,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -51,7 +53,15 @@ pub async fn handle_doctor_command(
     match config::get_config_path() {
         Ok(path) => {
             config_path = Some(path.clone());
-            checks.push(ok("Config path", format!("Resolved: {}", path.display())));
+            if cmd.verbose {
+                checks.push(okd(
+                    "Config path",
+                    "Resolved",
+                    format!("Path: {}", path.display()),
+                ));
+            } else {
+                checks.push(ok("Config path", format!("Resolved: {}", path.display())));
+            }
 
             if path.exists() {
                 match fs::read_to_string(&path) {
@@ -129,28 +139,55 @@ pub async fn handle_doctor_command(
 
     let legacy_config_api_key = parsed_config.as_ref().and_then(|cfg| cfg.api_key.clone());
 
-    let selected_api_key = if let Some(cli_key) = api_key_override {
-        checks.push(ok("API key source", "Using --api-key flag"));
-        Some(cli_key)
-    } else if let Some(key) = env_api_key {
-        checks.push(ok("API key source", "Using STASHBASE_API_KEY environment variable"));
-        Some(key)
-    } else if let Some(key) = secure_store_api_key {
-        checks.push(ok("API key source", "Using secure store key"));
-        Some(key)
-    } else if let Some(key) = legacy_config_api_key {
-        checks.push(warn(
-            "API key source",
-            "Using legacy config file key; run setup/config to migrate to secure store",
-        ));
-        Some(key)
+    let api_key_presence_details = if cmd.verbose {
+        Some(format!(
+            "Sources available: --api-key={}, env(STASHBASE_API_KEY)={}, secure_store={}, legacy_config={}",
+            api_key_override.is_some(),
+            env_api_key.is_some(),
+            secure_store_api_key.is_some(),
+            legacy_config_api_key.is_some()
+        ))
     } else {
-        checks.push(warn("API key source", "No API key found"));
         None
     };
 
-    checks.push(check_binary("git"));
-    checks.push(check_binary("ssh-keygen"));
+    let selected_api_key = if let Some(cli_key) = api_key_override {
+        checks.push(with_optional_details(
+            ok("API key source", "Using --api-key flag"),
+            api_key_presence_details.clone(),
+        ));
+        Some(cli_key)
+    } else if let Some(key) = env_api_key {
+        checks.push(with_optional_details(
+            ok("API key source", "Using STASHBASE_API_KEY environment variable"),
+            api_key_presence_details.clone(),
+        ));
+        Some(key)
+    } else if let Some(key) = secure_store_api_key {
+        checks.push(with_optional_details(
+            ok("API key source", "Using secure store key"),
+            api_key_presence_details.clone(),
+        ));
+        Some(key)
+    } else if let Some(key) = legacy_config_api_key {
+        checks.push(with_optional_details(
+            warn(
+                "API key source",
+                "Using legacy config file key; run setup/config to migrate to secure store",
+            ),
+            api_key_presence_details.clone(),
+        ));
+        Some(key)
+    } else {
+        checks.push(with_optional_details(
+            warn("API key source", "No API key found"),
+            api_key_presence_details.clone(),
+        ));
+        None
+    };
+
+    checks.push(check_binary("git", cmd.verbose));
+    checks.push(check_binary("ssh-keygen", cmd.verbose));
 
     if cmd.auth_check {
         match selected_api_key {
@@ -195,6 +232,11 @@ pub async fn handle_doctor_command(
                 DoctorStatus::Fail => "FAIL".red_if_tty(),
             };
             println!("[{}] {}: {}", label, check.name, check.message);
+            if cmd.verbose {
+                if let Some(details) = &check.details {
+                    println!("    {}", details);
+                }
+            }
         }
 
         println!();
@@ -209,9 +251,17 @@ pub async fn handle_doctor_command(
     Ok(report.status == DoctorStatus::Fail)
 }
 
-fn check_binary(binary: &str) -> DoctorCheck {
-    if command_exists(binary) {
-        ok(format!("Binary `{}`", binary), "Found in PATH")
+fn check_binary(binary: &str, verbose: bool) -> DoctorCheck {
+    if let Some(path) = command_path(binary) {
+        if verbose {
+            okd(
+                format!("Binary `{}`", binary),
+                "Found in PATH",
+                format!("Resolved executable: {}", path.display()),
+            )
+        } else {
+            ok(format!("Binary `{}`", binary), "Found in PATH")
+        }
     } else {
         warn(
             format!("Binary `{}`", binary),
@@ -220,9 +270,9 @@ fn check_binary(binary: &str) -> DoctorCheck {
     }
 }
 
-fn command_exists(binary: &str) -> bool {
+fn command_path(binary: &str) -> Option<PathBuf> {
     let Some(path_var) = env::var_os("PATH") else {
-        return false;
+        return None;
     };
 
     let candidates = binary_candidates(binary);
@@ -231,12 +281,12 @@ fn command_exists(binary: &str) -> bool {
         for candidate in &candidates {
             let full_path = dir.join(candidate);
             if is_executable_file(&full_path) {
-                return true;
+                return Some(full_path);
             }
         }
     }
 
-    false
+    None
 }
 
 fn binary_candidates(binary: &str) -> Vec<String> {
@@ -298,6 +348,7 @@ fn ok(name: impl Into<String>, message: impl Into<String>) -> DoctorCheck {
         name: name.into(),
         status: DoctorStatus::Ok,
         message: message.into(),
+        details: None,
     }
 }
 
@@ -306,6 +357,7 @@ fn warn(name: impl Into<String>, message: impl Into<String>) -> DoctorCheck {
         name: name.into(),
         status: DoctorStatus::Warn,
         message: message.into(),
+        details: None,
     }
 }
 
@@ -314,5 +366,20 @@ fn fail(name: impl Into<String>, message: impl Into<String>) -> DoctorCheck {
         name: name.into(),
         status: DoctorStatus::Fail,
         message: message.into(),
+        details: None,
     }
+}
+
+fn okd(name: impl Into<String>, message: impl Into<String>, details: impl Into<String>) -> DoctorCheck {
+    DoctorCheck {
+        name: name.into(),
+        status: DoctorStatus::Ok,
+        message: message.into(),
+        details: Some(details.into()),
+    }
+}
+
+fn with_optional_details(mut check: DoctorCheck, details: Option<String>) -> DoctorCheck {
+    check.details = details;
+    check
 }
