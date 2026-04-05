@@ -123,6 +123,16 @@ stashbase scan changes
 stashbase scan commits
 ```
 
+### Diagnose CLI setup
+
+```bash
+# run local diagnostics
+stashbase doctor
+
+# include live API auth check
+stashbase doctor --auth-check
+```
+
 ## License
 
 Stashbase CLI is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).

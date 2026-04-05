@@ -3,9 +3,9 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::cmd::scans::ScanCommands;
 
 use super::{
-    config::ConfigCommand, environments::EnvironmentCommands, generate::GenerateCommand,
-    projects::ProjectCommands, pull::PullCommand, push::PushCommand, run::RunCommand,
-    secrets::SecretArgs, setup::SetupCommand, webhooks::WebhookCommand,
+    config::ConfigCommand, doctor::DoctorCommand, environments::EnvironmentCommands,
+    generate::GenerateCommand, projects::ProjectCommands, pull::PullCommand, push::PushCommand,
+    run::RunCommand, secrets::SecretArgs, setup::SetupCommand, webhooks::WebhookCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -83,6 +83,10 @@ pub enum EntityType {
     #[clap(name = "generate", aliases = &["gen"])]
     Generate(GenerateCommand),
 
+    /// Diagnose CLI configuration and environment
+    #[clap(name = "doctor", aliases = &["diag", "doc"])]
+    Doctor(DoctorCommand),
+
     /// Your CLI configuration
     Config(ConfigCommand),
 
@@ -103,6 +107,7 @@ impl EntityType {
         match self {
             EntityType::Generate(_) => false,
             EntityType::Config(_) => false,
+            EntityType::Doctor(_) => false,
             _ => true,
         }
     }

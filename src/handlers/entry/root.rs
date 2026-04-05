@@ -17,6 +17,7 @@ use crate::{
             secrets::handle_secrets_commands,
             webhooks::handle_webhook_commands,
         },
+        doctor::handle_doctor_command,
         open::handle_open_dashboard,
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
@@ -33,6 +34,21 @@ pub async fn handle_cli(args: Cli) {
     if let EntityType::Generate(cmd) = args.entity_type {
         if let Err(e) = handle_generate_command(cmd, args.raw) {
             eprintln!("{:?}", e);
+        }
+        return;
+    }
+
+    if let EntityType::Doctor(cmd) = args.entity_type {
+        match handle_doctor_command(cmd, args.raw, args.api_key).await {
+            Ok(has_failures) => {
+                if has_failures {
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("{:?}", e);
+                std::process::exit(1);
+            }
         }
         return;
     }
@@ -295,6 +311,7 @@ pub async fn handle_cli(args: Cli) {
             EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent).await,
             EntityType::Open => handle_open_dashboard(api_key, silent).await,
             EntityType::Generate(_) => unreachable!(),
+            EntityType::Doctor(_) => unreachable!(),
         };
 
         if let Err(err) = result {

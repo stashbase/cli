@@ -1,4 +1,5 @@
 pub mod config;
+pub mod doctor;
 pub mod entry;
 pub mod environments;
 pub mod generate;
