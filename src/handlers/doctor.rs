@@ -8,7 +8,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::{
-    api::auth::get_current_auth_details,
+    api::auth::get_current_auth_details_no_retry,
     cmd::doctor::DoctorCommand,
     config::{config, secure_store},
     models::{api_client::GetRequestApiResponse, config::Config},
@@ -155,7 +155,7 @@ pub async fn handle_doctor_command(
     if cmd.auth_check {
         match selected_api_key {
             Some(api_key) => {
-                let auth_response = get_current_auth_details(api_key).await;
+                let auth_response = get_current_auth_details_no_retry(api_key).await;
                 match auth_response {
                     Ok(GetRequestApiResponse::Ok(_)) => {
                         checks.push(ok("Auth check", "API authentication succeeded"));

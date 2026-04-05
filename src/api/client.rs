@@ -75,6 +75,23 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
     client
 }
 
+pub fn build_client_no_retry(api_key: String) -> ClientWithMiddleware {
+    let authorization_header_value = format!("Bearer {}", api_key);
+
+    let mut headers = HeaderMap::new();
+    headers.insert("Authorization", authorization_header_value.parse().unwrap());
+
+    ClientBuilder::new(
+        reqwest::ClientBuilder::new()
+            .timeout(Duration::from_secs(get_request_timeout_secs()))
+            .default_headers(headers)
+            .user_agent("stashbase/cli/0.1.0")
+            .build()
+            .unwrap(),
+    )
+    .build()
+}
+
 fn get_request_timeout_secs() -> u64 {
     REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30)
 }
@@ -136,7 +153,19 @@ async fn send_with_abort(builder: RequestBuilder) -> Result<reqwest::Response, O
 //
 
 pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, OutputError> {
-    let client = build_client(args.api_key);
+    let client = build_client(args.api_key.clone());
+    get_request_with_client(client, args).await
+}
+
+pub async fn get_request_no_retry(args: RequestArgs) -> Result<GetRequestApiResponse, OutputError> {
+    let client = build_client_no_retry(args.api_key.clone());
+    get_request_with_client(client, args).await
+}
+
+async fn get_request_with_client(
+    client: ClientWithMiddleware,
+    args: RequestArgs,
+) -> Result<GetRequestApiResponse, OutputError> {
     let full_path = format!("{}/{}", get_api_url(), args.path);
 
     let res = send_with_abort(
