@@ -84,7 +84,7 @@ pub enum EntityType {
     Generate(GenerateCommand),
 
     /// Diagnose CLI configuration and environment
-    #[clap(name = "doctor", aliases = &["diag", "doc"])]
+    #[clap(name = "doctor", aliases = &["diag", "doc", "diagnose"])]
     Doctor(DoctorCommand),
 
     /// Your CLI configuration
