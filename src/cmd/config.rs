@@ -88,7 +88,7 @@ pub enum ApiKeySubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "config set api-key [<VALUE>] [OPTIONS]")]
+#[command(override_usage = "config api-key set [<VALUE>] [OPTIONS]")]
 pub struct SetApiKey {
     pub value: Option<String>,
 }
@@ -115,7 +115,7 @@ pub enum OutputSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "config set output <FORMAT> [OPTIONS]")]
+#[command(override_usage = "config output set <FORMAT> [OPTIONS]")]
 pub struct SetOutput {
     pub format: OutputFormat,
 }
@@ -138,7 +138,7 @@ pub enum SecretsOutputSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "config set output-secrets <FORMAT> [OPTIONS]")]
+#[command(override_usage = "config output-secrets set <FORMAT> [OPTIONS]")]
 pub struct SetSecretsOutput {
     pub format: SecretsOutputFormat,
 }

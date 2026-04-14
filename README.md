@@ -54,12 +54,12 @@ Here are some common usage examples for the Stashbase CLI:
 You can generate an API key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
 
 ```bash
-stashbase config set api-key <API_KEY>
+stashbase config api-key set <API_KEY>
 ```
 
 ### API key storage
 
-`stashbase config set api-key` stores your API key in the OS secure credential store:
+`stashbase config api-key set` stores your API key in the OS secure credential store:
 - macOS: Keychain
 - Linux: Secret Service (`secret-tool`)
 - Windows: DPAPI-encrypted local secret file
