@@ -35,7 +35,7 @@ pub fn set_api_key(api_key: Option<String>) {
         eprintln!(
             "{} {}",
             "Warning:".yellow_if_tty_stderr(),
-            "Secure key storage unavailable, using encrypted-by-permissions config fallback."
+            "Secure key storage unavailable, using file-permissions-based config fallback."
         );
         eprintln!(
             "{} {}",

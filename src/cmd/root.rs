@@ -18,7 +18,7 @@ pub struct Cli {
     #[arg(long = "json", name = "json", global = true)]
     pub raw: bool,
 
-    /// Manualy set API key for the command
+    /// Manually set API key for the command
     #[arg(long = "api-key", global = true)]
     pub api_key: Option<String>,
 
