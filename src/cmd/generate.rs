@@ -71,13 +71,13 @@ pub enum GenerateRandomStringSubcommand {
 }
 
 impl GenerateRandomString {
-    pub fn get_length(&self) -> usize {
+    pub fn get_length(&self) -> Option<usize> {
         match &self.subcommand {
-            GenerateRandomStringSubcommand::Alphanumeric(options) => options.length as usize,
-            GenerateRandomStringSubcommand::Hex(options) => options.length as usize,
-            GenerateRandomStringSubcommand::Base32(options) => options.length as usize,
-            GenerateRandomStringSubcommand::Base64(options) => options.length as usize,
-            GenerateRandomStringSubcommand::Base64Url(options) => options.length as usize,
+            GenerateRandomStringSubcommand::Alphanumeric(options) => options.length.map(|v| v as usize),
+            GenerateRandomStringSubcommand::Hex(options) => options.length.map(|v| v as usize),
+            GenerateRandomStringSubcommand::Base32(options) => options.length.map(|v| v as usize),
+            GenerateRandomStringSubcommand::Base64(options) => options.length.map(|v| v as usize),
+            GenerateRandomStringSubcommand::Base64Url(options) => options.length.map(|v| v as usize),
         }
     }
 
@@ -101,13 +101,23 @@ impl GenerateRandomString {
         }
     }
 
+    pub fn get_effective_bytes(&self) -> Option<u16> {
+        match (self.get_bytes(), self.get_length()) {
+            (Some(bytes), _) => Some(bytes),
+            (None, None) => Some(32),
+            (None, Some(_)) => None,
+        }
+    }
+
     pub fn get_target_length(&self) -> usize {
-        let bytes = self.get_bytes();
+        let bytes = self.get_effective_bytes();
 
         if let Some(bytes) = bytes {
-            match self.subcommand {
+            match &self.subcommand {
                 GenerateRandomStringSubcommand::Hex(_) => (bytes as usize) * 2,
-                GenerateRandomStringSubcommand::Alphanumeric(_) => bytes as usize,
+                GenerateRandomStringSubcommand::Alphanumeric(_) => {
+                    ((bytes as f64) * 8.0 / (62.0f64).log2()).ceil() as usize
+                }
                 GenerateRandomStringSubcommand::Base32(_) => {
                     ((bytes as f64) * 8.0 / 5.0).ceil() as usize
                 }
@@ -117,7 +127,7 @@ impl GenerateRandomString {
                 }
             }
         } else {
-            self.get_length()
+            self.get_length().unwrap_or(32)
         }
     }
 }
@@ -125,11 +135,11 @@ impl GenerateRandomString {
 #[derive(Debug, Args)]
 pub struct GenerateRandomOptions {
     /// Length of the random string
-    #[arg(short = 'l', long = "length", default_value = "32", value_parser = clap::value_parser!(u16).range(3..=256))]
-    pub length: u16,
+    #[arg(short = 'l', long = "length", value_parser = clap::value_parser!(u16).range(3..=256), conflicts_with = "bytes")]
+    pub length: Option<u16>,
 
-    /// Desired entropy length in bytes (overrides --length)
-    #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(3..=256))]
+    /// Desired entropy length in bytes
+    #[arg(short = 'b', long = "bytes", value_parser = clap::value_parser!(u16).range(3..=256), conflicts_with = "length")]
     pub bytes: Option<u16>,
 
     /// Make the random string uppercase

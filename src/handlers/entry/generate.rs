@@ -18,10 +18,11 @@ pub fn handle_generate_command(cmd: GenerateCommand, json_format: bool) -> Resul
         },
         GenerateSubcommand::Random(args) => {
             let length = args.get_target_length();
+            let bytes = args.get_effective_bytes();
             let uppercase = args.get_uppercase();
             let alphabet = Encoding::from(args.subcommand);
 
-            handle_generate_random_string(alphabet, json_format, length, uppercase)
+            handle_generate_random_string(alphabet, json_format, length, bytes, uppercase)?
         }
         GenerateSubcommand::Hash(args) => {
             handle_generate_hash(args.value, args.algorithm, json_format, args.uppercase)

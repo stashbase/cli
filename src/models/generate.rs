@@ -19,19 +19,3 @@ impl From<GenerateRandomStringSubcommand> for Encoding {
         }
     }
 }
-
-impl Encoding {
-    pub fn get_alphabet(&self) -> &str {
-        match self {
-            Encoding::Hex => "0123456789abcdef",
-            Encoding::Base32 => "abcdefghijklmnopqrstuvwxyz234567",
-            Encoding::Base64 => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
-            Encoding::Base64Url => {
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-            }
-            Encoding::Alphanumeric => {
-                "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            }
-        }
-    }
-}
