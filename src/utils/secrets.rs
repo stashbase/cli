@@ -346,11 +346,8 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
         if is_in_multiline {
             current_multiline_value.push(line.to_string());
 
-            if trimmed.ends_with("\"") {
-                // Check if quote is escaped
-                let is_escaped = trimmed.ends_with("\\\"");
-
-                if !is_escaped {
+            if ends_with_unescaped_quote(trimmed) {
+                if trimmed != "\"" {
                     is_in_multiline = false;
                     if let Some((name, comment)) = pending_secret.take() {
                         let full_value = current_multiline_value
@@ -401,10 +398,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
 
                 let trimmed_value = value_part.trim();
                 if trimmed_value.starts_with("\"") {
-                    let ends_with_quote = trimmed_value.ends_with("\"");
-                    let is_escaped = trimmed_value.ends_with("\\\"");
-
-                    if !ends_with_quote || is_escaped || trimmed_value == "\"" {
+                    if !ends_with_unescaped_quote(trimmed_value) || trimmed_value == "\"" {
                         is_in_multiline = true;
                         current_multiline_value = vec![value_part.to_string()];
                         pending_secret = Some((name, comment));
@@ -471,6 +465,25 @@ fn unescape_value_from_dotenv(value: &str) -> String {
         .replace("\\n", "\n")
         .replace("\\r", "\r")
         .replace("\\t", "\t")
+}
+
+fn ends_with_unescaped_quote(value: &str) -> bool {
+    if !value.ends_with('"') {
+        return false;
+    }
+
+    // Count consecutive backslashes immediately before the trailing quote.
+    // Odd count => quote is escaped, even count => quote is not escaped.
+    let mut backslash_count = 0;
+    for ch in value[..value.len() - 1].chars().rev() {
+        if ch == '\\' {
+            backslash_count += 1;
+        } else {
+            break;
+        }
+    }
+
+    backslash_count % 2 == 0
 }
 
 pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
@@ -843,5 +856,32 @@ pub fn format_secret_comment(comment: &str, remove_outer_newlines: bool) -> Stri
     match remove_outer_newlines {
         true => remove_str_outer_newlines(&joined),
         false => joined,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dotenv_parses_value_ending_with_escaped_quote_without_offsetting_next_secrets() {
+        let content = "FIRST=\"abc\\\"\"\nSECOND=two\nTHIRD=three".to_string();
+
+        let parsed = parse_dotenv_secrets_from_str(&content).unwrap();
+
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[0].name, "FIRST");
+        assert_eq!(parsed[0].value, "abc\"");
+        assert_eq!(parsed[1].name, "SECOND");
+        assert_eq!(parsed[1].value, "two");
+        assert_eq!(parsed[2].name, "THIRD");
+        assert_eq!(parsed[2].value, "three");
+    }
+
+    #[test]
+    fn ends_with_unescaped_quote_handles_even_and_odd_backslashes() {
+        assert!(ends_with_unescaped_quote("\"abc\""));
+        assert!(!ends_with_unescaped_quote("\"abc\\\""));
+        assert!(ends_with_unescaped_quote("\"abc\\\\\""));
     }
 }
