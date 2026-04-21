@@ -384,7 +384,7 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                 let (name_part, value_part) = line.split_at(equal_sign_idx);
                 let value_part = &value_part[1..]; // Skip the '=' character
 
-                let name = name_part.to_string();
+                let name = name_part.trim().to_string();
 
                 // Join multiline comments if they exist
                 let comment = if !comment_lines.is_empty() {
@@ -883,5 +883,16 @@ mod tests {
         assert!(ends_with_unescaped_quote("\"abc\""));
         assert!(!ends_with_unescaped_quote("\"abc\\\""));
         assert!(ends_with_unescaped_quote("\"abc\\\\\""));
+    }
+
+    #[test]
+    fn dotenv_trims_spaces_around_name_before_equal_sign() {
+        let content = "INTERNAL_HEALTH_CHECK_TOKEN_HASH = \"xxx\"".to_string();
+
+        let parsed = parse_dotenv_secrets_from_str(&content).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "INTERNAL_HEALTH_CHECK_TOKEN_HASH");
+        assert_eq!(parsed[0].value, "xxx");
     }
 }
