@@ -347,7 +347,12 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
             current_multiline_value.push(line.to_string());
 
             if ends_with_unescaped_quote(trimmed) {
-                if trimmed != "\"" {
+                // The very first line in multiline mode can be just `"`, which is
+                // the opening quote from `KEY="`.
+                let is_opening_quote_only_line =
+                    trimmed == "\"" && current_multiline_value.len() == 1;
+
+                if !is_opening_quote_only_line {
                     is_in_multiline = false;
                     if let Some((name, comment)) = pending_secret.take() {
                         let full_value = current_multiline_value
@@ -364,7 +369,18 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
                             .join("\n");
 
                         let clean_value = clean_surrounding_quotes(&full_value);
-                        let unescaped_value = unescape_value_from_dotenv(&clean_value);
+                        let mut unescaped_value = unescape_value_from_dotenv(&clean_value);
+                        let has_quote_only_wrapper_lines = current_multiline_value
+                            .first()
+                            .map(|line| line.trim() == "\"")
+                            .unwrap_or(false)
+                            && current_multiline_value
+                                .last()
+                                .map(|line| line.trim() == "\"")
+                                .unwrap_or(false);
+                        if has_quote_only_wrapper_lines {
+                            unescaped_value = trim_outer_newlines(&unescaped_value);
+                        }
 
                         secrets.push(Secret {
                             name,
@@ -436,7 +452,18 @@ pub fn parse_dotenv_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
         if let Some((name, comment)) = pending_secret {
             let full_value = current_multiline_value.join("\n");
             let clean_value = clean_surrounding_quotes(&full_value);
-            let unescaped_value = unescape_value_from_dotenv(&clean_value);
+            let mut unescaped_value = unescape_value_from_dotenv(&clean_value);
+            let has_quote_only_wrapper_lines = current_multiline_value
+                .first()
+                .map(|line| line.trim() == "\"")
+                .unwrap_or(false)
+                && current_multiline_value
+                    .last()
+                    .map(|line| line.trim() == "\"")
+                    .unwrap_or(false);
+            if has_quote_only_wrapper_lines {
+                unescaped_value = trim_outer_newlines(&unescaped_value);
+            }
 
             secrets.push(Secret {
                 name,
@@ -484,6 +511,10 @@ fn ends_with_unescaped_quote(value: &str) -> bool {
     }
 
     backslash_count % 2 == 0
+}
+
+fn trim_outer_newlines(value: &str) -> String {
+    value.trim_matches(|c| c == '\n' || c == '\r').to_string()
 }
 
 pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
@@ -894,5 +925,33 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].name, "INTERNAL_HEALTH_CHECK_TOKEN_HASH");
         assert_eq!(parsed[0].value, "xxx");
+    }
+
+    #[test]
+    fn dotenv_multiline_closing_quote_on_own_line_does_not_swallow_next_secret() {
+        let content = "PRIVATE_KEY=\"\n-----BEGIN RSA PRIVATE KEY-----\nXXX\n-----END RSA PRIVATE KEY-----\n\"\n\nAWS_REGION=\"eu-central-1\"".to_string();
+
+        let parsed = parse_dotenv_secrets_from_str(&content).unwrap();
+
+        assert_eq!(parsed.len(), 2);
+
+        assert_eq!(parsed[0].name, "PRIVATE_KEY");
+        assert_eq!(
+            parsed[0].value,
+            "-----BEGIN RSA PRIVATE KEY-----\nXXX\n-----END RSA PRIVATE KEY-----"
+        );
+        assert_eq!(parsed[1].name, "AWS_REGION");
+        assert_eq!(parsed[1].value, "eu-central-1");
+    }
+
+    #[test]
+    fn dotenv_multiline_quote_only_wrapper_trims_outer_empty_lines() {
+        let content = "PRIVATE_KEY=\"\n\nLINE_1\nLINE_2\n\n\"\n".to_string();
+
+        let parsed = parse_dotenv_secrets_from_str(&content).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "PRIVATE_KEY");
+        assert_eq!(parsed[0].value, "LINE_1\nLINE_2");
     }
 }
