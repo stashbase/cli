@@ -141,14 +141,6 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                             }
                         };
 
-                        // let mut str_line = format!(
-                        //     "# {}\n{}{}{}",
-                        //     descr,
-                        //     s.name,
-                        //     kv_separator,
-                        //     format!("\"{}\"", s.value.replace("\"", "\\\""))
-                        // );
-
                         if is_last == false {
                             str_line = format!("{}\n", str_line);
                         }
@@ -629,106 +621,6 @@ pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
     }
 }
 
-// pub fn parse_yaml_secrets_from_str(content: &String) -> Result<Vec<Secret>> {
-//     let lines: Vec<&str> = content.trim().split('\n').collect();
-//     let mut secrets: Vec<Secret> = Vec::new();
-//     let regex = Regex::new(r"[^A-Z0-9]+").unwrap();
-
-//     let mut current_multiline_value: Vec<String> = Vec::new();
-//     let mut is_in_multiline = false;
-//     let mut pending_secret: Option<(String, Option<String>)> = None;
-//     let mut last_indent: Option<usize> = None;
-
-//     for (index, line) in lines.iter().enumerate() {
-//         // Count leading spaces for indentation
-//         let leading_spaces = line.chars().take_while(|c| c.is_whitespace()).count();
-//         let trimmed = line.trim();
-
-//         // Skip empty lines and comments
-//         if trimmed.is_empty() || trimmed.starts_with('#') {
-//             continue;
-//         }
-
-//         if is_in_multiline {
-//             // Check if we're still in the indented block by comparing indentation
-//             if let Some(indent) = last_indent {
-//                 if leading_spaces >= indent {
-//                     // Still in multiline block, collect the line
-//                     current_multiline_value.push(trimmed.to_string());
-//                     continue;
-//                 } else {
-//                     // Indentation decreased, end of multiline block
-//                     is_in_multiline = false;
-//                     if let Some((name, description)) = pending_secret.take() {
-//                         secrets.push(Secret {
-//                             name,
-//                             value: current_multiline_value.join("\n"),
-//                             description,
-//                         });
-//                     }
-//                     current_multiline_value.clear();
-//                     last_indent = None;
-//                 }
-//             }
-//         }
-
-//         // Process new secret
-//         if let Some((name_part, value_part)) = line.split_once(':') {
-//             let formatted_name = regex
-//                 .replace_all(&name_part.trim().to_uppercase(), "_")
-//                 .trim()
-//                 .to_owned();
-
-//             // Get description from previous line if it's a comment
-//             let description = if index > 0 {
-//                 let prev_line = lines[index - 1].trim();
-//                 if prev_line.starts_with('#') {
-//                     Some(prev_line.replace('#', "").trim().to_owned())
-//                 } else {
-//                     None
-//                 }
-//             } else {
-//                 None
-//             };
-
-//             let trimmed_value = value_part.trim();
-
-//             // Check if this starts a multiline value
-//             if trimmed_value == "|" {
-//                 is_in_multiline = true;
-//                 current_multiline_value.clear();
-//                 pending_secret = Some((formatted_name, description));
-
-//                 // Store the indentation level for the multiline block
-//                 if index + 1 < lines.len() {
-//                     let next_line = lines[index + 1];
-//                     last_indent = Some(next_line.chars().take_while(|c| c.is_whitespace()).count());
-//                 }
-//             } else {
-//                 // Single line value
-//                 secrets.push(Secret {
-//                     name: formatted_name,
-//                     value: trimmed_value.to_owned(),
-//                     description,
-//                 });
-//             }
-//         }
-//     }
-
-//     // Handle any remaining multiline value at the end of file
-//     if is_in_multiline && !current_multiline_value.is_empty() {
-//         if let Some((name, description)) = pending_secret {
-//             secrets.push(Secret {
-//                 name,
-//                 value: current_multiline_value.join("\n"),
-//                 description,
-//             });
-//         }
-//     }
-
-//     Ok(secrets)
-// }
-
 // file must exist
 pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Secret>> {
     let splitted: Vec<&str> = content.split("\n").collect();
@@ -786,33 +678,12 @@ pub fn parse_secrets_from_str(content: &String, is_yaml: bool) -> Result<Vec<Sec
                 }
                 None => {
                     // NOTE: do nothing
-
-                    // let secret = Secret {
-                    //     comment,
-                    //     key: format!("{}", trimmed),
-                    //     value: format!(""),
-                    // };
-                    //
-                    // secrets.push(secret);
                 }
             }
         }
     }
 
     Ok(secrets)
-
-    // NOTE: js version
-    // if (!line.startsWith('#') && line?.trim() !== '') {
-    //         const [key, value] = line.split('=')
-    //         // envArray.push({ key, value: value || '' }) // Use an empty string if there's no value
-    //
-    //         const formattedKey = key
-    //           .replace(/[^a-zA-Z0-9 ]/g, '_')
-    //           .replace(/ /g, '_')
-    //           .toUpperCase()
-    //
-    //         envArray.push({ key: formattedKey, value: value || '' }) // Use an empty string if there's no value
-    //       }
 }
 
 pub fn find_duplicate_names(array: &[Secret]) -> Vec<String> {
@@ -843,10 +714,6 @@ pub fn extract_unique_references_from_secret(secret_value: &str) -> LinkedHashSe
     }
 
     return refs;
-    // // Convert the HashSet back to a Vec
-    // let unique_refs: Vec<String> = refs.into_iter().collect();
-    //
-    // unique_refs
 }
 
 pub fn expand_secret_references(secrets: &mut Vec<Secret>) {
