@@ -63,7 +63,6 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
     // safe
     let res = res.unwrap();
 
-    // TODO: sort
     match res {
         GetRequestApiResponse::Ok(data) => {
             debug!("{:#?}", &data.text);

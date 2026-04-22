@@ -418,51 +418,6 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         None
     };
 
-    // let payload = match only.is_empty() && exclude.is_empty() && setted_secrets.is_empty() {
-    //     true => None,
-    //     false => {
-    //         let exclude = if exclude.is_empty() && setted_secrets.is_empty() {
-    //             None
-    //         } else {
-    //             let mut exclude_vec: Vec<String> = vec![];
-    //
-    //             if setted_secrets.is_empty() {
-    //                 for key in &exclude {
-    //                     exclude_vec.push(key.to_string());
-    //                 }
-    //             }
-    //
-    //             if !exclude.is_empty() {
-    //                 for exclude_secret in exclude {
-    //                     let exists = exclude_vec.contains(&exclude_secret);
-    //
-    //                     if !exists {
-    //                         exclude_vec.push(exclude_secret.to_string());
-    //                     }
-    //                 }
-    //             }
-    //
-    //             Some(exclude_vec)
-    //         };
-    //
-    //         let only = if only.is_empty() { None } else { Some(only) };
-    //
-    //         let payload = LoadEnvironmentPayload { only, exclude };
-    //
-    //         Some(payload)
-    //     }
-    // };
-
-    // let res = environments::load(
-    //     api_key,
-    //     project,
-    //     environment,
-    //     only,
-    //     exclude,
-    //     expand_refs.unwrap_or(false),
-    // )
-    // .await;
-
     // Determine project and environment for API call
     let (api_project, api_environment) = if is_environment_scope {
         // For environment scope, pass None (relies on environment-scoped API key)
@@ -744,16 +699,6 @@ async fn handle_run(
             }
         }
     }
-
-    // let mut parts = command.split_whitespace();
-    // Get the first part as the command itself
-    // let command = parts.next().expect("No command specified");
-    // // Collect the rest as arguments
-    // let arguments: Vec<&str> = parts.collect();
-    // let args_strings = command
-    //     .iter()
-    //     .map(|s| s.to_string())
-    //     .collect::<Vec<String>>();
 
     let env_vars = secrets;
 
