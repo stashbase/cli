@@ -144,13 +144,6 @@ pub enum SecretSubcommand {
     /// Upload secrets
     Upload(UploadSecrets),
 
-    // /// Rename secrets
-    // #[clap(alias = "r")]
-    // Rename(RenameSecrets),
-
-    // /// Set comment of existing secret
-    // #[clap(alias = "com")]
-    // Comment(SetComment),
     /// Delete one or multiple secrets
     #[clap(aliases = &[ "del"])]
     Delete(DeleteSecrets),
