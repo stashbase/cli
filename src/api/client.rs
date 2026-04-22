@@ -136,22 +136,6 @@ async fn send_with_abort(builder: RequestBuilder) -> Result<reqwest::Response, O
     }
 }
 
-// pub fn get_request(args: GetRequestArgs) -> RequestBuilder {
-//     let base_path =
-//         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
-//
-//     let client = build_client();
-//     let full_path = format!("{}/{}", base_path, args.path);
-//
-//     let mut headers = HeaderMap::new();
-//     headers.insert("api_key", args.api_key.parse().unwrap());
-//
-//     client
-//         .request(reqwest::Method::GET, full_path)
-//         .headers(headers)
-// }
-//
-
 pub async fn get_request(args: RequestArgs) -> Result<GetRequestApiResponse, OutputError> {
     let client = build_client(args.api_key.clone());
     get_request_with_client(client, args).await
@@ -360,31 +344,3 @@ async fn post_patch_put<T: serde::Serialize>(
         Ok(RequestApiOptionResponse::Err(custom_error))
     }
 }
-
-// pub fn post_request<T>(args: GetRequestArgs, data: Option<T>) -> Result
-// where
-//     T: serde::Serialize,
-// {
-//     let base_path =
-//         env::var("HERO_API_URL").unwrap_or_else(|_| format!("http://localhost:8080/api/v1/cli"));
-//
-//     let client = build_client();
-//     let full_path = format!("{}/{}", base_path, args.path);
-//
-//     let mut headers = HeaderMap::new();
-//     headers.insert("api_key", args.api_key.parse().unwrap());
-//
-//     match data {
-//         Some(data) => {
-//             headers.insert("Content-Type", "application/json".parse().unwrap());
-//
-//             client
-//                 .request(reqwest::Method::POST, full_path)
-//                 .headers(headers)
-//                 .json(&data)
-//         }
-//         None => client
-//             .request(reqwest::Method::POST, full_path)
-//             .headers(headers),
-//     }
-// }
