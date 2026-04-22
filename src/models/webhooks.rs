@@ -339,18 +339,11 @@ impl Display for WebhookLog {
         if let Some(status) = self.status {
             if status == 200 || status == 204 {
                 writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "success")?;
-                // writeln!(f, "Response message: Wehbook event delivered")?;
             } else {
                 writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
-                // writeln!(f, "Response message: Failed with status code")?;
             }
         } else {
             writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
-            // if let Some(error_code) = &self.error {
-            //     writeln!(f, "Response message: {}", error_code.get_message())?;
-            // } else {
-            //     writeln!(f, "Response message: Unknown error")?;
-            // }
         }
 
         writeln!(
@@ -425,14 +418,6 @@ impl Display for WebhookLogList {
         writeln!(f, "{}", list_string)?;
         writeln!(f, "{}", self.pagination)?;
 
-        // let page = self.page.unwrap_or(1);
-        //
-        // if self.pages == 0 {
-        //     writeln!(f, "No changes")?;
-        // } else {
-        //     writeln!(f, "{} {}/{}", "Pages:", page, self.pages)?;
-        // }
-        //
         Ok(())
     }
 }

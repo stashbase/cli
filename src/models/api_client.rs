@@ -900,12 +900,6 @@ impl From<ApiError> for OutputError {
 
 impl fmt::Display for OutputError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // writeln!(
-        //     f,
-        //     "{}",
-        //     "Error".if_supports_color(Stream::Stderr, |text| text.red())
-        // )?;
-
         if is_color_enabled(false) {
             writeln!(f, "{}", "API Error".red().bold())?;
         } else {
