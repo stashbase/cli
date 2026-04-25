@@ -28,6 +28,18 @@ pub async fn handle_environment_commands(
     silent: bool,
     default_output_format: Option<OutputFormat>,
 ) -> Result<()> {
+    fn try_get_project_with_spacing(cmd: &EnvironmentCommands, silent: bool) -> Result<String> {
+        match cmd.try_get_project() {
+            Ok(project) => Ok(project),
+            Err(err) => {
+                if !silent {
+                    eprintln!();
+                }
+                bail!(err);
+            }
+        }
+    }
+
     if let EnvironmentSubcommand::Get(get_cmd) = &cmd.subcommand {
         let format = get_output_format(
             raw_output,
@@ -40,7 +52,7 @@ pub async fn handle_environment_commands(
         } else {
             match get_cmd.identifier.clone() {
                 Some(identifier) => {
-                    let project = cmd.try_get_project()?;
+                    let project = try_get_project_with_spacing(&cmd, silent)?;
 
                     handle_get_environment(
                         api_key.clone(),
@@ -52,7 +64,7 @@ pub async fn handle_environment_commands(
                     .await?;
                 }
                 None => {
-                    cmd.try_get_project()?;
+                    try_get_project_with_spacing(&cmd, silent)?;
 
                     let error = InputValidationError::CmdArgs(
                         CmdArgInputValidationError::MissingEnvironmentIdentifierArgument,
@@ -75,7 +87,7 @@ pub async fn handle_environment_commands(
         } else {
             match open_cmd.identifier.clone() {
                 Some(identifier) => {
-                    let project = cmd.try_get_project()?;
+                    let project = try_get_project_with_spacing(&cmd, silent)?;
 
                     handle_open_environment(
                         api_key.clone(),
@@ -87,7 +99,7 @@ pub async fn handle_environment_commands(
                     .await?;
                 }
                 None => {
-                    cmd.try_get_project()?;
+                    try_get_project_with_spacing(&cmd, silent)?;
 
                     let error = InputValidationError::CmdArgs(
                         CmdArgInputValidationError::MissingEnvironmentIdentifierArgument,
@@ -106,7 +118,7 @@ pub async fn handle_environment_commands(
         return Ok(());
     };
 
-    let project = cmd.try_get_project()?;
+    let project = try_get_project_with_spacing(&cmd, silent)?;
 
     match cmd.subcommand {
         EnvironmentSubcommand::List(args) => {
