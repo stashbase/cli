@@ -174,6 +174,7 @@ async fn get_request_with_client(
                 code: Some("server.temporary_unavailable".to_string()),
                 message: format!("API service is temporarily unavailable. Please try again later."),
                 hint: None,
+                details: None,
             });
             return Err(err);
         }
@@ -232,6 +233,7 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
                 code: Some("server.temporary_unavailable".to_string()),
                 message: format!("API service is temporarily unavailable. Please try again later."),
                 hint: None,
+                details: None,
             });
             return Err(err);
         }
@@ -330,6 +332,7 @@ async fn post_patch_put<T: serde::Serialize>(
                 code: Some("server.temporary_unavailable".to_string()),
                 message: format!("API service is temporarily unavailable. Please try again later."),
                 hint: None,
+                details: None,
             });
             return Err(err);
         }

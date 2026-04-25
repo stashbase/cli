@@ -450,6 +450,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
                             message: "Something went wrong.".to_string(),
                             code: None,
                             hint: Some("Please try again later.".to_string()),
+                            details: None,
                         });
 
                         let pretty = get_formatted_json_string(&error, false).unwrap();
