@@ -7,6 +7,7 @@ use crate::{
     },
     config::{config, secure_store},
     handlers::{
+        doctor::handle_doctor_command,
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
             config::handle_config_commands,
@@ -17,7 +18,6 @@ use crate::{
             secrets::handle_secrets_commands,
             webhooks::handle_webhook_commands,
         },
-        doctor::handle_doctor_command,
         open::handle_open_dashboard,
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},

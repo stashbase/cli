@@ -29,12 +29,18 @@ pub fn handle_generate_ssh_keypair(args: GenerateSshKeypair, json_format: bool) 
     if args.force {
         if private_key_path.exists() {
             fs::remove_file(&private_key_path).with_context(|| {
-                format!("Failed to remove existing private key: {}", private_key_path.display())
+                format!(
+                    "Failed to remove existing private key: {}",
+                    private_key_path.display()
+                )
             })?;
         }
         if public_key_path.exists() {
             fs::remove_file(&public_key_path).with_context(|| {
-                format!("Failed to remove existing public key: {}", public_key_path.display())
+                format!(
+                    "Failed to remove existing public key: {}",
+                    public_key_path.display()
+                )
             })?;
         }
     }

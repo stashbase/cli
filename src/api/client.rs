@@ -173,19 +173,20 @@ async fn get_request_with_client(
             let err = OutputError::Generic(GenericOutputError {
                 code: Some("server.temporary_unavailable".to_string()),
                 message: format!("API service is temporarily unavailable. Please try again later."),
+                status: Some(status.as_u16()),
                 hint: None,
                 details: None,
             });
             return Err(err);
         }
 
-        let error_response: ApiErrorResponse = res
-            .json()
-            .await
-            .map_err(|_| OutputError::failed_to_deserialize_response_body())?;
+        let error_response: ApiErrorResponse = res.json().await.map_err(|_| {
+            OutputError::failed_to_deserialize_response_body().with_status(Some(status.as_u16()))
+        })?;
 
         // Convert the API error into your custom error type
-        let custom_error: OutputError = error_response.error.into();
+        let custom_error: OutputError =
+            OutputError::from(error_response.error).with_status(Some(status.as_u16()));
         Ok(GetRequestApiResponse::Err(custom_error))
     }
 }
@@ -232,19 +233,20 @@ pub async fn delete_request(args: RequestArgs) -> Result<DeleteRequestApiRespons
             let err = OutputError::Generic(GenericOutputError {
                 code: Some("server.temporary_unavailable".to_string()),
                 message: format!("API service is temporarily unavailable. Please try again later."),
+                status: Some(status.as_u16()),
                 hint: None,
                 details: None,
             });
             return Err(err);
         }
 
-        let error_response: ApiErrorResponse = res
-            .json()
-            .await
-            .map_err(|_| OutputError::failed_to_deserialize_response_body())?;
+        let error_response: ApiErrorResponse = res.json().await.map_err(|_| {
+            OutputError::failed_to_deserialize_response_body().with_status(Some(status.as_u16()))
+        })?;
 
         // Convert the API error into your custom error type
-        let custom_error: OutputError = error_response.error.into();
+        let custom_error: OutputError =
+            OutputError::from(error_response.error).with_status(Some(status.as_u16()));
         Ok(DeleteRequestApiResponse::Err(custom_error))
     }
 }
@@ -331,19 +333,20 @@ async fn post_patch_put<T: serde::Serialize>(
             let err = OutputError::Generic(GenericOutputError {
                 code: Some("server.temporary_unavailable".to_string()),
                 message: format!("API service is temporarily unavailable. Please try again later."),
+                status: Some(status.as_u16()),
                 hint: None,
                 details: None,
             });
             return Err(err);
         }
 
-        let error_response: ApiErrorResponse = res
-            .json()
-            .await
-            .map_err(|_| OutputError::failed_to_deserialize_response_body())?;
+        let error_response: ApiErrorResponse = res.json().await.map_err(|_| {
+            OutputError::failed_to_deserialize_response_body().with_status(Some(status.as_u16()))
+        })?;
 
         // Convert the API error into your custom error type
-        let custom_error: OutputError = error_response.error.into();
+        let custom_error: OutputError =
+            OutputError::from(error_response.error).with_status(Some(status.as_u16()));
         Ok(RequestApiOptionResponse::Err(custom_error))
     }
 }

@@ -439,10 +439,12 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
+        let formatted_err = err.format_error_output(json_format)?;
+
         if let Some(mut spinner) = spinner {
-            spinner.stop_with_message(&err.to_string());
+            spinner.stop_with_message(&formatted_err);
         } else {
-            eprintln!("{}", err.to_string());
+            eprintln!("{}", formatted_err);
         }
 
         return Ok(());

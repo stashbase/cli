@@ -193,6 +193,9 @@ pub struct GenericOutputError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>, // error code from API response
 
+    #[serde(skip_serializing)]
+    pub status: Option<u16>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
 
@@ -221,6 +224,7 @@ impl OutputError {
         OutputError::Generic(GenericOutputError {
             code: None,
             message: "Failed to read response body.".to_string(),
+            status: None,
             hint: Some("Please try again later.".to_string()),
             details: None,
         })
@@ -230,6 +234,7 @@ impl OutputError {
         OutputError::Generic(GenericOutputError {
             code: None,
             message: "Failed to deserialize response body.".to_string(),
+            status: None,
             hint: Some("Please try again later.".to_string()),
             details: None,
         })
@@ -239,6 +244,7 @@ impl OutputError {
         OutputError::Generic(GenericOutputError {
             code: None,
             message: "Could not connect to the API.".to_string(),
+            status: None,
             hint: Some("Please try again later.".to_string()),
             details: None,
         })
@@ -248,6 +254,7 @@ impl OutputError {
         OutputError::Generic(GenericOutputError {
             code: Some("request.timeout".to_string()),
             message: "Request timed out.".to_string(),
+            status: None,
             hint: Some("Increase timeout with --timeout and try again.".to_string()),
             details: None,
         })
@@ -257,6 +264,7 @@ impl OutputError {
         OutputError::Generic(GenericOutputError {
             code: Some("request.aborted".to_string()),
             message: "Request canceled by user.".to_string(),
+            status: None,
             hint: None,
             details: None,
         })
@@ -286,6 +294,20 @@ impl OutputError {
         }
     }
 
+    pub fn get_status(&self) -> Option<u16> {
+        match self {
+            OutputError::Generic(e) => e.status,
+        }
+    }
+
+    pub fn with_status(mut self, status: Option<u16>) -> OutputError {
+        match &mut self {
+            OutputError::Generic(e) => e.status = status,
+        }
+
+        self
+    }
+
     pub fn format_error_output(self, json_format: bool) -> Result<String, serde_json::Error> {
         if json_format {
             let json_err = self.to_formatted_json_string()?;
@@ -296,28 +318,30 @@ impl OutputError {
     }
 
     pub fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
-        #[derive(serde::Serialize)]
-        struct ErrorWrapper<'a> {
-            #[serde(rename = "error")]
-            error: ErrorData<'a>,
+        let mut error = serde_json::Map::new();
+
+        if let Some(code) = self.get_code() {
+            error.insert("code".to_string(), serde_json::json!(code));
         }
 
-        #[derive(serde::Serialize)]
-        struct ErrorData<'a> {
-            #[serde(flatten)]
-            data: &'a OutputError,
-            #[serde(rename = "type")]
-            error_type: &'static str,
+        error.insert("message".to_string(), serde_json::json!(self.get_message()));
+
+        if let Some(hint) = self.get_hint() {
+            error.insert("hint".to_string(), serde_json::json!(hint));
         }
 
-        let wrapper = ErrorWrapper {
-            error: ErrorData {
-                data: self,
-                error_type: "api_error",
-            },
-        };
+        if let Some(details) = self.get_details() {
+            error.insert("details".to_string(), details.clone());
+        }
 
-        serde_json::to_value(&wrapper)
+        let mut root = serde_json::Map::new();
+        root.insert("ok".to_string(), serde_json::json!(false));
+        if let Some(status) = self.get_status() {
+            root.insert("status".to_string(), serde_json::json!(status));
+        }
+        root.insert("error".to_string(), serde_json::Value::Object(error));
+
+        Ok(serde_json::Value::Object(root))
     }
 
     pub fn to_formatted_json_string(&self) -> Result<String, serde_json::Error> {
@@ -338,6 +362,7 @@ impl From<ApiError> for OutputError {
         OutputError::Generic(GenericOutputError {
             code: Some(e.code),
             message: e.message.unwrap_or_else(|| "Unknown error".to_string()),
+            status: None,
             hint: e.hint,
             details: e.details,
         })
@@ -347,9 +372,17 @@ impl From<ApiError> for OutputError {
 impl fmt::Display for OutputError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if is_color_enabled(false) {
-            writeln!(f, "{}", "API Error".red().bold())?;
+            if let Some(status) = self.get_status() {
+                writeln!(f, "{}", format!("API Error ({})", status).red().bold())?;
+            } else {
+                writeln!(f, "{}", "API Error".red().bold())?;
+            }
         } else {
-            writeln!(f, "{}", "API Error")?;
+            if let Some(status) = self.get_status() {
+                writeln!(f, "API Error ({})", status)?;
+            } else {
+                writeln!(f, "{}", "API Error")?;
+            }
         }
 
         let message = self.get_message();

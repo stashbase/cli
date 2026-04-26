@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use base64::{
-    Engine as _,
     engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD},
+    Engine as _,
 };
 use data_encoding::BASE32_NOPAD;
 use rand::rngs::OsRng;
@@ -27,9 +27,12 @@ pub fn handle_generate_random_string(
             Encoding::Hex => {
                 generate_power_of_two_string(&mut rng, b"0123456789abcdef", 4, length)?
             }
-            Encoding::Base32 => {
-                generate_power_of_two_string(&mut rng, b"abcdefghijklmnopqrstuvwxyz234567", 5, length)?
-            }
+            Encoding::Base32 => generate_power_of_two_string(
+                &mut rng,
+                b"abcdefghijklmnopqrstuvwxyz234567",
+                5,
+                length,
+            )?,
             Encoding::Base64 => generate_power_of_two_string(
                 &mut rng,
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",

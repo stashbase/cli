@@ -381,7 +381,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     // exclude manually
     if !setted_secrets.is_empty() {
         for name in setted_secrets.keys() {
-
             let exists = exclude.contains(&name);
             if !exists {
                 exclude.push(name.to_string());

@@ -1,6 +1,5 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 
@@ -68,9 +67,12 @@ pub async fn handle_doctor_command(
                     Ok(content) => match toml::from_str::<Config>(&content) {
                         Ok(cfg) => {
                             parsed_config = Some(cfg);
-                            checks.push(ok("Config file", "config.toml is readable and valid TOML"));
+                            checks
+                                .push(ok("Config file", "config.toml is readable and valid TOML"));
                         }
-                        Err(err) => checks.push(fail("Config file", format!("Invalid TOML: {}", err))),
+                        Err(err) => {
+                            checks.push(fail("Config file", format!("Invalid TOML: {}", err)))
+                        }
                     },
                     Err(err) => checks.push(fail(
                         "Config file",
@@ -80,11 +82,17 @@ pub async fn handle_doctor_command(
             } else {
                 checks.push(warn(
                     "Config file",
-                    format!("Not found at {} (it will be created on demand)", path.display()),
+                    format!(
+                        "Not found at {} (it will be created on demand)",
+                        path.display()
+                    ),
                 ));
             }
         }
-        Err(err) => checks.push(fail("Config path", format!("Cannot resolve config path: {}", err))),
+        Err(err) => checks.push(fail(
+            "Config path",
+            format!("Cannot resolve config path: {}", err),
+        )),
     }
 
     #[cfg(unix)]
@@ -159,7 +167,10 @@ pub async fn handle_doctor_command(
         Some(cli_key)
     } else if let Some(key) = env_api_key {
         checks.push(with_optional_details(
-            ok("API key source", "Using STASHBASE_API_KEY environment variable"),
+            ok(
+                "API key source",
+                "Using STASHBASE_API_KEY environment variable",
+            ),
             api_key_presence_details.clone(),
         ));
         Some(key)
@@ -198,7 +209,10 @@ pub async fn handle_doctor_command(
                         checks.push(ok("Auth check", "API authentication succeeded"));
                     }
                     Ok(GetRequestApiResponse::Err(err)) => {
-                        checks.push(fail("Auth check", format!("API rejected credentials: {}", err)));
+                        checks.push(fail(
+                            "Auth check",
+                            format!("API rejected credentials: {}", err),
+                        ));
                     }
                     Err(err) => {
                         checks.push(fail("Auth check", format!("Failed to reach API: {}", err)));
@@ -334,9 +348,15 @@ fn is_executable_file(path: &Path) -> bool {
 }
 
 fn overall_status(checks: &[DoctorCheck]) -> DoctorStatus {
-    if checks.iter().any(|check| check.status == DoctorStatus::Fail) {
+    if checks
+        .iter()
+        .any(|check| check.status == DoctorStatus::Fail)
+    {
         DoctorStatus::Fail
-    } else if checks.iter().any(|check| check.status == DoctorStatus::Warn) {
+    } else if checks
+        .iter()
+        .any(|check| check.status == DoctorStatus::Warn)
+    {
         DoctorStatus::Warn
     } else {
         DoctorStatus::Ok
@@ -370,7 +390,11 @@ fn fail(name: impl Into<String>, message: impl Into<String>) -> DoctorCheck {
     }
 }
 
-fn okd(name: impl Into<String>, message: impl Into<String>, details: impl Into<String>) -> DoctorCheck {
+fn okd(
+    name: impl Into<String>,
+    message: impl Into<String>,
+    details: impl Into<String>,
+) -> DoctorCheck {
     DoctorCheck {
         name: name.into(),
         status: DoctorStatus::Ok,

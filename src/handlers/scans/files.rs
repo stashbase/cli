@@ -517,6 +517,7 @@ async fn handle_scan_file_hunks(
                         let error = OutputError::Generic(GenericOutputError {
                             message: "Something went wrong.".to_string(),
                             code: None,
+                            status: None,
                             hint: Some("Please try again later.".to_string()),
                             details: None,
                         });

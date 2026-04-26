@@ -1,7 +1,8 @@
 use crate::{
     cmd::generate::{GenerateCommand, GenerateSubcommand, GenerateUuidSubcommand},
     handlers::generate::{
-        hash::handle_generate_hash, passphrase::handle_generate_passphrase,
+        hash::handle_generate_hash,
+        passphrase::handle_generate_passphrase,
         random::handle_generate_random_string,
         ssh_keypair::handle_generate_ssh_keypair,
         uuid::{handle_generate_uuid_v4, handle_generate_uuid_v7},

@@ -73,11 +73,15 @@ pub enum GenerateRandomStringSubcommand {
 impl GenerateRandomString {
     pub fn get_length(&self) -> Option<usize> {
         match &self.subcommand {
-            GenerateRandomStringSubcommand::Alphanumeric(options) => options.length.map(|v| v as usize),
+            GenerateRandomStringSubcommand::Alphanumeric(options) => {
+                options.length.map(|v| v as usize)
+            }
             GenerateRandomStringSubcommand::Hex(options) => options.length.map(|v| v as usize),
             GenerateRandomStringSubcommand::Base32(options) => options.length.map(|v| v as usize),
             GenerateRandomStringSubcommand::Base64(options) => options.length.map(|v| v as usize),
-            GenerateRandomStringSubcommand::Base64Url(options) => options.length.map(|v| v as usize),
+            GenerateRandomStringSubcommand::Base64Url(options) => {
+                options.length.map(|v| v as usize)
+            }
         }
     }
 

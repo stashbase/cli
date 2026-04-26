@@ -163,8 +163,7 @@ impl EnvConfigItem {
         let self_secrets = self.secrets.as_ref();
         let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
-        let mut set: Option<Vec<SecretSetConfigItem>> =
-            self_secrets.and_then(|s| s.set.to_owned());
+        let mut set: Option<Vec<SecretSetConfigItem>> = self_secrets.and_then(|s| s.set.to_owned());
 
         let mut expand_refs: Option<bool> = None;
         let mut ignore_comments: Option<bool> = None;
@@ -203,8 +202,7 @@ impl EnvConfigItem {
         let self_secrets = self.secrets.as_ref();
         let mut exclude: Option<Vec<String>> = self_secrets.and_then(|s| s.exclude.to_owned());
         let mut only: Option<Vec<String>> = self_secrets.and_then(|s| s.only.to_owned());
-        let mut set: Option<Vec<SecretSetConfigItem>> =
-            self_secrets.and_then(|s| s.set.to_owned());
+        let mut set: Option<Vec<SecretSetConfigItem>> = self_secrets.and_then(|s| s.set.to_owned());
 
         let mut expand_refs: Option<bool> = None;
         let mut print_secrets: Option<PrintSecrets> = None;

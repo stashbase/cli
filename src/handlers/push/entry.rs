@@ -445,9 +445,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                     .map(|(name, _)| name)
                     .collect::<Vec<String>>();
                 let error = InputValidationError::LoadEnvironment(
-                    LoadEnvironmentInputValidationError::SetCommentWithoutSet(
-                        missing_set_names,
-                    ),
+                    LoadEnvironmentInputValidationError::SetCommentWithoutSet(missing_set_names),
                 );
                 let error_output = error.format_error_output(json_format)?;
 

@@ -1,8 +1,6 @@
 use sha2::{Digest, Sha224, Sha256, Sha384, Sha512};
 
-use crate::{
-    cmd::generate::GenerateHashAlgorithm, utils::output::get_formatted_json_string,
-};
+use crate::{cmd::generate::GenerateHashAlgorithm, utils::output::get_formatted_json_string};
 
 pub fn handle_generate_hash(
     value: String,
