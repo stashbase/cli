@@ -120,7 +120,7 @@ stashbase scan staged
 stashbase scan changes
 
 ## scan commits to be pushed to remote
-stashbase scan commits
+stashbase scan unpushed
 ```
 
 ### Diagnose CLI setup

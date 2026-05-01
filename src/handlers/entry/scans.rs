@@ -54,7 +54,7 @@ pub async fn handle_scan_commands(
 
             handle_scan_changed_file_hunks(args).await?;
         }
-        ScanSubcommand::Commits(args) => {
+        ScanSubcommand::Unpushed(args) => {
             let args = HandleScanUnpushedCommitHunksArgs {
                 api_key,
                 silent,

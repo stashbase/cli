@@ -19,7 +19,7 @@ pub enum ScanSubcommand {
 
     /// Scan commits to be pushed to remote
     #[clap(alias = "pre-push")]
-    Commits(ScanCommits),
+    Unpushed(ScanCommits),
 }
 
 #[derive(Debug, Args)]
@@ -113,7 +113,7 @@ pub struct ScanChanges {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "scan commits [OPTIONS]")]
+#[command(override_usage = "scan unpushed [OPTIONS]")]
 pub struct ScanCommits {
     /// Number of commits to scan from the most recent commit (default: all)
     #[clap(value_name = "N", long = "last", value_parser = clap::value_parser!(u32).range(1..=1000),)]
