@@ -13,11 +13,11 @@ pub enum ScanSubcommand {
     #[clap(alias = "pre-commit")]
     Staged(ScanStaged),
 
-    /// Scan all changed files (staged and unstaged)
-    #[clap(alias = "all")]
+    /// Scan working directory changes (staged + unstaged)
+    #[clap(alias = "diff")]
     Changes(ScanChanges),
 
-    /// Scan commits to be pushed to remote
+    /// Scan unpushed commits (commits not yet pushed to remote)
     #[clap(alias = "pre-push")]
     Unpushed(ScanCommits),
 }
