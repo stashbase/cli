@@ -309,7 +309,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
     let spinner = if !silent {
         Some(Spinner::new_with_stream(
             spinners::Dots,
-            "Scanning commits...",
+            "Scanning unpushed commits...",
             Color::Cyan,
             Streams::Stderr,
         ))
