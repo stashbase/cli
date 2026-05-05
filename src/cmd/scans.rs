@@ -23,6 +23,9 @@ pub enum ScanSubcommand {
 
     /// Install git hook for automatic scan checks
     Install(ScanInstall),
+
+    /// Uninstall git hook block for scan checks
+    Uninstall(ScanUninstall),
 }
 
 #[derive(Debug, Args)]
@@ -33,6 +36,18 @@ pub struct ScanInstall {
     pub hook: String,
 
     /// Custom hook file path to install into (e.g. .husky/pre-commit)
+    #[arg(long = "file")]
+    pub file: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "scan uninstall <hook>")]
+pub struct ScanUninstall {
+    /// Hook to uninstall from
+    #[arg(value_parser = ["pre-commit", "pre-push"])]
+    pub hook: String,
+
+    /// Custom hook file path to uninstall from (e.g. .husky/pre-commit)
     #[arg(long = "file")]
     pub file: Option<String>,
 }

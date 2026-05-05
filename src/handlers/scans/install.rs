@@ -120,6 +120,46 @@ pub fn install_scan_hook(hook_type: HookType, file_path: Option<&str>) -> Result
     Ok(())
 }
 
+pub fn uninstall_scan_hook(hook_type: HookType, file_path: Option<&str>) -> Result<()> {
+    let repo = Repository::discover(".")
+        .map_err(|_| anyhow!("Not a git repository. Run this inside a git project."))?;
+    let git_dir = repo.path();
+
+    let hook_file_path = resolve_hook_file_path(git_dir, hook_type, file_path);
+
+    if !hook_file_path.exists() {
+        println!("✔ Stashbase scan is not installed for {}", hook_type.name());
+        return Ok(());
+    }
+
+    let existing = fs::read_to_string(&hook_file_path)
+        .with_context(|| format!("Failed to read '{}'", hook_file_path.display()))?;
+
+    let Some(updated) = remove_existing_stashbase_block(&existing) else {
+        println!("✔ Stashbase scan is not installed for {}", hook_type.name());
+        return Ok(());
+    };
+
+    let normalized = normalize_after_uninstall(updated);
+    fs::write(&hook_file_path, normalized)
+        .with_context(|| format!("Failed to write '{}'", hook_file_path.display()))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(&hook_file_path, permissions).with_context(|| {
+            format!(
+                "Failed to set executable permissions on '{}'",
+                hook_file_path.display()
+            )
+        })?;
+    }
+
+    println!("✔ Uninstalled {} hook", hook_type.name());
+    Ok(())
+}
+
 fn resolve_hook_file_path(git_dir: &Path, hook_type: HookType, file_path: Option<&str>) -> PathBuf {
     if let Some(custom_path) = file_path {
         PathBuf::from(custom_path)
@@ -148,9 +188,40 @@ fn replace_existing_stashbase_block(existing: &str, hook_block: &str) -> String 
     replacement
 }
 
+fn remove_existing_stashbase_block(existing: &str) -> Option<String> {
+    let start = existing.find(STASHBASE_SCAN_START_MARKER)?;
+    let end_marker_start_rel = existing[start..].find(STASHBASE_SCAN_END_MARKER)?;
+    let end_marker_start = start + end_marker_start_rel;
+    let mut end = end_marker_start + STASHBASE_SCAN_END_MARKER.len();
+    if existing[end..].starts_with('\n') {
+        end += 1;
+    }
+
+    let mut output = String::new();
+    output.push_str(&existing[..start]);
+    output.push_str(&existing[end..]);
+    Some(output)
+}
+
+fn normalize_after_uninstall(content: String) -> String {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return "#!/bin/sh\n".to_string();
+    }
+    if trimmed == "#!/bin/sh" {
+        return "#!/bin/sh\n".to_string();
+    }
+
+    let mut normalized = content;
+    if !normalized.ends_with('\n') {
+        normalized.push('\n');
+    }
+    normalized
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{install_scan_hook, HookType};
+    use super::{install_scan_hook, uninstall_scan_hook, HookType};
     use once_cell::sync::Lazy;
     use std::{
         env, fs,
@@ -292,5 +363,67 @@ mod tests {
 
         install_scan_hook(HookType::PreCommit, None).expect("install failed");
         assert!(dir.join(".git/hooks/pre-commit").exists());
+    }
+
+    #[test]
+    fn uninstalls_only_stashbase_block_and_keeps_custom_content() {
+        let _lock = test_lock();
+        let dir = temp_dir();
+        init_git_repo(&dir);
+        let _cwd = CwdGuard::enter(&dir);
+
+        let hook_path = dir.join(".git/hooks/pre-commit");
+        let content = "#!/bin/sh\necho custom\n\n# >>> stashbase scan >>>\nstashbase scan staged --silent --json || exit 1\n# <<< stashbase scan <<<\n";
+        fs::write(&hook_path, content).expect("seed failed");
+
+        uninstall_scan_hook(HookType::PreCommit, None).expect("uninstall failed");
+        let result = fs::read_to_string(&hook_path).expect("read failed");
+
+        assert!(result.contains("echo custom"));
+        assert!(!result.contains("# >>> stashbase scan >>>"));
+    }
+
+    #[test]
+    fn uninstall_is_noop_when_not_installed() {
+        let _lock = test_lock();
+        let dir = temp_dir();
+        init_git_repo(&dir);
+        let _cwd = CwdGuard::enter(&dir);
+
+        let hook_path = dir.join(".git/hooks/pre-commit");
+        fs::write(&hook_path, "#!/bin/sh\necho custom\n").expect("seed failed");
+
+        uninstall_scan_hook(HookType::PreCommit, None).expect("uninstall failed");
+        let result = fs::read_to_string(&hook_path).expect("read failed");
+        assert!(result.contains("echo custom"));
+    }
+
+    #[test]
+    fn uninstall_writes_minimal_shell_when_file_becomes_empty() {
+        let _lock = test_lock();
+        let dir = temp_dir();
+        init_git_repo(&dir);
+        let _cwd = CwdGuard::enter(&dir);
+
+        install_scan_hook(HookType::PreCommit, None).expect("install failed");
+        uninstall_scan_hook(HookType::PreCommit, None).expect("uninstall failed");
+
+        let content = fs::read_to_string(dir.join(".git/hooks/pre-commit")).expect("read failed");
+        assert_eq!(content, "#!/bin/sh\n");
+    }
+
+    #[test]
+    fn uninstall_supports_custom_file_path() {
+        let _lock = test_lock();
+        let dir = temp_dir();
+        init_git_repo(&dir);
+        let _cwd = CwdGuard::enter(&dir);
+
+        install_scan_hook(HookType::PreCommit, Some(".husky/pre-commit")).expect("install failed");
+        uninstall_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"))
+            .expect("uninstall failed");
+
+        let content = fs::read_to_string(dir.join(".husky/pre-commit")).expect("read failed");
+        assert_eq!(content, "#!/bin/sh\n");
     }
 }
