@@ -20,6 +20,21 @@ pub enum ScanSubcommand {
     /// Scan unpushed commits (commits not yet pushed to remote)
     #[clap(alias = "pre-push")]
     Unpushed(ScanCommits),
+
+    /// Install git hook for automatic scan checks
+    Install(ScanInstall),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "scan install <hook>")]
+pub struct ScanInstall {
+    /// Hook to install
+    #[arg(value_parser = ["pre-commit", "pre-push"])]
+    pub hook: String,
+
+    /// Custom hook file path to install into (e.g. .husky/pre-commit)
+    #[arg(long = "file")]
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Args)]

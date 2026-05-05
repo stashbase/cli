@@ -8,6 +8,7 @@ use crate::{
             handle_scan_changed_file_hunks, handle_scan_staged_file_hunks,
             HandleScanStagedFileHunksArgs,
         },
+        install::{install_scan_hook, HookType},
     },
 };
 
@@ -72,6 +73,10 @@ pub async fn handle_scan_commands(
             };
 
             handle_scan_unpushed_commit_hunks(args).await?;
+        }
+        ScanSubcommand::Install(args) => {
+            let hook_type = HookType::parse(&args.hook)?;
+            install_scan_hook(hook_type, args.file.as_deref())?;
         }
     }
 

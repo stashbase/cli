@@ -121,6 +121,9 @@ stashbase scan changes
 
 ## scan commits to be pushed to remote
 stashbase scan unpushed
+
+## install scan hook into Husky pre-commit file
+stashbase scan install pre-commit --file .husky/pre-commit
 ```
 
 ### Diagnose CLI setup

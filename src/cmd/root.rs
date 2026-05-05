@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::cmd::scans::ScanCommands;
+use crate::cmd::scans::{ScanCommands, ScanSubcommand};
 
 use super::{
     config::ConfigCommand, doctor::DoctorCommand, environments::EnvironmentCommands,
@@ -108,6 +108,9 @@ impl EntityType {
             EntityType::Generate(_) => false,
             EntityType::Config(_) => false,
             EntityType::Doctor(_) => false,
+            EntityType::Scan(scan_cmd) => {
+                !matches!(scan_cmd.subcommand, ScanSubcommand::Install(_))
+            }
             _ => true,
         }
     }
