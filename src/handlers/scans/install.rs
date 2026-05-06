@@ -1,3 +1,4 @@
+use crate::utils::output::get_formatted_json_string;
 use anyhow::{anyhow, bail, Context, Result};
 use git2::Repository;
 use std::{
@@ -38,7 +39,12 @@ impl HookType {
     }
 }
 
-pub fn install_scan_hook(hook_type: HookType, file_path: Option<&str>, silent: bool) -> Result<()> {
+pub fn install_scan_hook(
+    hook_type: HookType,
+    file_path: Option<&str>,
+    silent: bool,
+    json_format: bool,
+) -> Result<()> {
     let repo = Repository::discover(".")
         .map_err(|_| anyhow!("Not a git repository. Run this inside a git project."))?;
     let git_dir = repo.path();
@@ -107,16 +113,30 @@ pub fn install_scan_hook(hook_type: HookType, file_path: Option<&str>, silent: b
     }
 
     if !silent {
-        if was_already_installed {
-            println!(
-                "✔ Stashbase scan already installed for {}",
-                hook_type.name()
-            );
+        if json_format {
+            let message = if was_already_installed {
+                format!("Stashbase scan already installed for {}", hook_type.name())
+            } else {
+                format!("Installed {} hook", hook_type.name())
+            };
+            let payload = serde_json::json!({
+                "message": message,
+                "hook": hook_type.name(),
+                "already_installed": was_already_installed
+            });
+            println!("\n{}", get_formatted_json_string(&payload, false)?);
         } else {
-            println!("✔ Installed {} hook", hook_type.name());
-        }
+            if was_already_installed {
+                println!(
+                    "✔ Stashbase scan already installed for {}",
+                    hook_type.name()
+                );
+            } else {
+                println!("✔ Installed {} hook", hook_type.name());
+            }
 
-        println!("Tip: run 'stashbase scan staged' to test it");
+            println!("Tip: run 'stashbase scan staged' to test it");
+        }
     }
 
     Ok(())
@@ -126,6 +146,7 @@ pub fn uninstall_scan_hook(
     hook_type: HookType,
     file_path: Option<&str>,
     silent: bool,
+    json_format: bool,
 ) -> Result<()> {
     let repo = Repository::discover(".")
         .map_err(|_| anyhow!("Not a git repository. Run this inside a git project."))?;
@@ -135,7 +156,16 @@ pub fn uninstall_scan_hook(
 
     if !hook_file_path.exists() {
         if !silent {
-            println!("✔ Stashbase scan is not installed for {}", hook_type.name());
+            if json_format {
+                let payload = serde_json::json!({
+                    "message": format!("Stashbase scan is not installed for {}", hook_type.name()),
+                    "hook": hook_type.name(),
+                    "uninstalled": false
+                });
+                println!("\n{}", get_formatted_json_string(&payload, false)?);
+            } else {
+                println!("✔ Stashbase scan is not installed for {}", hook_type.name());
+            }
         }
         return Ok(());
     }
@@ -145,7 +175,16 @@ pub fn uninstall_scan_hook(
 
     let Some(updated) = remove_existing_stashbase_block(&existing) else {
         if !silent {
-            println!("✔ Stashbase scan is not installed for {}", hook_type.name());
+            if json_format {
+                let payload = serde_json::json!({
+                    "message": format!("Stashbase scan is not installed for {}", hook_type.name()),
+                    "hook": hook_type.name(),
+                    "uninstalled": false
+                });
+                println!("\n{}", get_formatted_json_string(&payload, false)?);
+            } else {
+                println!("✔ Stashbase scan is not installed for {}", hook_type.name());
+            }
         }
         return Ok(());
     };
@@ -167,7 +206,16 @@ pub fn uninstall_scan_hook(
     }
 
     if !silent {
-        println!("✔ Uninstalled {} hook", hook_type.name());
+        if json_format {
+            let payload = serde_json::json!({
+                "message": format!("Uninstalled {} hook", hook_type.name()),
+                "hook": hook_type.name(),
+                "uninstalled": true
+            });
+            println!("\n{}", get_formatted_json_string(&payload, false)?);
+        } else {
+            println!("✔ Uninstalled {} hook", hook_type.name());
+        }
     }
     Ok(())
 }
@@ -292,7 +340,7 @@ mod tests {
         init_git_repo(&dir);
         let _cwd = CwdGuard::enter(&dir);
 
-        install_scan_hook(HookType::PreCommit, None, false).expect("install failed");
+        install_scan_hook(HookType::PreCommit, None, false, false).expect("install failed");
 
         let content = fs::read_to_string(dir.join(".git/hooks/pre-commit")).expect("read failed");
         assert!(content.contains("#!/bin/sh"));
@@ -309,7 +357,7 @@ mod tests {
         let hook_path = dir.join(".git/hooks/pre-commit");
         fs::write(&hook_path, "#!/bin/sh\necho custom\n").expect("seed failed");
 
-        install_scan_hook(HookType::PreCommit, None, false).expect("install failed");
+        install_scan_hook(HookType::PreCommit, None, false, false).expect("install failed");
         let content = fs::read_to_string(&hook_path).expect("read failed");
 
         assert!(content.contains("echo custom"));
@@ -323,11 +371,11 @@ mod tests {
         init_git_repo(&dir);
         let _cwd = CwdGuard::enter(&dir);
 
-        install_scan_hook(HookType::PreCommit, None, false).expect("first install failed");
+        install_scan_hook(HookType::PreCommit, None, false, false).expect("first install failed");
         let hook_path = dir.join(".git/hooks/pre-commit");
         let first = fs::read_to_string(&hook_path).expect("first read failed");
 
-        install_scan_hook(HookType::PreCommit, None, false).expect("second install failed");
+        install_scan_hook(HookType::PreCommit, None, false, false).expect("second install failed");
         let second = fs::read_to_string(&hook_path).expect("second read failed");
 
         assert_eq!(first, second);
@@ -344,7 +392,7 @@ mod tests {
         let hook_path = dir.join(".git/hooks/pre-commit");
         fs::write(&hook_path, legacy).expect("seed failed");
 
-        install_scan_hook(HookType::PreCommit, None, false).expect("install failed");
+        install_scan_hook(HookType::PreCommit, None, false, false).expect("install failed");
         let content = fs::read_to_string(&hook_path).expect("read failed");
 
         assert!(content.contains("stashbase scan staged --silent --json || exit 1"));
@@ -358,7 +406,7 @@ mod tests {
         init_git_repo(&dir);
         let _cwd = CwdGuard::enter(&dir);
 
-        install_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"), false)
+        install_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"), false, false)
             .expect("install failed");
         let content = fs::read_to_string(dir.join(".husky/pre-commit")).expect("read failed");
 
@@ -374,7 +422,7 @@ mod tests {
         fs::create_dir_all(&nested).expect("mkdir failed");
         let _cwd = CwdGuard::enter(&nested);
 
-        install_scan_hook(HookType::PreCommit, None, false).expect("install failed");
+        install_scan_hook(HookType::PreCommit, None, false, false).expect("install failed");
         assert!(dir.join(".git/hooks/pre-commit").exists());
     }
 
@@ -389,7 +437,7 @@ mod tests {
         let content = "#!/bin/sh\necho custom\n\n# >>> stashbase scan >>>\nstashbase scan staged --silent --json || exit 1\n# <<< stashbase scan <<<\n";
         fs::write(&hook_path, content).expect("seed failed");
 
-        uninstall_scan_hook(HookType::PreCommit, None, false).expect("uninstall failed");
+        uninstall_scan_hook(HookType::PreCommit, None, false, false).expect("uninstall failed");
         let result = fs::read_to_string(&hook_path).expect("read failed");
 
         assert!(result.contains("echo custom"));
@@ -406,7 +454,7 @@ mod tests {
         let hook_path = dir.join(".git/hooks/pre-commit");
         fs::write(&hook_path, "#!/bin/sh\necho custom\n").expect("seed failed");
 
-        uninstall_scan_hook(HookType::PreCommit, None, false).expect("uninstall failed");
+        uninstall_scan_hook(HookType::PreCommit, None, false, false).expect("uninstall failed");
         let result = fs::read_to_string(&hook_path).expect("read failed");
         assert!(result.contains("echo custom"));
     }
@@ -418,8 +466,8 @@ mod tests {
         init_git_repo(&dir);
         let _cwd = CwdGuard::enter(&dir);
 
-        install_scan_hook(HookType::PreCommit, None, false).expect("install failed");
-        uninstall_scan_hook(HookType::PreCommit, None, false).expect("uninstall failed");
+        install_scan_hook(HookType::PreCommit, None, false, false).expect("install failed");
+        uninstall_scan_hook(HookType::PreCommit, None, false, false).expect("uninstall failed");
 
         let content = fs::read_to_string(dir.join(".git/hooks/pre-commit")).expect("read failed");
         assert_eq!(content, "#!/bin/sh\n");
@@ -432,9 +480,9 @@ mod tests {
         init_git_repo(&dir);
         let _cwd = CwdGuard::enter(&dir);
 
-        install_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"), false)
+        install_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"), false, false)
             .expect("install failed");
-        uninstall_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"), false)
+        uninstall_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"), false, false)
             .expect("uninstall failed");
 
         let content = fs::read_to_string(dir.join(".husky/pre-commit")).expect("read failed");

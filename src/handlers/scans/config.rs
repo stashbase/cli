@@ -30,18 +30,33 @@ match:
   files: []
 "#;
 
-pub fn init_scan_config(file: Option<&str>, force: bool, silent: bool) -> Result<()> {
+pub fn init_scan_config(
+    file: Option<&str>,
+    force: bool,
+    silent: bool,
+    json_format: bool,
+) -> Result<()> {
     let path_str = file.unwrap_or(DEFAULT_SCAN_CONFIG_PATH);
     let path = Path::new(path_str);
 
     if path.exists() && !force {
-        if !silent {
-            eprintln!();
-        }
-        eprintln!(
+        let message = format!(
             "Scan config already exists at '{}'. Use --file to choose another path.",
             path.display()
         );
+        if json_format {
+            let payload = serde_json::json!({ "message": message });
+            let formatted = get_formatted_json_string(&payload, false)?;
+            if !silent {
+                eprintln!();
+            }
+            eprintln!("{formatted}");
+        } else {
+            if !silent {
+                eprintln!();
+            }
+            eprintln!("{message}");
+        }
         std::process::exit(1);
     }
 
@@ -53,10 +68,19 @@ pub fn init_scan_config(file: Option<&str>, force: bool, silent: bool) -> Result
                     parent.display()
                 )
             }) {
-                if !silent {
-                    eprintln!();
+                if json_format {
+                    let payload = serde_json::json!({ "message": err.to_string() });
+                    let formatted = get_formatted_json_string(&payload, false)?;
+                    if !silent {
+                        eprintln!();
+                    }
+                    eprintln!("{formatted}");
+                } else {
+                    if !silent {
+                        eprintln!();
+                    }
+                    eprintln!("{err}");
                 }
-                eprintln!("{err}");
                 std::process::exit(1);
             }
         }
@@ -65,23 +89,46 @@ pub fn init_scan_config(file: Option<&str>, force: bool, silent: bool) -> Result
     if let Err(err) = fs::write(path, SCAN_CONFIG_TEMPLATE)
         .with_context(|| format!("Failed to write scan config '{}'", path.display()))
     {
-        if !silent {
-            eprintln!();
+        if json_format {
+            let payload = serde_json::json!({ "message": err.to_string() });
+            let formatted = get_formatted_json_string(&payload, false)?;
+            if !silent {
+                eprintln!();
+            }
+            eprintln!("{formatted}");
+        } else {
+            if !silent {
+                eprintln!();
+            }
+            eprintln!("{err}");
         }
-        eprintln!("{err}");
         std::process::exit(1);
     }
 
     if !silent {
-        println!();
+        if json_format {
+            let message = if force {
+                format!("Wrote scan config at {}", path.display())
+            } else {
+                format!("Created scan config at {}", path.display())
+            };
+            let payload = serde_json::json!({
+                "message": message,
+                "path": path.display().to_string(),
+                "overwritten": force
+            });
+            let pretty = get_formatted_json_string(&payload, false)?;
+            println!("\n{}", pretty);
+        } else {
+            println!();
+            if force {
+                println!("✔ Wrote scan config at {}", path.display());
+            } else {
+                println!("✔ Created scan config at {}", path.display());
+            }
+            println!("Tip: run 'stashbase scan staged -c {}'", path.display());
+        }
     }
-
-    if force {
-        println!("✔ Wrote scan config at {}", path.display());
-    } else {
-        println!("✔ Created scan config at {}", path.display());
-    }
-    println!("Tip: run 'stashbase scan staged -c {}'", path.display());
 
     Ok(())
 }
