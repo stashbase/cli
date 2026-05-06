@@ -126,6 +126,7 @@ pub fn install_scan_hook(
             });
             println!("\n{}", get_formatted_json_string(&payload, false)?);
         } else {
+            println!();
             if was_already_installed {
                 println!(
                     "✔ Stashbase scan already installed for {}",
@@ -164,6 +165,7 @@ pub fn uninstall_scan_hook(
                 });
                 println!("\n{}", get_formatted_json_string(&payload, false)?);
             } else {
+                println!();
                 println!("✔ Stashbase scan is not installed for {}", hook_type.name());
             }
         }
@@ -183,6 +185,7 @@ pub fn uninstall_scan_hook(
                 });
                 println!("\n{}", get_formatted_json_string(&payload, false)?);
             } else {
+                println!();
                 println!("✔ Stashbase scan is not installed for {}", hook_type.name());
             }
         }
@@ -214,6 +217,7 @@ pub fn uninstall_scan_hook(
             });
             println!("\n{}", get_formatted_json_string(&payload, false)?);
         } else {
+            println!();
             println!("✔ Uninstalled {} hook", hook_type.name());
         }
     }
