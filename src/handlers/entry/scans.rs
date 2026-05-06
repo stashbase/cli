@@ -80,15 +80,15 @@ pub async fn handle_scan_commands(
                 if args.file.is_some() {
                     anyhow::bail!("--file cannot be used with --all. Install hooks individually when using a custom file path.");
                 }
-                install_scan_hook(HookType::PreCommit, None, silent, raw_output)?;
-                install_scan_hook(HookType::PrePush, None, silent, raw_output)?;
+                install_scan_hook(HookType::PreCommit, None, silent, raw_output, true)?;
+                install_scan_hook(HookType::PrePush, None, silent, raw_output, false)?;
             } else {
                 let hook = args
                     .hook
                     .as_deref()
                     .ok_or_else(|| anyhow::anyhow!("Hook is required unless --all is provided."))?;
                 let hook_type = HookType::parse(hook)?;
-                install_scan_hook(hook_type, args.file.as_deref(), silent, raw_output)?;
+                install_scan_hook(hook_type, args.file.as_deref(), silent, raw_output, true)?;
             }
         }
         ScanSubcommand::Uninstall(args) => {
