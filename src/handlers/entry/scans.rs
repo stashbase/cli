@@ -76,8 +76,20 @@ pub async fn handle_scan_commands(
             handle_scan_unpushed_commit_hunks(args).await?;
         }
         ScanSubcommand::Install(args) => {
-            let hook_type = HookType::parse(&args.hook)?;
-            install_scan_hook(hook_type, args.file.as_deref(), silent, raw_output)?;
+            if args.all {
+                if args.file.is_some() {
+                    anyhow::bail!("--file cannot be used with --all. Install hooks individually when using a custom file path.");
+                }
+                install_scan_hook(HookType::PreCommit, None, silent, raw_output)?;
+                install_scan_hook(HookType::PrePush, None, silent, raw_output)?;
+            } else {
+                let hook = args
+                    .hook
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("Hook is required unless --all is provided."))?;
+                let hook_type = HookType::parse(hook)?;
+                install_scan_hook(hook_type, args.file.as_deref(), silent, raw_output)?;
+            }
         }
         ScanSubcommand::Uninstall(args) => {
             let hook_type = HookType::parse(&args.hook)?;

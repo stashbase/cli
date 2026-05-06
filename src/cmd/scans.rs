@@ -32,11 +32,15 @@ pub enum ScanSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "scan install <hook>")]
+#[command(override_usage = "scan install <hook> [OPTIONS] | scan install --all")]
 pub struct ScanInstall {
     /// Hook to install
-    #[arg(value_parser = ["pre-commit", "pre-push"])]
-    pub hook: String,
+    #[arg(value_parser = ["pre-commit", "pre-push"], required_unless_present = "all")]
+    pub hook: Option<String>,
+
+    /// Install both pre-commit and pre-push hooks
+    #[arg(long = "all")]
+    pub all: bool,
 
     /// Custom hook file path to install into (e.g. .husky/pre-commit)
     #[arg(long = "file")]

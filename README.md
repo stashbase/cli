@@ -125,6 +125,9 @@ stashbase scan unpushed
 ## install scan hook into Husky pre-commit file
 stashbase scan install pre-commit --file .husky/pre-commit
 
+## install both pre-commit and pre-push hooks
+stashbase scan install --all
+
 ## uninstall scan hook from Husky pre-commit file
 stashbase scan uninstall pre-commit --file .husky/pre-commit
 ```
