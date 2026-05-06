@@ -4,7 +4,7 @@ use crate::{
     cmd::scans::{ScanCommands, ScanConfigSubcommand, ScanSubcommand},
     handlers::scans::{
         commits::{handle_scan_unpushed_commit_hunks, HandleScanUnpushedCommitHunksArgs},
-        config::init_scan_config,
+        config::{init_scan_config, validate_scan_config},
         files::{
             handle_scan_changed_file_hunks, handle_scan_staged_file_hunks,
             HandleScanStagedFileHunksArgs,
@@ -86,6 +86,9 @@ pub async fn handle_scan_commands(
         ScanSubcommand::Config(args) => match args.subcommand {
             ScanConfigSubcommand::Init(init_args) => {
                 init_scan_config(init_args.file.as_deref(), init_args.force)?;
+            }
+            ScanConfigSubcommand::Validate(validate_args) => {
+                validate_scan_config(validate_args.config_file.as_deref())?;
             }
         },
     }

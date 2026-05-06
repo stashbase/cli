@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::{fs, path::Path};
 
-const DEFAULT_SCAN_CONFIG_PATH: &str = "stashbase-scan.yaml";
+pub const DEFAULT_SCAN_CONFIG_PATH: &str = "stashbase-scan.yaml";
 const SCAN_CONFIG_TEMPLATE: &str = r#"# Stashbase scan config
 # Docs: stashbase scan staged -c stashbase-scan.yaml
 #
@@ -61,5 +61,13 @@ pub fn init_scan_config(file: Option<&str>, force: bool) -> Result<()> {
     }
     println!("Tip: run 'stashbase scan staged -c {}'", path.display());
 
+    Ok(())
+}
+
+pub fn validate_scan_config(file: Option<&str>) -> Result<()> {
+    let path = file.unwrap_or(DEFAULT_SCAN_CONFIG_PATH);
+    crate::models::scans::ScanConfig::load_from_file(path)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    println!("✔ Scan config is valid: {}", path);
     Ok(())
 }

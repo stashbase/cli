@@ -66,6 +66,9 @@ pub struct ScanConfigCommand {
 pub enum ScanConfigSubcommand {
     /// Create a starter scan config file
     Init(ScanConfigInit),
+
+    /// Validate a scan config file
+    Validate(ScanConfigValidate),
 }
 
 #[derive(Debug, Args)]
@@ -78,6 +81,14 @@ pub struct ScanConfigInit {
     /// Overwrite existing config file if it already exists
     #[arg(long = "force")]
     pub force: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "scan config validate [OPTIONS]")]
+pub struct ScanConfigValidate {
+    /// Path to scan config file
+    #[arg(short = 'c', long = "config")]
+    pub config_file: Option<String>,
 }
 
 #[derive(Debug, Args)]

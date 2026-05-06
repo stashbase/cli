@@ -110,9 +110,10 @@ impl EntityType {
             EntityType::Doctor(_) => false,
             EntityType::Scan(scan_cmd) => match &scan_cmd.subcommand {
                 ScanSubcommand::Install(_) | ScanSubcommand::Uninstall(_) => false,
-                ScanSubcommand::Config(config_cmd) => {
-                    !matches!(config_cmd.subcommand, ScanConfigSubcommand::Init(_))
-                }
+                ScanSubcommand::Config(config_cmd) => !matches!(
+                    config_cmd.subcommand,
+                    ScanConfigSubcommand::Init(_) | ScanConfigSubcommand::Validate(_)
+                ),
                 _ => true,
             },
             _ => true,
