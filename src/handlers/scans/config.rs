@@ -1,3 +1,4 @@
+use crate::{models::validation::InputValidationError, utils::output::get_formatted_json_string};
 use anyhow::{Context, Result};
 use std::{fs, path::Path};
 
@@ -85,20 +86,37 @@ pub fn init_scan_config(file: Option<&str>, force: bool, silent: bool) -> Result
     Ok(())
 }
 
-pub fn validate_scan_config(file: Option<&str>, silent: bool) -> Result<()> {
+pub fn validate_scan_config(file: Option<&str>, silent: bool, json_format: bool) -> Result<()> {
     let path = file.unwrap_or(DEFAULT_SCAN_CONFIG_PATH);
 
     if let Err(err) = crate::models::scans::ScanConfig::load_from_file(path) {
-        if !silent {
+        let input_error = InputValidationError::Scan(err);
+        let output = input_error.format_error_output(json_format)?;
+        if !silent && !json_format {
             eprintln!();
         }
-        eprintln!("{err}");
+        eprintln!("{output}");
         std::process::exit(1);
     }
 
     if !silent {
-        println!();
+        if json_format {
+            let message = serde_json::json!({
+                "message": format!("Scan config is valid: {}", path)
+            });
+            let pretty = get_formatted_json_string(&message, false)?;
+            println!("\n{}", pretty);
+        } else {
+            println!();
+            println!("✔ Scan config is valid: {}", path);
+        }
+    } else if json_format {
+        let message = serde_json::json!({
+            "message": format!("Scan config is valid: {}", path)
+        });
+        let pretty = get_formatted_json_string(&message, false)?;
+        println!("{}", pretty);
     }
-    println!("✔ Scan config is valid: {}", path);
+
     Ok(())
 }
