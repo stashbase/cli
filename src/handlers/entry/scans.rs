@@ -77,18 +77,18 @@ pub async fn handle_scan_commands(
         }
         ScanSubcommand::Install(args) => {
             let hook_type = HookType::parse(&args.hook)?;
-            install_scan_hook(hook_type, args.file.as_deref())?;
+            install_scan_hook(hook_type, args.file.as_deref(), silent)?;
         }
         ScanSubcommand::Uninstall(args) => {
             let hook_type = HookType::parse(&args.hook)?;
-            uninstall_scan_hook(hook_type, args.file.as_deref())?;
+            uninstall_scan_hook(hook_type, args.file.as_deref(), silent)?;
         }
         ScanSubcommand::Config(args) => match args.subcommand {
             ScanConfigSubcommand::Init(init_args) => {
                 init_scan_config(init_args.file.as_deref(), init_args.force, silent)?;
             }
             ScanConfigSubcommand::Validate(validate_args) => {
-                validate_scan_config(validate_args.config_file.as_deref(), silent)?;
+                validate_scan_config(validate_args.config_file.as_deref(), silent, raw_output)?;
             }
         },
     }
