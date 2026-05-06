@@ -29,11 +29,11 @@ match:
   files: []
 "#;
 
-pub fn init_scan_config(file: Option<&str>) -> Result<()> {
+pub fn init_scan_config(file: Option<&str>, force: bool) -> Result<()> {
     let path_str = file.unwrap_or(DEFAULT_SCAN_CONFIG_PATH);
     let path = Path::new(path_str);
 
-    if path.exists() {
+    if path.exists() && !force {
         bail!(
             "Scan config already exists at '{}'. Use --file to choose another path.",
             path.display()
@@ -54,7 +54,11 @@ pub fn init_scan_config(file: Option<&str>) -> Result<()> {
     fs::write(path, SCAN_CONFIG_TEMPLATE)
         .with_context(|| format!("Failed to write scan config '{}'", path.display()))?;
 
-    println!("✔ Created scan config at {}", path.display());
+    if force {
+        println!("✔ Wrote scan config at {}", path.display());
+    } else {
+        println!("✔ Created scan config at {}", path.display());
+    }
     println!("Tip: run 'stashbase scan staged -c {}'", path.display());
 
     Ok(())

@@ -85,7 +85,7 @@ pub async fn handle_scan_commands(
         }
         ScanSubcommand::Config(args) => match args.subcommand {
             ScanConfigSubcommand::Init(init_args) => {
-                init_scan_config(init_args.file.as_deref())?;
+                init_scan_config(init_args.file.as_deref(), init_args.force)?;
             }
         },
     }

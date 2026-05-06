@@ -74,6 +74,10 @@ pub struct ScanConfigInit {
     /// Path to write the scan config file
     #[arg(long = "file")]
     pub file: Option<String>,
+
+    /// Overwrite existing config file if it already exists
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
