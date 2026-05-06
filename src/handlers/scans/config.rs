@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use std::{fs, path::Path};
 
 pub const DEFAULT_SCAN_CONFIG_PATH: &str = "stashbase-scan.yaml";
@@ -29,30 +29,51 @@ match:
   files: []
 "#;
 
-pub fn init_scan_config(file: Option<&str>, force: bool) -> Result<()> {
+pub fn init_scan_config(file: Option<&str>, force: bool, silent: bool) -> Result<()> {
     let path_str = file.unwrap_or(DEFAULT_SCAN_CONFIG_PATH);
     let path = Path::new(path_str);
 
     if path.exists() && !force {
-        bail!(
+        if !silent {
+            eprintln!();
+        }
+        eprintln!(
             "Scan config already exists at '{}'. Use --file to choose another path.",
             path.display()
         );
+        std::process::exit(1);
     }
 
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).with_context(|| {
+            if let Err(err) = fs::create_dir_all(parent).with_context(|| {
                 format!(
                     "Failed to create directory for scan config at '{}'",
                     parent.display()
                 )
-            })?;
+            }) {
+                if !silent {
+                    eprintln!();
+                }
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
         }
     }
 
-    fs::write(path, SCAN_CONFIG_TEMPLATE)
-        .with_context(|| format!("Failed to write scan config '{}'", path.display()))?;
+    if let Err(err) = fs::write(path, SCAN_CONFIG_TEMPLATE)
+        .with_context(|| format!("Failed to write scan config '{}'", path.display()))
+    {
+        if !silent {
+            eprintln!();
+        }
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
+
+    if !silent {
+        println!();
+    }
 
     if force {
         println!("✔ Wrote scan config at {}", path.display());
@@ -64,10 +85,20 @@ pub fn init_scan_config(file: Option<&str>, force: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn validate_scan_config(file: Option<&str>) -> Result<()> {
+pub fn validate_scan_config(file: Option<&str>, silent: bool) -> Result<()> {
     let path = file.unwrap_or(DEFAULT_SCAN_CONFIG_PATH);
-    crate::models::scans::ScanConfig::load_from_file(path)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    if let Err(err) = crate::models::scans::ScanConfig::load_from_file(path) {
+        if !silent {
+            eprintln!();
+        }
+        eprintln!("{err}");
+        std::process::exit(1);
+    }
+
+    if !silent {
+        println!();
+    }
     println!("✔ Scan config is valid: {}", path);
     Ok(())
 }
