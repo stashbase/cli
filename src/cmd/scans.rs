@@ -26,6 +26,9 @@ pub enum ScanSubcommand {
 
     /// Uninstall git hook block for scan checks
     Uninstall(ScanUninstall),
+
+    /// Manage scan config files
+    Config(ScanConfigCommand),
 }
 
 #[derive(Debug, Args)]
@@ -48,6 +51,27 @@ pub struct ScanUninstall {
     pub hook: String,
 
     /// Custom hook file path to uninstall from (e.g. .husky/pre-commit)
+    #[arg(long = "file")]
+    pub file: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "scan config <COMMAND>")]
+pub struct ScanConfigCommand {
+    #[clap(subcommand)]
+    pub subcommand: ScanConfigSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ScanConfigSubcommand {
+    /// Create a starter scan config file
+    Init(ScanConfigInit),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "scan config init [OPTIONS]")]
+pub struct ScanConfigInit {
+    /// Path to write the scan config file
     #[arg(long = "file")]
     pub file: Option<String>,
 }

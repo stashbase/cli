@@ -1,9 +1,10 @@
 use anyhow::Result;
 
 use crate::{
-    cmd::scans::{ScanCommands, ScanSubcommand},
+    cmd::scans::{ScanCommands, ScanConfigSubcommand, ScanSubcommand},
     handlers::scans::{
         commits::{handle_scan_unpushed_commit_hunks, HandleScanUnpushedCommitHunksArgs},
+        config::init_scan_config,
         files::{
             handle_scan_changed_file_hunks, handle_scan_staged_file_hunks,
             HandleScanStagedFileHunksArgs,
@@ -82,6 +83,11 @@ pub async fn handle_scan_commands(
             let hook_type = HookType::parse(&args.hook)?;
             uninstall_scan_hook(hook_type, args.file.as_deref())?;
         }
+        ScanSubcommand::Config(args) => match args.subcommand {
+            ScanConfigSubcommand::Init(init_args) => {
+                init_scan_config(init_args.file.as_deref())?;
+            }
+        },
     }
 
     Ok(())
