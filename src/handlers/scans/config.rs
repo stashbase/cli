@@ -1,5 +1,6 @@
 use crate::{models::validation::InputValidationError, utils::output::get_formatted_json_string};
 use anyhow::{Context, Result};
+use git2::Repository;
 use std::{fs, path::Path};
 
 pub const DEFAULT_SCAN_CONFIG_PATH: &str = "stashbase-scan.yaml";
@@ -166,4 +167,20 @@ pub fn validate_scan_config(file: Option<&str>, silent: bool, json_format: bool)
     }
 
     Ok(())
+}
+
+pub fn resolve_scan_config_path(config_file_path: Option<String>) -> Option<String> {
+    if config_file_path.is_some() {
+        return config_file_path;
+    }
+
+    let repo = Repository::discover(".").ok()?;
+    let workdir = repo.workdir()?;
+    let default_config = workdir.join(DEFAULT_SCAN_CONFIG_PATH);
+
+    if default_config.exists() {
+        Some(default_config.to_string_lossy().to_string())
+    } else {
+        None
+    }
 }

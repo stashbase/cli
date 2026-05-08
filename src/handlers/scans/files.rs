@@ -1,5 +1,6 @@
 use crate::{
     api,
+    handlers::scans::config::resolve_scan_config_path,
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
@@ -123,6 +124,8 @@ async fn handle_scan_file_hunks(
         match_files,
         excluded_files,
     } = args;
+
+    let config_file_path = resolve_scan_config_path(config_file_path);
 
     let config = match &config_file_path {
         Some(path) => match ScanConfig::load_from_file(path) {

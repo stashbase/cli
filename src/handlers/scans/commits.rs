@@ -6,6 +6,7 @@ use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::PathBuf, rc
 
 use crate::{
     api,
+    handlers::scans::config::resolve_scan_config_path,
     models::{
         api_client::{GenericOutputError, OutputError, RequestApiOptionResponse},
         scans::{
@@ -62,6 +63,8 @@ pub async fn handle_scan_unpushed_commit_hunks(
         last_n_commits,
         exclude_files: _,
     } = args;
+
+    let config_file_path = resolve_scan_config_path(config_file_path);
 
     let config = match &config_file_path {
         Some(path) => match ScanConfig::load_from_file(path) {
