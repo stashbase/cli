@@ -15,7 +15,7 @@ where
     if is_color_enabled(true) {
         let term_size_settings = Settings::default()
             // .with(Style::modern())
-            .with(Style::ascii_rounded())
+            .with(Style::rounded())
             .with(Width::wrap(width).priority::<PriorityMax>())
             .with(Modify::new(Rows::first()).with(Color::BOLD | Color::FG_BLUE));
 
@@ -23,7 +23,7 @@ where
     } else {
         let term_size_settings = Settings::default()
             // .with(Style::modern())
-            .with(Style::ascii_rounded())
+            .with(Style::rounded())
             .with(Width::wrap(width).priority::<PriorityMax>());
 
         table.with(term_size_settings);
