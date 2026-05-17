@@ -11,16 +11,6 @@ use crate::utils::{
 use super::secrets::Secret;
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct EnvironmentUserRole(pub String);
-
-impl Display for EnvironmentUserRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct Environment {
     pub id: String,
 
@@ -36,7 +26,7 @@ pub struct Environment {
 
     // only for personal auth (api key)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_role: Option<EnvironmentUserRole>,
+    pub user_role: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<EnvironmentProjectReference>,

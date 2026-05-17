@@ -9,17 +9,7 @@ pub struct WorkspaceData {
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_role: Option<WorkspaceUserRole>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct WorkspaceUserRole(pub String);
-
-impl std::fmt::Display for WorkspaceUserRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+    pub user_role: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
