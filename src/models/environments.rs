@@ -11,22 +11,12 @@ use crate::utils::{
 use super::secrets::Secret;
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum EnvironmentUserRole {
-    Viewer,
-    Editor,
-    Admin,
-}
+#[serde(transparent)]
+pub struct EnvironmentUserRole(pub String);
 
 impl Display for EnvironmentUserRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            EnvironmentUserRole::Viewer => "Viewer".to_string(),
-            EnvironmentUserRole::Editor => "Editor".to_string(),
-            EnvironmentUserRole::Admin => "Admin".to_string(),
-        };
-
-        write!(f, "{}", s)
+        write!(f, "{}", self.0)
     }
 }
 
