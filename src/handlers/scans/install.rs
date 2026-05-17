@@ -453,8 +453,7 @@ mod tests {
         let content = "#!/bin/sh\necho custom\n\n# >>> stashbase scan >>>\nstashbase scan staged --silent --json || exit 1\n# <<< stashbase scan <<<\n";
         fs::write(&hook_path, content).expect("seed failed");
 
-        uninstall_scan_hook(HookType::PreCommit, None, false, false, true)
-            .expect("uninstall failed");
+        uninstall_scan_hook(HookType::PreCommit, None, false, false).expect("uninstall failed");
         let result = fs::read_to_string(&hook_path).expect("read failed");
 
         assert!(result.contains("echo custom"));
@@ -471,8 +470,7 @@ mod tests {
         let hook_path = dir.join(".git/hooks/pre-commit");
         fs::write(&hook_path, "#!/bin/sh\necho custom\n").expect("seed failed");
 
-        uninstall_scan_hook(HookType::PreCommit, None, false, false, true)
-            .expect("uninstall failed");
+        uninstall_scan_hook(HookType::PreCommit, None, false, false).expect("uninstall failed");
         let result = fs::read_to_string(&hook_path).expect("read failed");
         assert!(result.contains("echo custom"));
     }
@@ -485,8 +483,7 @@ mod tests {
         let _cwd = CwdGuard::enter(&dir);
 
         install_scan_hook(HookType::PreCommit, None, false, false, true).expect("install failed");
-        uninstall_scan_hook(HookType::PreCommit, None, false, false, true)
-            .expect("uninstall failed");
+        uninstall_scan_hook(HookType::PreCommit, None, false, false).expect("uninstall failed");
 
         let content = fs::read_to_string(dir.join(".git/hooks/pre-commit")).expect("read failed");
         assert_eq!(content, "#!/bin/sh\n");
@@ -507,14 +504,8 @@ mod tests {
             true,
         )
         .expect("install failed");
-        uninstall_scan_hook(
-            HookType::PreCommit,
-            Some(".husky/pre-commit"),
-            false,
-            false,
-            true,
-        )
-        .expect("uninstall failed");
+        uninstall_scan_hook(HookType::PreCommit, Some(".husky/pre-commit"), false, false)
+            .expect("uninstall failed");
 
         let content = fs::read_to_string(dir.join(".husky/pre-commit")).expect("read failed");
         assert_eq!(content, "#!/bin/sh\n");
