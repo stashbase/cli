@@ -333,9 +333,13 @@ pub struct SearchSecrets {
     #[arg(value_enum, long = "value", required = false)]
     pub value: Option<String>,
 
-    /// Show secret values, for search by name
-    #[arg(value_enum, long = "show-values")]
-    pub show_values: bool,
+    /// Include secret values in search results when searching by name
+    #[arg(
+        long = "include-values",
+        alias = "show-values",
+        alias = "reveal-values"
+    )]
+    pub include_values: bool,
 
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]

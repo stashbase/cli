@@ -82,7 +82,7 @@ pub async fn handle_secrets_commands(
             project: args.project,
             name: args.name,
             value: args.value,
-            show_values: args.show_values,
+            include_values: args.include_values,
         };
 
         handle_search_secrets(args).await?;
