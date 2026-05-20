@@ -195,15 +195,15 @@ pub async fn search_secrets(
     project: &String,
     name: &Option<String>,
     value: &Option<String>,
-    with_values: bool,
+    include_values: bool,
 ) -> Result<GetRequestApiResponse, OutputError> {
     let mut query = vec![];
 
     if let Some(name) = name {
         query.push(("name".to_string(), name.to_string()));
 
-        if with_values {
-            query.push(("with_values".to_string(), "true".to_string()));
+        if include_values {
+            query.push(("include_values".to_string(), "true".to_string()));
         }
     } else if let Some(value) = value {
         query.push(("value".to_string(), value.to_string()));

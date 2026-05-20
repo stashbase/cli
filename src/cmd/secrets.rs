@@ -362,13 +362,17 @@ pub struct DiffSecrets {
     #[arg(value_enum, long = "expand-refs")]
     pub expand_refs: Option<bool>,
 
-    /// Print and compare with comments
-    #[arg(value_enum, long = "with-comments")]
-    pub with_comments: bool,
+    /// Include comments in output
+    #[arg(long = "include-comments", alias = "show-comments")]
+    pub include_comments: bool,
 
-    /// Show secret values
-    #[arg(value_enum, long = "show-values")]
-    pub show_values: bool,
+    /// Include secret values in output
+    #[arg(
+        long = "include-values",
+        alias = "show-values",
+        alias = "reveal-values"
+    )]
+    pub include_values: bool,
 
     #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
     pub scope: Option<Scope>,
