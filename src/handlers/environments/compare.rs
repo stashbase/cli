@@ -27,7 +27,7 @@ pub struct HandleCompareEnvironmentsArgs {
     pub project: String,
     pub environment_1: String,
     pub environment_2: String,
-    pub with_values: bool,
+    pub include_values: bool,
     pub json_format: bool,
     pub silent: bool,
     pub expand_refs: bool,
@@ -84,7 +84,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
         project: args.project,
         environment_1: &args.environment_1,
         environment_2: &args.environment_2,
-        with_values: &args.with_values,
+        include_values: &args.include_values,
         expand_refs: &args.expand_refs,
     };
 
@@ -126,7 +126,7 @@ pub async fn handle_compare_environments(args: HandleCompareEnvironmentsArgs) ->
                         args.environment_2,
                         data,
                         args.json_format,
-                        args.with_values,
+                        args.include_values,
                     );
 
                     println!("{}", print_string);

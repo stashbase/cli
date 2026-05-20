@@ -266,8 +266,12 @@ pub struct CompareEnvironment {
     pub identifier_2: String,
 
     /// Return secrets with values
-    #[arg(long = "with-values")]
-    pub with_values: bool,
+    #[arg(
+        long = "include-values",
+        alias = "show-values",
+        alias = "reveal-values"
+    )]
+    pub include_values: bool,
 
     /// Expand secrets references to their values
     #[arg(long = "expand-refs")]

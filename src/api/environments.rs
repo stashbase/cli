@@ -169,7 +169,7 @@ pub struct CompareEnvironmentsRequestArgs<'a> {
     pub project: String,
     pub environment_1: &'a str,
     pub environment_2: &'a str,
-    pub with_values: &'a bool,
+    pub include_values: &'a bool,
     pub expand_refs: &'a bool,
 }
 
@@ -181,7 +181,7 @@ pub async fn compare<'a>(
         project,
         environment_1,
         environment_2,
-        with_values,
+        include_values,
         expand_refs,
     } = args;
 
@@ -189,8 +189,8 @@ pub async fn compare<'a>(
 
     let mut query = vec![];
 
-    if *with_values {
-        query.push(("with_values".to_string(), "true".to_string()));
+    if *include_values {
+        query.push(("include_values".to_string(), "true".to_string()));
     }
 
     if *expand_refs {
