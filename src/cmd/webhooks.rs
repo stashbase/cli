@@ -222,7 +222,7 @@ pub struct GetWebhook {
     pub webhook_id: String,
 
     /// Include signing secret in output
-    #[arg(long = "include-secret", alias = "with-secret")]
+    #[arg(long = "include-secret")]
     pub include_secret: bool,
 
     /// Format output
