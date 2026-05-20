@@ -52,7 +52,7 @@ pub struct GetArgs {
     pub project: Option<String>,
     pub environment: Option<String>,
     pub webhook_id: String,
-    pub with_secret: bool,
+    pub include_secret: bool,
 }
 
 pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse, OutputError> {
@@ -61,11 +61,11 @@ pub async fn get(args: GetArgs) -> Result<GetRequestApiResponse, OutputError> {
         project,
         environment,
         webhook_id,
-        with_secret,
+        include_secret,
     } = args;
 
-    let query = match with_secret {
-        true => Some(vec![("with_secret".to_string(), "true".to_string())]),
+    let query = match include_secret {
+        true => Some(vec![("include_secret".to_string(), "true".to_string())]),
         false => None,
     };
 

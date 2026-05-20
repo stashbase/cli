@@ -17,7 +17,7 @@ pub struct GetWebhookArgs {
     pub project: Option<String>,
     pub environment: Option<String>,
     pub webhook_id: String,
-    pub with_secret: bool,
+    pub include_secret: bool,
     pub format: OutputFormat,
     pub silent: bool,
 }
@@ -29,7 +29,7 @@ impl From<GetWebhookArgs> for webhooks::GetArgs {
             project: args.project,
             environment: args.environment,
             webhook_id: args.webhook_id,
-            with_secret: args.with_secret,
+            include_secret: args.include_secret,
         }
     }
 }

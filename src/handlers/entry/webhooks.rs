@@ -148,7 +148,7 @@ pub async fn handle_webhook_commands(
                 project,
                 environment,
                 webhook_id: args.webhook_id,
-                with_secret: args.with_secret,
+                include_secret: args.include_secret,
                 format,
                 silent,
             };
