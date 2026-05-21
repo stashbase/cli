@@ -13,6 +13,8 @@ pub struct Project {
     // date string
     pub created_at: String,
 
+    pub updated_at: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -55,6 +57,8 @@ pub struct SingleListProject {
     // date string
     #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
+
+    pub updated_at: String,
 
     // only for personal auth (api key)
     #[tabled(display_with = "display_bool_option")]
@@ -129,6 +133,7 @@ pub struct SingleProject {
     pub name: String,
     // date string
     pub created_at: String,
+    pub updated_at: String,
 
     pub description: Option<String>,
 
@@ -241,6 +246,18 @@ impl Display for SingleListProject {
             relative
         )?;
 
+        if self.created_at != self.updated_at {
+            let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
+
+            writeln!(
+                f,
+                "{} {} ({})",
+                "Updated at:".blue_bold_if_tty(),
+                formatted_updated,
+                relative_updated
+            )?;
+        }
+
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
 
@@ -280,6 +297,19 @@ impl Display for SingleProject {
             formatted,
             relative
         )?;
+
+        if (self.created_at != self.updated_at) {
+            let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
+
+            writeln!(
+                f,
+                "{} {} ({})",
+                "Updated at:".blue_bold_if_tty(),
+                formatted_updated,
+                relative_updated
+            )?;
+        }
+
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
 
