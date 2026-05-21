@@ -143,6 +143,21 @@ impl Display for Webhook {
             writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "false")?;
         }
 
+        writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
+
+        if let Some(signing_secret) = &self.signing_secret {
+            writeln!(
+                f,
+                "{} {}",
+                "Signing secret:".blue_bold_if_tty(),
+                signing_secret
+            )?;
+        }
+
+        if let Some(description) = &self.description {
+            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
+        }
+
         let (formatted, relative) = get_human_datetime(&self.created_at);
         writeln!(
             f,
@@ -161,21 +176,6 @@ impl Display for Webhook {
                 formatted_updated,
                 relative_updated
             )?;
-        }
-
-        writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
-
-        if let Some(signing_secret) = &self.signing_secret {
-            writeln!(
-                f,
-                "{} {}",
-                "Signing secret:".blue_bold_if_tty(),
-                signing_secret
-            )?;
-        }
-
-        if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
 
         Ok(())
