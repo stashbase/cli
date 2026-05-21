@@ -68,10 +68,10 @@ pub struct SingleListProject {
     #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
 
-    #[tabled(rename = "Created at", order = 5)]
+    #[tabled(rename = "Created", order = 5)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 6)]
+    #[tabled(rename = "Updated", order = 6)]
     pub updated_at: String,
 }
 
@@ -93,10 +93,10 @@ pub struct SingleListProjectWithoutDescription {
     #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
 
-    #[tabled(rename = "Created at", order = 4)]
+    #[tabled(rename = "Created", order = 4)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 5)]
+    #[tabled(rename = "Updated", order = 5)]
     pub updated_at: String,
 }
 
@@ -126,10 +126,10 @@ pub struct SingleProjectTable {
     pub environment_count: usize,
 
     // date string
-    #[tabled(rename = "Created at", order = 5)]
+    #[tabled(rename = "Created", order = 5)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 6)]
+    #[tabled(rename = "Updated", order = 6)]
     pub updated_at: String,
 }
 
@@ -168,10 +168,10 @@ pub struct SingleProjectWithCountNoDescriptionTable {
     pub environment_count: usize,
 
     // date string
-    #[tabled(rename = "Created at", order = 4)]
+    #[tabled(rename = "Created", order = 4)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 5)]
+    #[tabled(rename = "Updated", order = 5)]
     pub updated_at: String,
 }
 
@@ -191,10 +191,10 @@ pub struct ProjectWithCountNoDescriptionTable {
     #[tabled(rename = "Environments", order = 1)]
     pub environment_count: usize,
 
-    #[tabled(rename = "Created at", order = 2)]
+    #[tabled(rename = "Created", order = 2)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 3)]
+    #[tabled(rename = "Updated", order = 3)]
     pub updated_at: String,
 }
 

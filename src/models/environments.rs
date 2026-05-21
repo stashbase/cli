@@ -48,10 +48,10 @@ pub struct TableEnvironment {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 6)]
+    #[tabled(rename = "Created", order = 6)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 7)]
+    #[tabled(rename = "Updated", order = 7)]
     pub updated_at: String,
 
     // only for personal auth (api key)
@@ -79,10 +79,10 @@ pub struct TableEnvironmentWithoutDescription {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 5)]
+    #[tabled(rename = "Created", order = 5)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 6)]
+    #[tabled(rename = "Updated", order = 6)]
     pub updated_at: String,
 
     // only for personal auth (api key)
@@ -105,10 +105,10 @@ pub struct TableEnvironmentWithProject {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 7)]
+    #[tabled(rename = "Created", order = 7)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 8)]
+    #[tabled(rename = "Updated", order = 8)]
     pub updated_at: String,
 
     // only for personal auth (api key)
@@ -139,10 +139,10 @@ pub struct TableEnvironmentWithProjectWithoutDescription {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 6)]
+    #[tabled(rename = "Created", order = 6)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 7)]
+    #[tabled(rename = "Updated", order = 7)]
     pub updated_at: String,
 
     // only for personal auth (api key)

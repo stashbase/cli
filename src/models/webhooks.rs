@@ -18,10 +18,10 @@ pub struct ListWebhook {
     #[tabled(rename = "Enabled", order = 2)]
     pub enabled: bool,
 
-    #[tabled(rename = "Created at", order = 3)]
+    #[tabled(rename = "Created", order = 3)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 4)]
+    #[tabled(rename = "Updated", order = 4)]
     pub updated_at: String,
 }
 
@@ -91,10 +91,10 @@ pub struct TableWebhook {
     #[tabled(rename = "Description", order = 3)]
     pub description: String,
 
-    #[tabled(rename = "Created at", order = 4)]
+    #[tabled(rename = "Created", order = 4)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 5)]
+    #[tabled(rename = "Updated", order = 5)]
     pub updated_at: String,
 }
 
@@ -109,10 +109,10 @@ pub struct TableWebhookNoDescription {
     #[tabled(rename = "URL", order = 2)]
     pub url: String,
 
-    #[tabled(rename = "Created at", order = 3)]
+    #[tabled(rename = "Created", order = 3)]
     pub created_at: String,
 
-    #[tabled(rename = "Updated at", order = 4)]
+    #[tabled(rename = "Updated", order = 4)]
     pub updated_at: String,
 }
 
