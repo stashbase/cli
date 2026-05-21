@@ -55,18 +55,18 @@ pub struct TableEnvironment {
     pub updated_at: String,
 
     // only for personal auth (api key)
-    #[tabled(rename = "User role", order = 3)]
+    #[tabled(rename = "User role", order = 2)]
     pub user_role: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 6)]
+    #[tabled(rename = "Description", order = 5)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Production", order = 4)]
+    #[tabled(rename = "Production", order = 3)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 5)]
+    #[tabled(rename = "Secrets", order = 4)]
     pub secret_count: usize,
 }
 
@@ -86,13 +86,13 @@ pub struct TableEnvironmentWithoutDescription {
     pub updated_at: String,
 
     // only for personal auth (api key)
-    #[tabled(rename = "User role", order = 3)]
+    #[tabled(rename = "User role", order = 2)]
     pub user_role: String,
 
-    #[tabled(rename = "Production", order = 4)]
+    #[tabled(rename = "Production", order = 3)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 5)]
+    #[tabled(rename = "Secrets", order = 4)]
     pub secret_count: usize,
 }
 
@@ -112,21 +112,21 @@ pub struct TableEnvironmentWithProject {
     pub updated_at: String,
 
     // only for personal auth (api key)
-    #[tabled(rename = "User role", order = 3)]
+    #[tabled(rename = "User role", order = 2)]
     pub user_role: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 6)]
+    #[tabled(rename = "Description", order = 5)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Production", order = 4)]
+    #[tabled(rename = "Production", order = 3)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 5)]
+    #[tabled(rename = "Secrets", order = 4)]
     pub secret_count: usize,
 
-    #[tabled(rename = "Project", order = 7)]
+    #[tabled(rename = "Project", order = 6)]
     pub project: String,
 }
 
@@ -146,16 +146,16 @@ pub struct TableEnvironmentWithProjectWithoutDescription {
     pub updated_at: String,
 
     // only for personal auth (api key)
-    #[tabled(rename = "User role", order = 3)]
+    #[tabled(rename = "User role", order = 2)]
     pub user_role: String,
 
-    #[tabled(rename = "Production", order = 4)]
+    #[tabled(rename = "Production", order = 3)]
     pub is_production: bool,
 
-    #[tabled(rename = "Secrets", order = 5)]
+    #[tabled(rename = "Secrets", order = 4)]
     pub secret_count: usize,
 
-    #[tabled(rename = "Project", order = 6)]
+    #[tabled(rename = "Project", order = 5)]
     pub project: String,
 }
 
