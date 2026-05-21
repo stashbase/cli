@@ -319,6 +319,28 @@ impl Display for Environment {
             )?;
         }
 
+        let (formatted, relative) = get_human_datetime(&self.created_at);
+
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Created at:".blue_bold_if_tty(),
+            formatted,
+            relative
+        )?;
+
+        if self.created_at != self.updated_at {
+            let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
+
+            writeln!(
+                f,
+                "{} {} ({})",
+                "Updated at:".blue_bold_if_tty(),
+                formatted_updated,
+                relative_updated
+            )?;
+        }
+
         Ok(())
     }
 }
