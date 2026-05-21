@@ -274,28 +274,6 @@ fn display_option(d: &Option<String>) -> String {
 
 impl Display for Environment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (formatted, relative) = get_human_datetime(&self.created_at);
-
-        writeln!(
-            f,
-            "{} {} ({})",
-            "Created at:".blue_bold_if_tty(),
-            formatted,
-            relative
-        )?;
-
-        if self.created_at != self.updated_at {
-            let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
-
-            writeln!(
-                f,
-                "{} {} ({})",
-                "Updated at:".blue_bold_if_tty(),
-                formatted_updated,
-                relative_updated
-            )?;
-        }
-
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
         writeln!(
@@ -336,7 +314,6 @@ impl Display for Environment {
         }
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
-
         writeln!(
             f,
             "{} {} ({})",
@@ -347,7 +324,6 @@ impl Display for Environment {
 
         if self.created_at != self.updated_at {
             let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
-
             writeln!(
                 f,
                 "{} {} ({})",
