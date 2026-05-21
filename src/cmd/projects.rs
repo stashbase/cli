@@ -73,6 +73,10 @@ pub enum SortBy {
     Name,
     #[value(name = "created_at")]
     CreatedAt,
+
+    #[value(name = "updated_at")]
+    UpdatedAt,
+
     #[value(name = "environment_count")]
     EnvironmentCount,
 }
@@ -82,6 +86,7 @@ impl fmt::Display for SortBy {
         match self {
             SortBy::Name => write!(f, "name"),
             SortBy::CreatedAt => write!(f, "created_at"),
+            SortBy::UpdatedAt => write!(f, "updated_at"),
             SortBy::EnvironmentCount => write!(f, "environment_count"),
         }?;
 

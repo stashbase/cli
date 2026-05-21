@@ -141,6 +141,8 @@ pub enum EnvSortBy {
     Name,
     #[value(name = "created_at")]
     CreatedAt,
+    #[value(name = "updated_at")]
+    UpdatedAt,
     #[value(name = "secret_count")]
     SecretCount,
 }
@@ -150,6 +152,7 @@ impl fmt::Display for EnvSortBy {
         match self {
             EnvSortBy::Name => write!(f, "name"),
             EnvSortBy::CreatedAt => write!(f, "created_at"),
+            EnvSortBy::UpdatedAt => write!(f, "updated_at"),
             EnvSortBy::SecretCount => write!(f, "secret_count"),
         }?;
 
