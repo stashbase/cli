@@ -10,18 +10,19 @@ use super::shared::PaginationMetadata;
 #[derive(Debug, Serialize, Deserialize, Tabled)]
 pub struct ListWebhook {
     #[tabled(rename = "ID", order = 0)]
-    id: String,
+    pub id: String,
 
     #[tabled(rename = "URL", order = 1)]
-    url: String,
+    pub url: String,
 
     #[tabled(rename = "Enabled", order = 2)]
-    enabled: bool,
+    pub enabled: bool,
 
     #[tabled(rename = "Created at", order = 3)]
-    created_at: String,
+    pub created_at: String,
 
-    updated_at: String,
+    #[tabled(rename = "Updated at", order = 4)]
+    pub updated_at: String,
 }
 
 impl Display for ListWebhook {
@@ -84,14 +85,17 @@ pub struct TableWebhook {
     #[tabled(rename = "Enabled", order = 1)]
     pub enabled: bool,
 
-    #[tabled(rename = "Created at", order = 2)]
-    pub created_at: String,
-
-    #[tabled(rename = "URL", order = 3)]
+    #[tabled(rename = "URL", order = 2)]
     pub url: String,
 
-    #[tabled(rename = "Description", order = 4)]
+    #[tabled(rename = "Description", order = 3)]
     pub description: String,
+
+    #[tabled(rename = "Created at", order = 4)]
+    pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 5)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -102,20 +106,27 @@ pub struct TableWebhookNoDescription {
     #[tabled(rename = "Enabled", order = 1)]
     pub enabled: bool,
 
-    #[tabled(rename = "Created at", order = 2)]
+    #[tabled(rename = "URL", order = 2)]
+    pub url: String,
+
+    #[tabled(rename = "Created at", order = 3)]
     pub created_at: String,
 
-    #[tabled(rename = "URL", order = 3)]
-    pub url: String,
+    #[tabled(rename = "Updated at", order = 4)]
+    pub updated_at: String,
 }
 
 impl From<Webhook> for TableWebhook {
     fn from(webhook: Webhook) -> Self {
+        let (formatted_created, _) = get_human_datetime(&webhook.created_at);
+        let (formatted_updated, _) = get_human_datetime(&webhook.updated_at);
+
         Self {
             id: webhook.id,
             url: webhook.url,
             enabled: webhook.enabled,
-            created_at: webhook.created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
             description: webhook
                 .description
                 .unwrap_or_else(|| "".to_string())
@@ -126,11 +137,15 @@ impl From<Webhook> for TableWebhook {
 
 impl From<Webhook> for TableWebhookNoDescription {
     fn from(webhook: Webhook) -> Self {
+        let (formatted_created, _) = get_human_datetime(&webhook.created_at);
+        let (formatted_updated, _) = get_human_datetime(&webhook.updated_at);
+
         Self {
             id: webhook.id,
             url: webhook.url,
             enabled: webhook.enabled,
-            created_at: webhook.created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
         }
     }
 }

@@ -48,8 +48,11 @@ pub struct TableEnvironment {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 2)]
+    #[tabled(rename = "Created at", order = 6)]
     pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 7)]
+    pub updated_at: String,
 
     // only for personal auth (api key)
     #[tabled(rename = "User role", order = 3)]
@@ -76,8 +79,11 @@ pub struct TableEnvironmentWithoutDescription {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 2)]
+    #[tabled(rename = "Created at", order = 5)]
     pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 6)]
+    pub updated_at: String,
 
     // only for personal auth (api key)
     #[tabled(rename = "User role", order = 3)]
@@ -99,8 +105,11 @@ pub struct TableEnvironmentWithProject {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 2)]
+    #[tabled(rename = "Created at", order = 7)]
     pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 8)]
+    pub updated_at: String,
 
     // only for personal auth (api key)
     #[tabled(rename = "User role", order = 3)]
@@ -130,8 +139,11 @@ pub struct TableEnvironmentWithProjectWithoutDescription {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 2)]
+    #[tabled(rename = "Created at", order = 6)]
     pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 7)]
+    pub updated_at: String,
 
     // only for personal auth (api key)
     #[tabled(rename = "User role", order = 3)]
@@ -149,8 +161,8 @@ pub struct TableEnvironmentWithProjectWithoutDescription {
 
 impl From<Environment> for TableEnvironment {
     fn from(env: Environment) -> Self {
-        let (formatted, relative) = get_human_datetime(&env.created_at);
-        let created_at = format!("{} ({})", formatted, relative);
+        let (formatted_created, _) = get_human_datetime(&env.created_at);
+        let (formatted_updated, _) = get_human_datetime(&env.updated_at);
 
         let user_role = match env.user_role {
             Some(role) => role.to_string(),
@@ -159,7 +171,8 @@ impl From<Environment> for TableEnvironment {
 
         Self {
             id: env.id,
-            created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
             name: env.name,
             description: env.description,
             user_role,
@@ -171,8 +184,8 @@ impl From<Environment> for TableEnvironment {
 
 impl From<Environment> for TableEnvironmentWithoutDescription {
     fn from(env: Environment) -> Self {
-        let (formatted, relative) = get_human_datetime(&env.created_at);
-        let created_at = format!("{} ({})", formatted, relative);
+        let (formatted_created, _) = get_human_datetime(&env.created_at);
+        let (formatted_updated, _) = get_human_datetime(&env.updated_at);
 
         let user_role = match env.user_role {
             Some(role) => role.to_string(),
@@ -181,7 +194,8 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
 
         Self {
             id: env.id,
-            created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
             name: env.name,
             user_role,
             is_production: env.is_production,
@@ -192,8 +206,8 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
 
 impl From<Environment> for TableEnvironmentWithProject {
     fn from(env: Environment) -> Self {
-        let (formatted, relative) = get_human_datetime(&env.created_at);
-        let created_at = format!("{} ({})", formatted, relative);
+        let (formatted_created, _) = get_human_datetime(&env.created_at);
+        let (formatted_updated, _) = get_human_datetime(&env.updated_at);
 
         let user_role = match env.user_role {
             Some(role) => role.to_string(),
@@ -209,7 +223,8 @@ impl From<Environment> for TableEnvironmentWithProject {
 
         Self {
             id: env.id,
-            created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
             name: env.name,
             description: env.description,
             user_role,
@@ -222,8 +237,8 @@ impl From<Environment> for TableEnvironmentWithProject {
 
 impl From<Environment> for TableEnvironmentWithProjectWithoutDescription {
     fn from(env: Environment) -> Self {
-        let (formatted, relative) = get_human_datetime(&env.created_at);
-        let created_at = format!("{} ({})", formatted, relative);
+        let (formatted_created, _) = get_human_datetime(&env.created_at);
+        let (formatted_updated, _) = get_human_datetime(&env.updated_at);
 
         let user_role = match env.user_role {
             Some(role) => role.to_string(),
@@ -239,7 +254,8 @@ impl From<Environment> for TableEnvironmentWithProjectWithoutDescription {
 
         Self {
             id: env.id,
-            created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
             name: env.name,
             user_role,
             is_production: env.is_production,

@@ -55,23 +55,24 @@ pub struct SingleListProject {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 2)]
-    pub created_at: String,
-
-    pub updated_at: String,
-
     // only for personal auth (api key)
     #[tabled(display_with = "display_bool_option")]
-    #[tabled(rename = "Full access", order = 3)]
+    #[tabled(rename = "Full access", order = 2)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
 
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 5)]
+    #[tabled(rename = "Description", order = 4)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Environments", order = 4)]
+    #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
+
+    #[tabled(rename = "Created at", order = 5)]
+    pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 6)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -83,17 +84,20 @@ pub struct SingleListProjectWithoutDescription {
     pub name: String,
 
     // date string
-    #[tabled(rename = "Created at", order = 2)]
-    pub created_at: String,
-
     // only for personal auth (api key)
     #[tabled(display_with = "display_bool_option")]
-    #[tabled(rename = "Full access", order = 3)]
+    #[tabled(rename = "Full access", order = 2)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_access: Option<bool>,
 
-    #[tabled(rename = "Environments", order = 4)]
+    #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
+
+    #[tabled(rename = "Created at", order = 4)]
+    pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 5)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,21 +113,24 @@ pub struct SingleProjectTable {
 
     #[tabled(rename = "Name", order = 1)]
     pub name: String,
-    // date string
-    #[tabled(rename = "Created at", order = 2)]
-    pub created_at: String,
-
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Full access", order = 3)]
+    #[tabled(rename = "Full access", order = 2)]
     // only for personal auth (api key)
     pub full_access: Option<String>,
 
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Description", order = 5)]
+    #[tabled(rename = "Description", order = 4)]
     pub description: Option<String>,
 
-    #[tabled(rename = "Environments", order = 4)]
+    #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
+
+    // date string
+    #[tabled(rename = "Created at", order = 5)]
+    pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 6)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -152,17 +159,20 @@ pub struct SingleProjectWithCountNoDescriptionTable {
     #[tabled(rename = "Name", order = 1)]
     pub name: String,
 
-    // date string
-    #[tabled(rename = "Created at", order = 2)]
-    pub created_at: String,
-
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Full access", order = 3)]
+    #[tabled(rename = "Full access", order = 2)]
     // only for personal auth (api key)
     pub full_access: Option<String>,
 
-    #[tabled(rename = "Environments", order = 4)]
+    #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
+
+    // date string
+    #[tabled(rename = "Created at", order = 4)]
+    pub created_at: String,
+
+    #[tabled(rename = "Updated at", order = 5)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -178,11 +188,14 @@ pub struct ProjectWithCountNoDescriptionTable {
     #[tabled(rename = "Name", order = 0)]
     pub name: String,
     // date string
-    #[tabled(rename = "Created at", order = 1)]
+    #[tabled(rename = "Environments", order = 1)]
+    pub environment_count: usize,
+
+    #[tabled(rename = "Created at", order = 2)]
     pub created_at: String,
 
-    #[tabled(rename = "Environments", order = 2)]
-    pub environment_count: usize,
+    #[tabled(rename = "Updated at", order = 3)]
+    pub updated_at: String,
 }
 
 fn display_option(d: &Option<String>) -> String {
@@ -206,6 +219,7 @@ impl From<SingleListProject> for SingleListProjectWithoutDescription {
             id: project.id,
             name: project.name,
             created_at: project.created_at,
+            updated_at: project.updated_at,
             full_access: project.full_access,
             environment_count: project.environment_count,
         }
@@ -334,8 +348,8 @@ impl Display for SingleProject {
 
 impl From<SingleProject> for SingleProjectTable {
     fn from(project: SingleProject) -> Self {
-        let (formatted, relative) = get_human_datetime(&project.created_at);
-        let created_at = format!("{} ({})", formatted, relative);
+        let (formatted_created, _) = get_human_datetime(&project.created_at);
+        let (formatted_updated, _) = get_human_datetime(&project.updated_at);
 
         let full_access = match project.full_access {
             Some(access) => Some(format!("{}", access)),
@@ -343,7 +357,8 @@ impl From<SingleProject> for SingleProjectTable {
         };
 
         Self {
-            created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
             id: project.id,
             name: project.name,
             full_access,
@@ -355,8 +370,8 @@ impl From<SingleProject> for SingleProjectTable {
 
 impl From<SingleProject> for SingleProjectWithCountNoDescriptionTable {
     fn from(project: SingleProject) -> Self {
-        let (formatted, relative) = get_human_datetime(&project.created_at);
-        let created_at = format!("{} ({})", formatted, relative);
+        let (formatted_created, _) = get_human_datetime(&project.created_at);
+        let (formatted_updated, _) = get_human_datetime(&project.updated_at);
 
         let full_access = match project.full_access {
             Some(access) => Some(format!("{}", access)),
@@ -364,7 +379,8 @@ impl From<SingleProject> for SingleProjectWithCountNoDescriptionTable {
         };
 
         Self {
-            created_at,
+            created_at: formatted_created,
+            updated_at: formatted_updated,
             id: project.id,
             name: project.name,
             full_access,

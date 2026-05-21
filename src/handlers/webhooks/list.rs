@@ -8,7 +8,10 @@ use crate::{
         api_client::{GetRequestApiResponse, OutputError},
         webhooks::ListWebhook,
     },
-    utils::{output::get_formatted_json_string, spinner::request_spinner, tables},
+    utils::{
+        human_datetime::get_human_datetime, output::get_formatted_json_string,
+        spinner::request_spinner, tables,
+    },
 };
 
 #[derive(Debug)]
@@ -97,7 +100,19 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                                 println!("{}", pretty);
                             }
                             OutputFormat::Table => {
-                                let table = tables::build::build_table(&webhooks);
+                                let table_webhooks: Vec<_> = webhooks
+                                    .into_iter()
+                                    .map(|mut w| {
+                                        let (formatted, _) = get_human_datetime(&w.created_at);
+                                        w.created_at = formatted;
+                                        let (formatted_updated, _) =
+                                            get_human_datetime(&w.updated_at);
+                                        w.updated_at = formatted_updated;
+                                        w
+                                    })
+                                    .collect();
+
+                                let table = tables::build::build_table(&table_webhooks);
                                 println!("{}", table);
                             }
                         }

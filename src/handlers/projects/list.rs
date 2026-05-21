@@ -10,10 +10,8 @@ use crate::{
         shared::PaginationMetadata,
         validation::{InputValidationError, ProjectInputValidationError},
     },
-    utils::{
-        human_datetime::get_human_datetime, output::get_formatted_json_string,
-        spinner::request_spinner, tables, validation::validate_project_search,
-    },
+    utils::{output::get_formatted_json_string, spinner::request_spinner, tables, validation::validate_project_search},
+    utils::human_datetime::get_human_datetime,
 };
 
 pub struct HandleListProjectsArgs {
@@ -212,8 +210,10 @@ fn output_table(projects: Vec<SingleListProject>, pagination: PaginationMetadata
         let projects_formatted: Vec<_> = projects
             .into_iter()
             .map(|mut p| {
-                let (formatted, relative) = get_human_datetime(&p.created_at);
-                p.created_at = format!("{} ({})", formatted, relative);
+                let (formatted, _) = get_human_datetime(&p.created_at);
+                p.created_at = formatted;
+                let (formatted_updated, _) = get_human_datetime(&p.updated_at);
+                p.updated_at = formatted_updated;
                 p
             })
             .collect();
@@ -224,8 +224,10 @@ fn output_table(projects: Vec<SingleListProject>, pagination: PaginationMetadata
         let projects_formatted: Vec<_> = projects
             .into_iter()
             .map(|mut p| {
-                let (formatted, relative) = get_human_datetime(&p.created_at);
-                p.created_at = format!("{} ({})", formatted, relative);
+                let (formatted, _) = get_human_datetime(&p.created_at);
+                p.created_at = formatted;
+                let (formatted_updated, _) = get_human_datetime(&p.updated_at);
+                p.updated_at = formatted_updated;
                 SingleListProjectWithoutDescription::from(p)
             })
             .collect();
