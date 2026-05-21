@@ -17,6 +17,11 @@ pub struct ListWebhook {
 
     #[tabled(rename = "Enabled", order = 2)]
     enabled: bool,
+
+    #[tabled(rename = "Created at", order = 3)]
+    created_at: String,
+
+    updated_at: String,
 }
 
 impl Display for ListWebhook {
@@ -30,6 +35,26 @@ impl Display for ListWebhook {
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
 
+        let (formatted, relative) = get_human_datetime(&self.created_at);
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Created at:".blue_bold_if_tty(),
+            formatted,
+            relative
+        )?;
+
+        if self.created_at != self.updated_at {
+            let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
+            writeln!(
+                f,
+                "{} {} ({})",
+                "Updated at:".blue_bold_if_tty(),
+                formatted_updated,
+                relative_updated
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -42,6 +67,7 @@ pub struct Webhook {
     pub enabled: bool,
 
     pub created_at: String,
+    pub updated_at: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -125,6 +151,17 @@ impl Display for Webhook {
             formatted,
             relative
         )?;
+
+        if self.created_at != self.updated_at {
+            let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
+            writeln!(
+                f,
+                "{} {} ({})",
+                "Updated at:".blue_bold_if_tty(),
+                formatted_updated,
+                relative_updated
+            )?;
+        }
 
         writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
 
