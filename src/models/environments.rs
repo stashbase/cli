@@ -16,6 +16,7 @@ pub struct Environment {
 
     // date string
     pub created_at: String,
+    pub updated_at: String,
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -266,6 +267,18 @@ impl Display for Environment {
             formatted,
             relative
         )?;
+
+        if self.created_at != self.updated_at {
+            let (formatted_updated, relative_updated) = get_human_datetime(&self.updated_at);
+
+            writeln!(
+                f,
+                "{} {} ({})",
+                "Updated at:".blue_bold_if_tty(),
+                formatted_updated,
+                relative_updated
+            )?;
+        }
 
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
