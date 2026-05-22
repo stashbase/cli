@@ -256,15 +256,17 @@ impl Display for Project {
             relative
         )?;
 
-        let (formatted, relative) = get_human_datetime(&self.updated_at);
+        if self.created_at != self.updated_at {
+            let (formatted, relative) = get_human_datetime(&self.updated_at);
 
-        writeln!(
-            f,
-            "{} {} ({})",
-            "Updated at:".blue_bold_if_tty(),
-            formatted,
-            relative
-        )?;
+            writeln!(
+                f,
+                "{} {} ({})",
+                "Updated at:".blue_bold_if_tty(),
+                formatted,
+                relative
+            )?;
+        }
 
         Ok(())
     }
