@@ -4,7 +4,7 @@ use crate::{
     api::webhooks,
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
-        webhooks::{CreateWebhookPayload, CreateWebhookResponse},
+        webhooks::{CreateWebhookPayload, Webhook},
     },
     utils::{output::get_formatted_json_string, spinner::request_spinner},
 };
@@ -66,7 +66,7 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
     match res {
         RequestApiOptionResponse::Ok(data) => match data.text {
             Some(text_data) => {
-                let webhook = serde_json::from_str::<CreateWebhookResponse>(&text_data);
+                let webhook = serde_json::from_str::<Webhook>(&text_data);
 
                 match webhook {
                     Ok(webhook) => {
@@ -74,28 +74,17 @@ pub async fn handle_create_webhook(args: CreateWebhookArgs) -> Result<()> {
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
-                            let json_str = get_formatted_json_string(
-                                &serde_json::json!({ "id": webhook.id }),
-                                true,
-                            )
-                            .unwrap();
+                            let json_str = get_formatted_json_string(&webhook, true).unwrap();
                             println!("{}", json_str);
 
                             return Ok(());
                         }
 
-                        if !silent {
-                            if let Some(mut spinner) = spinner {
-                                let msg = match enable {
-                                    true => "Webhook created and enabled.",
-                                    false => "Webhook created.",
-                                };
-
-                                spinner.stop_with_message(msg);
-                            }
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
                         }
 
-                        println!("ID: {}", webhook.id);
+                        print!("{}", webhook);
                     }
                     Err(_) => {
                         if let Some(mut spinner) = spinner {

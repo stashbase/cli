@@ -158,6 +158,7 @@ impl Display for Webhook {
             writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "false")?;
         }
 
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
 
         if let Some(signing_secret) = &self.signing_secret {
