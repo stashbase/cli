@@ -109,11 +109,11 @@ pub async fn get_url(
 pub async fn create(
     api_key: String,
     project: String,
-    open: bool,
+    include_dashboard_url: bool,
     data: &CreatEnvironmentPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
-    let query = match open {
-        true => Some(vec![(format!("url"), format!("true"))]),
+    let query = match include_dashboard_url {
+        true => Some(vec![(format!("include_dashboard_url"), format!("true"))]),
         false => None,
     };
 
