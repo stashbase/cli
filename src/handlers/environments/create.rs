@@ -8,7 +8,7 @@ use crate::{
     cmd::secrets::SecretsFileFormat,
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
-        environments::{CreatEnvironmentPayload, CreateEnvironmentResponse},
+        environments::{CreatEnvironmentPayload, Environment},
         secrets::Secret,
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -220,7 +220,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
             debug!("{:#?}", data.text);
 
             if let Some(json) = data.text {
-                let res_data = serde_json::from_str::<CreateEnvironmentResponse>(&json);
+                let res_data = serde_json::from_str::<Environment>(&json);
 
                 match res_data {
                     Ok(data) => {
@@ -240,13 +240,18 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                             spinner.stop_and_persist("", "");
                         }
 
-                        let msg = format!("Environment created.");
-                        eprintln!("{}", msg);
-
-                        println!("ID: {}", data.id);
+                        print!("{}", data);
 
                         if !silent {
-                            if let Some(dashboard_url) = data.dashboard_url {
+                            let dashboard_url = serde_json::from_str::<serde_json::Value>(&json)
+                                .ok()
+                                .and_then(|v| {
+                                    v.get("dashboard_url")
+                                        .and_then(|x| x.as_str())
+                                        .map(|s| s.to_string())
+                                });
+
+                            if let Some(dashboard_url) = dashboard_url {
                                 eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
 
                                 if let Err(err) = webbrowser::open(&dashboard_url) {
