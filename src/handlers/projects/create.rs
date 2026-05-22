@@ -5,7 +5,7 @@ use crate::{
     api::projects,
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
-        projects::{CreateProjectPayload, CreateProjectResponse},
+        projects::{CreateProjectPayload, Project},
         validation::{InputValidationError, ProjectInputValidationError},
     },
     utils::{
@@ -89,72 +89,58 @@ pub async fn handle_create_project(
     let project_res = project_res.unwrap();
 
     match project_res {
-        RequestApiOptionResponse::Ok(res) => match res.text {
-            Some(text) => {
-                let response = serde_json::from_str::<CreateProjectResponse>(&text);
-
-                match response {
-                    Ok(data) => {
-                        // let msg = format!("🔥 Project with id {} created!", data.id);
-                        // spinner.stop_with_message(&msg);
-
-                        if json_format {
-                            let json_str = get_colored_json(&data).unwrap();
-
-                            if let Some(mut spinner) = spinner {
-                                spinner.stop_and_persist("", "");
-                            }
-
-                            println!("{}", json_str);
-                            return Ok(());
-                        }
-
-                        if let Some(mut spinner) = spinner {
-                            spinner.stop_and_persist("", "");
-                        }
-
-                        let msg = format!("Project created.");
-                        eprintln!("{}", msg);
-
-                        println!("ID: {}", data.id);
-
-                        if !silent {
-                            if let Some(dashboard_url) = data.dashboard_url {
-                                eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
-
-                                if let Err(err) = webbrowser::open(&dashboard_url) {
-                                    eprintln!("{}", &format!("Error opening URL: {}", err));
-                                }
-                            }
-                        }
+        RequestApiOptionResponse::Ok(res) => {
+            let text = match res.text {
+                Some(text) => text,
+                None => {
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
                     }
-                    Err(_e) => {
-                        if let Some(mut spinner) = spinner {
-                            spinner.stop_and_persist("", "");
-                        }
 
-                        let error = OutputError::failed_to_deserialize_response_body();
-                        let formatted_err = error.format_error_output(json_format)?;
+                    bail!("Something went wrong.");
+                }
+            };
 
-                        bail!(formatted_err);
+            let data = match serde_json::from_str::<Project>(&text) {
+                Ok(data) => data,
+                Err(_) => {
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    bail!(error.format_error_output(json_format)?);
+                }
+            };
+
+            if let Some(mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
+
+            if json_format {
+                println!("{}", get_colored_json(&data)?);
+                return Ok(());
+            }
+
+            print!("{}", data);
+
+            if !silent {
+                if let Some(url) = &data.dashboard_url {
+                    eprintln!("\nOpening URL: {}", url);
+
+                    if let Err(err) = webbrowser::open(url) {
+                        eprintln!("Error opening URL: {}", err);
                     }
                 }
             }
-            None => {
-                if let Some(mut spinner) = spinner {
-                    spinner.stop_and_persist("", "");
-                }
+        }
 
-                bail!("Something went wrong.");
-            }
-        },
         RequestApiOptionResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
             }
 
-            let error_output = e.format_error_output(json_format)?;
-            bail!(error_output);
+            bail!(e.format_error_output(json_format)?);
         }
     }
 
