@@ -152,14 +152,13 @@ impl From<Webhook> for TableWebhookNoDescription {
 
 impl Display for Webhook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
         if self.enabled == true {
             writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "true")?;
         } else {
             writeln!(f, "{} {}", "Enabled:".blue_bold_if_tty(), "false")?;
         }
-
-        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
-        writeln!(f, "{} {}", "URL:".blue_bold_if_tty(), self.url)?;
 
         if let Some(signing_secret) = &self.signing_secret {
             writeln!(
