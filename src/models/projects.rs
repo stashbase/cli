@@ -9,14 +9,23 @@ use super::shared::PaginationMetadata;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Project {
+    pub id: String,
+
     pub name: String,
     // date string
     pub created_at: String,
-
     pub updated_at: String,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    #[serde(default)]
+    pub environment_count: usize,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_access: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dashboard_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,18 +41,6 @@ pub struct UpdateProjectPayload {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CreateProjectResponse {
-    pub id: String,
-
-    #[allow(dead_code)]
-    #[serde(skip_serializing)]
-    pub name: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dashboard_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -228,7 +225,31 @@ impl From<SingleListProject> for SingleListProjectWithoutDescription {
 
 impl Display for Project {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {}", "Project name:".blue_bold_if_tty(), self.name)?;
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+        writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
+
+        match &self.description {
+            Some(description) => {
+                writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
+            }
+            None => {
+                writeln!(f, "{} ---", "Description:".blue_bold_if_tty())?;
+            }
+        }
+
+        writeln!(
+            f,
+            "{} {}",
+            "Environment count:".blue_bold_if_tty(),
+            self.environment_count
+        )?;
+
+        writeln!(
+            f,
+            "{} {}",
+            "Full access:".blue_bold_if_tty(),
+            display_bool_option(&self.full_access)
+        )?;
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
 
@@ -240,9 +261,15 @@ impl Display for Project {
             relative
         )?;
 
-        if let Some(description) = &self.description {
-            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
-        }
+        let (formatted, relative) = get_human_datetime(&self.updated_at);
+
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Updated at:".blue_bold_if_tty(),
+            formatted,
+            relative
+        )?;
 
         Ok(())
     }
