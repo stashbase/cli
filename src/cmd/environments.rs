@@ -139,6 +139,8 @@ impl Default for EnvSortBy {
 #[derive(Debug, ValueEnum, Clone)]
 pub enum EnvSortBy {
     Name,
+    #[value(name = "is_production")]
+    IsProduction,
     #[value(name = "created_at")]
     CreatedAt,
     #[value(name = "updated_at")]
@@ -151,6 +153,7 @@ impl fmt::Display for EnvSortBy {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             EnvSortBy::Name => write!(f, "name"),
+            EnvSortBy::IsProduction => write!(f, "is_production"),
             EnvSortBy::CreatedAt => write!(f, "created_at"),
             EnvSortBy::UpdatedAt => write!(f, "updated_at"),
             EnvSortBy::SecretCount => write!(f, "secret_count"),
