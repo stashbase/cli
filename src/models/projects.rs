@@ -228,13 +228,8 @@ impl Display for Project {
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
 
-        match &self.description {
-            Some(description) => {
-                writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
-            }
-            None => {
-                writeln!(f, "{} ---", "Description:".blue_bold_if_tty())?;
-            }
+        if let Some(description) = &self.description {
+            writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
 
         writeln!(
