@@ -219,3 +219,40 @@ pub async fn search_secrets(
 
     client::get_request(args).await
 }
+
+pub async fn get_secret_metadata(
+    api_key: String,
+    project: Option<String>,
+    environment: Option<String>,
+    secret_name: String,
+) -> Result<GetRequestApiResponse, OutputError> {
+    let path = get_secrets_path(
+        project,
+        environment,
+        Some(format!("{}/metadata", secret_name)),
+    );
+
+    let args = RequestArgs {
+        path,
+        query: None,
+        api_key,
+    };
+
+    client::get_request(args).await
+}
+
+pub async fn list_secret_metadata(
+    api_key: String,
+    project: Option<String>,
+    environment: Option<String>,
+) -> Result<GetRequestApiResponse, OutputError> {
+    let path = get_secrets_path(project, environment, Some("metadata".to_string()));
+
+    let args = RequestArgs {
+        path,
+        query: None,
+        api_key,
+    };
+
+    client::get_request(args).await
+}

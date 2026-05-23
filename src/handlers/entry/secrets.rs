@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use crate::{
     cmd::{
         config::SecretsOutputFormat,
-        secrets::{SecretArgs, SecretSubcommand},
+        secrets::{MetadataSecretSubcommand, SecretArgs, SecretSubcommand},
     },
     handlers::secrets::{
         create::{handle_create_secrets, HandleCreateSecretsArgs},
@@ -11,6 +11,10 @@ use crate::{
         diff::{handle_secrets_diff, HandleSecretsDiffArgs},
         get::{handle_get_secrets, HandleGetSecretsArgs},
         list::{handle_list_secrets, HandleListSecretsArgs},
+        metadata::{
+            handle_get_secret_metadata, handle_list_secret_metadata, HandleGetSecretMetadataArgs,
+            HandleListSecretMetadataArgs,
+        },
         search::{handle_search_secrets, HandleSearchSecretsArgs},
         set::{handle_set_secrets, HandleSetSecretsArgs},
         update::{handle_update_secrets, HandleUpdateSecretsArgs},
@@ -271,6 +275,36 @@ pub async fn handle_secrets_commands(
 
             handle_secrets_diff(args).await?;
         }
+        SecretSubcommand::Metadata(args) => match args.subcommand {
+            MetadataSecretSubcommand::List(list_args) => {
+                let format = get_output_format(raw_output, default_output_format, list_args.format);
+
+                let args = HandleListSecretMetadataArgs {
+                    api_key,
+                    project,
+                    environment,
+                    secret: list_args.secret,
+                    format,
+                    silent,
+                };
+
+                handle_list_secret_metadata(args).await?;
+            }
+            MetadataSecretSubcommand::Get(get_args) => {
+                let format = get_output_format(raw_output, default_output_format, get_args.format);
+
+                let args = HandleGetSecretMetadataArgs {
+                    api_key,
+                    project,
+                    environment,
+                    name: get_args.name,
+                    format,
+                    silent,
+                };
+
+                handle_get_secret_metadata(args).await?;
+            }
+        },
         _ => unreachable!(),
     }
 

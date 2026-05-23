@@ -104,6 +104,16 @@ impl SecretSubcommand {
                 diff_secrets.shared_args.project.as_deref(),
                 diff_secrets.shared_args.environment.as_deref(),
             ),
+            SecretSubcommand::Metadata(m) => match &m.subcommand {
+                MetadataSecretSubcommand::List(l) => (
+                    l.shared_args.project.as_deref(),
+                    l.shared_args.environment.as_deref(),
+                ),
+                MetadataSecretSubcommand::Get(g) => (
+                    g.shared_args.project.as_deref(),
+                    g.shared_args.environment.as_deref(),
+                ),
+            },
         }
     }
     pub fn get_scope(&self) -> Option<&Scope> {
@@ -118,6 +128,10 @@ impl SecretSubcommand {
             // NOTE: diff and search commands don't support scope but its added for custom error handling
             SecretSubcommand::Diff(_) => None,
             SecretSubcommand::Search(_) => None,
+            SecretSubcommand::Metadata(m) => match &m.subcommand {
+                MetadataSecretSubcommand::List(l) => l.scope_args.scope.as_ref(),
+                MetadataSecretSubcommand::Get(g) => g.scope_args.scope.as_ref(),
+            },
         }
     }
 }
@@ -153,6 +167,23 @@ pub enum SecretSubcommand {
 
     /// Compare local secrets with remote secrets
     Diff(DiffSecrets),
+
+    /// Read operational metadata for secrets
+    Metadata(MetadataSecrets),
+}
+
+#[derive(Debug, Args)]
+pub struct MetadataSecrets {
+    #[clap(subcommand)]
+    pub subcommand: MetadataSecretSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MetadataSecretSubcommand {
+    /// List metadata for all visible secrets in environment
+    List(ListSecretMetadata),
+    /// Get metadata for a single secret by name
+    Get(GetSecretMetadata),
 }
 
 #[derive(Debug, Args)]
@@ -380,4 +411,39 @@ pub struct DiffSecrets {
 
     #[arg(long = "scope", value_enum, hide = true, hide_long_help = true)]
     pub scope: Option<Scope>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "secrets metadata list [OPTIONS]")]
+pub struct ListSecretMetadata {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
+    /// Output format
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<SecretsOutputFormat>,
+
+    /// Filter metadata list to one secret name
+    #[arg(long = "secret")]
+    pub secret: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "secrets metadata get <NAME> [OPTIONS]")]
+pub struct GetSecretMetadata {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
+    /// Secret name
+    pub name: String,
+
+    /// Output format
+    #[arg(value_enum, short = 'f', long = "format")]
+    pub format: Option<SecretsOutputFormat>,
 }

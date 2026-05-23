@@ -115,6 +115,54 @@ pub struct SecretWithComment {
     pub comment: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SecretMetadata {
+    pub name: String,
+    pub comment: Option<String>,
+    pub version: u32,
+    pub has_value: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub last_accessed_at: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SecretMetadataListResponse {
+    pub secrets: Vec<SecretMetadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct SecretMetadataTable {
+    #[tabled(rename = "Name")]
+    pub name: String,
+    #[tabled(rename = "Comment")]
+    pub comment: String,
+    #[tabled(rename = "Version")]
+    pub version: u32,
+    #[tabled(rename = "Has Value")]
+    pub has_value: bool,
+    #[tabled(rename = "Created")]
+    pub created_at: String,
+    #[tabled(rename = "Updated")]
+    pub updated_at: String,
+    #[tabled(rename = "Last Accessed")]
+    pub last_accessed_at: String,
+}
+
+impl From<SecretMetadata> for SecretMetadataTable {
+    fn from(value: SecretMetadata) -> Self {
+        Self {
+            name: value.name,
+            comment: value.comment.unwrap_or_default(),
+            version: value.version,
+            has_value: value.has_value,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            last_accessed_at: value.last_accessed_at.unwrap_or_default(),
+        }
+    }
+}
+
 impl From<String> for SecretOnlyName {
     fn from(name: String) -> Self {
         Self { name }
