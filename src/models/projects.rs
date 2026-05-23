@@ -269,6 +269,13 @@ impl Display for SingleListProject {
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
 
+        writeln!(
+            f,
+            "{} {}",
+            "Access level:".blue_bold_if_tty(),
+            display_option(&self.access_level)
+        )?;
+
         if let Some(description) = &self.description {
             writeln!(f, "{} {}", "Description:".blue_bold_if_tty(), description)?;
         }
