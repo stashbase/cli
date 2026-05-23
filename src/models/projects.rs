@@ -22,7 +22,7 @@ pub struct Project {
     pub environment_count: usize,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub full_access: Option<bool>,
+    pub access_level: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard_url: Option<String>,
@@ -53,10 +53,10 @@ pub struct SingleListProject {
 
     // date string
     // only for personal auth (api key)
-    #[tabled(display_with = "display_bool_option")]
-    #[tabled(rename = "Full access", order = 2)]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Access level", order = 2)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub full_access: Option<bool>,
+    pub access_level: Option<String>,
 
     #[tabled(display_with = "display_option")]
     #[tabled(rename = "Description", order = 4)]
@@ -82,10 +82,10 @@ pub struct SingleListProjectWithoutDescription {
 
     // date string
     // only for personal auth (api key)
-    #[tabled(display_with = "display_bool_option")]
-    #[tabled(rename = "Full access", order = 2)]
+    #[tabled(display_with = "display_option")]
+    #[tabled(rename = "Access level", order = 2)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub full_access: Option<bool>,
+    pub access_level: Option<String>,
 
     #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
@@ -111,9 +111,9 @@ pub struct SingleProjectTable {
     #[tabled(rename = "Name", order = 1)]
     pub name: String,
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Full access", order = 2)]
+    #[tabled(rename = "Access level", order = 2)]
     // only for personal auth (api key)
-    pub full_access: Option<String>,
+    pub access_level: Option<String>,
 
     #[tabled(display_with = "display_option")]
     #[tabled(rename = "Description", order = 4)]
@@ -145,7 +145,7 @@ pub struct SingleProject {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     // only for personal auth (api key)
-    pub full_access: Option<bool>,
+    pub access_level: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Tabled)]
@@ -157,9 +157,9 @@ pub struct SingleProjectWithCountNoDescriptionTable {
     pub name: String,
 
     #[tabled(display_with = "display_option")]
-    #[tabled(rename = "Full access", order = 2)]
+    #[tabled(rename = "Access level", order = 2)]
     // only for personal auth (api key)
-    pub full_access: Option<String>,
+    pub access_level: Option<String>,
 
     #[tabled(rename = "Environments", order = 3)]
     pub environment_count: usize,
@@ -202,14 +202,6 @@ fn display_option(d: &Option<String>) -> String {
     }
 }
 
-fn display_bool_option(b: &Option<bool>) -> String {
-    match b {
-        Some(true) => "true".to_string(),
-        Some(false) => "false".to_string(),
-        None => "---".to_string(),
-    }
-}
-
 impl From<SingleListProject> for SingleListProjectWithoutDescription {
     fn from(project: SingleListProject) -> Self {
         Self {
@@ -217,7 +209,7 @@ impl From<SingleListProject> for SingleListProjectWithoutDescription {
             name: project.name,
             created_at: project.created_at,
             updated_at: project.updated_at,
-            full_access: project.full_access,
+            access_level: project.access_level,
             environment_count: project.environment_count,
         }
     }
@@ -242,8 +234,8 @@ impl Display for Project {
         writeln!(
             f,
             "{} {}",
-            "Full access:".blue_bold_if_tty(),
-            display_bool_option(&self.full_access)
+            "Access level:".blue_bold_if_tty(),
+            display_option(&self.access_level)
         )?;
 
         let (formatted, relative) = get_human_datetime(&self.created_at);
@@ -329,8 +321,8 @@ impl Display for SingleProject {
         writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
         writeln!(f, "{} {}", "Name:".blue_bold_if_tty(), self.name)?;
 
-        if let Some(full_access) = &self.full_access {
-            writeln!(f, "{} {}", "Full access:".blue_bold_if_tty(), full_access)?;
+        if let Some(access_level) = &self.access_level {
+            writeln!(f, "{} {}", "Access level:".blue_bold_if_tty(), access_level)?;
         }
 
         if let Some(description) = &self.description {
@@ -375,17 +367,12 @@ impl From<SingleProject> for SingleProjectTable {
         let (formatted_created, _) = get_human_datetime(&project.created_at);
         let (formatted_updated, _) = get_human_datetime(&project.updated_at);
 
-        let full_access = match project.full_access {
-            Some(access) => Some(format!("{}", access)),
-            None => None,
-        };
-
         Self {
             created_at: formatted_created,
             updated_at: formatted_updated,
             id: project.id,
             name: project.name,
-            full_access,
+            access_level: project.access_level,
             description: project.description,
             environment_count: project.environment_count,
         }
@@ -397,17 +384,12 @@ impl From<SingleProject> for SingleProjectWithCountNoDescriptionTable {
         let (formatted_created, _) = get_human_datetime(&project.created_at);
         let (formatted_updated, _) = get_human_datetime(&project.updated_at);
 
-        let full_access = match project.full_access {
-            Some(access) => Some(format!("{}", access)),
-            None => Some("false".to_string()),
-        };
-
         Self {
             created_at: formatted_created,
             updated_at: formatted_updated,
             id: project.id,
             name: project.name,
-            full_access,
+            access_level: project.access_level,
             environment_count: project.environment_count,
         }
     }
