@@ -6,7 +6,10 @@ use crate::{
     cmd::config::SecretsOutputFormat,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
-        secrets::{SecretMetadata, SecretMetadataListResponse, SecretMetadataTable},
+        secrets::{
+            SecretMetadata, SecretMetadataListResponse, SecretMetadataTable,
+            SecretMetadataTableWithoutComment,
+        },
         validation::InputValidationError,
     },
     utils::{
@@ -223,11 +226,23 @@ fn print_secret_metadata_list(secret_metadata: Vec<SecretMetadata>, format: &Sec
                 return;
             }
 
-            let rows = secret_metadata
-                .into_iter()
-                .map(SecretMetadataTable::from)
-                .collect::<Vec<_>>();
-            println!("{}", build_table(&rows));
+            let has_any_comment = secret_metadata
+                .iter()
+                .any(|s| s.comment.as_ref().map(|c| !c.trim().is_empty()).unwrap_or(false));
+
+            if has_any_comment {
+                let rows = secret_metadata
+                    .into_iter()
+                    .map(SecretMetadataTable::from)
+                    .collect::<Vec<_>>();
+                println!("{}", build_table(&rows));
+            } else {
+                let rows = secret_metadata
+                    .into_iter()
+                    .map(SecretMetadataTableWithoutComment::from)
+                    .collect::<Vec<_>>();
+                println!("{}", build_table(&rows));
+            }
         }
         SecretsOutputFormat::List | SecretsOutputFormat::Dotenv => {
             if secret_metadata.is_empty() {
@@ -276,10 +291,25 @@ fn print_secret_metadata(secret_metadata: SecretMetadata, format: &SecretsOutput
             println!("{}", value);
         }
         SecretsOutputFormat::Table => {
-            println!(
-                "{}",
-                build_table(&vec![SecretMetadataTable::from(secret_metadata)])
-            );
+            let has_comment = secret_metadata
+                .comment
+                .as_ref()
+                .map(|c| !c.trim().is_empty())
+                .unwrap_or(false);
+
+            if has_comment {
+                println!(
+                    "{}",
+                    build_table(&vec![SecretMetadataTable::from(secret_metadata)])
+                );
+            } else {
+                println!(
+                    "{}",
+                    build_table(&vec![SecretMetadataTableWithoutComment::from(
+                        secret_metadata
+                    )])
+                );
+            }
         }
         SecretsOutputFormat::List | SecretsOutputFormat::Dotenv => {
             let comment = secret_metadata.comment.unwrap_or_default();

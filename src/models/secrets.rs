@@ -149,11 +149,40 @@ pub struct SecretMetadataTable {
     pub last_accessed_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct SecretMetadataTableWithoutComment {
+    #[tabled(rename = "Name")]
+    pub name: String,
+    #[tabled(rename = "Version")]
+    pub version: u32,
+    #[tabled(rename = "Has Value")]
+    pub has_value: bool,
+    #[tabled(rename = "Created")]
+    pub created_at: String,
+    #[tabled(rename = "Updated")]
+    pub updated_at: String,
+    #[tabled(rename = "Last Accessed")]
+    pub last_accessed_at: String,
+}
+
 impl From<SecretMetadata> for SecretMetadataTable {
     fn from(value: SecretMetadata) -> Self {
         Self {
             name: value.name,
             comment: value.comment.unwrap_or_default(),
+            version: value.version,
+            has_value: value.has_value,
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            last_accessed_at: value.last_accessed_at.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<SecretMetadata> for SecretMetadataTableWithoutComment {
+    fn from(value: SecretMetadata) -> Self {
+        Self {
+            name: value.name,
             version: value.version,
             has_value: value.has_value,
             created_at: value.created_at,
