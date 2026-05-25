@@ -171,9 +171,9 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                         }
 
                         let created_count = data.created_count;
-                        let duplicate_secrets = data.duplicate_secrets;
+                        let existing_secrets = data.existing_secrets;
 
-                        if duplicate_secrets.len() > 0 {
+                        if existing_secrets.len() > 0 {
                             if created_count > 0 {
                                 if let Some(mut spinner) = spinner {
                                     spinner.stop_and_persist("", "");
@@ -182,7 +182,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                 let secrets_created: Vec<_> = payload
                                     .into_iter()
                                     .filter(|k| {
-                                        duplicate_secrets.iter().find(|s| *s == &k.name).is_none()
+                                        existing_secrets.iter().find(|s| *s == &k.name).is_none()
                                     })
                                     .collect();
 
@@ -207,7 +207,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                     println!("{}", msg);
                                 }
                             } else {
-                                if created_count == 0 && duplicate_secrets.len() == 0 {
+                                if created_count == 0 && existing_secrets.len() == 0 {
                                     if let Some(mut spinner) = spinner {
                                         spinner.stop_and_persist("", "");
                                     }
@@ -230,7 +230,7 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                             }
 
                             if silent {
-                                println!("Already exist: {}", duplicate_secrets.join(", "));
+                                println!("Already exist: {}", existing_secrets.join(", "));
                             } else {
                                 let info_msg = format!(
                                     "{} {}",
@@ -238,10 +238,10 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
                                         "{} {} {}",
                                         "Secrets".red_if_tty_stderr(),
                                         "already exist".red_if_tty_stderr(),
-                                        format!("({}):", duplicate_secrets.len())
+                                        format!("({}):", existing_secrets.len())
                                             .red_if_tty_stderr(),
                                     ),
-                                    duplicate_secrets.join(", ")
+                                    existing_secrets.join(", ")
                                 );
                                 eprintln!("{}", info_msg);
                             }

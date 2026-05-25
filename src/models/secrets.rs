@@ -310,7 +310,7 @@ pub struct CreateSecretsResponse {
     // The number of secrets successfully created
     pub created_count: usize,
     // An array of secret names that already exist and were not created
-    pub duplicate_secrets: Vec<String>,
+    pub existing_secrets: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
