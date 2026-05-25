@@ -145,6 +145,13 @@ stashbase doctor --auth-check
 stashbase doctor --verbose
 ```
 
+## Contributing
+
+Bug fixes, documentation improvements, and improvements of all kinds are always welcome.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+
+
 ## License
 
 Stashbase CLI is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
