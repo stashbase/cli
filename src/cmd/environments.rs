@@ -308,8 +308,4 @@ pub struct CreateEnvironment {
     /// Secrets file format (if file provided)
     #[arg(long = "format")]
     pub file_format: Option<SecretsFileFormat>,
-
-    /// Open environment in browser
-    #[arg(long = "open")]
-    pub open: bool,
 }

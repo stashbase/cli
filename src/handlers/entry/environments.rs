@@ -145,7 +145,6 @@ pub async fn handle_environment_commands(
                 name: args.name,
                 description: args.description,
                 is_production: args.is_production,
-                open: args.open,
                 format: args.file_format,
                 file_path: args.file_path,
                 json_format: raw_output,

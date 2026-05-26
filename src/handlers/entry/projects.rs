@@ -47,15 +47,7 @@ pub async fn handle_project_commands(
         }
 
         ProjectSubcommand::Create(args) => {
-            handle_create_project(
-                api_key,
-                args.name,
-                args.description,
-                args.open,
-                raw_output,
-                silent,
-            )
-            .await?;
+            handle_create_project(api_key, args.name, args.description, raw_output, silent).await?;
         }
         ProjectSubcommand::Delete(args) => {
             let args = HandleDeleteProjectArgs {

@@ -109,20 +109,14 @@ pub async fn get_url(
 pub async fn create(
     api_key: String,
     project: String,
-    include_dashboard_url: bool,
     data: &CreatEnvironmentPayload,
 ) -> Result<RequestApiOptionResponse, OutputError> {
-    let query = match include_dashboard_url {
-        true => Some(vec![(format!("include_dashboard_url"), format!("true"))]),
-        false => None,
-    };
-
     let args = RequestArgs {
         path: ApiPath::Environments {
             project,
             path: None,
         },
-        query,
+        query: None,
         api_key,
     };
 

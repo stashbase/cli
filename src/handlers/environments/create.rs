@@ -31,7 +31,6 @@ pub struct HandleCreateEnvironmentArgs {
     pub name: String,
     pub is_production: Option<bool>,
     pub description: Option<String>,
-    pub open: bool,
     pub file_path: Option<String>,
     pub format: Option<SecretsFileFormat>,
     pub json_format: bool,
@@ -47,7 +46,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         description,
         file_path,
         format,
-        open,
         json_format,
         silent,
     } = args;
@@ -202,7 +200,7 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
         None
     };
 
-    let project_res = environments::create(api_key, project, open, &data).await;
+    let project_res = environments::create(api_key, project, &data).await;
 
     if let Err(err) = project_res {
         if let Some(mut spinner) = spinner {
@@ -241,24 +239,6 @@ pub async fn handle_create_environment(args: HandleCreateEnvironmentArgs) -> Res
                         }
 
                         print!("{}", data);
-
-                        if !silent {
-                            let dashboard_url = serde_json::from_str::<serde_json::Value>(&json)
-                                .ok()
-                                .and_then(|v| {
-                                    v.get("dashboard_url")
-                                        .and_then(|x| x.as_str())
-                                        .map(|s| s.to_string())
-                                });
-
-                            if let Some(dashboard_url) = dashboard_url {
-                                eprintln!("{}", &format!("\nOpening URL: {}", dashboard_url));
-
-                                if let Err(err) = webbrowser::open(&dashboard_url) {
-                                    eprintln!("{}", &format!("Error opening URL: {}", err));
-                                }
-                            }
-                        }
                     }
                     Err(_) => {
                         if let Some(mut spinner) = spinner {

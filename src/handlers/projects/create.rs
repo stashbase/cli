@@ -19,7 +19,6 @@ pub async fn handle_create_project(
     api_key: String,
     name: String,
     description: Option<String>,
-    open: bool,
     json_format: bool,
     silent: bool,
 ) -> Result<()> {
@@ -73,7 +72,7 @@ pub async fn handle_create_project(
         None
     };
 
-    let project_res = projects::create_project(api_key, open, &data).await;
+    let project_res = projects::create_project(api_key, &data).await;
 
     if let Err(err) = project_res {
         error!("{:#?}", &err);
@@ -123,16 +122,6 @@ pub async fn handle_create_project(
             }
 
             print!("{}", data);
-
-            if !silent {
-                if let Some(url) = &data.dashboard_url {
-                    eprintln!("\nOpening URL: {}", url);
-
-                    if let Err(err) = webbrowser::open(url) {
-                        eprintln!("Error opening URL: {}", err);
-                    }
-                }
-            }
         }
 
         RequestApiOptionResponse::Err(e) => {
