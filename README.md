@@ -1,8 +1,6 @@
-# Stashbase CLI (Beta)
+# Stashbase CLI
 
 The Stashbase CLI is the official command-line tool for the Stashbase secrets management platform for developers.
-
-⚠️ **Beta:** This CLI is in beta. Features and commands may change.
 
 ## Table of Contents
 
