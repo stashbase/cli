@@ -247,34 +247,10 @@ pub struct TestWebhookResponse {
     pub status: Option<u16>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<TestWebhookErrorCode>,
-}
+    pub response_body: Option<String>,
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum TestWebhookErrorCode {
-    ECONNABORTED,
-    ENOTFOUND,
-    ECONNREFUSED,
-    ETIMEDOUT,
-    ECONNRESET,
-    ENETURNEACH,
-    ENHOSTUNREACH,
-    EPROTO,
-}
-
-impl TestWebhookErrorCode {
-    pub fn get_message(&self) -> String {
-        match self {
-            TestWebhookErrorCode::ECONNABORTED => "Request timed out".to_string(),
-            TestWebhookErrorCode::ENOTFOUND => "Unable to resolve server's DNS".to_string(),
-            TestWebhookErrorCode::ECONNREFUSED => "Unable to connect to the server".to_string(),
-            TestWebhookErrorCode::ETIMEDOUT => "Request timed out".to_string(),
-            TestWebhookErrorCode::ECONNRESET => "Connection was reset unexpectedly".to_string(),
-            TestWebhookErrorCode::ENETURNEACH => "Network is unreachable".to_string(),
-            TestWebhookErrorCode::ENHOSTUNREACH => "Host is unreachable".to_string(),
-            TestWebhookErrorCode::EPROTO => "Protocol error".to_string(),
-        }
-    }
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 impl TestWebhookResponse {
@@ -303,6 +279,9 @@ impl Display for TestWebhookResponse {
                 "Response message:".blue_bold_if_tty()
             )?;
             writeln!(f, "{} {}", "Webhook URL:".blue_bold_if_tty(), self.url)?;
+            if let Some(response_body) = &self.response_body {
+                write_response_body(f, response_body)?;
+            }
         } else {
             writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
 
@@ -322,7 +301,7 @@ impl Display for TestWebhookResponse {
                     f,
                     "{} {}",
                     "Response message:".blue_bold_if_tty(),
-                    error.get_message()
+                    get_test_webhook_error_message(error)
                 )?;
             } else {
                 writeln!(
@@ -333,9 +312,48 @@ impl Display for TestWebhookResponse {
             }
 
             writeln!(f, "{} {}", "Webhook URL:".blue_bold_if_tty(), self.url)?;
+            if let Some(response_body) = &self.response_body {
+                write_response_body(f, response_body)?;
+            }
         }
 
         Ok(())
+    }
+}
+
+fn get_test_webhook_error_message(error: &str) -> &str {
+    match error {
+        "ECONNABORTED" => "Request timed out",
+        "ENOTFOUND" => "Unable to resolve server's DNS",
+        "ECONNREFUSED" => "Unable to connect to the server",
+        "ETIMEDOUT" => "Request timed out",
+        "ECONNRESET" => "Connection was reset unexpectedly",
+        "ENETUNREACH" => "Network is unreachable",
+        "ENHOSTUNREACH" => "Host is unreachable",
+        "EPROTO" => "Protocol error",
+        _ => "Unknown error",
+    }
+}
+
+fn format_response_body(response_body: &str) -> &str {
+    if response_body.is_empty() {
+        "\"\""
+    } else {
+        response_body
+    }
+}
+
+fn write_response_body(f: &mut std::fmt::Formatter<'_>, response_body: &str) -> std::fmt::Result {
+    if response_body.is_empty() {
+        writeln!(
+            f,
+            "{} {}",
+            "Response body:".blue_bold_if_tty(),
+            format_response_body(response_body)
+        )
+    } else {
+        writeln!(f, "{}", "Response body:".blue_bold_if_tty())?;
+        writeln!(f, "{}", format_response_body(response_body))
     }
 }
 
@@ -354,6 +372,7 @@ pub struct WebhookLogList {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WebhookLog {
+    pub id: String,
     pub processed_at: String,
     pub attempt: u8,
 
@@ -362,24 +381,27 @@ pub struct WebhookLog {
     pub status: Option<u16>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<TestWebhookErrorCode>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Tabled)]
 pub struct TableWebhookLog {
-    #[tabled(rename = "Status", order = 0)]
+    #[tabled(rename = "ID", order = 0)]
+    pub id: String,
+
+    #[tabled(rename = "Status", order = 1)]
     pub status: Status,
 
-    #[tabled(order = 1, rename = "Mesage")]
+    #[tabled(order = 2, rename = "Mesage")]
     pub response_message: String,
 
-    #[tabled(order = 2, rename = "HTTP status")]
+    #[tabled(order = 3, rename = "HTTP status")]
     pub http_status_code: String,
 
-    #[tabled(order = 3)]
+    #[tabled(order = 4)]
     pub attempt: u8,
 
-    #[tabled(order = 4, rename = "Processed")]
+    #[tabled(order = 5, rename = "Processed")]
     pub processed_at: String,
 }
 
@@ -400,6 +422,8 @@ impl Display for Status {
 
 impl Display for WebhookLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+
         if let Some(status) = self.status {
             if status == 200 || status == 204 {
                 writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "success")?;
@@ -443,7 +467,7 @@ impl Display for WebhookLog {
                     f,
                     "{} {}",
                     "Response message:".blue_bold_if_tty(),
-                    error_code.get_message()
+                    get_test_webhook_error_message(error_code)
                 )?;
             } else {
                 writeln!(
@@ -510,13 +534,14 @@ impl From<WebhookLog> for TableWebhookLog {
             }
         } else {
             if let Some(error_code) = &log.error {
-                error_code.get_message()
+                get_test_webhook_error_message(error_code).to_string()
             } else {
                 "Unknown error".to_string()
             }
         };
 
         Self {
+            id: log.id,
             processed_at: log.processed_at,
             status,
             attempt: log.attempt,
