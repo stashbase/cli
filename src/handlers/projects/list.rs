@@ -10,8 +10,11 @@ use crate::{
         shared::PaginationMetadata,
         validation::{InputValidationError, ProjectInputValidationError},
     },
-    utils::{output::get_formatted_json_string, spinner::request_spinner, tables, validation::validate_project_search},
     utils::human_datetime::get_human_datetime,
+    utils::{
+        output::get_formatted_json_string, spinner::request_spinner, tables,
+        validation::validate_project_search,
+    },
 };
 
 pub struct HandleListProjectsArgs {

@@ -3,7 +3,7 @@ use anyhow::bail;
 use crate::{
     cmd::{
         config::OutputFormat,
-        webhooks::{WebhookCommand, WebhookSubcommand},
+        webhooks::{WebhookCommand, WebhookLogsSubcommand, WebhookSubcommand},
     },
     handlers::webhooks::{
         create::{handle_create_webhook, CreateWebhookArgs},
@@ -238,22 +238,24 @@ pub async fn handle_webhook_commands(
             handle_test_webhook(fn_args).await?;
         }
 
-        WebhookSubcommand::Logs(cmd_args) => {
-            let format = get_output_format(raw_output, default_output_format, cmd_args.format);
+        WebhookSubcommand::Logs(cmd_args) => match cmd_args.subcommand {
+            WebhookLogsSubcommand::List(cmd_args) => {
+                let format = get_output_format(raw_output, default_output_format, cmd_args.format);
 
-            let fn_args = ListWebhookLogsArgs {
-                api_key,
-                project,
-                environment,
-                webhook_id: cmd_args.webhook_id,
-                page: cmd_args.page,
-                page_size: cmd_args.page_size,
-                format,
-                silent,
-            };
+                let fn_args = ListWebhookLogsArgs {
+                    api_key,
+                    project,
+                    environment,
+                    webhook_id: cmd_args.webhook_id,
+                    page: cmd_args.page,
+                    page_size: cmd_args.page_size,
+                    format,
+                    silent,
+                };
 
-            handle_list_webhook_logs(fn_args).await?;
-        }
+                handle_list_webhook_logs(fn_args).await?;
+            }
+        },
         WebhookSubcommand::Open(cmd_args) => {
             handle_open_environment_webhook(
                 api_key,

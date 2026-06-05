@@ -88,11 +88,12 @@ pub async fn handle_list_secret_metadata(args: HandleListSecretMetadataArgs) -> 
 
     match res.unwrap() {
         GetRequestApiResponse::Ok(data) => {
-            let parsed =
-                serde_json::from_str::<SecretMetadataListResponse>(&data.text).or_else(|_| {
+            let parsed = serde_json::from_str::<SecretMetadataListResponse>(&data.text)
+                .or_else(|_| {
                     serde_json::from_str::<Vec<SecretMetadata>>(&data.text)
                         .map(|v| SecretMetadataListResponse { secrets: v })
-                }).or_else(|_| {
+                })
+                .or_else(|_| {
                     serde_json::from_str::<SecretMetadata>(&data.text)
                         .map(|v| SecretMetadataListResponse { secrets: vec![v] })
                 });
@@ -226,9 +227,12 @@ fn print_secret_metadata_list(secret_metadata: Vec<SecretMetadata>, format: &Sec
                 return;
             }
 
-            let has_any_comment = secret_metadata
-                .iter()
-                .any(|s| s.comment.as_ref().map(|c| !c.trim().is_empty()).unwrap_or(false));
+            let has_any_comment = secret_metadata.iter().any(|s| {
+                s.comment
+                    .as_ref()
+                    .map(|c| !c.trim().is_empty())
+                    .unwrap_or(false)
+            });
 
             if has_any_comment {
                 let rows = secret_metadata

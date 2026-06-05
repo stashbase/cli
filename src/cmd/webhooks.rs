@@ -80,8 +80,8 @@ pub enum WebhookSubcommand {
     #[clap(aliases = &["del"])]
     Delete(DeleteWebhook),
 
-    /// List webhook logs
-    Logs(WebhookLogs),
+    /// Manage webhook logs
+    Logs(WebhookLogsCommand),
 
     /// Open environment webhook in browser
     Open(OpenWebhooks),
@@ -92,7 +92,7 @@ impl WebhookSubcommand {
         match self {
             WebhookSubcommand::Get(cmd) => Some(&cmd.webhook_id),
             WebhookSubcommand::Delete(cmd) => Some(&cmd.webhook_id),
-            WebhookSubcommand::Logs(cmd) => Some(&cmd.webhook_id),
+            WebhookSubcommand::Logs(cmd) => cmd.get_webhook_id(),
             WebhookSubcommand::Test(cmd) => Some(&cmd.webhook_id),
             WebhookSubcommand::Update(cmd) => Some(&cmd.webhook_id),
             WebhookSubcommand::Enable(cmd) => Some(&cmd.webhook_id),
@@ -159,10 +159,7 @@ impl WebhookSubcommand {
                 d.shared_args.project.as_deref(),
                 d.shared_args.environment.as_deref(),
             ),
-            WebhookSubcommand::Logs(l) => (
-                l.shared_args.project.as_deref(),
-                l.shared_args.environment.as_deref(),
-            ),
+            WebhookSubcommand::Logs(l) => l.get_project_environment(),
             WebhookSubcommand::Open(o) => (
                 o.shared_args.project.as_deref(),
                 o.shared_args.environment.as_deref(),
@@ -185,7 +182,7 @@ impl WebhookSubcommand {
             WebhookSubcommand::Test(t) => t.scope_args.scope.as_ref(),
             WebhookSubcommand::RotateSecret(r) => r.scope_args.scope.as_ref(),
             WebhookSubcommand::Delete(d) => d.scope_args.scope.as_ref(),
-            WebhookSubcommand::Logs(l) => l.scope_args.scope.as_ref(),
+            WebhookSubcommand::Logs(l) => l.get_scope(),
             WebhookSubcommand::Open(o) => o.scope_args.scope.as_ref(),
             WebhookSubcommand::GetSecret(s) => s.scope_args.scope.as_ref(),
         }
@@ -316,7 +313,43 @@ pub struct UpdateWebhook {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "webhooks logs <WEBHOOK_ID> [OPTIONS]")]
+#[command(override_usage = "webhooks logs <COMMAND> [OPTIONS]")]
+pub struct WebhookLogsCommand {
+    #[clap(subcommand)]
+    pub subcommand: WebhookLogsSubcommand,
+}
+
+impl WebhookLogsCommand {
+    fn get_webhook_id(&self) -> Option<&str> {
+        match &self.subcommand {
+            WebhookLogsSubcommand::List(cmd) => Some(&cmd.webhook_id),
+        }
+    }
+
+    fn get_project_environment(&self) -> (Option<&str>, Option<&str>) {
+        match &self.subcommand {
+            WebhookLogsSubcommand::List(cmd) => (
+                cmd.shared_args.project.as_deref(),
+                cmd.shared_args.environment.as_deref(),
+            ),
+        }
+    }
+
+    fn get_scope(&self) -> Option<&Scope> {
+        match &self.subcommand {
+            WebhookLogsSubcommand::List(cmd) => cmd.scope_args.scope.as_ref(),
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WebhookLogsSubcommand {
+    /// List webhook logs
+    List(WebhookLogs),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "webhooks logs list <WEBHOOK_ID> [OPTIONS]")]
 pub struct WebhookLogs {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
