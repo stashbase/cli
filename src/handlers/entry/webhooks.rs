@@ -11,7 +11,10 @@ use crate::{
         get::{handle_get_webhook, GetWebhookArgs},
         get_secret::{handle_get_webhook_secret, GetWebhookSecretArgs},
         list::{handle_list_webhooks, ListWebhooksArgs},
-        logs::{handle_list_webhook_logs, ListWebhookLogsArgs},
+        logs::{
+            handle_get_webhook_log, handle_list_webhook_logs, GetWebhookLogArgs,
+            ListWebhookLogsArgs,
+        },
         open::handle_open_environment_webhook,
         rotate_secret::{handle_rotate_webhook_secret, RotateWebhookSecretArgs},
         test::{handle_test_webhook, TestWebhookArgs},
@@ -23,7 +26,7 @@ use crate::{
         output::get_output_format,
         validation::{
             validate_project_environment_identifier, validate_webhook_description,
-            validate_webhook_id, validate_webhook_url,
+            validate_webhook_id, validate_webhook_log_id, validate_webhook_url,
         },
     },
 };
@@ -50,6 +53,13 @@ fn validate_input(
     if let Some(webhook_id) = subcommand.get_webhook_id() {
         let valid_webhook_id = validate_webhook_id(webhook_id);
         if let Err(err) = valid_webhook_id {
+            return Err(err);
+        }
+    }
+
+    if let Some(webhook_log_id) = subcommand.get_webhook_log_id() {
+        let valid_webhook_log_id = validate_webhook_log_id(webhook_log_id);
+        if let Err(err) = valid_webhook_log_id {
             return Err(err);
         }
     }
@@ -254,6 +264,21 @@ pub async fn handle_webhook_commands(
                 };
 
                 handle_list_webhook_logs(fn_args).await?;
+            }
+            WebhookLogsSubcommand::Get(cmd_args) => {
+                let format = get_output_format(raw_output, default_output_format, cmd_args.format);
+
+                let fn_args = GetWebhookLogArgs {
+                    api_key,
+                    project,
+                    environment,
+                    webhook_id: cmd_args.webhook_id,
+                    log_id: cmd_args.log_id,
+                    format,
+                    silent,
+                };
+
+                handle_get_webhook_log(fn_args).await?;
             }
         },
         WebhookSubcommand::Open(cmd_args) => {

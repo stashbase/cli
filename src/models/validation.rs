@@ -68,6 +68,7 @@ pub enum WebhookInputValidationError {
     NoUpdateFlags,
     InvalidPageSize,
     InvalidId,
+    InvalidLogId,
     InvalidUrl,
     DescriptionTooLong,
     InvalidPage,
@@ -600,6 +601,12 @@ impl WebhookInputValidationError {
                 "Invalid webhook ID value.",
                 Some(
                     "Id must start with the prefix 'whk_' followed by 22 alphanumeric characters.",
+                ),
+            ),
+            WebhookInputValidationError::InvalidLogId => (
+                "Invalid webhook log ID value.",
+                Some(
+                    "ID must start with the prefix 'whlog_' followed by 22 alphanumeric characters.",
                 ),
             ),
             WebhookInputValidationError::InvalidUrl => (

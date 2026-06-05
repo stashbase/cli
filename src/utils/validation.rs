@@ -829,6 +829,35 @@ pub fn validate_webhook_id(value: &str) -> Result<(), InputValidationError> {
     Ok(())
 }
 
+pub fn validate_webhook_log_id(value: &str) -> Result<(), InputValidationError> {
+    let prefix = "whlog_";
+
+    if (value.starts_with(prefix)) == false {
+        let input_err = WebhookInputValidationError::InvalidLogId;
+        let err = InputValidationError::Webhook(input_err);
+        return Err(err);
+    }
+
+    let id_without_prefix = &value[prefix.len()..];
+
+    if id_without_prefix.len() != 22 {
+        let input_err = WebhookInputValidationError::InvalidLogId;
+        let err = InputValidationError::Webhook(input_err);
+
+        return Err(err);
+    }
+
+    let alphanumeric_regex = regex::Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
+    if !alphanumeric_regex.is_match(id_without_prefix) {
+        let input_err = WebhookInputValidationError::InvalidLogId;
+        let err = InputValidationError::Webhook(input_err);
+
+        return Err(err);
+    }
+
+    Ok(())
+}
+
 pub fn validate_webhook_url(url: &str) -> Result<(), InputValidationError> {
     let regex = Regex::new(
         r"^https:\/\/(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?::\d{1,5})?(?:\/\S*)?$",

@@ -113,6 +113,13 @@ impl WebhookSubcommand {
         }
     }
 
+    pub fn get_webhook_log_id(&self) -> Option<&str> {
+        match self {
+            WebhookSubcommand::Logs(cmd) => cmd.get_webhook_log_id(),
+            _ => None,
+        }
+    }
+
     pub fn get_description(&self) -> Option<&str> {
         match self {
             WebhookSubcommand::Create(cmd) => cmd.description.as_deref(),
@@ -323,6 +330,7 @@ impl WebhookLogsCommand {
     fn get_webhook_id(&self) -> Option<&str> {
         match &self.subcommand {
             WebhookLogsSubcommand::List(cmd) => Some(&cmd.webhook_id),
+            WebhookLogsSubcommand::Get(cmd) => Some(&cmd.webhook_id),
         }
     }
 
@@ -332,12 +340,24 @@ impl WebhookLogsCommand {
                 cmd.shared_args.project.as_deref(),
                 cmd.shared_args.environment.as_deref(),
             ),
+            WebhookLogsSubcommand::Get(cmd) => (
+                cmd.shared_args.project.as_deref(),
+                cmd.shared_args.environment.as_deref(),
+            ),
         }
     }
 
     fn get_scope(&self) -> Option<&Scope> {
         match &self.subcommand {
             WebhookLogsSubcommand::List(cmd) => cmd.scope_args.scope.as_ref(),
+            WebhookLogsSubcommand::Get(cmd) => cmd.scope_args.scope.as_ref(),
+        }
+    }
+
+    fn get_webhook_log_id(&self) -> Option<&str> {
+        match &self.subcommand {
+            WebhookLogsSubcommand::Get(cmd) => Some(&cmd.log_id),
+            WebhookLogsSubcommand::List(_) => None,
         }
     }
 }
@@ -346,6 +366,9 @@ impl WebhookLogsCommand {
 pub enum WebhookLogsSubcommand {
     /// List webhook logs
     List(WebhookLogs),
+
+    /// Get single webhook log
+    Get(GetWebhookLog),
 }
 
 #[derive(Debug, Args)]
@@ -371,6 +394,26 @@ pub struct WebhookLogs {
     /// Items per page
     #[arg(long = "page-size")]
     pub page_size: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "webhooks logs get <WEBHOOK_ID> <LOG_ID> [OPTIONS]")]
+pub struct GetWebhookLog {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    #[clap(flatten)]
+    pub scope_args: SharedScopeArgs,
+
+    /// Id of webhook
+    pub webhook_id: String,
+
+    /// Id of webhook log
+    pub log_id: String,
+
+    /// Format output
+    #[arg(short = 'f', long = "format")]
+    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]

@@ -272,6 +272,38 @@ pub async fn list_logs(args: ListLogsArgs) -> Result<GetRequestApiResponse, Outp
     client::get_request(args).await
 }
 
+pub struct GetLogArgs {
+    pub api_key: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
+    pub webhook_id: String,
+    pub log_id: String,
+}
+
+pub async fn get_log(args: GetLogArgs) -> Result<GetRequestApiResponse, OutputError> {
+    let GetLogArgs {
+        api_key,
+        project,
+        environment,
+        webhook_id,
+        log_id,
+    } = args;
+
+    let path = get_webhooks_path(
+        project,
+        environment,
+        Some(format!("{}/logs/{}", webhook_id, log_id)),
+    );
+
+    let args = RequestArgs {
+        path,
+        query: None,
+        api_key,
+    };
+
+    client::get_request(args).await
+}
+
 pub async fn get_dashboard_url(
     api_key: String,
     project: Option<String>,

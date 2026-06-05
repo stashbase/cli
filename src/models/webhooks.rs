@@ -384,6 +384,22 @@ pub struct WebhookLog {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WebhookLogDetails {
+    pub id: String,
+    pub processed_at: String,
+    pub attempt: u8,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_data: Option<String>,
+}
+
 #[derive(Debug, Tabled)]
 pub struct TableWebhookLog {
     #[tabled(rename = "ID", order = 0)]
@@ -479,6 +495,89 @@ impl Display for WebhookLog {
         }
 
         // writeln!(f, "Attempt number: {}", self.attempt)?;
+        let (formatted, relative) = get_human_datetime(&self.processed_at);
+        writeln!(
+            f,
+            "{} {} ({})",
+            "Processed at:".blue_bold_if_tty(),
+            formatted,
+            relative
+        )?;
+
+        Ok(())
+    }
+}
+
+impl Display for WebhookLogDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{} {}", "ID:".blue_bold_if_tty(), self.id)?;
+
+        if let Some(status) = self.status {
+            if status == 200 || status == 204 {
+                writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "success")?;
+            } else {
+                writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
+            }
+        } else {
+            writeln!(f, "{} {}", "Status:".blue_bold_if_tty(), "failure")?;
+        }
+
+        writeln!(
+            f,
+            "{} {}",
+            "Attempt number:".blue_bold_if_tty(),
+            self.attempt
+        )?;
+
+        if let Some(status) = &self.status {
+            writeln!(f, "{} {}", "HTTP status code:".blue_bold_if_tty(), status)?;
+        } else {
+            writeln!(f, "{} {}", "HTTP status code:".blue_bold_if_tty(), "N/A")?;
+        }
+
+        if let Some(status) = self.status {
+            if status == 200 || status == 204 {
+                writeln!(
+                    f,
+                    "{} Wehbook event delivered",
+                    "Response message:".blue_bold_if_tty()
+                )?;
+            } else {
+                writeln!(
+                    f,
+                    "{} Failed with status code",
+                    "Response message:".blue_bold_if_tty()
+                )?;
+            }
+        } else if let Some(error_code) = &self.error {
+            writeln!(
+                f,
+                "{} {}",
+                "Response message:".blue_bold_if_tty(),
+                get_test_webhook_error_message(error_code)
+            )?;
+        } else {
+            writeln!(
+                f,
+                "{} Unknown error",
+                "Response message:".blue_bold_if_tty()
+            )?;
+        }
+
+        if let Some(response_data) = &self.response_data {
+            if response_data.is_empty() {
+                writeln!(
+                    f,
+                    "{} {}",
+                    "Response data:".blue_bold_if_tty(),
+                    format_response_body(response_data)
+                )?;
+            } else {
+                writeln!(f, "{}", "Response data:".blue_bold_if_tty())?;
+                writeln!(f, "{}", format_response_body(response_data))?;
+            }
+        }
+
         let (formatted, relative) = get_human_datetime(&self.processed_at);
         writeln!(
             f,
