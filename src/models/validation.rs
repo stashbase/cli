@@ -600,7 +600,7 @@ impl WebhookInputValidationError {
             WebhookInputValidationError::InvalidId => (
                 "Invalid webhook ID value.",
                 Some(
-                    "Id must start with the prefix 'whk_' followed by 22 alphanumeric characters.",
+                    "ID must start with the prefix 'whk_' followed by 22 alphanumeric characters.",
                 ),
             ),
             WebhookInputValidationError::InvalidLogId => (
