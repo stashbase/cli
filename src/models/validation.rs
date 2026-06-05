@@ -598,13 +598,13 @@ impl WebhookInputValidationError {
                 Some("Page size can range from 2 to 30."),
             ),
             WebhookInputValidationError::InvalidId => (
-                "Invalid webhook ID value.",
+                "Invalid webhook ID.",
                 Some(
                     "ID must start with the prefix 'whk_' followed by 22 alphanumeric characters.",
                 ),
             ),
             WebhookInputValidationError::InvalidLogId => (
-                "Invalid webhook log ID value.",
+                "Invalid webhook log ID.",
                 Some(
                     "ID must start with the prefix 'whlog_' followed by 22 alphanumeric characters.",
                 ),
