@@ -410,10 +410,6 @@ pub struct GetWebhookLog {
 
     /// Id of webhook log
     pub log_id: String,
-
-    /// Format output
-    #[arg(short = 'f', long = "format")]
-    pub format: Option<OutputFormat>,
 }
 
 #[derive(Debug, Args)]

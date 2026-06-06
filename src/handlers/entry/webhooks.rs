@@ -266,7 +266,7 @@ pub async fn handle_webhook_commands(
                 handle_list_webhook_logs(fn_args).await?;
             }
             WebhookLogsSubcommand::Get(cmd_args) => {
-                let format = get_output_format(raw_output, default_output_format, cmd_args.format);
+                let format = get_output_format(raw_output, default_output_format, None);
 
                 let fn_args = GetWebhookLogArgs {
                     api_key,
