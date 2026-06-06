@@ -18,6 +18,7 @@ use crate::{
         },
     },
     utils::{
+        env,
         interaction::{self},
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
         separator,
@@ -614,11 +615,13 @@ async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
     print_secrets: Option<PrintSecrets>,
-    secrets: Vec<SecretWithoutComment>,
+    mut secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
     silent: bool,
     json_format: bool,
 ) -> anyhow::Result<()> {
+    let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
+
     if !silent {
         let mut success_msg = format!(
             "{} {} ({} {})",
@@ -702,8 +705,6 @@ async fn handle_run(
         }
     }
 
-    let env_vars = secrets;
-
     let mut mutex = SUBPROCESS_RUNNING.lock().unwrap();
     *mutex = true;
 
@@ -714,11 +715,6 @@ async fn handle_run(
         .skip(1)
         .map(|s| s)
         .collect::<Vec<String>>();
-
-    let secrets_hash_map = env_vars
-        .into_iter()
-        .map(|s| (s.name, s.value))
-        .collect::<HashMap<String, String>>();
 
     // TODO: errors: no such file or directory
     subprocess::run_command(&cmd, args, secrets_hash_map)
