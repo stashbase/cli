@@ -397,7 +397,7 @@ impl fmt::Display for InputValidationError {
                     "{}",
                     format!("  Message: {}", "API key is required for this command.")
                 )?;
-                write!(f, "{}", format!("  Hint: {}", "Use '--api-key' argument or set it in the config file using 'stashbase config set-api-key <your-api-key>'."))
+                write!(f, "{}", format!("  Hint: {}", "Use '--api-key' argument, run 'stashbase config api-key set', or pipe a key with 'stashbase config api-key set --stdin'."))
             }
         }
     }
@@ -1147,7 +1147,7 @@ impl InputValidationError {
             InputValidationError::MissingApiKey => {
                 MessageHint { 
                     message: "API key is required for this command.", 
-                    hint: Some("Use '--api-key' argument or set it in the config file using 'stashbase config set-api-key <your-api-key>'."), 
+                    hint: Some("Use '--api-key' argument, run 'stashbase config api-key set', or pipe a key with 'stashbase config api-key set --stdin'."), 
                     secrets: vec![] 
                 }
             }

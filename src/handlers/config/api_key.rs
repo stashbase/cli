@@ -1,21 +1,29 @@
 // use anyhow::Result;
 
+use std::io::{self, Read};
+
 use crate::{
     config::{config, secure_store},
     utils::{interaction::input_password, output::ColorizeIfColoredOutput},
 };
 
-pub fn set_api_key(api_key: Option<String>) {
-    // If API key argument not provided, prompt the user
-    let api_key_value = match api_key {
-        Some(key) => key,
-        None => match input_password("Enter your API key") {
+pub fn set_api_key(read_from_stdin: bool) {
+    let api_key_value = if read_from_stdin {
+        match read_api_key_from_stdin() {
+            Ok(value) => value,
+            Err(message) => {
+                eprintln!("{}", message.red_if_tty_stderr());
+                return;
+            }
+        }
+    } else {
+        match input_password("Enter your API key") {
             Some(value) => value,
             None => {
                 eprintln!("{}", "No API key entered. Aborted.".red_if_tty_stderr());
                 return;
             }
-        },
+        }
     };
 
     let store_res = secure_store::set_api_key(&api_key_value);
@@ -45,6 +53,20 @@ pub fn set_api_key(api_key: Option<String>) {
     } else {
         let _ = config::clear_legacy_api_key();
         println!("API key set.");
+    }
+}
+
+fn read_api_key_from_stdin() -> Result<String, &'static str> {
+    let mut buffer = String::new();
+    io::stdin()
+        .read_to_string(&mut buffer)
+        .map_err(|_| "Failed to read API key from stdin.")?;
+
+    let value = buffer.trim().to_string();
+    if value.is_empty() {
+        Err("No API key provided on stdin. Aborted.")
+    } else {
+        Ok(value)
     }
 }
 

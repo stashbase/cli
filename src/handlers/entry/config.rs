@@ -24,7 +24,7 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
     match cmd.subcommand {
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
-                api_key::set_api_key(s.value);
+                api_key::set_api_key(s.stdin);
             }
             ApiKeySubcommand::Print(_) => {
                 let key = match secure_store::get_api_key() {

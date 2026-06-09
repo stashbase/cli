@@ -90,15 +90,8 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         None
     };
 
-    let project_res = projects::list_projects(
-        api_key,
-        search,
-        sort_by.unwrap_or_default(),
-        descending,
-        page,
-        page_size,
-    )
-    .await;
+    let project_res =
+        projects::list_projects(api_key, search, sort_by, descending, page, page_size).await;
 
     if let Err(err) = project_res {
         if let Some(mut spinner) = spinner {

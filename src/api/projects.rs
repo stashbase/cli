@@ -14,12 +14,16 @@ use super::client;
 pub async fn list_projects(
     api_key: String,
     search: Option<String>,
-    sort_by: SortBy,
+    sort_by: Option<SortBy>,
     descending: bool,
     page: Option<usize>,
     page_size: Option<usize>,
 ) -> Result<GetRequestApiResponse, OutputError> {
-    let mut query = vec![("sort_by".to_string(), format!("{}", sort_by))];
+    let mut query = Vec::new();
+
+    if let Some(sort_by) = sort_by {
+        query.push(("sort_by".to_string(), format!("{}", sort_by)));
+    }
 
     if descending == true {
         query.push(("order".to_string(), "desc".to_string()));

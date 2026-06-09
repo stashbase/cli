@@ -52,7 +52,11 @@ Here are some common usage examples for the Stashbase CLI:
 You can generate an API key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
 
 ```bash
-stashbase config api-key set <API_KEY>
+# interactively set API key
+stashbase config api-key set
+
+# or set API key via stdin (e.g. from environment variable or secret manager)
+printf '%s' 'sb_personal_35tnv...' | stashbase config api-key set --stdin
 ```
 
 ### API key storage

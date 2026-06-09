@@ -88,9 +88,11 @@ pub enum ApiKeySubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "config api-key set [<VALUE>] [OPTIONS]")]
+#[command(override_usage = "config api-key set [OPTIONS]")]
 pub struct SetApiKey {
-    pub value: Option<String>,
+    /// Read API key from stdin instead of prompting interactively
+    #[arg(long = "stdin")]
+    pub stdin: bool,
 }
 
 #[derive(Debug, Args)]
