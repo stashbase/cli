@@ -1,4 +1,4 @@
-use rand::{rng, Rng};
+use rand::{rng, RngExt};
 
 use crate::utils::output::get_formatted_json_string;
 

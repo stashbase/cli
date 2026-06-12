@@ -4,8 +4,7 @@ use base64::{
     Engine as _,
 };
 use data_encoding::BASE32_NOPAD;
-use rand::rngs::OsRng;
-use rand::TryRngCore;
+use rand::TryRng;
 
 use crate::{models::generate::Encoding, utils::output::get_formatted_json_string};
 
@@ -16,7 +15,7 @@ pub fn handle_generate_random_string(
     bytes: Option<u16>,
     uppercase: bool,
 ) -> Result<()> {
-    let mut rng = OsRng;
+    let mut rng = rand::rng();
     let result = if let Some(bytes_len) = bytes {
         let mut raw = vec![0u8; bytes_len as usize];
         rng.try_fill_bytes(&mut raw)
@@ -79,7 +78,7 @@ fn encode_random_bytes(encoding: &Encoding, bytes: &[u8]) -> String {
 }
 
 fn generate_power_of_two_string(
-    rng: &mut OsRng,
+    rng: &mut rand::rngs::ThreadRng,
     alphabet: &[u8],
     bits_per_symbol: u8,
     length: usize,
@@ -108,7 +107,7 @@ fn generate_power_of_two_string(
     Ok(output)
 }
 
-fn generate_alphanumeric_string(rng: &mut OsRng, length: usize) -> Result<String> {
+fn generate_alphanumeric_string(rng: &mut rand::rngs::ThreadRng, length: usize) -> Result<String> {
     const ALPHANUMERIC: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const ALPHANUMERIC_LEN: u8 = 62;
     const REJECTION_BOUND: u8 = 248;
@@ -126,7 +125,7 @@ fn generate_alphanumeric_string(rng: &mut OsRng, length: usize) -> Result<String
     Ok(output)
 }
 
-fn next_random_byte(rng: &mut OsRng) -> Result<u8> {
+fn next_random_byte(rng: &mut rand::rngs::ThreadRng) -> Result<u8> {
     let mut buf = [0u8; 1];
     rng.try_fill_bytes(&mut buf)
         .context("Failed to read secure random bytes from OS RNG")?;
