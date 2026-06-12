@@ -649,8 +649,8 @@ pub fn get_unpushed_commit_hunks(
         })?;
     let local_branch_name =
         head.shorthand()
-            .ok_or_else(|| ScanInputValidationError::GitBranchAccess {
-                message: "Failed to get branch name".to_string(),
+            .map_err(|e| ScanInputValidationError::GitBranchAccess {
+                message: e.message().to_string(),
             })?;
 
     // Get the remote tracking branch
@@ -713,7 +713,7 @@ pub fn get_unpushed_commit_hunks(
         // First, try to get the default branch from remote
         if let Ok(remote) = repo.find_remote("origin") {
             if let Ok(remote_head) = remote.default_branch() {
-                if let Some(branch_name) = remote_head.as_str() {
+                if let Ok(branch_name) = remote_head.as_str() {
                     // Extract branch name from refs/heads/main format
                     let branch_name = branch_name
                         .strip_prefix("refs/heads/")
