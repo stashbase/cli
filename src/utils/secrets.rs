@@ -7,7 +7,10 @@ use std::{collections::HashMap, fs, path::Path};
 
 use crate::{
     cmd::{config::SecretsOutputFormat, secrets::SecretsFileFormat},
-    models::secrets::{Secret, SecretOnlyName, SecretWithComment, SecretWithoutComment},
+    models::secrets::{
+        Secret, SecretOnlyName, SecretOnlyNameWithComment, SecretOptional, SecretWithComment,
+        SecretWithoutComment,
+    },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
 
@@ -213,6 +216,195 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
                 .collect::<_>();
 
             output_string
+        }
+    }
+}
+
+pub fn format_optional_secrets(secrets: Vec<SecretOptional>, format: &SecretsOutputFormat) -> String {
+    let all_without_values = secrets.iter().all(|s| s.value.is_none());
+
+    match format {
+        SecretsOutputFormat::List => {
+            let mut text_to_print = String::new();
+
+            for (i, p) in secrets.iter().enumerate() {
+                let value = p.value.as_deref().unwrap_or_default();
+                let is_multiline = value.contains("\n");
+
+                let prev_has_comment = match i == 0 {
+                    true => false,
+                    false => secrets[i - 1].has_comment(),
+                };
+
+                if prev_has_comment {
+                    text_to_print.push('\n')
+                }
+
+                if i == secrets.len() - 1 {
+                    if !prev_has_comment && (p.comment.is_some() || is_multiline) {
+                        text_to_print.push_str(&format!("\n{}", p))
+                    } else {
+                        text_to_print.push_str(&format!("{}", p))
+                    }
+                } else if i != 0 && (p.comment.is_some() || is_multiline) {
+                    text_to_print.push_str(&format!("\n{}\n", p))
+                } else {
+                    text_to_print.push_str(&format!("{}\n", p))
+                }
+            }
+
+            text_to_print
+        }
+        SecretsOutputFormat::Json => get_formatted_json_string(&secrets, true).unwrap(),
+        SecretsOutputFormat::Table => {
+            let has_some_comment = secrets.iter().any(|s| s.has_comment());
+
+            if all_without_values && has_some_comment {
+                let table_secrets = secrets
+                    .into_iter()
+                    .map(|s| SecretOnlyNameWithComment {
+                        name: s.name,
+                        comment: s.comment.unwrap_or_default(),
+                    })
+                    .collect::<Vec<_>>();
+
+                build_table(&table_secrets).to_string()
+            } else if has_some_comment {
+                let table_secrets = secrets
+                    .into_iter()
+                    .map(|s| SecretWithComment {
+                        name: s.name,
+                        value: s.value.unwrap_or_default(),
+                        comment: s.comment.unwrap_or_default(),
+                    })
+                    .collect::<Vec<_>>();
+
+                build_table(&table_secrets).to_string()
+            } else if all_without_values {
+                let table_secrets = secrets
+                    .into_iter()
+                    .map(|s| SecretOnlyName { name: s.name })
+                    .collect::<Vec<_>>();
+
+                build_table(&table_secrets).to_string()
+            } else {
+                let table_secrets = secrets
+                    .into_iter()
+                    .map(|s| SecretWithoutComment {
+                        name: s.name,
+                        value: s.value.unwrap_or_default(),
+                    })
+                    .collect::<Vec<_>>();
+
+                build_table(&table_secrets).to_string()
+            }
+        }
+        _ => {
+            let kv_separator = match format {
+                SecretsOutputFormat::Dotenv => "=",
+                SecretsOutputFormat::Yaml => ":",
+                _ => unreachable!(),
+            };
+
+            secrets
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let is_last = i == secrets.len() - 1;
+                    let value = s.value.as_deref().unwrap_or_default();
+                    let is_multiline = value.contains("\n");
+
+                    let replaced_value = match SecretsOutputFormat::Dotenv == *format {
+                        true => format!("\"{}\"", value.replace("\"", "\\\"")),
+                        false => value.replace("\"", "\\\""),
+                    };
+
+                    if let Some(comment) = &s.comment {
+                        let comment_str = comment
+                            .split('\n')
+                            .map(|line| format!("# {}\n", line.trim()))
+                            .collect::<String>();
+
+                        let mut str_line = match is_multiline {
+                            true => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!("{}{}{}{}", comment_str, s.name, kv_separator, replaced_value)
+                                } else {
+                                    let indented_value = replaced_value
+                                        .lines()
+                                        .map(|line| format!("  {}", line))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+
+                                    format!("{}{}{} |\n{}", comment_str, s.name, kv_separator, indented_value)
+                                }
+                            }
+                            false => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!("{}{}{}{}", comment_str, s.name, kv_separator, replaced_value)
+                                } else {
+                                    format!("{}{}{} {}", comment_str, s.name, kv_separator, replaced_value)
+                                }
+                            }
+                        };
+
+                        if !is_last {
+                            str_line = format!("{}\n", str_line);
+                        }
+
+                        if i != 0 {
+                            str_line = format!("\n{}", str_line);
+                        }
+
+                        str_line
+                    } else {
+                        let prev_has_comment = match i == 0 {
+                            true => false,
+                            false => secrets.get(i - 1).map(|prev_line| prev_line.comment.is_some()).unwrap_or(false),
+                        };
+
+                        let prev_is_multiline = match i == 0 {
+                            true => false,
+                            false => secrets
+                                .get(i - 1)
+                                .map(|prev_line| prev_line.value.as_deref().unwrap_or_default().contains("\n"))
+                                .unwrap_or(false),
+                        };
+
+                        let mut str_line = match is_multiline {
+                            true => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!("{}{}{}", s.name, kv_separator, replaced_value)
+                                } else {
+                                    let indented_value = replaced_value
+                                        .lines()
+                                        .map(|line| format!("  {}", line))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    format!("{}{} |\n{}", s.name, kv_separator, indented_value)
+                                }
+                            }
+                            false => {
+                                if SecretsOutputFormat::Dotenv == *format {
+                                    format!("{}{}{}", s.name, kv_separator, replaced_value)
+                                } else {
+                                    format!("{}{} {}", s.name, kv_separator, replaced_value)
+                                }
+                            }
+                        };
+
+                        if i != 0 && (prev_has_comment || is_multiline || prev_is_multiline) {
+                            str_line = format!("\n{}", str_line);
+                        }
+
+                        if !is_last {
+                            str_line = format!("{}\n", str_line);
+                        }
+
+                        str_line
+                    }
+                })
+                .collect::<String>()
         }
     }
 }
