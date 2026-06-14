@@ -67,6 +67,15 @@ pub struct SecretOnlyName {
     pub name: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Tabled)]
+pub struct SecretOnlyNameWithComment {
+    #[tabled(rename = "Name")]
+    pub name: String,
+
+    #[tabled(rename = "Comment")]
+    pub comment: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Secret {
     pub name: String,
@@ -98,6 +107,12 @@ pub struct SecretOptional {
 }
 
 impl Secret {
+    pub fn has_comment(&self) -> bool {
+        self.comment.is_some()
+    }
+}
+
+impl SecretOptional {
     pub fn has_comment(&self) -> bool {
         self.comment.is_some()
     }
@@ -237,6 +252,22 @@ impl Display for Secret {
         // if self.comment.is_some() {
         //     writeln!(f, "")?;
         // }
+
+        Ok(())
+    }
+}
+
+impl Display for SecretOptional {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(comment) = &self.comment {
+            let comment_str = format!("# {}", comment);
+            writeln!(f, "{}", comment_str.bright_blue_if_tty())?;
+        }
+
+        match &self.value {
+            Some(value) => write!(f, "{} {}", format!("{}:", self.name).blue_bold_if_tty(), value)?,
+            None => write!(f, "{}", self.name.as_str().blue_bold_if_tty())?,
+        }
 
         Ok(())
     }

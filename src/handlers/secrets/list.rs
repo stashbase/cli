@@ -6,9 +6,13 @@ use crate::{
     cmd::config::SecretsOutputFormat,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
-        secrets::Secret,
+        secrets::SecretOptional,
     },
-    utils::{output::get_formatted_json_string, secrets::format_secrets, spinner::request_spinner},
+    utils::{
+        output::get_formatted_json_string,
+        secrets::format_optional_secrets,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleListSecretsArgs {
@@ -74,7 +78,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
 
     match res {
         GetRequestApiResponse::Ok(data) => {
-            let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
+            let secrets = serde_json::from_str::<Vec<SecretOptional>>(&data.text);
 
             match secrets {
                 Ok(secrets) => {
@@ -95,7 +99,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
                         }
-                        let print_string = format_secrets(secrets, &format);
+                        let print_string = format_optional_secrets(secrets, &format);
 
                         println!("{}", print_string);
                     }

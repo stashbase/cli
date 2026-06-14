@@ -38,7 +38,7 @@ pub async fn list(
     }
 
     if include_values == true {
-        query_str.push(("include_values".to_string(), include_values.to_string()));
+        query_str.push(("include_value".to_string(), include_values.to_string()));
 
         if expand_refs == true {
             query_str.push(("expand_refs".to_string(), expand_refs.to_string()));
