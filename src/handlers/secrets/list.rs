@@ -6,13 +6,9 @@ use crate::{
     cmd::config::SecretsOutputFormat,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
-        secrets::{Secret, SecretOptional},
+        secrets::Secret,
     },
-    utils::{
-        output::get_formatted_json_string,
-        secrets::{format_secret_names, format_secrets},
-        spinner::request_spinner,
-    },
+    utils::{output::get_formatted_json_string, secrets::format_secrets, spinner::request_spinner},
 };
 
 pub struct HandleListSecretsArgs {
@@ -75,100 +71,48 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
     }
 
     let res = res.unwrap();
-    let only_names = true;
 
     match res {
-        GetRequestApiResponse::Ok(data) => match only_names {
-            true => {
-                let names = serde_json::from_str::<Vec<SecretOptional>>(&data.text);
+        GetRequestApiResponse::Ok(data) => {
+            let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
 
-                match names {
-                    Ok(secrets) => {
-                        if secrets.is_empty() {
-                            if format == SecretsOutputFormat::Json {
-                                let json_str = get_formatted_json_string(&secrets, true).unwrap();
-
-                                if let Some(mut spinner) = spinner {
-                                    spinner.stop_and_persist("", "");
-                                }
-                                println!("{}", json_str);
-                            } else {
-                                if !silent {
-                                    if let Some(mut spinner) = spinner {
-                                        spinner.stop_with_message("No secrets found.");
-                                    }
-                                } else {
-                                    if let Some(mut spinner) = spinner {
-                                        spinner.stop_and_persist("", "");
-                                    }
-                                }
-                            }
-                        } else {
-                            let names = secrets.into_iter().map(|s| s.name).collect::<Vec<_>>();
-                            let print_string = format_secret_names(names, &format);
+            match secrets {
+                Ok(secrets) => {
+                    if secrets.is_empty() {
+                        if format == SecretsOutputFormat::Json {
+                            let json_str = get_formatted_json_string(&secrets, true).unwrap();
 
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
-
-                            println!("{}", print_string);
-                        }
-                    }
-                    Err(_) => {
-                        let error = OutputError::failed_to_deserialize_response_body();
-                        let formatted_err =
-                            error.format_error_output(format == SecretsOutputFormat::Json)?;
-
-                        if let Some(mut spinner) = spinner {
-                            spinner.stop_and_persist("", "");
-                        }
-                        bail!(formatted_err);
-                    }
-                }
-            }
-            false => {
-                let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
-
-                match secrets {
-                    Ok(secrets) => {
-                        if secrets.is_empty() {
-                            if format == SecretsOutputFormat::Json {
-                                let json_str = get_formatted_json_string(&secrets, true).unwrap();
-
-                                if let Some(mut spinner) = spinner {
-                                    spinner.stop_and_persist("", "");
-                                }
-                                println!("{}", json_str);
-                            } else {
-                                if !silent {
-                                    if let Some(mut spinner) = spinner {
-                                        spinner.stop_with_message("No secrets found.");
-                                    }
-                                }
-                            }
-                        } else {
+                            println!("{}", json_str);
+                        } else if !silent {
                             if let Some(mut spinner) = spinner {
-                                spinner.stop_and_persist("", "");
+                                spinner.stop_with_message("No secrets found.");
                             }
-                            let print_string = format_secrets(secrets, &format);
-
-                            println!("{}", print_string);
                         }
-                    }
-                    Err(_) => {
+                    } else {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
                         }
+                        let print_string = format_secrets(secrets, &format);
 
-                        let error = OutputError::failed_to_deserialize_response_body();
-                        let formatted_err =
-                            error.format_error_output(format == SecretsOutputFormat::Json)?;
-
-                        bail!(formatted_err);
+                        println!("{}", print_string);
                     }
                 }
+                Err(_) => {
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
+
+                    let error = OutputError::failed_to_deserialize_response_body();
+                    let formatted_err =
+                        error.format_error_output(format == SecretsOutputFormat::Json)?;
+
+                    bail!(formatted_err);
+                }
             }
-        },
+        }
         GetRequestApiResponse::Err(e) => {
             if let Some(mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
