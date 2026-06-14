@@ -21,7 +21,6 @@ pub struct HandleListSecretsArgs {
     pub environment: Option<String>,
     // pub search: Option<String>,
     pub format: SecretsOutputFormat,
-    pub only_names: bool,
     pub expand_refs: bool,
     pub silent: bool,
 }
@@ -32,7 +31,6 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         project,
         environment: enironment,
         format,
-        only_names,
         expand_refs,
         silent,
     } = args;
@@ -53,16 +51,7 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
         None
     };
 
-    let res = secrets::list(
-        api_key,
-        project,
-        enironment,
-        only_names,
-        None,
-        None,
-        expand_refs,
-    )
-    .await;
+    let res = secrets::list(api_key, project, enironment, None, None, expand_refs).await;
 
     if let Err(err) = res {
         if let Some(mut spinner) = spinner {

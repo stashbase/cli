@@ -64,7 +64,6 @@ pub async fn handle_get_secrets(args: HandleGetSecretsArgs) -> anyhow::Result<()
         api_key,
         project,
         environment,
-        false,
         None,
         Some(names.clone()),
         expand_refs,

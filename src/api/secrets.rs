@@ -26,7 +26,6 @@ pub async fn list(
     api_key: String,
     project: Option<String>,
     environment: Option<String>,
-    only_names: bool,
     omit: Option<Vec<String>>,
     only: Option<Vec<String>>,
     expand_refs: bool,
@@ -37,9 +36,7 @@ pub async fn list(
         query_str.push(("omit".to_string(), omit.join(",")));
     }
 
-    if only_names {
-        query_str.push(("omit".to_string(), "value,comment".to_string()));
-    } else if expand_refs == true {
+    if expand_refs == true {
         query_str.push(("expand_refs".to_string(), expand_refs.to_string()));
     }
 

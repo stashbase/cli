@@ -199,10 +199,6 @@ pub struct ListSecrets {
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
 
-    /// Print only names
-    #[arg(long = "only-names")]
-    pub only_names: bool,
-
     /// Expand references to their values
     #[arg(long = "expand-refs")]
     pub expand_refs: Option<bool>,
