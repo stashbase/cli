@@ -150,6 +150,7 @@ pub async fn handle_secrets_commands(
                 format,
                 silent,
                 environment,
+                include_values: args.include_values,
                 expand_refs: args.expand_refs.unwrap_or(expand_refs.unwrap_or(false)),
             };
 

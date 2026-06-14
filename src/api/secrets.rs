@@ -26,6 +26,7 @@ pub async fn list(
     api_key: String,
     project: Option<String>,
     environment: Option<String>,
+    include_values: bool,
     omit: Option<Vec<String>>,
     only: Option<Vec<String>>,
     expand_refs: bool,
@@ -36,8 +37,12 @@ pub async fn list(
         query_str.push(("omit".to_string(), omit.join(",")));
     }
 
-    if expand_refs == true {
-        query_str.push(("expand_refs".to_string(), expand_refs.to_string()));
+    if include_values == true {
+        query_str.push(("include_values".to_string(), include_values.to_string()));
+
+        if expand_refs == true {
+            query_str.push(("expand_refs".to_string(), expand_refs.to_string()));
+        }
     }
 
     if let Some(only) = only {

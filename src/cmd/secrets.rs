@@ -195,6 +195,14 @@ pub struct ListSecrets {
     #[clap(flatten)]
     pub scope_args: SharedScopeArgs,
 
+    /// Include secret values in output
+    #[arg(
+        long = "include-values",
+        alias = "show-values",
+        alias = "reveal-values"
+    )]
+    pub include_values: bool,
+
     /// Output format
     #[arg(value_enum, short = 'f', long = "format")]
     pub format: Option<SecretsOutputFormat>,
