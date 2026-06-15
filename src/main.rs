@@ -25,6 +25,7 @@ pub static REQUEST_ABORTED: AtomicBool = AtomicBool::new(false);
 
 fn main() {
     init_logger();
+    enable_virtual_terminal();
     set_handlers();
 
     let args = Cli::parse();
@@ -37,6 +38,14 @@ fn main() {
         std::process::exit(130);
     }
 }
+
+#[cfg(windows)]
+fn enable_virtual_terminal() {
+    colored::control::set_virtual_terminal(true).unwrap();
+}
+
+#[cfg(not(windows))]
+fn enable_virtual_terminal() {}
 
 fn set_handlers() {
     // https://github.com/console-rs/dialoguer/issues/77

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use git2::Repository;
 use regex::Regex;
-use spinoff::{spinners, Color, Spinner, Streams};
 use std::{cell::RefCell, collections::HashMap, io::IsTerminal, path::PathBuf, rc::Rc};
 
 use crate::{
@@ -24,6 +23,7 @@ use crate::{
             load_baseline_results, process_diff_line, save_scan_results, should_exclude_file,
             update_findings_with_file_matches, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
+        spinner::new_spinner,
         validation::validate_project_identifier,
     },
 };
@@ -310,12 +310,7 @@ pub async fn handle_scan_unpushed_commit_hunks(
     };
 
     let spinner = if !silent {
-        Some(Spinner::new_with_stream(
-            spinners::Dots,
-            "Scanning unpushed commits...",
-            Color::Cyan,
-            Streams::Stderr,
-        ))
+        Some(new_spinner("Scanning unpushed commits...", spinoff::Streams::Stderr))
     } else {
         None
     };

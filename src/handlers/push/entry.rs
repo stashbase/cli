@@ -28,7 +28,7 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use log::debug;
-use spinoff::{spinners, Color, Spinner, Streams};
+use spinoff::Streams;
 
 #[derive(Debug)]
 pub struct HandlePushArgs {
@@ -508,10 +508,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     }
 
     let mut spinner = if !silent {
-        Some(Spinner::new_with_stream(
-            spinners::Dots,
+        Some(crate::utils::spinner::new_spinner(
             "Pushing secrets...",
-            Color::Cyan,
             Streams::Stderr,
         ))
     } else {

@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{bail, Result};
 use log::debug;
-use spinoff::{spinners, Color, Spinner, Streams};
+use spinoff::Streams;
 
 use crate::{
     api::secrets,
@@ -393,10 +393,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     // eprintln!();
 
     let mut spinner = if !silent {
-        Some(Spinner::new_with_stream(
-            spinners::Dots,
+        Some(crate::utils::spinner::new_spinner(
             "Pulling environment...",
-            Color::Cyan,
             Streams::Stderr,
         ))
     } else {

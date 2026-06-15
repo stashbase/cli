@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::bail;
 use log::debug;
-use spinoff::{spinners, Color, Spinner, Streams};
+use spinoff::{Spinner, Streams};
 use tabled::Tabled;
 
 use crate::{
@@ -409,10 +409,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     }
 
     let mut spinner = if !silent {
-        Some(Spinner::new_with_stream(
-            spinners::Dots,
+        Some(crate::utils::spinner::new_spinner(
             "Loading environment...",
-            Color::Cyan,
             Streams::Stderr,
         ))
     } else {

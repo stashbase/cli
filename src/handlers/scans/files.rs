@@ -18,13 +18,13 @@ use crate::{
             load_baseline_results, process_diff_line, save_scan_results, should_exclude_file,
             update_findings_with_file_matches, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
+        spinner::new_spinner,
         validation::validate_project_identifier,
     },
 };
 use anyhow::Result;
 use git2::Repository;
 use regex::Regex;
-use spinoff::{spinners, Color, Spinner, Streams};
 use std::{cell::RefCell, collections::HashMap, fs, io::IsTerminal, path::Path, rc::Rc};
 
 pub struct HandleScanStagedFileHunksArgs {
@@ -379,12 +379,7 @@ async fn handle_scan_file_hunks(
     };
 
     let spinner = if !silent {
-        Some(Spinner::new_with_stream(
-            spinners::Dots,
-            mode.scanning_message(),
-            Color::Cyan,
-            Streams::Stderr,
-        ))
+        Some(new_spinner(mode.scanning_message(), spinoff::Streams::Stderr))
     } else {
         None
     };

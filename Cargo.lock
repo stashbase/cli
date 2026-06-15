@@ -2303,6 +2303,7 @@ dependencies = [
  "chrono",
  "chrono-humanize",
  "clap",
+ "colored",
  "colored_json",
  "ctrlc",
  "data-encoding",
