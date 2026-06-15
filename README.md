@@ -78,13 +78,13 @@ stashbase projects list
 ### List environments
 
 ```bash
-stashbase environments list -p <PROJECT_ID_OR_NAME>
+stashbase environments list -p <PROJECT>
 ```
 
 ### List secrets
 
 ```bash
-stashbase secrets list -p <PROJECT_ID_OR_NAME> -e <ENVIRONMENT_ID_OR_NAME>
+stashbase secrets list -p <PROJECT> -e <ENVIRONMENT>
 ```
 
 ### Generate utility values
