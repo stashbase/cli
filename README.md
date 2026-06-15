@@ -34,10 +34,6 @@ curl -fsSL https://stashbase.dev/cli/install.sh | bash
 For Windows users, we recommend downloading Stashbase CLI using shell script or package manager [Scoop](https://scoop.sh).
 
 ```bash
-curl -fsSL https://stashbase.dev/cli/install.sh | bash
-```
-
-```bash
 scoop install stashbase-cli
 ```
 
