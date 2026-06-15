@@ -265,7 +265,12 @@ impl Display for SecretOptional {
         }
 
         match &self.value {
-            Some(value) => write!(f, "{} {}", format!("{}:", self.name).blue_bold_if_tty(), value)?,
+            Some(value) => write!(
+                f,
+                "{} {}",
+                format!("{}:", self.name).blue_bold_if_tty(),
+                value
+            )?,
             None => write!(f, "{}", self.name.as_str().blue_bold_if_tty())?,
         }
 
