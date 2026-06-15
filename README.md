@@ -26,7 +26,7 @@ brew install stashbase/stashbase-cli
 For Linux users, we recommend downloading Stashbase CLI using shell script.
 
 ```bash
-curl -fsSL https://stashbase.com/cli/install.sh | bash
+curl -fsSL https://stashbase.dev/cli/install.sh | bash
 ```
 
 ### Windows
@@ -34,7 +34,7 @@ curl -fsSL https://stashbase.com/cli/install.sh | bash
 For Windows users, we recommend downloading Stashbase CLI using shell script or package manager [Scoop](https://scoop.sh).
 
 ```bash
-curl -fsSL https://stashbase.com/cli/install.sh | bash
+curl -fsSL https://stashbase.dev/cli/install.sh | bash
 ```
 
 ```bash
@@ -43,7 +43,7 @@ scoop install stashbase-cli
 
 ## Usage
 
-For full documentation, please visit [Stashbase CLI Documentation](https://docs.stashbase.com/cli).
+For full documentation, please visit [Stashbase CLI Documentation](https://docs.stashbase.dev/cli).
 
 Here are some common usage examples for the Stashbase CLI:
 
@@ -161,4 +161,4 @@ You can find the license in the [LICENSE.txt](LICENSE.txt) file.
 
 ## Contact
 
-If you have any questions or feedback, please contact us at [support@stashbase.com](mailto:support@stashbase.com).
+If you have any questions or feedback, please contact us at [support@stashbase.dev](mailto:support@stashbase.dev).
