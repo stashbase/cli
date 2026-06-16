@@ -164,43 +164,42 @@ fn format_comparison(
     with_values: bool,
 ) -> String {
     if json_format {
-        let pretty = get_formatted_json_string(&data, true).unwrap();
-        return pretty;
-    } else {
-        let mut table_data = vec![vec![String::from("Name"), environment_1, environment_2]];
-
-        for row in data {
-            let value_1 = row.values.get(0).cloned().unwrap();
-            let value_2 = row.values.get(1).cloned().unwrap();
-
-            let formatted_1 = get_formatted_table_value(value_1, with_values);
-            let formatted_2 = get_formatted_table_value(value_2, with_values);
-
-            table_data.push(vec![row.name, formatted_1, formatted_2]);
-        }
-
-        let mut table = Builder::from(table_data).build();
-
-        let (width, _) = get_terminal_size();
-        let color_enabled = is_color_enabled(true);
-
-        if color_enabled {
-            let term_size_settings = Settings::default()
-                .with(Style::rounded())
-                .with(Width::wrap(width).priority::<PriorityMax>())
-                .with(Modify::new(Rows::first()).with(Color::BOLD | Color::FG_BLUE));
-
-            table.with(term_size_settings);
-        } else {
-            let term_size_settings = Settings::default()
-                .with(Style::rounded())
-                .with(Width::wrap(width).priority::<PriorityMax>());
-
-            table.with(term_size_settings);
-        }
-
-        return format!("{table}");
+        return get_formatted_json_string(&data, true).unwrap();
     }
+
+    let mut table_data = vec![vec![String::from("Name"), environment_1, environment_2]];
+
+    for row in data {
+        let value_1 = row.values.first().cloned().flatten();
+        let value_2 = row.values.get(1).cloned().flatten();
+
+        let formatted_1 = get_formatted_table_value(value_1, with_values);
+        let formatted_2 = get_formatted_table_value(value_2, with_values);
+
+        table_data.push(vec![row.name, formatted_1, formatted_2]);
+    }
+
+    let mut table = Builder::from(table_data).build();
+
+    let (width, _) = get_terminal_size();
+    let color_enabled = is_color_enabled(true);
+
+    if color_enabled {
+        let term_size_settings = Settings::default()
+            .with(Style::rounded())
+            .with(Width::wrap(width).priority::<PriorityMax>())
+            .with(Modify::new(Rows::first()).with(Color::BOLD | Color::FG_BLUE));
+
+        table.with(term_size_settings);
+    } else {
+        let term_size_settings = Settings::default()
+            .with(Style::rounded())
+            .with(Width::wrap(width).priority::<PriorityMax>());
+
+        table.with(term_size_settings);
+    }
+
+    format!("{table}")
 }
 
 fn get_formatted_table_value(value: Option<String>, with_values: bool) -> String {
