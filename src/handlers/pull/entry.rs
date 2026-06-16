@@ -240,11 +240,51 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
     }
 
     let should_ignore_comments = ignore_comments == Some(true);
+    let output_path = match target_file.clone() {
+        Some(path) => path,
+        None => {
+            let err = InputValidationError::PushPullEnvironment(
+                PushPullInputValidationError::NoFileSpecified { is_push: false },
+            );
+            let formatted_err = err.format_error_output(json_format)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(formatted_err);
+        }
+    };
 
     // Validation logic - skip for environment scope
     if !is_environment_scope {
-        let project_ref = project.as_ref().unwrap();
-        let environment_ref = environment.as_ref().unwrap();
+        let (project_ref, environment_ref) = match (project.as_ref(), environment.as_ref()) {
+            (Some(project_ref), Some(environment_ref)) => (project_ref, environment_ref),
+            (None, _) => {
+                let error = InputValidationError::LoadEnvironment(
+                    LoadEnvironmentInputValidationError::MissingProjectArg,
+                );
+                let formatted_err = error.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+
+                bail!(formatted_err);
+            }
+            (_, None) => {
+                let error = InputValidationError::LoadEnvironment(
+                    LoadEnvironmentInputValidationError::MissingEnvArg,
+                );
+                let formatted_err = error.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+
+                bail!(formatted_err);
+            }
+        };
 
         let validation_res =
             validate_project_environment_identifier(project_ref, environment_ref, true);
@@ -436,10 +476,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
         bail!(formatted_err);
     }
 
-    let res = res.unwrap();
-
     match res {
-        GetRequestApiResponse::Ok(data) => {
+        Ok(GetRequestApiResponse::Ok(data)) => {
             let secrets = serde_json::from_str::<Vec<Secret>>(&data.text);
 
             match secrets {
@@ -522,8 +560,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
 
                             // save file
 
-                            let output_path = target_file.clone().unwrap();
-
                             if fs::metadata(&output_path).is_ok() && overwrite_file != true {
                                 if !silent {
                                     eprintln!(
@@ -571,7 +607,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                         } else {
                                             format!(
                                                 "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
-                                                project.as_ref().unwrap(), environment.as_ref().unwrap(),
+                                                project.as_deref().unwrap_or(""),
+                                                environment.as_deref().unwrap_or(""),
                                             )
                                         };
 
@@ -625,7 +662,6 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             }
                         }
 
-                        let output_path = target_file.clone().unwrap();
                         let file_exists = fs::metadata(&output_path).is_ok();
 
                         if file_exists && overwrite_file != true {
@@ -672,7 +708,8 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                     } else {
                                         format!(
                                             "## ------\n## Project: {}\n## Environment: {}\n## ------\n\n",
-                                            project.as_ref().unwrap(), environment.as_ref().unwrap(),
+                                            project.as_deref().unwrap_or(""),
+                                            environment.as_deref().unwrap_or(""),
                                         )
                                     };
 
@@ -758,7 +795,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                 }
             }
         }
-        GetRequestApiResponse::Err(e) => {
+        Ok(GetRequestApiResponse::Err(e)) => {
             if let Some(ref mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
             }
@@ -766,6 +803,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
             let formatted_err = e.format_error_output(json_format)?;
             bail!(formatted_err);
         }
+        Err(_) => unreachable!(),
     }
 
     Ok(())
