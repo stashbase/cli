@@ -48,6 +48,15 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Smoke test CLI help
+        run: cargo run --locked -- --help
+
+      - name: Smoke test CLI version
+        run: cargo run --locked -- --version
+
       - name: Add target
         run: rustup target add ${{ matrix.target }}
 
