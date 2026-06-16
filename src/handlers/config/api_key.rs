@@ -48,8 +48,9 @@ pub fn set_api_key(read_from_stdin: bool) {
         eprintln!(
             "{} {}",
             "Reason:".yellow_if_tty_stderr(),
-            store_err.to_string()
+            store_err
         );
+        println!("API key set.");
     } else {
         let _ = config::clear_legacy_api_key();
         println!("API key set.");
