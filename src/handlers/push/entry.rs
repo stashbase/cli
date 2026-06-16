@@ -201,7 +201,21 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     let should_ignore_comments = ignore_comments == Some(true);
 
-    let input_path = target_file.unwrap();
+    let input_path = match target_file {
+        Some(path) => path,
+        None => {
+            let err = InputValidationError::PushPullEnvironment(
+                PushPullInputValidationError::NoFileSpecified { is_push: true },
+            );
+            let error_output = err.format_error_output(json_format)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(error_output);
+        }
+    };
     let path = Path::new(&input_path);
 
     let file_exists = path.exists();
@@ -251,8 +265,33 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
 
     // Validation logic - skip for environment scope
     if !is_environment_scope {
-        let project_ref = project.as_ref().unwrap();
-        let environment_ref = environment.as_ref().unwrap();
+        let (project_ref, environment_ref) = match (project.as_ref(), environment.as_ref()) {
+            (Some(project_ref), Some(environment_ref)) => (project_ref, environment_ref),
+            (None, _) => {
+                let error = InputValidationError::LoadEnvironment(
+                    LoadEnvironmentInputValidationError::MissingProjectArg,
+                );
+                let error_output = error.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+
+                bail!(error_output);
+            }
+            (_, None) => {
+                let error = InputValidationError::LoadEnvironment(
+                    LoadEnvironmentInputValidationError::MissingEnvArg,
+                );
+                let error_output = error.format_error_output(json_format)?;
+
+                if !silent {
+                    eprintln!();
+                }
+
+                bail!(error_output);
+            }
+        };
 
         let validation_res =
             validate_project_environment_identifier(project_ref, environment_ref, true);
@@ -268,7 +307,10 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
     }
 
     //  process, format and validate secrets
-    let mut secrets = secrets_res.unwrap();
+    let mut secrets = match secrets_res {
+        Ok(secrets) => secrets,
+        Err(_) => unreachable!(),
+    };
 
     if let Some(ignore_comments) = ignore_comments {
         if ignore_comments == true {
@@ -537,10 +579,8 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
         bail!(error_output);
     }
 
-    let res = res.unwrap();
-
     match res {
-        RequestApiOptionResponse::Ok(_) => {
+        Ok(RequestApiOptionResponse::Ok(_)) => {
             if json_format {
                 if let Some(ref mut spinner) = spinner {
                     spinner.stop_and_persist("", "");
@@ -554,7 +594,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
                 }
             }
         }
-        RequestApiOptionResponse::Err(e) => {
+        Ok(RequestApiOptionResponse::Err(e)) => {
             debug!("Error: {}", e);
             if let Some(ref mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
@@ -563,6 +603,7 @@ pub async fn handle_push(args: HandlePushArgs) -> Result<()> {
             let error_output = e.format_error_output(json_format)?;
             bail!(error_output);
         }
+        Err(_) => unreachable!(),
     }
 
     Ok(())
