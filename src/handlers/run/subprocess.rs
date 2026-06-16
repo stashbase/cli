@@ -14,6 +14,7 @@ pub async fn run_command(
     args: Vec<String>,
     env_vars: HashMap<String, String>,
 ) -> Result<()> {
+    let current_dir = env::current_dir()?;
     let cmd = cmd!(command)
         .before_spawn(move |cmd| {
             for arg in args.iter() {
@@ -25,7 +26,7 @@ pub async fn run_command(
             Ok(())
         })
         .env("FORCE_COLOR", "true")
-        .dir(env::current_dir().unwrap());
+        .dir(current_dir);
     // .full_env(env_vars);
     // .env("--color", "always");
 
