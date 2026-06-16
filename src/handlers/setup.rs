@@ -13,7 +13,19 @@ pub fn setup(existing_config: Config) -> Result<()> {
     //
     eprintln!("Welcome! This will guide you through configuring the Stashbase CLI.");
 
-    let has_api_key = existing_config.api_key.is_some() || secure_store::get_api_key()?.is_some();
+    let secure_store_api_key = match secure_store::get_api_key() {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!(
+                "{} {}",
+                "Warning:".yellow_if_tty_stderr(),
+                format!("Secure key storage is unavailable during setup ({err}).")
+            );
+            None
+        }
+    };
+
+    let has_api_key = existing_config.api_key.is_some() || secure_store_api_key.is_some();
 
     let api_key_prompt = if has_api_key {
         "Enter your API key (leave empty to keep existing)"
@@ -59,11 +71,11 @@ pub fn setup(existing_config: Config) -> Result<()> {
                 "Warning:".yellow_if_tty_stderr(),
                 "Secure key storage unavailable, using encrypted-by-permissions config fallback."
             );
-            eprintln!(
-                "{} {}",
-                "Reason:".yellow_if_tty_stderr(),
-                store_err.to_string()
-            );
+        eprintln!(
+            "{} {}",
+            "Reason:".yellow_if_tty_stderr(),
+            store_err
+        );
         } else {
             config::clear_legacy_api_key()?;
         }
