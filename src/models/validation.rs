@@ -737,7 +737,7 @@ impl SecretsInputValidationError {
             ),
             SecretsInputValidationError::ValuesTooLong(secrets) => (
                 "Secret values are too long.",
-                Some("Maximum length is 4096 characters."),
+                Some("Secret value must not exceed 16 KB."),
                 secrets.clone()
             ),
             SecretsInputValidationError::NoData => (

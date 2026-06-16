@@ -22,8 +22,8 @@ use super::secrets::{self, format_secret_comment};
 
 // 512 is max length for comment after formatting
 pub const SECRET_COMMENT_MAX_LENGTH: usize = 512;
-// 4096 is max length for value after formatting
-pub const SECRET_VALUE_MAX_LENGTH: usize = 4096;
+// 16 KB is the max UTF-8 byte length for a formatted secret value.
+pub const SECRET_VALUE_MAX_BYTES: usize = 16 * 1024;
 // 2 is min length for secret name
 pub const SECRET_NAME_MIN_LENGTH: usize = 2;
 // 255 is max length for secret name
@@ -218,7 +218,7 @@ pub fn validate_secret_names(values: &Vec<String>) -> Result<(), InputValidation
 pub fn validate_secret_values(values: &Vec<String>) -> Result<(), InputValidationError> {
     let too_long_value_secret_names: Vec<_> = values
         .iter()
-        .filter(|value| value.len() > SECRET_VALUE_MAX_LENGTH)
+        .filter(|value| value.len() > SECRET_VALUE_MAX_BYTES)
         .map(|v| v.to_string())
         .collect();
 
@@ -415,7 +415,7 @@ pub fn validate_secrets(secrets: &Vec<Secret>) -> Result<(), InputValidationErro
         *name_counts.entry(name).or_insert(0) += 1;
 
         // Check value length
-        if secret.value.len() > SECRET_VALUE_MAX_LENGTH {
+        if secret.value.len() > SECRET_VALUE_MAX_BYTES {
             value_too_long_secret_names.insert_if_absent(name);
         }
 
@@ -527,7 +527,7 @@ pub fn validate_update_secrets(secrets: &Vec<UpdatedSecret>) -> Result<(), Input
 
         if let Some(value) = &secret.value {
             // Check value length
-            if value.len() > SECRET_VALUE_MAX_LENGTH {
+            if value.len() > SECRET_VALUE_MAX_BYTES {
                 value_too_long_names.insert_if_absent(secret.name.clone());
             }
         }
@@ -976,5 +976,88 @@ pub fn map_secret_to_load_set_secrets_error(
             other => unreachable!("Unexpected secret validation error: {:?}", other),
         },
         other => unreachable!("Expected Secrets validation error, got: {:?}", other),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_secret_values, validate_secrets, SECRET_VALUE_MAX_BYTES};
+    use crate::models::{
+        secrets::Secret,
+        validation::{InputValidationError, SecretsInputValidationError},
+    };
+
+    #[test]
+    fn validate_secret_values_accepts_exactly_16kb() {
+        let value = "a".repeat(SECRET_VALUE_MAX_BYTES);
+
+        let result = validate_secret_values(&vec![value]);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_secret_values_rejects_one_byte_over_16kb() {
+        let value = "a".repeat(SECRET_VALUE_MAX_BYTES + 1);
+
+        let result = validate_secret_values(&vec![value]);
+
+        assert!(matches!(
+            result,
+            Err(InputValidationError::Secrets(
+                SecretsInputValidationError::ValuesTooLong(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn validate_secret_values_uses_utf8_byte_length() {
+        let bytes_per_rocket = "🚀".len();
+        assert!(bytes_per_rocket > 1);
+
+        let within_limit = "🚀".repeat(SECRET_VALUE_MAX_BYTES / bytes_per_rocket);
+        let over_limit = format!("{within_limit}a");
+
+        assert_eq!(within_limit.len(), SECRET_VALUE_MAX_BYTES);
+        assert_eq!(over_limit.len(), SECRET_VALUE_MAX_BYTES + 1);
+
+        assert!(validate_secret_values(&vec![within_limit]).is_ok());
+        assert!(matches!(
+            validate_secret_values(&vec![over_limit]),
+            Err(InputValidationError::Secrets(
+                SecretsInputValidationError::ValuesTooLong(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn validate_secrets_accepts_exactly_16kb_value() {
+        let secrets = vec![Secret {
+            name: "API_KEY".to_string(),
+            value: "a".repeat(SECRET_VALUE_MAX_BYTES),
+            comment: None,
+        }];
+
+        let result = validate_secrets(&secrets);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_secrets_rejects_value_over_16kb() {
+        let secrets = vec![Secret {
+            name: "API_KEY".to_string(),
+            value: "a".repeat(SECRET_VALUE_MAX_BYTES + 1),
+            comment: None,
+        }];
+
+        let result = validate_secrets(&secrets);
+
+        assert!(matches!(
+            result,
+            Err(InputValidationError::Secrets(
+                SecretsInputValidationError::ValuesTooLong(names)
+            )) if names == vec!["API_KEY".to_string()]
+        ));
     }
 }
