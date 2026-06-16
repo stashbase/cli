@@ -396,8 +396,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             let only_exists = only.contains(&name);
             if only_exists {
                 // remove from only
-                let index = only.iter().position(|x| x == name).unwrap();
-                only.remove(index);
+                if let Some(index) = only.iter().position(|x| x == name) {
+                    only.remove(index);
+                }
             }
         }
     }
@@ -449,10 +450,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let res = res.unwrap();
-    //
     match res {
-        GetRequestApiResponse::Ok(data) => {
+        Ok(GetRequestApiResponse::Ok(data)) => {
             // handle_ok_response(&mut spinner, command, only_len, print_secrets, data).await?;
 
             let secrets = serde_json::from_str::<Vec<SecretWithoutComment>>(&data.text);
@@ -598,12 +597,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 bail!(formatted_err);
             }
         }
-        GetRequestApiResponse::Err(e) => {
+        Ok(GetRequestApiResponse::Err(e)) => {
             if let Some(ref mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
             }
             bail!(e);
         }
+        Err(_) => unreachable!(),
     }
     //
     Ok(())
@@ -703,10 +703,16 @@ async fn handle_run(
         }
     }
 
-    let mut mutex = SUBPROCESS_RUNNING.lock().unwrap();
+    let mut mutex = SUBPROCESS_RUNNING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     *mutex = true;
 
-    let cmd = command.get(0).unwrap().to_string();
+    let Some(cmd) = command.first().cloned() else {
+        let error = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
+        let formatted_err = error.format_error_output(json_format)?;
+        bail!(formatted_err);
+    };
 
     let args = command
         .into_iter()
