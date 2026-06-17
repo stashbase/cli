@@ -23,29 +23,21 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 
             for (i, p) in secrets.iter().enumerate() {
                 let is_multiline = p.value.contains("\n");
+                let prev_is_multiline = i != 0 && secrets[i - 1].value.contains("\n");
+                let needs_block_separator = i != 0
+                    && (secrets[i - 1].has_comment()
+                        || prev_is_multiline
+                        || p.comment.is_some()
+                        || is_multiline);
 
-                let prev_has_comment = match i == 0 {
-                    true => false,
-                    false => secrets[i - 1].has_comment(),
-                };
-
-                if prev_has_comment {
-                    text_to_print.push_str(&format!("\n"))
+                if needs_block_separator {
+                    text_to_print.push('\n');
                 }
 
-                // is last
-                if i == secrets.len() - 1 {
-                    if !prev_has_comment && (p.comment.is_some() || is_multiline) {
-                        text_to_print.push_str(&format!("\n{}", p))
-                    } else {
-                        text_to_print.push_str(&format!("{}", p))
-                    }
-                } else {
-                    if i != 0 && (p.comment.is_some() || is_multiline) {
-                        text_to_print.push_str(&format!("\n{}\n", p))
-                    } else {
-                        text_to_print.push_str(&format!("{}\n", p))
-                    }
+                text_to_print.push_str(&format!("{}", p));
+
+                if i != secrets.len() - 1 {
+                    text_to_print.push('\n');
                 }
             }
 
@@ -230,26 +222,26 @@ pub fn format_optional_secrets(secrets: Vec<SecretOptional>, format: &SecretsOut
             for (i, p) in secrets.iter().enumerate() {
                 let value = p.value.as_deref().unwrap_or_default();
                 let is_multiline = value.contains("\n");
-
-                let prev_has_comment = match i == 0 {
-                    true => false,
-                    false => secrets[i - 1].has_comment(),
+                let prev_value = if i == 0 {
+                    ""
+                } else {
+                    secrets[i - 1].value.as_deref().unwrap_or_default()
                 };
+                let prev_is_multiline = i != 0 && prev_value.contains("\n");
+                let needs_block_separator = i != 0
+                    && (secrets[i - 1].has_comment()
+                        || prev_is_multiline
+                        || p.comment.is_some()
+                        || is_multiline);
 
-                if prev_has_comment {
-                    text_to_print.push('\n')
+                if needs_block_separator {
+                    text_to_print.push('\n');
                 }
 
-                if i == secrets.len() - 1 {
-                    if !prev_has_comment && (p.comment.is_some() || is_multiline) {
-                        text_to_print.push_str(&format!("\n{}", p))
-                    } else {
-                        text_to_print.push_str(&format!("{}", p))
-                    }
-                } else if i != 0 && (p.comment.is_some() || is_multiline) {
-                    text_to_print.push_str(&format!("\n{}\n", p))
-                } else {
-                    text_to_print.push_str(&format!("{}\n", p))
+                text_to_print.push_str(&format!("{}", p));
+
+                if i != secrets.len() - 1 {
+                    text_to_print.push('\n');
                 }
             }
 
@@ -952,6 +944,104 @@ pub fn format_secret_comment(comment: &str, remove_outer_newlines: bool) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        cmd::config::SecretsOutputFormat,
+        models::secrets::{Secret, SecretOptional},
+    };
+
+    #[test]
+    fn yaml_format_keeps_commented_secret_entries_tightly_grouped() {
+        let secrets = vec![
+            Secret {
+                name: "API_URL".to_string(),
+                value: "http://localhost:5000".to_string(),
+                comment: Some("comment".to_string()),
+            },
+            Secret {
+                name: "DATABASE_URL".to_string(),
+                value: "test".to_string(),
+                comment: Some("comment".to_string()),
+            },
+            Secret {
+                name: "PROD".to_string(),
+                value: "false".to_string(),
+                comment: None,
+            },
+        ];
+
+        let formatted = format_secrets(secrets, &SecretsOutputFormat::Yaml);
+
+        assert_eq!(
+            formatted,
+            "# comment\nAPI_URL: http://localhost:5000\n\n# comment\nDATABASE_URL: test\n\nPROD: false"
+        );
+    }
+
+    #[test]
+    fn list_format_uses_single_blank_line_between_commented_optional_entries() {
+        let secrets = vec![
+            SecretOptional {
+                name: "ADMIN_API_KEY".to_string(),
+                value: Some("".to_string()),
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "API_URL".to_string(),
+                value: Some("http://localhost:5000".to_string()),
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "DATABASE_URL".to_string(),
+                value: Some("test".to_string()),
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "PROD".to_string(),
+                value: Some("false".to_string()),
+                comment: None,
+            },
+        ];
+
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::List);
+
+        assert_eq!(
+            formatted,
+            "# comment\nADMIN_API_KEY: \n\n# comment\nAPI_URL: http://localhost:5000\n\n# comment\nDATABASE_URL: test\n\nPROD: false"
+        );
+    }
+
+    #[test]
+    fn yaml_format_keeps_commented_optional_entries_tightly_grouped() {
+        let secrets = vec![
+            SecretOptional {
+                name: "ADMIN_API_KEY".to_string(),
+                value: None,
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "API_URL".to_string(),
+                value: Some("http://localhost:5000".to_string()),
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "DATABASE_URL".to_string(),
+                value: Some("test".to_string()),
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "PROD".to_string(),
+                value: Some("false".to_string()),
+                comment: None,
+            },
+        ];
+
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Yaml);
+
+        assert_eq!(
+            formatted,
+            "# comment\nADMIN_API_KEY: \n\n# comment\nAPI_URL: http://localhost:5000\n\n# comment\nDATABASE_URL: test\n\nPROD: false"
+        );
+    }
 
     #[test]
     fn dotenv_parses_value_ending_with_escaped_quote_without_offsetting_next_secrets() {
