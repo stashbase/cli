@@ -36,13 +36,14 @@ pub async fn handle_open_dashboard(api_key: String, silent: bool) -> Result<()> 
             match data {
                 Ok(data) => {
                     let url = data.dashboard_url;
-
-                    if let Some(mut spinner) = spinner {
-                        spinner.stop_with_message(&format!("Opening URL: {}", url));
-                    }
-
                     if let Err(err) = webbrowser::open(&url) {
-                        eprintln!("Error opening URL: {}", err);
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        bail!("Failed to open URL: {}. Open it manually: {}", err, url);
+                    } else if let Some(mut spinner) = spinner {
+                        spinner.stop_with_message(&format!("Opening URL: {}", url));
                     }
                 }
                 Err(_e) => {
