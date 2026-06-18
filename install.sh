@@ -69,7 +69,7 @@ detect_target() {
       TARGET="aarch64-apple-darwin"
       ;;
     linux-x86_64)
-      TARGET="x86_64-unknown-linux-gnu"
+      TARGET="x86_64-unknown-linux-musl"
       ;;
     darwin-x86_64)
       fail "Intel macOS is not supported in the beta. Use an Apple Silicon Mac or install from source."

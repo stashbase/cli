@@ -39,7 +39,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
             artifact: stashbase
             display_name: "Linux x64"
             ext: ""
@@ -75,6 +75,10 @@ jobs:
       - name: Add target
         run: rustup target add ${{ matrix.target }}
 
+      - name: Install Linux musl toolchain
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Clean dist directory (Linux/macOS)
         if: runner.os != 'Windows'
         run: rm -rf dist && mkdir dist
@@ -87,6 +91,8 @@ jobs:
           mkdir dist
 
       - name: Build
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package binary (Unix - tar.gz)
