@@ -41,7 +41,11 @@ curl -fsSL https://stashbase.dev/cli/install.sh | bash
 For Windows x64 users, we recommend using [Scoop](https://scoop.sh).
 
 ```bash
-scoop install stashbase-cli
+# Add the bucket
+scoop bucket add stashbase https://github.com/stashbase/scoop-stashbase
+
+# Install the CLI
+scoop install stashbase
 ```
 
 ## Usage
