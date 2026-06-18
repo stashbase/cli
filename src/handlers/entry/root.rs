@@ -69,7 +69,19 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
-        let secure_store_api_key = secure_store::get_api_key().ok().flatten();
+        let secure_store_api_key = match secure_store::get_api_key() {
+            Ok(key) => key,
+            Err(err) => {
+                if !args.silent {
+                    eprintln!(
+                        "{} {}",
+                        "Warning:".yellow_if_tty_stderr(),
+                        format!("Secure key storage is unavailable ({err}).")
+                    );
+                }
+                None
+            }
+        };
         let mut legacy_config_api_key = config.api_key.clone();
 
         if secure_store_api_key.is_none() {
