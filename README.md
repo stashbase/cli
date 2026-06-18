@@ -13,9 +13,16 @@ The Stashbase CLI is the official command-line tool for the Stashbase secrets ma
 
 You have multiple options to install the Stashbase CLI, either via package managers, shell script or you can just download the binary from the [releases](https://github.com/stashbase/cli/releases) page directly.
 
+Beta platform support:
+- macOS Apple Silicon
+- Linux x64
+- Windows x64
+
+Intel macOS is not supported currently.
+
 ### macOS
 
-Stashbase CLI is available via [Homebrew](https://brew.sh/) for macOS users.
+Stashbase CLI is available via [Homebrew](https://brew.sh) for macOS Apple Silicon users.
 
 ```bash
 brew install stashbase/stashbase-cli
@@ -23,7 +30,7 @@ brew install stashbase/stashbase-cli
 
 ### Linux
 
-For Linux users, we recommend downloading Stashbase CLI using shell script.
+For Linux x64 users, we recommend downloading Stashbase CLI using shell script.
 
 ```bash
 curl -fsSL https://stashbase.dev/cli/install.sh | bash
@@ -31,7 +38,7 @@ curl -fsSL https://stashbase.dev/cli/install.sh | bash
 
 ### Windows
 
-For Windows users, we recommend downloading Stashbase CLI using shell script or package manager [Scoop](https://scoop.sh).
+For Windows x64 users, we recommend using [Scoop](https://scoop.sh).
 
 ```bash
 scoop install stashbase-cli
