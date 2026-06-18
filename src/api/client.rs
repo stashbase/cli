@@ -21,6 +21,7 @@ use crate::{REQUEST_ABORTED, REQUEST_TIMEOUT_SECS};
 const DEFAULT_API_URL: &str = "https://api.stashbase.com";
 const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
 const BUILD_TIME_API_URL: Option<&str> = option_env!("STASHBASE_API_URL");
+const CLI_USER_AGENT: &str = concat!("stashbase/cli/", env!("CARGO_PKG_VERSION"));
 
 fn get_api_url() -> String {
     env::var(API_URL_ENV_VAR)
@@ -65,7 +66,7 @@ pub fn build_client(api_key: String) -> ClientWithMiddleware {
         reqwest::ClientBuilder::new()
             .timeout(Duration::from_secs(get_request_timeout_secs()))
             .default_headers(headers)
-            .user_agent("stashbase/cli/0.1.0")
+            .user_agent(CLI_USER_AGENT)
             .build()
             .unwrap(),
     )
@@ -85,7 +86,7 @@ pub fn build_client_no_retry(api_key: String) -> ClientWithMiddleware {
         reqwest::ClientBuilder::new()
             .timeout(Duration::from_secs(get_request_timeout_secs()))
             .default_headers(headers)
-            .user_agent("stashbase/cli/0.1.0")
+            .user_agent(CLI_USER_AGENT)
             .build()
             .unwrap(),
     )
