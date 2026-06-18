@@ -18,7 +18,7 @@ Beta platform support:
 - Linux x64
 - Windows x64
 
-Intel macOS is not supported currently.
+Intel macOS is currently not supported.
 
 ### macOS
 
