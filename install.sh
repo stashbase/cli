@@ -65,14 +65,14 @@ detect_target() {
   arch="$(uname -m)"
 
   case "${os}-${arch}" in
-    darwin-x86_64)
-      TARGET="x86_64-apple-darwin"
-      ;;
     darwin-arm64|darwin-aarch64)
       TARGET="aarch64-apple-darwin"
       ;;
     linux-x86_64)
       TARGET="x86_64-unknown-linux-gnu"
+      ;;
+    darwin-x86_64)
+      fail "Intel macOS is not supported in the beta. Use an Apple Silicon Mac or install from source."
       ;;
     *)
       fail "unsupported platform: ${os}-${arch}"

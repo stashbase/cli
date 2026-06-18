@@ -44,12 +44,6 @@ jobs:
             display_name: "Linux x64"
             ext: ""
             archive_ext: ".tar.gz"
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact: stashbase
-            display_name: "macOS x86_64 (Intel)"
-            ext: ""
-            archive_ext: ".tar.gz"
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: stashbase
