@@ -8,8 +8,33 @@ on:
         required: true
 
 jobs:
+  verify:
+    name: Verify CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Smoke test CLI help
+        run: cargo run --locked -- --help
+
+      - name: Smoke test CLI version
+        run: cargo run --locked -- --version
+
   build:
     name: Build and Package Binaries
+    needs: verify
     strategy:
       matrix:
         include:
@@ -48,14 +73,10 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Run tests
-        run: cargo test --locked
-
-      - name: Smoke test CLI help
-        run: cargo run --locked -- --help
-
-      - name: Smoke test CLI version
-        run: cargo run --locked -- --version
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Add target
         run: rustup target add ${{ matrix.target }}
