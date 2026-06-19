@@ -84,7 +84,7 @@ impl ScanConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ResultChangeRange {
     pub start_line: usize,
     pub end_line: usize,
@@ -216,7 +216,7 @@ impl Display for ScanFindingSeverity {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ScanFinding {
     pub file_path: String,
-    pub range: ResultChangeRange,
+    pub occurrences: Vec<ResultChangeRange>,
     pub preview: String,
     pub severity: ScanFindingSeverity,
     pub category: String,
@@ -259,9 +259,7 @@ impl Display for ScanFinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         result.push_str(&format!("File: {}\n", self.file_path));
-
-        let (start_line, end_line) = (self.range.start_line, self.range.end_line);
-        result.push_str(&format!("Range: {}-{}\n", start_line, end_line));
+        result.push_str(&format!("Occurrences: {}\n", self.format_occurrences_inline()));
 
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
@@ -323,6 +321,22 @@ impl Display for ScanFinding {
 }
 
 impl ScanFinding {
+    pub fn first_occurrence(&self) -> Option<&ResultChangeRange> {
+        self.occurrences.first()
+    }
+
+    pub fn format_occurrences_inline(&self) -> String {
+        if self.occurrences.is_empty() {
+            return "none".to_string();
+        }
+
+        self.occurrences
+            .iter()
+            .map(|occurrence| format!("{}-{}", occurrence.start_line, occurrence.end_line))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub fn get_colored_string(&self) -> String {
         let mut result = String::new();
 
@@ -331,14 +345,10 @@ impl ScanFinding {
             "File:".blue_bold_if_tty(),
             self.file_path
         ));
-
-        let (start_line, end_line) = (self.range.start_line, self.range.end_line);
-
         result.push_str(&format!(
-            "{} {}-{}\n",
-            "Range:".blue_bold_if_tty(),
-            start_line,
-            end_line
+            "{} {}\n",
+            "Occurrences:".blue_bold_if_tty(),
+            self.format_occurrences_inline()
         ));
 
         result.push_str(&format!(
@@ -417,6 +427,42 @@ impl ScanFinding {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ResultChangeRange, ScanFinding};
+
+    #[test]
+    fn scan_finding_deserializes_new_occurrences_shape() {
+        let json = r#"{
+            "file_path":"src/main.rs",
+            "occurrences":[
+                {"start_line":10,"end_line":12},
+                {"start_line":20,"end_line":20}
+            ],
+            "preview":"secret",
+            "severity":"high",
+            "category":"api_key",
+            "value_sha256":"abc"
+        }"#;
+
+        let finding: ScanFinding = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            finding.occurrences,
+            vec![
+                ResultChangeRange {
+                    start_line: 10,
+                    end_line: 12
+                },
+                ResultChangeRange {
+                    start_line: 20,
+                    end_line: 20
+                }
+            ]
+        );
     }
 }
 
