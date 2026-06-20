@@ -115,11 +115,11 @@ pub struct ScanStaged {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(long="ignore-secret-hashes", num_args = 1..)]
+    #[clap(long = "ignore-secret-hashes", alias = "ignore-hashes", num_args = 1..)]
     pub ignore_secret_hashes: Vec<String>,
 
     /// Regexes of secret values to ignore
-    #[clap(long="ignore-secret-regexes", num_args = 1..)]
+    #[clap(long = "ignore-secret-regexes", alias = "ignore-regexes", num_args = 1..)]
     pub ignore_secret_regexes: Vec<String>,
 
     /// Project to find matched secret values
@@ -160,11 +160,11 @@ pub struct ScanChanges {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(long="ignore-secret-hashes", num_args = 1..)]
+    #[clap(long = "ignore-secret-hashes", alias = "ignore-hashes", num_args = 1..)]
     pub ignore_secret_hashes: Vec<String>,
 
     /// Regexes of secret values to ignore
-    #[clap(long="ignore-secret-regexes", num_args = 1..)]
+    #[clap(long = "ignore-secret-regexes", alias = "ignore-regexes", num_args = 1..)]
     pub ignore_secret_regexes: Vec<String>,
 
     /// Project to find matched secret values
@@ -208,11 +208,11 @@ pub struct ScanCommits {
     pub output_dir: Option<String>,
 
     /// Hashes of secret values to ignore
-    #[clap(long="ignore-secret-hashes", num_args = 1..)]
+    #[clap(long = "ignore-secret-hashes", alias = "ignore-hashes", num_args = 1..)]
     pub ignore_secret_hashes: Vec<String>,
 
     /// Regexes of secret values to ignore
-    #[clap(long="ignore-secret-regexes", num_args = 1..)]
+    #[clap(long = "ignore-secret-regexes", alias = "ignore-regexes", num_args = 1..)]
     pub ignore_secret_regexes: Vec<String>,
 
     /// Project to find matched secret values
