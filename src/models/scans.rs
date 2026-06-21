@@ -332,7 +332,13 @@ impl ScanFinding {
 
         self.locations
             .iter()
-            .map(|location| format!("{}-{}", location.start_line, location.end_line))
+            .map(|location| {
+                if location.start_line == location.end_line {
+                    location.start_line.to_string()
+                } else {
+                    format!("{}-{}", location.start_line, location.end_line)
+                }
+            })
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -432,7 +438,7 @@ impl ScanFinding {
 
 #[cfg(test)]
 mod tests {
-    use super::{ScanFinding, ScanFindingLocation};
+    use super::{ScanFinding, ScanFindingLocation, ScanFindingSeverity};
 
     #[test]
     fn scan_finding_deserializes_new_locations_shape() {
@@ -463,6 +469,35 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn scan_finding_formats_locations_compactly() {
+        let finding = ScanFinding {
+            file_path: "test.tsx".to_string(),
+            locations: vec![
+                ScanFindingLocation {
+                    start_line: 1,
+                    end_line: 1,
+                },
+                ScanFindingLocation {
+                    start_line: 5,
+                    end_line: 8,
+                },
+                ScanFindingLocation {
+                    start_line: 28,
+                    end_line: 28,
+                },
+            ],
+            preview: "phc***".to_string(),
+            severity: ScanFindingSeverity::High,
+            category: "posthog_api_key".to_string(),
+            value_sha256: "abc".to_string(),
+            commit_sha: None,
+            matched_secrets: None,
+        };
+
+        assert_eq!(finding.format_locations_inline(), "1, 5-8, 28");
     }
 }
 
