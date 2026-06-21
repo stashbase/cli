@@ -353,7 +353,7 @@ impl ScanFinding {
         ));
         result.push_str(&format!(
             "{} {}\n",
-            "Locations:".blue_bold_if_tty(),
+            "Lines:".blue_bold_if_tty(),
             self.format_locations_inline()
         ));
 
@@ -517,6 +517,25 @@ mod tests {
         };
 
         assert!(finding.to_string().contains("Lines: 28"));
+    }
+
+    #[test]
+    fn scan_finding_colored_string_uses_lines_label() {
+        let finding = ScanFinding {
+            file_path: "test.tsx".to_string(),
+            locations: vec![ScanFindingLocation {
+                start_line: 28,
+                end_line: 28,
+            }],
+            preview: "phc***".to_string(),
+            severity: ScanFindingSeverity::High,
+            category: "posthog_api_key".to_string(),
+            value_sha256: "abc".to_string(),
+            commit_sha: None,
+            matched_secrets: None,
+        };
+
+        assert!(finding.get_colored_string().contains("Lines: 28"));
     }
 }
 
