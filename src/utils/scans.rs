@@ -230,9 +230,9 @@ pub fn load_baseline_results(
 pub fn compute_finding_hash(finding: &ScanFinding) -> String {
     let mut hasher = Sha256::new();
     hasher.update(finding.file_path.as_bytes());
-    for occurrence in &finding.occurrences {
-        hasher.update(occurrence.start_line.to_string().as_bytes());
-        hasher.update(occurrence.end_line.to_string().as_bytes());
+    for location in &finding.locations {
+        hasher.update(location.start_line.to_string().as_bytes());
+        hasher.update(location.end_line.to_string().as_bytes());
     }
     hasher.update(finding.value_sha256.as_bytes());
     hasher.update(finding.preview.as_bytes());
@@ -262,8 +262,8 @@ pub fn filter_new_findings(
     let mut sorted_findings: Vec<_> = filtered_findings.into_iter().collect();
 
     sorted_findings.sort_by(|a, b| {
-        let a_start_line = a.first_occurrence().map(|range| range.start_line).unwrap_or(0);
-        let b_start_line = b.first_occurrence().map(|range| range.start_line).unwrap_or(0);
+        let a_start_line = a.first_location().map(|range| range.start_line).unwrap_or(0);
+        let b_start_line = b.first_location().map(|range| range.start_line).unwrap_or(0);
 
         (b.severity.clone() as i32)
             .cmp(&(a.severity.clone() as i32)) // by severity, descending

@@ -85,7 +85,7 @@ impl ScanConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct ResultChangeRange {
+pub struct ScanFindingLocation {
     pub start_line: usize,
     pub end_line: usize,
 }
@@ -216,7 +216,7 @@ impl Display for ScanFindingSeverity {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ScanFinding {
     pub file_path: String,
-    pub occurrences: Vec<ResultChangeRange>,
+    pub locations: Vec<ScanFindingLocation>,
     pub preview: String,
     pub severity: ScanFindingSeverity,
     pub category: String,
@@ -259,7 +259,7 @@ impl Display for ScanFinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         result.push_str(&format!("File: {}\n", self.file_path));
-        result.push_str(&format!("Occurrences: {}\n", self.format_occurrences_inline()));
+        result.push_str(&format!("Locations: {}\n", self.format_locations_inline()));
 
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
@@ -321,18 +321,18 @@ impl Display for ScanFinding {
 }
 
 impl ScanFinding {
-    pub fn first_occurrence(&self) -> Option<&ResultChangeRange> {
-        self.occurrences.first()
+    pub fn first_location(&self) -> Option<&ScanFindingLocation> {
+        self.locations.first()
     }
 
-    pub fn format_occurrences_inline(&self) -> String {
-        if self.occurrences.is_empty() {
+    pub fn format_locations_inline(&self) -> String {
+        if self.locations.is_empty() {
             return "none".to_string();
         }
 
-        self.occurrences
+        self.locations
             .iter()
-            .map(|occurrence| format!("{}-{}", occurrence.start_line, occurrence.end_line))
+            .map(|location| format!("{}-{}", location.start_line, location.end_line))
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -347,8 +347,8 @@ impl ScanFinding {
         ));
         result.push_str(&format!(
             "{} {}\n",
-            "Occurrences:".blue_bold_if_tty(),
-            self.format_occurrences_inline()
+            "Locations:".blue_bold_if_tty(),
+            self.format_locations_inline()
         ));
 
         result.push_str(&format!(
@@ -432,13 +432,13 @@ impl ScanFinding {
 
 #[cfg(test)]
 mod tests {
-    use super::{ResultChangeRange, ScanFinding};
+    use super::{ScanFinding, ScanFindingLocation};
 
     #[test]
-    fn scan_finding_deserializes_new_occurrences_shape() {
+    fn scan_finding_deserializes_new_locations_shape() {
         let json = r#"{
             "file_path":"src/main.rs",
-            "occurrences":[
+            "locations":[
                 {"start_line":10,"end_line":12},
                 {"start_line":20,"end_line":20}
             ],
@@ -451,13 +451,13 @@ mod tests {
         let finding: ScanFinding = serde_json::from_str(json).unwrap();
 
         assert_eq!(
-            finding.occurrences,
+            finding.locations,
             vec![
-                ResultChangeRange {
+                ScanFindingLocation {
                     start_line: 10,
                     end_line: 12
                 },
-                ResultChangeRange {
+                ScanFindingLocation {
                     start_line: 20,
                     end_line: 20
                 }
