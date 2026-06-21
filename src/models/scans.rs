@@ -259,7 +259,7 @@ impl Display for ScanFinding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         result.push_str(&format!("File: {}\n", self.file_path));
-        result.push_str(&format!("Locations: {}\n", self.format_locations_inline()));
+        result.push_str(&format!("Lines: {}\n", self.format_locations_inline()));
 
         result.push_str(&format!("Preview: {}\n", self.preview));
         result.push_str(&format!("Severity: {}\n", self.severity));
@@ -498,6 +498,25 @@ mod tests {
         };
 
         assert_eq!(finding.format_locations_inline(), "1, 5-8, 28");
+    }
+
+    #[test]
+    fn scan_finding_display_uses_lines_label() {
+        let finding = ScanFinding {
+            file_path: "test.tsx".to_string(),
+            locations: vec![ScanFindingLocation {
+                start_line: 28,
+                end_line: 28,
+            }],
+            preview: "phc***".to_string(),
+            severity: ScanFindingSeverity::High,
+            category: "posthog_api_key".to_string(),
+            value_sha256: "abc".to_string(),
+            commit_sha: None,
+            matched_secrets: None,
+        };
+
+        assert!(finding.to_string().contains("Lines: 28"));
     }
 }
 
