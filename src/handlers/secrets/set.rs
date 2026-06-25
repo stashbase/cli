@@ -5,10 +5,16 @@ use crate::{
     api::secrets,
     models::{
         api_client::RequestApiOptionResponse,
-        secrets::{Secret, ValidateSecrets},
+        secrets::{Secret, SetSecretsResponse, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{interaction, secrets::format_secret_comment, separator, spinner::request_spinner},
+    utils::{
+        interaction,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        secrets::format_secret_comment,
+        separator,
+        spinner::request_spinner,
+    },
 };
 
 pub struct HandleSetSecretsArgs {
@@ -144,18 +150,69 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let res = res.unwrap();
 
     match res {
-        RequestApiOptionResponse::Ok(_) => {
-            if json_format {
-                if let Some(mut spinner) = spinner {
-                    spinner.stop_and_persist("", "");
+        RequestApiOptionResponse::Ok(res) => match res.text {
+            Some(text) => {
+                let json_data = serde_json::from_str::<SetSecretsResponse>(&text);
+
+                match json_data {
+                    Ok(data) => {
+                        if json_format {
+                            let json_str = get_formatted_json_string(&data, true).unwrap();
+
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
+
+                            println!("{}", json_str);
+                            return Ok(());
+                        }
+
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        if silent {
+                            println!("Created: {}", data.created_count);
+                            println!("Updated: {}", data.updated_count);
+                        } else {
+                            match (data.created_count, data.updated_count) {
+                                (0, 0) => println!("No secrets changed."),
+                                (created, 0) => {
+                                    println!("{} {}", "Secrets created:".green_if_tty(), created);
+                                }
+                                (0, updated) => {
+                                    println!("{} {}", "Secrets updated:".green_if_tty(), updated);
+                                }
+                                (created, updated) => {
+                                    println!("{} {}", "Secrets created:".green_if_tty(), created);
+                                    println!("{} {}", "Secrets updated:".green_if_tty(), updated);
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        let error_str =
+                            crate::models::api_client::OutputError::failed_to_deserialize_response_body()
+                                .format_error_output(json_format)?;
+                        bail!(error_str);
+                    }
                 }
-                println!("{{}}");
-            } else {
-                if let Some(mut spinner) = spinner {
+            }
+            None => {
+                if json_format {
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
+                    println!("{{}}");
+                } else if let Some(mut spinner) = spinner {
                     spinner.stop_with_message("Secrets set.");
                 }
             }
-        }
+        },
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             if let Some(mut spinner) = spinner {
