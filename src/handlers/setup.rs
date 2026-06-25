@@ -71,11 +71,7 @@ pub fn setup(existing_config: Config) -> Result<()> {
                 "Warning:".yellow_if_tty_stderr(),
                 "Secure key storage unavailable, using encrypted-by-permissions config fallback."
             );
-        eprintln!(
-            "{} {}",
-            "Reason:".yellow_if_tty_stderr(),
-            store_err
-        );
+            eprintln!("{} {}", "Reason:".yellow_if_tty_stderr(), store_err);
         } else {
             config::clear_legacy_api_key()?;
         }

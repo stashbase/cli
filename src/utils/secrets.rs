@@ -212,7 +212,10 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
     }
 }
 
-pub fn format_optional_secrets(secrets: Vec<SecretOptional>, format: &SecretsOutputFormat) -> String {
+pub fn format_optional_secrets(
+    secrets: Vec<SecretOptional>,
+    format: &SecretsOutputFormat,
+) -> String {
     let all_without_values = secrets.iter().all(|s| s.value.is_none());
 
     match format {
@@ -320,7 +323,10 @@ pub fn format_optional_secrets(secrets: Vec<SecretOptional>, format: &SecretsOut
                         let mut str_line = match is_multiline {
                             true => {
                                 if SecretsOutputFormat::Dotenv == *format {
-                                    format!("{}{}{}{}", comment_str, s.name, kv_separator, replaced_value)
+                                    format!(
+                                        "{}{}{}{}",
+                                        comment_str, s.name, kv_separator, replaced_value
+                                    )
                                 } else {
                                     let indented_value = replaced_value
                                         .lines()
@@ -328,14 +334,23 @@ pub fn format_optional_secrets(secrets: Vec<SecretOptional>, format: &SecretsOut
                                         .collect::<Vec<_>>()
                                         .join("\n");
 
-                                    format!("{}{}{} |\n{}", comment_str, s.name, kv_separator, indented_value)
+                                    format!(
+                                        "{}{}{} |\n{}",
+                                        comment_str, s.name, kv_separator, indented_value
+                                    )
                                 }
                             }
                             false => {
                                 if SecretsOutputFormat::Dotenv == *format {
-                                    format!("{}{}{}{}", comment_str, s.name, kv_separator, replaced_value)
+                                    format!(
+                                        "{}{}{}{}",
+                                        comment_str, s.name, kv_separator, replaced_value
+                                    )
                                 } else {
-                                    format!("{}{}{} {}", comment_str, s.name, kv_separator, replaced_value)
+                                    format!(
+                                        "{}{}{} {}",
+                                        comment_str, s.name, kv_separator, replaced_value
+                                    )
                                 }
                             }
                         };
@@ -352,14 +367,23 @@ pub fn format_optional_secrets(secrets: Vec<SecretOptional>, format: &SecretsOut
                     } else {
                         let prev_has_comment = match i == 0 {
                             true => false,
-                            false => secrets.get(i - 1).map(|prev_line| prev_line.comment.is_some()).unwrap_or(false),
+                            false => secrets
+                                .get(i - 1)
+                                .map(|prev_line| prev_line.comment.is_some())
+                                .unwrap_or(false),
                         };
 
                         let prev_is_multiline = match i == 0 {
                             true => false,
                             false => secrets
                                 .get(i - 1)
-                                .map(|prev_line| prev_line.value.as_deref().unwrap_or_default().contains("\n"))
+                                .map(|prev_line| {
+                                    prev_line
+                                        .value
+                                        .as_deref()
+                                        .unwrap_or_default()
+                                        .contains("\n")
+                                })
                                 .unwrap_or(false),
                         };
 

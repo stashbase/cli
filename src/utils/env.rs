@@ -91,7 +91,10 @@ fn expand_value(
 
         result.replace_range(start..end, &replacement);
 
-        if running_parsed.get(key).is_some_and(|value| result == *value) {
+        if running_parsed
+            .get(key)
+            .is_some_and(|value| result == *value)
+        {
             break;
         }
     }
@@ -215,7 +218,10 @@ mod tests {
 
         assert_eq!(injected.get("DIRECT"), Some(&"".to_string()));
         assert_eq!(injected.get("DEFAULT_IF_UNSET_ONLY"), Some(&"".to_string()));
-        assert_eq!(injected.get("DEFAULT_IF_EMPTY"), Some(&"fallback".to_string()));
+        assert_eq!(
+            injected.get("DEFAULT_IF_EMPTY"),
+            Some(&"fallback".to_string())
+        );
         assert_eq!(injected.get("ALT_IF_SET"), Some(&"present".to_string()));
         assert_eq!(injected.get("ALT_IF_NON_EMPTY"), Some(&"".to_string()));
     }

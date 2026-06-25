@@ -38,7 +38,10 @@ mod tests {
     #[test]
     fn uses_unicode_spinner_frames_on_non_windows() {
         let frames = spinner_frames();
-        assert_eq!(frames.frames, vec!["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+        assert_eq!(
+            frames.frames,
+            vec!["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        );
         assert_eq!(frames.interval, 80);
     }
 }

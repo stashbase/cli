@@ -9,8 +9,7 @@ use crate::{
         secrets::SecretOptional,
     },
     utils::{
-        output::get_formatted_json_string,
-        secrets::format_optional_secrets,
+        output::get_formatted_json_string, secrets::format_optional_secrets,
         spinner::request_spinner,
     },
 };

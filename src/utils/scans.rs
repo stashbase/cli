@@ -262,8 +262,14 @@ pub fn filter_new_findings(
     let mut sorted_findings: Vec<_> = filtered_findings.into_iter().collect();
 
     sorted_findings.sort_by(|a, b| {
-        let a_start_line = a.first_location().map(|range| range.start_line).unwrap_or(0);
-        let b_start_line = b.first_location().map(|range| range.start_line).unwrap_or(0);
+        let a_start_line = a
+            .first_location()
+            .map(|range| range.start_line)
+            .unwrap_or(0);
+        let b_start_line = b
+            .first_location()
+            .map(|range| range.start_line)
+            .unwrap_or(0);
 
         (b.severity.clone() as i32)
             .cmp(&(a.severity.clone() as i32)) // by severity, descending

@@ -379,7 +379,10 @@ async fn handle_scan_file_hunks(
     };
 
     let spinner = if !silent {
-        Some(new_spinner(mode.scanning_message(), spinoff::Streams::Stderr))
+        Some(new_spinner(
+            mode.scanning_message(),
+            spinoff::Streams::Stderr,
+        ))
     } else {
         None
     };
