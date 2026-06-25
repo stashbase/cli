@@ -158,6 +158,7 @@ pub struct OptionResponseOk {
 // NOTE: DELETE
 #[derive(Debug)]
 pub enum DeleteRequestApiResponse {
+    #[allow(dead_code)]
     Ok(DeleteApiResponseOk),
     Err(OutputError),
 }
