@@ -4,7 +4,7 @@ use log::debug;
 use crate::{
     api::secrets,
     models::{
-        api_client::{DeleteRequestApiResponse, OutputError, RequestApiOptionResponse},
+        api_client::{OutputError, RequestApiOptionResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsResponse},
         validation::{InputValidationError, SecretsInputValidationError},
     },
@@ -100,7 +100,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
             let res = res.unwrap();
 
             match res {
-                DeleteRequestApiResponse::Ok(res) => {
+                RequestApiOptionResponse::Ok(res) => {
                     match res.text {
                         Some(text) => {
                             //
@@ -163,7 +163,7 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                         }
                     }
                 }
-                DeleteRequestApiResponse::Err(e) => {
+                RequestApiOptionResponse::Err(e) => {
                     if let Some(mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
                     }

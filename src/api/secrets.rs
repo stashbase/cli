@@ -1,8 +1,7 @@
 use super::client;
 use crate::models::{
     api_client::{
-        ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
-        RequestApiOptionResponse, RequestArgs,
+        ApiPath, GetRequestApiResponse, OutputError, RequestApiOptionResponse, RequestArgs,
     },
     secrets::{Secret, UpdateSecretsPayload},
 };
@@ -129,8 +128,8 @@ pub async fn delete_all(
     api_key: String,
     project: Option<String>,
     environment: Option<String>,
-) -> Result<DeleteRequestApiResponse, OutputError> {
-    let path = get_secrets_path(project, environment, Some(String::from("all")));
+) -> Result<RequestApiOptionResponse, OutputError> {
+    let path = get_secrets_path(project, environment, Some(String::from("delete/all")));
 
     let args = RequestArgs {
         path,
@@ -138,7 +137,7 @@ pub async fn delete_all(
         api_key,
     };
 
-    client::delete_request(args).await
+    client::post_request::<()>(args, None).await
 }
 
 pub async fn create_secrets(
