@@ -16,9 +16,9 @@ use crate::{
             HandleListSecretMetadataArgs,
         },
         search::{handle_search_secrets, HandleSearchSecretsArgs},
-        set::{handle_set_secrets, HandleSetSecretsArgs},
         update::{handle_update_secrets, HandleUpdateSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
+        upsert::{handle_upsert_secrets, HandleUpsertSecretsArgs},
     },
     models::{
         scope::Scope,
@@ -185,8 +185,8 @@ pub async fn handle_secrets_commands(
 
             handle_delete_secrets(args).await?;
         }
-        SecretSubcommand::Set(args) => {
-            let args = HandleSetSecretsArgs {
+        SecretSubcommand::Upsert(args) => {
+            let args = HandleUpsertSecretsArgs {
                 api_key,
                 silent,
                 project,
@@ -196,7 +196,7 @@ pub async fn handle_secrets_commands(
                 json_format: raw_output,
             };
 
-            handle_set_secrets(args).await?;
+            handle_upsert_secrets(args).await?;
         }
         SecretSubcommand::Create(args) => {
             // let json_format = match raw_output {

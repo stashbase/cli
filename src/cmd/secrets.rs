@@ -77,7 +77,7 @@ impl SecretSubcommand {
                 g.shared_args.project.as_deref(),
                 g.shared_args.environment.as_deref(),
             ),
-            SecretSubcommand::Set(s) => (
+            SecretSubcommand::Upsert(s) => (
                 s.shared_args.project.as_deref(),
                 s.shared_args.environment.as_deref(),
             ),
@@ -120,7 +120,7 @@ impl SecretSubcommand {
         match self {
             SecretSubcommand::List(l) => l.scope_args.scope.as_ref(),
             SecretSubcommand::Get(g) => g.scope_args.scope.as_ref(),
-            SecretSubcommand::Set(s) => s.scope_args.scope.as_ref(),
+            SecretSubcommand::Upsert(s) => s.scope_args.scope.as_ref(),
             SecretSubcommand::Create(c) => c.scope_args.scope.as_ref(),
             SecretSubcommand::Update(u) => u.scope_args.scope.as_ref(),
             SecretSubcommand::Upload(u) => u.scope_args.scope.as_ref(),
@@ -144,9 +144,9 @@ pub enum SecretSubcommand {
     /// Get secrets
     Get(GetSecrets),
 
-    /// Set secrets
-    #[clap(alias = "upsert")]
-    Set(SetSecrets),
+    /// Upsert secrets
+    #[clap(alias = "set")]
+    Upsert(UpsertSecrets),
 
     /// Create secrets
     #[clap(alias = "c")]
@@ -256,19 +256,19 @@ pub struct DeleteSecrets {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "secrets SET <SECRETS> [OPTIONS]")]
-pub struct SetSecrets {
+#[command(override_usage = "secrets upsert <SECRETS> [OPTIONS]")]
+pub struct UpsertSecrets {
     #[clap(flatten)]
     pub shared_args: SharedProjectEnvArgs,
 
     #[clap(flatten)]
     pub scope_args: SharedScopeArgs,
 
-    /// Secrets to set: NAME_1=VAL_1 NAME_2=VAL_2
+    /// Secrets to upsert: NAME_1=VAL_1 NAME_2=VAL_2
     #[clap(num_args = 1..)]
     pub secrets: Vec<String>,
 
-    /// Comments to set: NAME_1=NOTE_1 NAME_2=NOTE_2
+    /// Comments to upsert: NAME_1=NOTE_1 NAME_2=NOTE_2
     #[clap(long="comments", short='c', num_args = 1..)]
     pub comments: Vec<String>,
 }

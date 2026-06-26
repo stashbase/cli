@@ -5,6 +5,6 @@ pub mod get;
 pub mod list;
 pub mod metadata;
 pub mod search;
-pub mod set;
 pub mod update;
 pub mod upload;
+pub mod upsert;

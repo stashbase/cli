@@ -5,7 +5,7 @@ use crate::{
     api::secrets,
     models::{
         api_client::RequestApiOptionResponse,
-        secrets::{Secret, SetSecretsResponse, ValidateSecrets},
+        secrets::{Secret, UpsertSecretsResponse, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-pub struct HandleSetSecretsArgs {
+pub struct HandleUpsertSecretsArgs {
     pub api_key: String,
     pub project: Option<String>,
     pub environment: Option<String>,
@@ -48,8 +48,8 @@ fn print_secret_name_list(title: &str, names: &[String]) {
 }
 
 // NOTE: for now must have at least one value -> validate length
-pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
-    let HandleSetSecretsArgs {
+pub async fn handle_upsert_secrets(args: HandleUpsertSecretsArgs) -> Result<()> {
+    let HandleUpsertSecretsArgs {
         api_key,
         project,
         environment,
@@ -172,7 +172,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     match res {
         RequestApiOptionResponse::Ok(res) => match res.text {
             Some(text) => {
-                let json_data = serde_json::from_str::<SetSecretsResponse>(&text);
+                let json_data = serde_json::from_str::<UpsertSecretsResponse>(&text);
 
                 match json_data {
                     Ok(data) => {
@@ -235,7 +235,7 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
                     }
                     println!("{{}}");
                 } else if let Some(mut spinner) = spinner {
-                    spinner.stop_with_message("Secrets set.");
+                    spinner.stop_with_message("Secrets upserted.");
                 }
             }
         },
