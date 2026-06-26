@@ -357,8 +357,8 @@ pub struct UpdateSecretsResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SetSecretsResponse {
-    pub updated_count: usize,
-    pub created_count: usize,
+    pub created_secrets: Vec<String>,
+    pub updated_secrets: Vec<String>,
 }
 
 // response

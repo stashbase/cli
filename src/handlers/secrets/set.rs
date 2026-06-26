@@ -27,6 +27,26 @@ pub struct HandleSetSecretsArgs {
     pub silent: bool,
 }
 
+const UPSERT_PREVIEW_LIMIT: usize = 5;
+
+fn print_secret_name_list(title: &str, names: &[String]) {
+    if names.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("{}", title);
+
+    for name in names.iter().take(UPSERT_PREVIEW_LIMIT) {
+        println!("- {}", name);
+    }
+
+    let remaining = names.len().saturating_sub(UPSERT_PREVIEW_LIMIT);
+    if remaining > 0 {
+        println!("...and {} more", remaining);
+    }
+}
+
 // NOTE: for now must have at least one value -> validate length
 pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
     let HandleSetSecretsArgs {
@@ -171,21 +191,27 @@ pub async fn handle_set_secrets(args: HandleSetSecretsArgs) -> Result<()> {
                             spinner.stop_and_persist("", "");
                         }
 
+                        let created_count = data.created_secrets.len();
+                        let updated_count = data.updated_secrets.len();
+
                         if silent {
-                            println!("Created: {}", data.created_count);
-                            println!("Updated: {}", data.updated_count);
+                            println!("Created: {}", created_count);
+                            println!("Updated: {}", updated_count);
                         } else {
-                            match (data.created_count, data.updated_count) {
+                            match (created_count, updated_count) {
                                 (0, 0) => println!("No secrets changed."),
-                                (created, 0) => {
-                                    println!("{} {}", "Secrets created:".green_if_tty(), created);
-                                }
-                                (0, updated) => {
-                                    println!("{} {}", "Secrets updated:".green_if_tty(), updated);
-                                }
-                                (created, updated) => {
-                                    println!("{} {}", "Secrets created:".green_if_tty(), created);
-                                    println!("{} {}", "Secrets updated:".green_if_tty(), updated);
+                                _ => {
+                                    println!("{}", "Secrets upserted.".green_if_tty());
+                                    println!("Created: {}", created_count);
+                                    println!("Updated: {}", updated_count);
+                                    print_secret_name_list(
+                                        "Created secrets:",
+                                        &data.created_secrets,
+                                    );
+                                    print_secret_name_list(
+                                        "Updated secrets:",
+                                        &data.updated_secrets,
+                                    );
                                 }
                             }
                         }
