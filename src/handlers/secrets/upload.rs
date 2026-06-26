@@ -6,9 +6,10 @@ use log::debug;
 use crate::{
     api::secrets,
     cmd::secrets::SecretsFileFormat,
+    handlers::secrets::pretty_print::print_secret_name_list,
     models::{
         api_client::RequestApiOptionResponse,
-        secrets::{FormatSecrets, ValidateSecrets},
+        secrets::{FormatSecrets, UpsertSecretsResponse, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
@@ -164,18 +165,74 @@ pub async fn handle_upload_secrets(args: HandleUploadSecretsArgs) -> Result<()> 
     let res = res.unwrap();
 
     match res {
-        RequestApiOptionResponse::Ok(_) => {
-            if json_format {
-                if let Some(mut spinner) = spinner {
-                    spinner.stop_and_persist("", "");
+        RequestApiOptionResponse::Ok(res) => match res.text {
+            Some(text) => {
+                let json_data = serde_json::from_str::<UpsertSecretsResponse>(&text);
+
+                match json_data {
+                    Ok(data) => {
+                        if json_format {
+                            let json_str = get_formatted_json_string(&data, true).unwrap();
+
+                            if let Some(mut spinner) = spinner {
+                                spinner.stop_and_persist("", "");
+                            }
+
+                            println!("{}", json_str);
+                            return Ok(());
+                        }
+
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        let created_count = data.created_secrets.len();
+                        let updated_count = data.updated_secrets.len();
+
+                        if silent {
+                            println!("Created: {}", created_count);
+                            println!("Updated: {}", updated_count);
+                        } else {
+                            match (created_count, updated_count) {
+                                (0, 0) => println!("No secrets changed."),
+                                _ => {
+                                    println!("Created: {}", created_count);
+                                    println!("Updated: {}", updated_count);
+                                    print_secret_name_list(
+                                        "Created secrets:",
+                                        &data.created_secrets,
+                                    );
+                                    print_secret_name_list(
+                                        "Updated secrets:",
+                                        &data.updated_secrets,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
+
+                        let error_str =
+                            crate::models::api_client::OutputError::failed_to_deserialize_response_body()
+                                .format_error_output(json_format)?;
+                        bail!(error_str);
+                    }
                 }
-                println!("{{}}");
-            } else {
-                if let Some(mut spinner) = spinner {
+            }
+            None => {
+                if json_format {
+                    if let Some(mut spinner) = spinner {
+                        spinner.stop_and_persist("", "");
+                    }
+                    println!("{{}}");
+                } else if let Some(mut spinner) = spinner {
                     spinner.stop_with_message("Secrets uploaded.");
                 }
             }
-        }
+        },
         RequestApiOptionResponse::Err(e) => {
             debug!("Error: {}", e);
             if let Some(mut spinner) = spinner {
