@@ -5,6 +5,7 @@ use log::debug;
 
 use crate::{
     api::secrets,
+    handlers::secrets::pretty_print::print_secret_name_list,
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
         secrets::{
@@ -13,11 +14,7 @@ use crate::{
         },
         validation::{InputValidationError, SecretsInputValidationError},
     },
-    utils::{
-        output::{get_formatted_json_string, ColorizeIfColoredOutput},
-        separator,
-        spinner::request_spinner,
-    },
+    utils::{output::get_formatted_json_string, separator, spinner::request_spinner},
 };
 
 pub struct HandleUpdateSecretsArgs {
@@ -214,63 +211,38 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
 
                         let updated_count = data.updated_count;
                         let not_found_secrets = data.not_found_secrets;
+                        let updated_secrets: Vec<String> = payload
+                            .iter()
+                            .filter(|k| not_found_secrets.iter().find(|s| *s == &k.name).is_none())
+                            .map(|s| s.name.clone())
+                            .collect();
 
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
                         }
 
-                        if updated_count > 0 {
-                            if silent {
-                                println!("Updated: {}", updated_count);
-                            } else {
-                                let secrets_updated: Vec<_> = payload
-                                    .into_iter()
-                                    .filter(|k| {
-                                        not_found_secrets.iter().find(|s| *s == &k.name).is_none()
-                                    })
-                                    .collect();
-
-                                let msg = format!(
-                                    "{} {}",
-                                    format!(
-                                        "{} {} {}",
-                                        "Secrets".green_if_tty(),
-                                        "updated".green_if_tty(),
-                                        format!("({}):", updated_count).green_if_tty(),
-                                    ),
-                                    secrets_updated
-                                        .iter()
-                                        .map(|s| s.name.clone())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                );
-
-                                println!("{}", msg);
+                        if silent {
+                            println!("Updated: {}", updated_count);
+                            if !not_found_secrets.is_empty() {
+                                println!("Not found: {}", not_found_secrets.join(", "));
                             }
                         } else {
-                            if silent {
-                                println!("Updated: 0");
+                            if updated_count == 0 {
+                                println!("No secrets updated.");
                             } else {
-                                println!("No secrets updated (no changes).");
+                                println!("Updated: {}", updated_count);
                             }
-                        }
 
-                        if not_found_secrets.len() > 0 {
-                            if silent {
-                                println!("Not found: {}", not_found_secrets.join(", "));
-                            } else {
-                                let info_msg = format!(
-                                    "{} {}",
-                                    format!(
-                                        "{} {} {}",
-                                        "Secrets".red_if_tty(),
-                                        "not found".red_if_tty(),
-                                        format!("({}):", not_found_secrets.len()).red_if_tty(),
-                                    ),
-                                    not_found_secrets.join(", ")
-                                );
+                            if !not_found_secrets.is_empty() {
+                                println!("Not found: {}", not_found_secrets.len());
+                            }
 
-                                println!("{}", info_msg);
+                            if !updated_secrets.is_empty() {
+                                print_secret_name_list("Updated secrets:", &updated_secrets);
+                            }
+
+                            if !not_found_secrets.is_empty() {
+                                print_secret_name_list("Not found secrets:", &not_found_secrets);
                             }
                         }
                     }

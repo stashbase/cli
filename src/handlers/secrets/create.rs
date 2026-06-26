@@ -3,16 +3,14 @@ use log::debug;
 
 use crate::{
     api::secrets,
+    handlers::secrets::pretty_print::print_secret_name_list,
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
         secrets::{CreateSecretsResponse, Secret, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        interaction,
-        output::{get_formatted_json_string, ColorizeIfColoredOutput},
-        secrets::format_secret_comment,
-        separator,
+        interaction, output::get_formatted_json_string, secrets::format_secret_comment, separator,
         spinner::request_spinner,
     },
 };
@@ -172,88 +170,41 @@ pub async fn handle_create_secrets(args: HandleCreateSecretsArgs) -> Result<()> 
 
                         let created_count = data.created_count;
                         let existing_secrets = data.existing_secrets;
+                        let created_secrets: Vec<String> = payload
+                            .iter()
+                            .filter(|k| existing_secrets.iter().find(|s| *s == &k.name).is_none())
+                            .map(|s| s.name.clone())
+                            .collect();
 
-                        if existing_secrets.len() > 0 {
-                            if created_count > 0 {
-                                if let Some(mut spinner) = spinner {
-                                    spinner.stop_and_persist("", "");
-                                }
+                        if let Some(mut spinner) = spinner {
+                            spinner.stop_and_persist("", "");
+                        }
 
-                                let secrets_created: Vec<_> = payload
-                                    .into_iter()
-                                    .filter(|k| {
-                                        existing_secrets.iter().find(|s| *s == &k.name).is_none()
-                                    })
-                                    .collect();
-
-                                if silent {
-                                    println!("Created: {}", created_count);
-                                } else {
-                                    let msg = format!(
-                                        "{} {}",
-                                        format!(
-                                            "{} {} {}",
-                                            "Secrets".green_if_tty(),
-                                            "created".green_if_tty(),
-                                            format!("({}):", created_count).green_if_tty(),
-                                        ),
-                                        secrets_created
-                                            .iter()
-                                            .map(|s| s.name.clone())
-                                            .collect::<Vec<_>>()
-                                            .join(", ")
-                                    );
-
-                                    println!("{}", msg);
-                                }
-                            } else {
-                                if created_count == 0 && existing_secrets.len() == 0 {
-                                    if let Some(mut spinner) = spinner {
-                                        spinner.stop_and_persist("", "");
-                                    }
-                                    if silent {
-                                        println!("Created: 0");
-                                    } else {
-                                        println!("No secrets created.");
-                                    }
-                                } else {
-                                    if let Some(mut spinner) = spinner {
-                                        spinner.stop_and_persist("", "");
-                                    }
-
-                                    if silent {
-                                        println!("Created: 0");
-                                    } else {
-                                        println!("No secrets created.");
-                                    }
-                                }
-                            }
-
-                            if silent {
+                        if silent {
+                            println!("Created: {}", created_count);
+                            if !existing_secrets.is_empty() {
                                 println!("Already exist: {}", existing_secrets.join(", "));
-                            } else {
-                                let info_msg = format!(
-                                    "{} {}",
-                                    format!(
-                                        "{} {} {}",
-                                        "Secrets".red_if_tty_stderr(),
-                                        "already exist".red_if_tty_stderr(),
-                                        format!("({}):", existing_secrets.len())
-                                            .red_if_tty_stderr(),
-                                    ),
-                                    existing_secrets.join(", ")
-                                );
-                                eprintln!("{}", info_msg);
                             }
                         } else {
-                            // All secrets created successfully, no duplicates
-                            if let Some(mut spinner) = spinner {
-                                spinner.stop_and_persist("", "");
-                            }
-                            if silent {
-                                println!("Created: {}", created_count);
+                            if created_count == 0 {
+                                println!("No secrets created.");
                             } else {
-                                println!("Secrets created.");
+                                println!("Created: {}", created_count);
+                            }
+
+                            if !existing_secrets.is_empty() {
+                                println!("Already existing: {}", existing_secrets.len());
+                            }
+
+                            if !created_secrets.is_empty() {
+                                print_secret_name_list("Created secrets:", &created_secrets);
+                            }
+
+                            if !existing_secrets.is_empty() {
+                                print_secret_name_list(
+                                    "Already existing secrets:",
+                                    &existing_secrets,
+                                );
                             }
                         }
                     }

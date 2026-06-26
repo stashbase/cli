@@ -3,16 +3,14 @@ use log::debug;
 
 use crate::{
     api::secrets,
+    handlers::secrets::pretty_print::print_secret_name_list,
     models::{
         api_client::RequestApiOptionResponse,
         secrets::{Secret, UpsertSecretsResponse, ValidateSecrets},
         validation::{InputValidationError, SecretsInputValidationError},
     },
     utils::{
-        interaction,
-        output::{get_formatted_json_string, ColorizeIfColoredOutput},
-        secrets::format_secret_comment,
-        separator,
+        interaction, output::get_formatted_json_string, secrets::format_secret_comment, separator,
         spinner::request_spinner,
     },
 };
@@ -25,26 +23,6 @@ pub struct HandleUpsertSecretsArgs {
     pub comment: Vec<String>,
     pub json_format: bool,
     pub silent: bool,
-}
-
-const UPSERT_PREVIEW_LIMIT: usize = 5;
-
-fn print_secret_name_list(title: &str, names: &[String]) {
-    if names.is_empty() {
-        return;
-    }
-
-    println!();
-    println!("{}", title);
-
-    for name in names.iter().take(UPSERT_PREVIEW_LIMIT) {
-        println!("- {}", name);
-    }
-
-    let remaining = names.len().saturating_sub(UPSERT_PREVIEW_LIMIT);
-    if remaining > 0 {
-        println!("...and {} more", remaining);
-    }
 }
 
 // NOTE: for now must have at least one value -> validate length
@@ -201,7 +179,6 @@ pub async fn handle_upsert_secrets(args: HandleUpsertSecretsArgs) -> Result<()> 
                             match (created_count, updated_count) {
                                 (0, 0) => println!("No secrets changed."),
                                 _ => {
-                                    println!("{}", "Secrets upserted.".green_if_tty());
                                     println!("Created: {}", created_count);
                                     println!("Updated: {}", updated_count);
                                     print_secret_name_list(

@@ -3,6 +3,7 @@ use log::debug;
 
 use crate::{
     api::secrets,
+    handlers::secrets::pretty_print::print_secret_name_list,
     models::{
         api_client::{OutputError, RequestApiOptionResponse},
         secrets::{DeleteAllSecretsResponse, DeleteSecretsResponse},
@@ -129,11 +130,11 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
                                                     println!("No secrets to delete.");
                                                 }
                                                 _ => {
-                                                    let msg = format!(
-                                                        "All secrets ({}) deleted.",
-                                                        d.deleted_count
+                                                    println!(
+                                                        "{}",
+                                                        "Secrets deleted.".green_if_tty()
                                                     );
-                                                    println!("{} {}", "✓".green_if_tty(), msg);
+                                                    println!("Deleted: {}", d.deleted_count);
                                                 }
                                             }
                                         }
@@ -213,77 +214,48 @@ pub async fn handle_delete_secrets(args: HandleDeleteSecretsArgs) -> anyhow::Res
 
                                     let not_found_secrets = data.not_found_secrets;
                                     let not_found_len = not_found_secrets.len();
+                                    let deleted_secrets: Vec<String> = names
+                                        .iter()
+                                        .filter(|k| {
+                                            not_found_secrets.iter().find(|s| *s == *k).is_none()
+                                        })
+                                        .cloned()
+                                        .collect();
 
                                     debug!("{:#?}", not_found_secrets);
 
-                                    if not_found_len > 0 {
-                                        if let Some(mut spinner) = spinner {
-                                            spinner.stop_and_persist("", "");
-                                        }
+                                    if let Some(mut spinner) = spinner {
+                                        spinner.stop_and_persist("", "");
+                                    }
 
-                                        let deleted_count = data.deleted_count;
-
-                                        if silent {
-                                            println!("Deleted: {}", deleted_count);
-                                            if not_found_len > 0 {
-                                                println!(
-                                                    "Not found: {}",
-                                                    not_found_secrets.join(", ")
-                                                );
-                                            }
-                                        } else {
-                                            if not_found_len > 0 {
-                                                let info_msg = format!(
-                                                    "{} {}",
-                                                    format!(
-                                                        "{} {} {}",
-                                                        "Secrets".red_if_tty_stderr(),
-                                                        format!("({})", not_found_len)
-                                                            .red_if_tty_stderr(),
-                                                        "not found:".red_if_tty_stderr()
-                                                    ),
-                                                    not_found_secrets.join(", ")
-                                                );
-
-                                                eprintln!("{}", info_msg);
-                                            }
-
-                                            if deleted_count > 0 {
-                                                let secrets_deleted: Vec<_> = names
-                                                    .into_iter()
-                                                    .filter(|k| {
-                                                        not_found_secrets
-                                                            .iter()
-                                                            .find(|s| *s == k)
-                                                            .is_none()
-                                                    })
-                                                    .collect();
-
-                                                let msg = format!(
-                                                    "{} {}",
-                                                    format!(
-                                                        "{} {} {}",
-                                                        "Secrets".green_if_tty(),
-                                                        format!("({})", deleted_count)
-                                                            .green_if_tty(),
-                                                        "deleted:".green_if_tty()
-                                                    ),
-                                                    secrets_deleted.join(", ")
-                                                );
-
-                                                println!("{}", msg);
-                                            }
+                                    if silent {
+                                        println!("Deleted: {}", data.deleted_count);
+                                        if not_found_len > 0 {
+                                            println!("Not found: {}", not_found_secrets.join(", "));
                                         }
                                     } else {
-                                        // All secrets found and deleted successfully
-                                        if let Some(mut spinner) = spinner {
-                                            spinner.stop_and_persist("", "");
+                                        if data.deleted_count == 0 {
+                                            println!("No secrets deleted.");
+                                        } else {
+                                            println!("Deleted: {}", data.deleted_count);
                                         }
 
-                                        if silent {
-                                            println!("Deleted: {}", data.deleted_count);
-                                        } else {
-                                            println!("Selected secrets deleted.");
+                                        if not_found_len > 0 {
+                                            println!("Not found: {}", not_found_len);
+                                        }
+
+                                        if !deleted_secrets.is_empty() {
+                                            print_secret_name_list(
+                                                "Deleted secrets:",
+                                                &deleted_secrets,
+                                            );
+                                        }
+
+                                        if not_found_len > 0 {
+                                            print_secret_name_list(
+                                                "Not found secrets:",
+                                                &not_found_secrets,
+                                            );
                                         }
                                     }
                                 }
