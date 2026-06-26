@@ -4,6 +4,7 @@ pub mod diff;
 pub mod get;
 pub mod list;
 pub mod metadata;
+pub mod pretty_print;
 pub mod search;
 pub mod update;
 pub mod upload;
