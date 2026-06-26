@@ -237,7 +237,7 @@ pub async fn handle_update_secrets(args: HandleUpdateSecretsArgs) -> Result<()> 
                                 println!("Not found: {}", not_found_secrets.len());
                             }
 
-                            if !updated_secrets.is_empty() {
+                            if updated_count > 0 && !updated_secrets.is_empty() {
                                 print_secret_name_list("Updated secrets:", &updated_secrets);
                             }
 
