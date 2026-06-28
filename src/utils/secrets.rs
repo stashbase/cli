@@ -215,7 +215,9 @@ pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> Str
 pub fn format_optional_secrets(
     secrets: Vec<SecretOptional>,
     format: &SecretsOutputFormat,
+    hide_missing_values: bool,
 ) -> String {
+    const HIDDEN_VALUE_PLACEHOLDER: &str = "[hidden]";
     let all_without_values = secrets.iter().all(|s| s.value.is_none());
 
     match format {
@@ -223,12 +225,20 @@ pub fn format_optional_secrets(
             let mut text_to_print = String::new();
 
             for (i, p) in secrets.iter().enumerate() {
-                let value = p.value.as_deref().unwrap_or_default();
+                let value = match (p.value.as_deref(), hide_missing_values) {
+                    (Some(value), _) => value,
+                    (None, true) => HIDDEN_VALUE_PLACEHOLDER,
+                    (None, false) => "",
+                };
                 let is_multiline = value.contains("\n");
                 let prev_value = if i == 0 {
                     ""
                 } else {
-                    secrets[i - 1].value.as_deref().unwrap_or_default()
+                    match (secrets[i - 1].value.as_deref(), hide_missing_values) {
+                        (Some(value), _) => value,
+                        (None, true) => HIDDEN_VALUE_PLACEHOLDER,
+                        (None, false) => "",
+                    }
                 };
                 let prev_is_multiline = i != 0 && prev_value.contains("\n");
                 let needs_block_separator = i != 0
@@ -241,7 +251,20 @@ pub fn format_optional_secrets(
                     text_to_print.push('\n');
                 }
 
-                text_to_print.push_str(&format!("{}", p));
+                if let Some(comment) = &p.comment {
+                    let comment_str = format!("# {}", comment);
+                    text_to_print.push_str(&format!("{}\n", comment_str.bright_blue_if_tty()));
+                }
+
+                if p.value.is_some() || hide_missing_values {
+                    text_to_print.push_str(&format!(
+                        "{} {}",
+                        format!("{}:", p.name).blue_bold_if_tty(),
+                        value
+                    ));
+                } else {
+                    text_to_print.push_str(&p.name.as_str().blue_bold_if_tty().to_string());
+                }
 
                 if i != secrets.len() - 1 {
                     text_to_print.push('\n');
@@ -306,7 +329,11 @@ pub fn format_optional_secrets(
                 .enumerate()
                 .map(|(i, s)| {
                     let is_last = i == secrets.len() - 1;
-                    let value = s.value.as_deref().unwrap_or_default();
+                    let value = match (s.value.as_deref(), hide_missing_values) {
+                        (Some(value), _) => value,
+                        (None, true) => HIDDEN_VALUE_PLACEHOLDER,
+                        (None, false) => "",
+                    };
                     let is_multiline = value.contains("\n");
 
                     let replaced_value = match SecretsOutputFormat::Dotenv == *format {
@@ -1026,7 +1053,7 @@ mod tests {
             },
         ];
 
-        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::List);
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::List, false);
 
         assert_eq!(
             formatted,
@@ -1059,12 +1086,52 @@ mod tests {
             },
         ];
 
-        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Yaml);
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Yaml, false);
 
         assert_eq!(
             formatted,
             "# comment\nADMIN_API_KEY: \n\n# comment\nAPI_URL: http://localhost:5000\n\n# comment\nDATABASE_URL: test\n\nPROD: false"
         );
+    }
+
+    #[test]
+    fn list_format_masks_optional_entries_without_values_when_requested() {
+        let secrets = vec![
+            SecretOptional {
+                name: "ADMIN_API_KEY".to_string(),
+                value: None,
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "PROD".to_string(),
+                value: Some("false".to_string()),
+                comment: None,
+            },
+        ];
+
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::List, true);
+
+        assert_eq!(formatted, "# comment\nADMIN_API_KEY: [hidden]\n\nPROD: false");
+    }
+
+    #[test]
+    fn yaml_format_masks_optional_entries_without_values_when_requested() {
+        let secrets = vec![
+            SecretOptional {
+                name: "ADMIN_API_KEY".to_string(),
+                value: None,
+                comment: Some("comment".to_string()),
+            },
+            SecretOptional {
+                name: "PROD".to_string(),
+                value: Some("false".to_string()),
+                comment: None,
+            },
+        ];
+
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Yaml, true);
+
+        assert_eq!(formatted, "# comment\nADMIN_API_KEY: [hidden]\n\nPROD: false");
     }
 
     #[test]

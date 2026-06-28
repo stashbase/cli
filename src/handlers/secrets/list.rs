@@ -98,7 +98,8 @@ pub async fn handle_list_secrets(args: HandleListSecretsArgs) -> Result<()> {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
                         }
-                        let print_string = format_optional_secrets(secrets, &format);
+                        let print_string =
+                            format_optional_secrets(secrets, &format, !include_values);
 
                         println!("{}", print_string);
                     }
