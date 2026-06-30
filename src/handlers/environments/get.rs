@@ -83,7 +83,7 @@ pub async fn handle_get_environment(
                             let pretty = get_formatted_json_string(&env, true).unwrap();
                             println!("{}", pretty);
                         }
-                        OutputFormat::List => {
+                        OutputFormat::Plain => {
                             print!("{}", env);
                         }
                         OutputFormat::Table => match env.description {

@@ -131,7 +131,7 @@ pub struct WhoamiCommand {
 
 #[derive(Debug, ValueEnum, Clone, Copy)]
 pub enum WhoamiOutputFormat {
-    List,
+    Plain,
     Table,
     Json,
 }

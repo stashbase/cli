@@ -75,7 +75,7 @@ pub async fn handle_get_webhook(args: GetWebhookArgs) -> Result<()> {
                     }
 
                     match format {
-                        OutputFormat::List => {
+                        OutputFormat::Plain => {
                             print!("{}", webhook);
                         }
                         OutputFormat::Json => {

@@ -385,7 +385,7 @@ pub struct DeleteAllSecretsResponse {
 #[serde(rename_all = "lowercase")]
 pub enum SecretsSearchOutputFormat {
     #[default]
-    List,
+    Plain,
     Table,
     Yaml,
     Json,
@@ -396,7 +396,7 @@ impl From<SecretsOutputFormat> for Option<SecretsSearchOutputFormat> {
         match format {
             SecretsOutputFormat::Table => Some(SecretsSearchOutputFormat::Table),
             SecretsOutputFormat::Json => Some(SecretsSearchOutputFormat::Json),
-            SecretsOutputFormat::List => Some(SecretsSearchOutputFormat::List),
+            SecretsOutputFormat::Plain => Some(SecretsSearchOutputFormat::Plain),
             SecretsOutputFormat::Yaml => Some(SecretsSearchOutputFormat::Yaml),
             SecretsOutputFormat::Dotenv => None,
         }

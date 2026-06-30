@@ -145,7 +145,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
                         }
 
                         match format {
-                            OutputFormat::List => {
+                            OutputFormat::Plain => {
                                 output_list(projects, pagination);
                             }
                             OutputFormat::Table => {

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
     #[default]
-    List,
+    Plain,
     Table,
     Json,
 }
@@ -15,7 +15,7 @@ pub enum OutputFormat {
 impl Display for OutputFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::List => write!(f, "list"),
+            Self::Plain => write!(f, "plain"),
             Self::Table => write!(f, "table"),
             Self::Json => write!(f, "json"),
         }
@@ -26,7 +26,7 @@ impl Display for OutputFormat {
 #[serde(rename_all = "lowercase")]
 pub enum SecretsOutputFormat {
     #[default]
-    List,
+    Plain,
     Table,
     // add alias for dotenv
     #[clap(alias = ".env")]
@@ -38,7 +38,7 @@ pub enum SecretsOutputFormat {
 impl Display for SecretsOutputFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::List => write!(f, "list"),
+            Self::Plain => write!(f, "plain"),
             Self::Dotenv => write!(f, "dotenv"),
             Self::Table => write!(f, "table"),
             Self::Json => write!(f, "json"),

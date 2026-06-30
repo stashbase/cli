@@ -128,7 +128,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
                         }
 
                         match format {
-                            OutputFormat::List => {
+                            OutputFormat::Plain => {
                                 for (i, p) in envs.iter().enumerate() {
                                     if i == envs.len() - 1 {
                                         print!("{}", p);

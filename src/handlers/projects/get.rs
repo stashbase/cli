@@ -66,7 +66,7 @@ pub async fn handle_get_project(
                     debug!("{:#?}", &project);
 
                     match format {
-                        OutputFormat::List => {
+                        OutputFormat::Plain => {
                             print!("{}", project);
                         }
                         OutputFormat::Json => {

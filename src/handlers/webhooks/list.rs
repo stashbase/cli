@@ -86,7 +86,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
                         }
 
                         match format {
-                            OutputFormat::List => {
+                            OutputFormat::Plain => {
                                 for (i, p) in webhooks.iter().enumerate() {
                                     if i == webhooks.len() - 1 {
                                         print!("{}", p);

@@ -134,14 +134,14 @@ pub async fn handle_cli(args: Cli) {
                     Some(format) => match format {
                         WhoamiOutputFormat::Json => OutputFormat::Json,
                         WhoamiOutputFormat::Table => OutputFormat::Table,
-                        WhoamiOutputFormat::List => OutputFormat::List,
+                        WhoamiOutputFormat::Plain => OutputFormat::Plain,
                     },
                     None => match (raw_output, config.ouput_format.and_then(|o| o.general)) {
                         (true, _) => OutputFormat::Json,
                         (false, Some(OutputFormat::Json)) => OutputFormat::Json,
                         (false, Some(OutputFormat::Table)) => OutputFormat::Table,
-                        (false, Some(OutputFormat::List)) => OutputFormat::List,
-                        _ => OutputFormat::List,
+                        (false, Some(OutputFormat::Plain)) => OutputFormat::Plain,
+                        _ => OutputFormat::Plain,
                     },
                 };
 
@@ -182,7 +182,7 @@ pub async fn handle_cli(args: Cli) {
                         Some(s) => Some(s),
                         None => match o.general {
                             Some(g) => match g {
-                                OutputFormat::List => Some(SecretsOutputFormat::List),
+                                OutputFormat::Plain => Some(SecretsOutputFormat::Plain),
                                 OutputFormat::Table => Some(SecretsOutputFormat::Table),
                                 OutputFormat::Json => Some(SecretsOutputFormat::Json),
                             },

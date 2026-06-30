@@ -115,7 +115,7 @@ pub async fn handle_list_webhook_logs(args: ListWebhookLogsArgs) -> Result<()> {
                     //
 
                     match format {
-                        OutputFormat::List => {
+                        OutputFormat::Plain => {
                             if let Some(mut spinner) = spinner {
                                 spinner.stop_and_persist("", "");
                             }
@@ -232,7 +232,7 @@ pub async fn handle_get_webhook_log(args: GetWebhookLogArgs) -> Result<()> {
 
             match data {
                 Ok(webhook_log) => match format {
-                    OutputFormat::List => {
+                    OutputFormat::Plain => {
                         if let Some(mut spinner) = spinner {
                             spinner.stop_and_persist("", "");
                         }

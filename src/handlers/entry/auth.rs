@@ -59,7 +59,7 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
                         let pretty = get_formatted_json_string(&auth_details, true).unwrap();
                         println!("{}", pretty);
                     }
-                    OutputFormat::List => {
+                    OutputFormat::Plain => {
                         print!("{}", auth_details);
                     }
                     OutputFormat::Table => {

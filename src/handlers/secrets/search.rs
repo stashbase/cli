@@ -225,7 +225,7 @@ where
             }
 
             match format {
-                SecretsSearchOutputFormat::List => {
+                SecretsSearchOutputFormat::Plain => {
                     let str = secrets
                         .into_iter()
                         .map(|s| s.to_string())

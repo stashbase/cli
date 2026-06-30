@@ -84,9 +84,9 @@ pub fn setup(existing_config: Config) -> Result<()> {
 fn select_output_format(current: Option<OutputFormat>) -> OutputFormat {
     let theme = ColorfulTheme::default();
 
-    let items = ["List (default)", "Table", "JSON"];
+    let items = ["Plain (default)", "Table", "JSON"];
     let default_index = match current.unwrap_or_default() {
-        OutputFormat::List => 0,
+        OutputFormat::Plain => 0,
         OutputFormat::Table => 1,
         OutputFormat::Json => 2,
     };
@@ -99,19 +99,19 @@ fn select_output_format(current: Option<OutputFormat>) -> OutputFormat {
         .unwrap_or(default_index);
 
     match selection {
-        0 => OutputFormat::List,
+        0 => OutputFormat::Plain,
         1 => OutputFormat::Table,
         2 => OutputFormat::Json,
-        _ => OutputFormat::List,
+        _ => OutputFormat::Plain,
     }
 }
 
 fn select_secrets_output_format(current: Option<SecretsOutputFormat>) -> SecretsOutputFormat {
     let theme = ColorfulTheme::default();
 
-    let items = ["List (default)", "Table", "Dotenv", "YAML", "JSON"];
+    let items = ["Plain (default)", "Table", "Dotenv", "YAML", "JSON"];
     let default_index = match current.unwrap_or_default() {
-        SecretsOutputFormat::List => 0,
+        SecretsOutputFormat::Plain => 0,
         SecretsOutputFormat::Table => 1,
         SecretsOutputFormat::Dotenv => 2,
         SecretsOutputFormat::Yaml => 3,
@@ -126,12 +126,12 @@ fn select_secrets_output_format(current: Option<SecretsOutputFormat>) -> Secrets
         .unwrap_or(default_index);
 
     match selection {
-        0 => SecretsOutputFormat::List,
+        0 => SecretsOutputFormat::Plain,
         1 => SecretsOutputFormat::Table,
         2 => SecretsOutputFormat::Dotenv,
         3 => SecretsOutputFormat::Yaml,
         4 => SecretsOutputFormat::Json,
-        _ => SecretsOutputFormat::List,
+        _ => SecretsOutputFormat::Plain,
     }
 }
 

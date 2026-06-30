@@ -18,7 +18,7 @@ use super::tables::build::build_table;
 
 pub fn format_secrets(secrets: Vec<Secret>, format: &SecretsOutputFormat) -> String {
     match format {
-        SecretsOutputFormat::List => {
+        SecretsOutputFormat::Plain => {
             let mut text_to_print = String::new();
 
             for (i, p) in secrets.iter().enumerate() {
@@ -221,7 +221,7 @@ pub fn format_optional_secrets(
     let all_without_values = secrets.iter().all(|s| s.value.is_none());
 
     match format {
-        SecretsOutputFormat::List => {
+        SecretsOutputFormat::Plain => {
             let mut text_to_print = String::new();
 
             for (i, p) in secrets.iter().enumerate() {
@@ -454,7 +454,7 @@ pub fn format_optional_secrets(
 
 pub fn format_secret_names(names: Vec<String>, format: &SecretsOutputFormat) -> String {
     match format {
-        SecretsOutputFormat::List => {
+        SecretsOutputFormat::Plain => {
             let mut text_to_print = String::new();
 
             for (i, p) in names.iter().enumerate() {
@@ -1053,7 +1053,7 @@ mod tests {
             },
         ];
 
-        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::List, false);
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Plain, false);
 
         assert_eq!(
             formatted,
@@ -1109,7 +1109,7 @@ mod tests {
             },
         ];
 
-        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::List, true);
+        let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Plain, true);
 
         assert_eq!(formatted, "# comment\nADMIN_API_KEY: [hidden]\n\nPROD: false");
     }

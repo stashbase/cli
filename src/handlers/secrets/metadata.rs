@@ -248,7 +248,7 @@ fn print_secret_metadata_list(secret_metadata: Vec<SecretMetadata>, format: &Sec
                 println!("{}", build_table(&rows));
             }
         }
-        SecretsOutputFormat::List | SecretsOutputFormat::Dotenv => {
+        SecretsOutputFormat::Plain | SecretsOutputFormat::Dotenv => {
             if secret_metadata.is_empty() {
                 return;
             }
@@ -315,7 +315,7 @@ fn print_secret_metadata(secret_metadata: SecretMetadata, format: &SecretsOutput
                 );
             }
         }
-        SecretsOutputFormat::List | SecretsOutputFormat::Dotenv => {
+        SecretsOutputFormat::Plain | SecretsOutputFormat::Dotenv => {
             let comment = secret_metadata.comment.unwrap_or_default();
             let last_accessed_at = secret_metadata.last_accessed_at.unwrap_or_default();
 
