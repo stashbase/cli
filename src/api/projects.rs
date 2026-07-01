@@ -1,5 +1,5 @@
 use crate::{
-    cmd::projects::SortBy,
+    cmd::{projects::SortBy, shared::Order},
     models::{
         api_client::{
             ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
@@ -15,7 +15,7 @@ pub async fn list_projects(
     api_key: String,
     search: Option<String>,
     sort_by: Option<SortBy>,
-    descending: bool,
+    order: Option<Order>,
     page: Option<usize>,
     page_size: Option<usize>,
 ) -> Result<GetRequestApiResponse, OutputError> {
@@ -25,8 +25,8 @@ pub async fn list_projects(
         query.push(("sort_by".to_string(), format!("{}", sort_by)));
     }
 
-    if descending == true {
-        query.push(("order".to_string(), "desc".to_string()));
+    if let Some(order) = order {
+        query.push(("order".to_string(), order.to_string()));
     }
 
     if let Some(search) = search {

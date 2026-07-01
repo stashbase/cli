@@ -1,4 +1,6 @@
-use clap::Args;
+use core::fmt;
+
+use clap::{Args, ValueEnum};
 
 use crate::models::{
     scope::Scope,
@@ -21,6 +23,23 @@ pub struct SharedScopeArgs {
     /// API scope [default: workspace]
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,
+}
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum Order {
+    Asc,
+    Desc,
+}
+
+impl fmt::Display for Order {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Order::Asc => write!(f, "asc"),
+            Order::Desc => write!(f, "desc"),
+        }?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Args)]

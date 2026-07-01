@@ -1,6 +1,6 @@
 use super::client;
 use crate::{
-    cmd::environments::EnvSortBy,
+    cmd::{environments::EnvSortBy, shared::Order},
     models::{
         api_client::{
             ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
@@ -15,8 +15,8 @@ pub struct ListEnvsRequestArgs {
     pub project: String,
     pub search: Option<String>,
     pub is_production: Option<bool>,
-    pub sort_by: EnvSortBy,
-    pub descending: bool,
+    pub sort_by: Option<EnvSortBy>,
+    pub order: Option<Order>,
 }
 
 pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, OutputError> {
@@ -25,14 +25,18 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
         project,
         search,
         is_production,
-        sort_by: sort,
-        descending,
+        sort_by,
+        order,
     } = args;
 
-    let mut query = vec![("sort_by".to_string(), format!("{}", sort))];
+    let mut query = vec![];
 
-    if descending == true {
-        query.push(("order".to_string(), "desc".to_string()));
+    if let Some(sort_by) = sort_by {
+        query.push(("sort_by".to_string(), format!("{}", sort_by)));
+    }
+
+    if let Some(order) = order {
+        query.push(("order".to_string(), order.to_string()));
     }
 
     if let Some(search) = search {
@@ -45,7 +49,7 @@ pub async fn list(args: ListEnvsRequestArgs) -> Result<GetRequestApiResponse, Ou
 
     let args = RequestArgs {
         api_key,
-        query: Some(query),
+        query: if query.is_empty() { None } else { Some(query) },
         path: ApiPath::Environments {
             project,
             path: None,

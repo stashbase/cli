@@ -130,7 +130,7 @@ pub async fn handle_environment_commands(
                 silent,
                 search: args.search,
                 sort_by: args.sort_by,
-                descending: args.descending,
+                order: args.order,
                 is_production: args.is_production,
                 format,
             };

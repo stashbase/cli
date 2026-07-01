@@ -1,4 +1,4 @@
-use crate::cmd::webhooks::{WebhookOrder, WebhookSortBy};
+use crate::cmd::{shared::Order, webhooks::WebhookSortBy};
 use crate::models::{
     api_client::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
@@ -13,8 +13,8 @@ pub struct ListArgs {
     pub api_key: String,
     pub project: Option<String>,
     pub environment: Option<String>,
-    pub sort_by: WebhookSortBy,
-    pub order: WebhookOrder,
+    pub sort_by: Option<WebhookSortBy>,
+    pub order: Option<Order>,
 }
 
 fn get_webhooks_path(
@@ -42,7 +42,7 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse, OutputError> 
     } = args;
 
     let path = get_webhooks_path(project, environment, None);
-    let query = Some(build_list_query(sort_by, order));
+    let query = build_list_query(sort_by, order);
 
     let args = RequestArgs {
         path,
@@ -53,11 +53,25 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse, OutputError> 
     client::get_request(args).await
 }
 
-fn build_list_query(sort_by: WebhookSortBy, order: WebhookOrder) -> Vec<(String, String)> {
-    vec![
-        ("sort_by".to_string(), sort_by.to_string()),
-        ("order".to_string(), order.to_string()),
-    ]
+fn build_list_query(
+    sort_by: Option<WebhookSortBy>,
+    order: Option<Order>,
+) -> Option<Vec<(String, String)>> {
+    let mut query = Vec::new();
+
+    if let Some(sort_by) = sort_by {
+        query.push(("sort_by".to_string(), sort_by.to_string()));
+    }
+
+    if let Some(order) = order {
+        query.push(("order".to_string(), order.to_string()));
+    }
+
+    if query.is_empty() {
+        None
+    } else {
+        Some(query)
+    }
 }
 
 pub struct GetArgs {
@@ -333,4 +347,40 @@ pub async fn get_dashboard_url(
     };
 
     client::get_request(args).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_list_query;
+    use crate::cmd::{shared::Order, webhooks::WebhookSortBy};
+
+    #[test]
+    fn build_list_query_omits_query_when_no_sort_or_order_are_provided() {
+        let query = build_list_query(None, None);
+
+        assert_eq!(query, None);
+    }
+
+    #[test]
+    fn build_list_query_uses_ascending_when_requested() {
+        let query = build_list_query(Some(WebhookSortBy::Url), Some(Order::Asc));
+
+        assert_eq!(
+            query,
+            Some(vec![
+                ("sort_by".to_string(), "url".to_string()),
+                ("order".to_string(), "asc".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn build_list_query_includes_only_explicit_sort() {
+        let query = build_list_query(Some(WebhookSortBy::CreatedAt), None);
+
+        assert_eq!(
+            query,
+            Some(vec![("sort_by".to_string(), "created_at".to_string())])
+        );
+    }
 }

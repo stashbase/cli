@@ -4,7 +4,7 @@ use std::default::Default;
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::{config::OutputFormat, secrets::SecretsFileFormat};
+use super::{config::OutputFormat, secrets::SecretsFileFormat, shared::Order};
 use crate::models::{
     scope::Scope,
     validation::{CmdArgInputValidationError, InputValidationError},
@@ -121,9 +121,9 @@ pub struct ListEnvironments {
     #[arg(long = "sort-by")]
     pub sort_by: Option<EnvSortBy>,
 
-    /// Descending order
-    #[arg(long = "desc")]
-    pub descending: bool,
+    /// Sort order
+    #[arg(long = "order")]
+    pub order: Option<Order>,
 
     /// Format output
     #[arg(short = 'f', long = "format")]

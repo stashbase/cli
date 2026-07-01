@@ -145,7 +145,7 @@ pub async fn handle_webhook_commands(
                 project,
                 environment,
                 sort_by: args.sort_by,
-                descending: args.descending,
+                order: args.order,
                 format,
                 silent,
             };

@@ -3,7 +3,7 @@ use log::debug;
 
 use crate::{
     api::projects,
-    cmd::{config::OutputFormat, projects::SortBy},
+    cmd::{config::OutputFormat, projects::SortBy, shared::Order},
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         projects::{ProjectList, SingleListProject, SingleListProjectWithoutDescription},
@@ -21,7 +21,7 @@ pub struct HandleListProjectsArgs {
     pub api_key: String,
     pub search: Option<String>,
     pub sort_by: Option<SortBy>,
-    pub descending: bool,
+    pub order: Option<Order>,
     pub page: Option<usize>,
     pub page_size: Option<usize>,
     pub format: OutputFormat,
@@ -33,7 +33,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
         api_key,
         search,
         sort_by,
-        descending,
+        order,
         format,
         page,
         page_size,
@@ -91,7 +91,7 @@ pub async fn handle_list_projects(args: HandleListProjectsArgs) -> Result<()> {
     };
 
     let project_res =
-        projects::list_projects(api_key, search, sort_by, descending, page, page_size).await;
+        projects::list_projects(api_key, search, sort_by, order, page, page_size).await;
 
     if let Err(err) = project_res {
         if let Some(mut spinner) = spinner {

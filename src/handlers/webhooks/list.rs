@@ -3,10 +3,7 @@ use log::debug;
 
 use crate::{
     api::webhooks,
-    cmd::{
-        config::OutputFormat,
-        webhooks::{WebhookOrder, WebhookSortBy},
-    },
+    cmd::{config::OutputFormat, shared::Order, webhooks::WebhookSortBy},
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         webhooks::ListWebhook,
@@ -23,7 +20,7 @@ pub struct ListWebhooksArgs {
     pub project: Option<String>,
     pub environment: Option<String>,
     pub sort_by: Option<WebhookSortBy>,
-    pub descending: bool,
+    pub order: Option<Order>,
     pub format: OutputFormat,
     pub silent: bool,
 }
@@ -36,7 +33,7 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
         project,
         environment,
         sort_by,
-        descending,
+        order,
         format,
         silent,
     } = args;
@@ -47,12 +44,8 @@ pub async fn handle_list_webhooks(args: ListWebhooksArgs) -> Result<()> {
         api_key,
         project,
         environment,
-        order: match (&sort_by, descending) {
-            (_, true) => WebhookOrder::Desc,
-            (None, false) => WebhookOrder::Desc,
-            (Some(_), false) => WebhookOrder::Asc,
-        },
-        sort_by: sort_by.unwrap_or_default(),
+        order,
+        sort_by,
     };
 
     let spinner = if !silent {

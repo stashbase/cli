@@ -6,7 +6,9 @@ use crate::models::{scope::Scope, validation::InputValidationError};
 
 use super::{
     config::OutputFormat,
-    shared::{try_get_project_environment, try_get_scope, SharedProjectEnvArgs, SharedScopeArgs},
+    shared::{
+        try_get_project_environment, try_get_scope, Order, SharedProjectEnvArgs, SharedScopeArgs,
+    },
 };
 
 #[derive(Debug, Args)]
@@ -211,9 +213,9 @@ pub struct ListWebhooks {
     #[arg(long = "sort-by")]
     pub sort_by: Option<WebhookSortBy>,
 
-    /// Descending order
-    #[arg(long = "desc")]
-    pub descending: bool,
+    /// Sort order
+    #[arg(long = "order")]
+    pub order: Option<Order>,
 
     /// Format output
     #[arg(short = 'f', long = "format")]
@@ -243,23 +245,6 @@ impl fmt::Display for WebhookSortBy {
             WebhookSortBy::UpdatedAt => write!(f, "updated_at"),
             WebhookSortBy::Url => write!(f, "url"),
             WebhookSortBy::Enabled => write!(f, "enabled"),
-        }?;
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, ValueEnum, Clone)]
-pub enum WebhookOrder {
-    Asc,
-    Desc,
-}
-
-impl fmt::Display for WebhookOrder {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            WebhookOrder::Asc => write!(f, "asc"),
-            WebhookOrder::Desc => write!(f, "desc"),
         }?;
 
         Ok(())

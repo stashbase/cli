@@ -3,7 +3,7 @@ use log::debug;
 
 use crate::{
     api::environments::{self, ListEnvsRequestArgs},
-    cmd::{config::OutputFormat, environments::EnvSortBy},
+    cmd::{config::OutputFormat, environments::EnvSortBy, shared::Order},
     models::{
         api_client::{GetRequestApiResponse, OutputError},
         environments::{Environment, TableEnvironment, TableEnvironmentWithoutDescription},
@@ -22,7 +22,7 @@ pub struct HandleListEnvironmentsArgs {
     pub project: String,
     pub search: Option<String>,
     pub sort_by: Option<EnvSortBy>,
-    pub descending: bool,
+    pub order: Option<Order>,
     pub is_production: Option<bool>,
     pub format: OutputFormat,
 }
@@ -34,7 +34,7 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         project,
         search,
         sort_by: sort,
-        descending,
+        order,
         is_production,
         format,
     } = args;
@@ -81,8 +81,8 @@ pub async fn handle_list_environments(args: HandleListEnvironmentsArgs) -> Resul
         project,
         is_production,
         search,
-        sort_by: sort.unwrap_or_default(),
-        descending,
+        sort_by: sort,
+        order,
     };
 
     let env_res = environments::list(args).await;

@@ -31,7 +31,7 @@ pub async fn handle_project_commands(
                 api_key,
                 search: args.search,
                 sort_by: args.sort_by,
-                descending: args.descending,
+                order: args.order,
                 page: args.page,
                 page_size: args.page_size,
                 silent,

@@ -2,7 +2,7 @@ use core::fmt;
 
 use clap::{Args, Subcommand, ValueEnum};
 
-use super::config::OutputFormat;
+use super::{config::OutputFormat, shared::Order};
 
 #[derive(Debug, Args)]
 #[command(override_usage = "projects <COMMAND> [OPTIONS]")]
@@ -45,9 +45,9 @@ pub struct ListProjects {
     #[arg(long = "sort-by")]
     pub sort_by: Option<SortBy>,
 
-    /// Descending order
-    #[arg(long = "desc")]
-    pub descending: bool,
+    /// Sort order
+    #[arg(long = "order")]
+    pub order: Option<Order>,
 
     /// Page (selected page)
     #[arg(long = "page")]
