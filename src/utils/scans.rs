@@ -96,24 +96,24 @@ pub fn is_binary_file(extension: &str) -> bool {
     match extension.as_str() {
         // Compiled files
         "exe" | "dll" | "so" | "dylib" | "class" | "o" | "obj" | "pyc" | "pyo" |
-        
+
         // Compressed archives
         "zip" | "tar" | "gz" | "bz2" | "7z" | "rar" | "xz" |
-        
+
         // Media files
         "jpg" | "jpeg" | "png" | "gif" | "bmp" | "ico" | "webp" | "tiff" | // Images
         "mp3" | "wav" | "ogg" | "flac" | "m4a" | "wma" | // Audio
         "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" | "webm" | // Video
-        
+
         // Document formats
         "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" |
-        
+
         // Database files
         "db" | "sqlite" | "mdb" | "frm" | "myd" | "myi" |
-        
+
         // Other binary formats
         "bin" | "iso" | "img" | "dat" => true,
-        
+
         // Everything else is considered text
         _ => false,
     }

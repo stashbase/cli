@@ -45,11 +45,7 @@ pub fn set_api_key(read_from_stdin: bool) {
             "Warning:".yellow_if_tty_stderr(),
             "Secure key storage unavailable, using file-permissions-based config fallback."
         );
-        eprintln!(
-            "{} {}",
-            "Reason:".yellow_if_tty_stderr(),
-            store_err
-        );
+        eprintln!("{} {}", "Reason:".yellow_if_tty_stderr(), store_err);
         println!("API key set.");
     } else {
         let _ = config::clear_legacy_api_key();

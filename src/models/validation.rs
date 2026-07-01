@@ -936,7 +936,7 @@ impl LoadEnvironmentInputValidationError {
             LoadEnvironmentInputValidationError::SetSecretNameValueSeparator => (
                 "Invalid set argument.",
                 Some("Expected a name-value pair (separated by '=')."),
-                vec![]  
+                vec![]
             ),
             LoadEnvironmentInputValidationError::SetSecretNamesFormat(secrets) => (
                 "Invalid set secret names.",
@@ -1145,10 +1145,10 @@ impl InputValidationError {
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
             InputValidationError::MissingApiKey => {
-                MessageHint { 
-                    message: "API key is required for this command.", 
-                    hint: Some("Use '--api-key' argument, run 'stashbase config api-key set', or pipe a key with 'stashbase config api-key set --stdin'."), 
-                    secrets: vec![] 
+                MessageHint {
+                    message: "API key is required for this command.",
+                    hint: Some("Use '--api-key' argument, run 'stashbase config api-key set', or pipe a key with 'stashbase config api-key set --stdin'."),
+                    secrets: vec![]
                 }
             }
         };
