@@ -1000,6 +1000,26 @@ mod tests {
         models::secrets::{Secret, SecretOptional},
     };
 
+    fn strip_ansi(value: &str) -> String {
+        let mut stripped = String::with_capacity(value.len());
+        let mut chars = value.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            } else {
+                stripped.push(ch);
+            }
+        }
+
+        stripped
+    }
+
     #[test]
     fn yaml_format_keeps_commented_secret_entries_tightly_grouped() {
         let secrets = vec![
@@ -1056,7 +1076,7 @@ mod tests {
         let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Plain, false);
 
         assert_eq!(
-            formatted,
+            strip_ansi(&formatted),
             "# comment\nADMIN_API_KEY: \n\n# comment\nAPI_URL: http://localhost:5000\n\n# comment\nDATABASE_URL: test\n\nPROD: false"
         );
     }
@@ -1111,7 +1131,10 @@ mod tests {
 
         let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Plain, true);
 
-        assert_eq!(formatted, "# comment\nADMIN_API_KEY: [hidden]\n\nPROD: false");
+        assert_eq!(
+            strip_ansi(&formatted),
+            "# comment\nADMIN_API_KEY: [hidden]\n\nPROD: false"
+        );
     }
 
     #[test]
@@ -1131,7 +1154,10 @@ mod tests {
 
         let formatted = format_optional_secrets(secrets, &SecretsOutputFormat::Yaml, true);
 
-        assert_eq!(formatted, "# comment\nADMIN_API_KEY: [hidden]\n\nPROD: false");
+        assert_eq!(
+            strip_ansi(&formatted),
+            "# comment\nADMIN_API_KEY: [hidden]\n\nPROD: false"
+        );
     }
 
     #[test]

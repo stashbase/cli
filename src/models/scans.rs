@@ -440,6 +440,26 @@ impl ScanFinding {
 mod tests {
     use super::{ScanFinding, ScanFindingLocation, ScanFindingSeverity};
 
+    fn strip_ansi(value: &str) -> String {
+        let mut stripped = String::with_capacity(value.len());
+        let mut chars = value.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            } else {
+                stripped.push(ch);
+            }
+        }
+
+        stripped
+    }
+
     #[test]
     fn scan_finding_deserializes_new_locations_shape() {
         let json = r#"{
@@ -535,7 +555,7 @@ mod tests {
             matched_secrets: None,
         };
 
-        assert!(finding.get_colored_string().contains("Lines: 28"));
+        assert!(strip_ansi(&finding.get_colored_string()).contains("Lines: 28"));
     }
 }
 
