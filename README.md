@@ -25,7 +25,14 @@ Intel macOS is currently not supported.
 Stashbase CLI is available via [Homebrew](https://brew.sh) for macOS Apple Silicon users.
 
 ```bash
-brew install stashbase/homebrew-stashbase
+# Add the tap
+brew tap stashbase/homebrew-stashbase
+
+# Trust the tap
+brew trust stashbase/stashbase
+
+# Install the CLI
+brew install stashbase
 ```
 
 ### Linux
