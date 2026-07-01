@@ -1,3 +1,4 @@
+use crate::cmd::webhooks::{WebhookOrder, WebhookSortBy};
 use crate::models::{
     api_client::{
         ApiPath, DeleteRequestApiResponse, GetRequestApiResponse, OutputError,
@@ -12,6 +13,8 @@ pub struct ListArgs {
     pub api_key: String,
     pub project: Option<String>,
     pub environment: Option<String>,
+    pub sort_by: WebhookSortBy,
+    pub order: WebhookOrder,
 }
 
 fn get_webhooks_path(
@@ -34,17 +37,27 @@ pub async fn list(args: ListArgs) -> Result<GetRequestApiResponse, OutputError> 
         api_key,
         project,
         environment,
+        sort_by,
+        order,
     } = args;
 
     let path = get_webhooks_path(project, environment, None);
+    let query = Some(build_list_query(sort_by, order));
 
     let args = RequestArgs {
         path,
-        query: None,
+        query,
         api_key,
     };
 
     client::get_request(args).await
+}
+
+fn build_list_query(sort_by: WebhookSortBy, order: WebhookOrder) -> Vec<(String, String)> {
+    vec![
+        ("sort_by".to_string(), sort_by.to_string()),
+        ("order".to_string(), order.to_string()),
+    ]
 }
 
 pub struct GetArgs {

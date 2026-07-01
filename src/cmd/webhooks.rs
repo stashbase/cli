@@ -1,4 +1,6 @@
-use clap::{Args, Subcommand};
+use core::fmt;
+
+use clap::{Args, Subcommand, ValueEnum};
 
 use crate::models::{scope::Scope, validation::InputValidationError};
 
@@ -196,7 +198,6 @@ impl WebhookSubcommand {
     }
 }
 
-// TODO: sort
 #[derive(Debug, Args)]
 #[command(override_usage = "webhooks list [OPTIONS]")]
 pub struct ListWebhooks {
@@ -206,11 +207,63 @@ pub struct ListWebhooks {
     #[clap(flatten)]
     pub scope_args: SharedScopeArgs,
 
-    // #[arg(value_enum, short = 'p', long = "page")]
-    // pub page: Option<usize>,
+    /// Sort webhooks by
+    #[arg(long = "sort-by")]
+    pub sort_by: Option<WebhookSortBy>,
+
+    /// Descending order
+    #[arg(long = "desc")]
+    pub descending: bool,
+
     /// Format output
     #[arg(short = 'f', long = "format")]
     pub format: Option<OutputFormat>,
+}
+
+impl Default for WebhookSortBy {
+    fn default() -> Self {
+        WebhookSortBy::CreatedAt
+    }
+}
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum WebhookSortBy {
+    #[value(name = "created_at")]
+    CreatedAt,
+    #[value(name = "updated_at")]
+    UpdatedAt,
+    Url,
+    Enabled,
+}
+
+impl fmt::Display for WebhookSortBy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            WebhookSortBy::CreatedAt => write!(f, "created_at"),
+            WebhookSortBy::UpdatedAt => write!(f, "updated_at"),
+            WebhookSortBy::Url => write!(f, "url"),
+            WebhookSortBy::Enabled => write!(f, "enabled"),
+        }?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum WebhookOrder {
+    Asc,
+    Desc,
+}
+
+impl fmt::Display for WebhookOrder {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            WebhookOrder::Asc => write!(f, "asc"),
+            WebhookOrder::Desc => write!(f, "desc"),
+        }?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Args)]
