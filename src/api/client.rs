@@ -18,7 +18,7 @@ use crate::models::api_client::{
 };
 use crate::{REQUEST_ABORTED, REQUEST_TIMEOUT_SECS};
 
-const DEFAULT_API_URL: &str = "https://api.stashbase.com";
+const DEFAULT_API_URL: &str = "https://api.stashbase.dev";
 const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
 const BUILD_TIME_API_URL: Option<&str> = option_env!("STASHBASE_API_URL");
 const CLI_USER_AGENT: &str = concat!("stashbase/cli/", env!("CARGO_PKG_VERSION"));
