@@ -55,36 +55,22 @@ pub struct PushCommand {
 impl PushCommand {
     pub fn validate_scope_conflicts(&self) -> Result<(), InputValidationError> {
         if let Some(scope) = &self.scope {
-            // Only restrict config file when using environment scope
-            // Workspace scope behaves like no scope (allows config file)
+            // Only restrict config file when using environment scope.
+            // Workspace scope and no scope both allow defaulting to ./stashbase.yaml.
             if *scope == Scope::Environment {
-                // If environment scope is provided, don't allow config file flag
+                // Environment-scoped auth does not use stashbase.yaml.
                 if self.config_file.is_some() {
                     return Err(InputValidationError::CmdArgs(
                         CmdArgInputValidationError::ConflictingScopeAndConfigFile,
                     ));
                 }
 
-                // Environment scope requires --file flag since no config file
+                // Environment scope requires --file since no config file is loaded.
                 if self.file.is_none() {
                     return Err(InputValidationError::CmdArgs(
                         CmdArgInputValidationError::FileRequiredForEnvironmentScope,
                     ));
                 }
-            } else {
-                // Workspace scope - require config file
-                if self.config_file.is_none() {
-                    return Err(InputValidationError::CmdArgs(
-                        CmdArgInputValidationError::ConfigFileRequired,
-                    ));
-                }
-            }
-        } else {
-            // No scope specified - require config file
-            if self.config_file.is_none() {
-                return Err(InputValidationError::CmdArgs(
-                    CmdArgInputValidationError::ConfigFileRequired,
-                ));
             }
         }
 
