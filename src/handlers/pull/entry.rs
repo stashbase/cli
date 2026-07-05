@@ -948,7 +948,7 @@ pub fn load_from_file(
                     .map(|item| item.get_print_string(config_action_command))
                     .collect();
                 // select project
-                let selection = select("Select environment config", items);
+                let selection = select("Select config", items);
 
                 if let Some(selection) = selection {
                     let item = deserialized_config[selection].clone();

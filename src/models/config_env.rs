@@ -458,7 +458,7 @@ pub fn select_from_file(
                     .map(|item| item.get_print_string(config_action_command))
                     .collect();
                 // select project
-                let selection = select("Select environment config", items);
+                let selection = select("Select config", items);
 
                 debug!("selection: {:?}", selection);
 
