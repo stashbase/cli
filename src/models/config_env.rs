@@ -97,12 +97,12 @@ impl EnvConfigItem {
             Some(description) => {
                 if args_string.len() > 0 {
                     format!(
-                        "{} -> {} | {}\n   🗎 {}",
+                        "{} -> {} | {}\n    {}",
                         self.project, self.environment, args_string, description
                     )
                 } else {
                     format!(
-                        "{} -> {}\n   🗎 {}",
+                        "{} -> {}\n    {}",
                         self.project, self.environment, description
                     )
                 }
@@ -369,12 +369,12 @@ impl fmt::Display for EnvConfigItem {
             Some(description) => {
                 if let Some(args) = args_str {
                     format!(
-                        "{} -> {} | {}\n   🗎 {}",
+                        "{} -> {} | {}\n    {}",
                         self.project, self.environment, args, description
                     )
                 } else {
                     format!(
-                        "{} -> {}\n   🗎 {}",
+                        "{} -> {}\n    {}",
                         self.project, self.environment, description
                     )
                 }
