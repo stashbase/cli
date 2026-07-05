@@ -97,21 +97,21 @@ impl EnvConfigItem {
             Some(description) => {
                 if args_string.len() > 0 {
                     format!(
-                        "{} -> {} | {}\n    {}",
+                        "{}/{} | {}\n    {}",
                         self.project, self.environment, args_string, description
                     )
                 } else {
                     format!(
-                        "{} -> {}\n    {}",
+                        "{}/{}\n    {}",
                         self.project, self.environment, description
                     )
                 }
             }
             None => {
                 if args_string.len() > 0 {
-                    format!("{} -> {} | {}", self.project, self.environment, args_string)
+                    format!("{}/{} | {}", self.project, self.environment, args_string)
                 } else {
-                    format!("{} -> {}", self.project, self.environment)
+                    format!("{}/{}", self.project, self.environment)
                 }
             }
         };
@@ -369,21 +369,21 @@ impl fmt::Display for EnvConfigItem {
             Some(description) => {
                 if let Some(args) = args_str {
                     format!(
-                        "{} -> {} | {}\n    {}",
+                        "{}/{} | {}\n    {}",
                         self.project, self.environment, args, description
                     )
                 } else {
                     format!(
-                        "{} -> {}\n    {}",
+                        "{}/{}\n    {}",
                         self.project, self.environment, description
                     )
                 }
             }
             None => {
                 if let Some(args) = args_str {
-                    format!("{} -> {} | {}", self.project, self.environment, args)
+                    format!("{}/{} | {}", self.project, self.environment, args)
                 } else {
-                    format!("{} -> {}", self.project, self.environment)
+                    format!("{}/{}", self.project, self.environment)
                 }
             }
         };
