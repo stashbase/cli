@@ -59,11 +59,16 @@ scoop install stashbase
 
 For full documentation, please visit [Stashbase CLI Documentation](https://docs.stashbase.dev/cli).
 
-Here are some common usage examples for the Stashbase CLI:
+### First-time setup
+You can run the interactive setup command to configure the CLI for the first time.
+
+```bash
+stashbase setup
+```
 
 ### Authenticate with Stashbase
-
-You can generate an API key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
+If you don't set the API Key during setup, you can set it later manually.
+You can generate an API Key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
 
 ```bash
 # interactively set API key
