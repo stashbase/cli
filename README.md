@@ -101,6 +101,22 @@ stashbase environments list -p <PROJECT>
 stashbase secrets list -p <PROJECT> -e <ENVIRONMENT>
 ```
 
+### Run commands with injected secrets
+
+```bash
+# load config from stashbase.yaml and select a config entry interactively
+stashbase run -- npm run dev
+
+# load secrets from Stashbase and run a command
+stashbase run -p <PROJECT> -e <ENVIRONMENT> -- npm run dev
+
+# load secrets from a local env file and run a command
+stashbase run --file .env.production -- npm run dev
+
+# local file input supports dotenv, yaml/yml, and json
+stashbase run --file secrets.yaml -- npm run dev
+```
+
 ### Generate utility values
 
 ```bash

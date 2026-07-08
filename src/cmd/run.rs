@@ -17,6 +17,10 @@ pub struct RunCommand {
     #[arg(short = 'c', long = "config")]
     pub config_file: Option<String>,
 
+    /// Path to local secrets file
+    #[arg(long = "file")]
+    pub file: Option<String>,
+
     /// API scope [default: workspace]
     #[arg(long = "scope", value_enum)]
     pub scope: Option<Scope>,

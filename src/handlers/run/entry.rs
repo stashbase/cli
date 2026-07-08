@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use anyhow::bail;
 use log::debug;
@@ -15,6 +16,7 @@ use crate::{
         secrets::{PrintSecrets, SecretOnlyName, SecretWithoutComment},
         validation::{
             InputValidationError, LoadEnvironmentInputValidationError, RunInputValidationError,
+            SecretsInputValidationError,
         },
     },
     utils::{
@@ -22,6 +24,7 @@ use crate::{
         interaction::{self},
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
         separator,
+        secrets::read_secrets_from_file,
         tables::build::build_table,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
@@ -29,6 +32,7 @@ use crate::{
             validate_secret_names,
         },
     },
+    cmd::secrets::SecretsFileFormat,
     SUBPROCESS_RUNNING,
 };
 
@@ -46,6 +50,7 @@ pub struct HandleRunArgs {
     pub set_comments: Vec<String>,
     pub print_secrets: Option<PrintSecrets>,
     pub no_print_secrets: bool,
+    pub config_file: Option<String>,
     pub file: Option<String>,
     pub expand_refs: Option<bool>,
     pub json_format: bool,
@@ -57,6 +62,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
         command,
+        config_file,
         file,
         mut set,
         set_comments,
@@ -79,7 +85,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     // Handle environment scope - workspace scope behaves like no scope
     let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
 
-    if !is_environment_scope && file.is_some() && (project.is_some() || environment.is_some()) {
+    if file.is_some() && (project.is_some() || environment.is_some()) {
         let error = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::FileArgWithInline,
         );
@@ -111,10 +117,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     }
 
     let mut is_from_file = true;
+    let mut file_secrets: Option<Vec<SecretWithoutComment>> = None;
 
     let mut setted_secrets = HashMap::<String, String>::new();
 
-    if is_environment_scope {
+    if let Some(input_path) = &file {
+        file_secrets = Some(load_run_secrets_from_file(input_path, json_format, silent)?);
+    } else if is_environment_scope {
         // For environment scope, load from API (not from file)
         is_from_file = false;
     } else if let (Some(_), Some(_)) = (&project, &environment) {
@@ -144,7 +153,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     } else {
         let config_action_command = ConfigActionCommand::Run;
         // LOAD from file
-        let selected_config_item = EnvConfigItem::select_from_file(file, &config_action_command)?;
+        let selected_config_item =
+            EnvConfigItem::select_from_file(config_file, &config_action_command)?;
 
         if let Some(config) = selected_config_item {
             let secrets_config = config.get_run_secrets();
@@ -426,6 +436,99 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         (project.clone(), environment.clone())
     };
 
+    if is_from_file {
+        let mut secrets = file_secrets.unwrap_or_default();
+
+        if !only.is_empty() {
+            secrets.retain(|secret| only.contains(&secret.name));
+        }
+
+        if !exclude.is_empty() {
+            secrets.retain(|secret| !exclude.contains(&secret.name));
+        }
+
+        if secrets.is_empty() && setted_secrets.is_empty() {
+            let message = if only_len == 0 {
+                "No secrets found.".to_string()
+            } else {
+                format!("{} secret(s) requested, no secrets found.", only_len)
+            };
+
+            if json_format {
+                let message = serde_json::json!({
+                    "error": {
+                        "message": message
+                    }
+                });
+
+                let json_str = get_formatted_json_string(&message, false).unwrap();
+                eprintln!("{}", json_str);
+            } else if let Some(ref mut spinner) = spinner {
+                spinner.stop_with_message(&format!(
+                    "{}\n  Message: {}",
+                    "Error".red_if_tty_stderr(),
+                    message
+                ));
+            } else if !silent {
+                eprintln!("{}\n  Message: {}", "Error".red_if_tty_stderr(), message);
+            }
+
+            return Ok(());
+        }
+
+        if only_len > 0 && secrets.len() < only_len {
+            let mut msg = format!(
+                "{} {} Secret(s) found, {} secret(s) requested.",
+                "Error:".red_if_tty_stderr(),
+                secrets.len(),
+                only_len
+            );
+
+            msg.insert_str(0, "\n");
+
+            if let Some(ref mut spinner) = spinner {
+                spinner.stop_and_persist("", "");
+            }
+
+            if !silent {
+                eprintln!("{}", msg);
+            }
+
+            let confirmation = if !silent {
+                interaction::confirm_opt("Do you still want to proceed?")
+            } else {
+                Some(true)
+            };
+
+            if confirmation != Some(true) {
+                return Ok(());
+            }
+        }
+
+        if !setted_secrets.is_empty() {
+            for (name, value) in setted_secrets {
+                secrets.push(SecretWithoutComment { name, value });
+            }
+        }
+
+        for secret in secrets.iter_mut() {
+            secret.value = format_env_variable_value(secret.value.to_string());
+        }
+
+        handle_run(
+            &mut spinner,
+            command,
+            print_secrets.clone(),
+            secrets,
+            is_from_file,
+            silent,
+            json_format,
+        )
+        .await?;
+
+        return Ok(());
+    }
+
     let res = secrets::pull(
         api_key,
         api_project,
@@ -607,6 +710,58 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     }
     //
     Ok(())
+}
+
+fn load_run_secrets_from_file(
+    input_path: &str,
+    json_format: bool,
+    silent: bool,
+) -> anyhow::Result<Vec<SecretWithoutComment>> {
+    let path = Path::new(input_path);
+
+    if !path.exists() {
+        let err = InputValidationError::Secrets(SecretsInputValidationError::FileNotFound);
+        let error_output = err.format_error_output(json_format)?;
+
+        if !silent {
+            eprintln!();
+        }
+
+        bail!(error_output);
+    }
+
+    let target_format = if input_path.ends_with(".yaml") || input_path.ends_with(".yml") {
+        SecretsFileFormat::Yaml
+    } else if input_path.ends_with(".json") {
+        SecretsFileFormat::Json
+    } else {
+        SecretsFileFormat::Dotenv
+    };
+
+    let secrets_res = read_secrets_from_file(path, &target_format);
+
+    let secrets = match secrets_res {
+        Ok(secrets) => secrets,
+        Err(err) => {
+            let err =
+                InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err.to_string()));
+            let error_output = err.format_error_output(json_format)?;
+
+            if !silent {
+                eprintln!();
+            }
+
+            bail!(error_output);
+        }
+    };
+
+    Ok(secrets
+        .into_iter()
+        .map(|secret| SecretWithoutComment {
+            name: secret.name,
+            value: secret.value,
+        })
+        .collect())
 }
 
 async fn handle_run(
