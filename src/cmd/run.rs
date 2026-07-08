@@ -7,7 +7,7 @@ use crate::models::{
 };
 
 #[derive(Debug, Args)]
-#[command(override_usage = "run [OPTIONS]")]
+#[command(override_usage = "run [OPTIONS] -- <COMMAND> [ARGS]...")]
 pub struct RunCommand {
     /// Command to run
     #[clap(num_args = 1..)]
