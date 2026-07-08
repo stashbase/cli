@@ -8,6 +8,7 @@ use tabled::Tabled;
 
 use crate::{
     api::secrets,
+    cmd::secrets::SecretsFileFormat,
     handlers::run::subprocess,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
@@ -23,8 +24,8 @@ use crate::{
         env,
         interaction::{self},
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
-        separator,
         secrets::read_secrets_from_file,
+        separator,
         tables::build::build_table,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
@@ -32,7 +33,6 @@ use crate::{
             validate_secret_names,
         },
     },
-    cmd::secrets::SecretsFileFormat,
     SUBPROCESS_RUNNING,
 };
 
@@ -437,15 +437,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     };
 
     if is_from_file {
-        let mut secrets = file_secrets.unwrap_or_default();
-
-        if !only.is_empty() {
-            secrets.retain(|secret| only.contains(&secret.name));
-        }
-
-        if !exclude.is_empty() {
-            secrets.retain(|secret| !exclude.contains(&secret.name));
-        }
+        let mut secrets =
+            prepare_local_run_secrets(file_secrets.unwrap_or_default(), &only, &exclude);
 
         if secrets.is_empty() && setted_secrets.is_empty() {
             let message = if only_len == 0 {
@@ -712,6 +705,22 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn prepare_local_run_secrets(
+    mut secrets: Vec<SecretWithoutComment>,
+    only: &[String],
+    exclude: &[String],
+) -> Vec<SecretWithoutComment> {
+    if !only.is_empty() {
+        secrets.retain(|secret| only.contains(&secret.name));
+    }
+
+    if !exclude.is_empty() {
+        secrets.retain(|secret| !exclude.contains(&secret.name));
+    }
+
+    secrets
+}
+
 fn load_run_secrets_from_file(
     input_path: &str,
     json_format: bool,
@@ -743,8 +752,9 @@ fn load_run_secrets_from_file(
     let secrets = match secrets_res {
         Ok(secrets) => secrets,
         Err(err) => {
-            let err =
-                InputValidationError::Secrets(SecretsInputValidationError::ReadFile(err.to_string()));
+            let err = InputValidationError::Secrets(SecretsInputValidationError::ReadFile(
+                err.to_string(),
+            ));
             let error_output = err.format_error_output(json_format)?;
 
             if !silent {
@@ -883,6 +893,82 @@ async fn handle_run(
         });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_run_secrets_from_file, prepare_local_run_secrets};
+    use crate::models::secrets::SecretWithoutComment;
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn temp_file_path(suffix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("stashbase-run-test-{}{}", nanos, suffix))
+    }
+
+    #[test]
+    fn load_run_secrets_from_file_reads_dotenv_input() {
+        let path = temp_file_path(".env");
+        fs::write(&path, "FIRST=one\nSECOND=two\n").unwrap();
+
+        let secrets = load_run_secrets_from_file(path.to_str().unwrap(), false, true).unwrap();
+
+        fs::remove_file(&path).unwrap();
+
+        assert_eq!(secrets.len(), 2);
+        assert_eq!(secrets[0].name, "FIRST");
+        assert_eq!(secrets[0].value, "one");
+        assert_eq!(secrets[1].name, "SECOND");
+        assert_eq!(secrets[1].value, "two");
+    }
+
+    #[test]
+    fn load_run_secrets_from_file_reads_yaml_input() {
+        let path = temp_file_path(".yaml");
+        fs::write(&path, "FIRST: one\nSECOND: two\n").unwrap();
+
+        let secrets = load_run_secrets_from_file(path.to_str().unwrap(), false, true).unwrap();
+
+        fs::remove_file(&path).unwrap();
+
+        assert_eq!(secrets.len(), 2);
+        assert_eq!(secrets[0].name, "FIRST");
+        assert_eq!(secrets[1].name, "SECOND");
+    }
+
+    #[test]
+    fn prepare_local_run_secrets_applies_only_and_exclude_filters() {
+        let secrets = vec![
+            SecretWithoutComment {
+                name: "FIRST".to_string(),
+                value: "one".to_string(),
+            },
+            SecretWithoutComment {
+                name: "SECOND".to_string(),
+                value: "two".to_string(),
+            },
+            SecretWithoutComment {
+                name: "THIRD".to_string(),
+                value: "three".to_string(),
+            },
+        ];
+
+        let filtered = prepare_local_run_secrets(
+            secrets,
+            &["FIRST".to_string(), "SECOND".to_string()],
+            &["SECOND".to_string()],
+        );
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "FIRST");
+    }
 }
 
 fn print_table(secrets: &Vec<impl Tabled>) {
