@@ -204,7 +204,7 @@ pub async fn search_secrets(
         query.push(("name".to_string(), name.to_string()));
 
         if include_values {
-            query.push(("include_values".to_string(), "true".to_string()));
+            query.push(("include_value".to_string(), "true".to_string()));
         }
     } else if let Some(value) = value {
         query.push(("value".to_string(), value.to_string()));
