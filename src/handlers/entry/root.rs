@@ -235,6 +235,7 @@ pub async fn handle_cli(args: Cli) {
                     project: run_cmd.project,
                     environment: run_cmd.environment,
                     command: run_cmd.command,
+                    broker: run_cmd.broker,
                     exclude: run_cmd.exclude,
                     only: run_cmd.only,
                     set: run_cmd.set,

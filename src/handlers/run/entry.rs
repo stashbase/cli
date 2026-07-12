@@ -44,6 +44,7 @@ pub struct HandleRunArgs {
     pub project: Option<String>,
     pub environment: Option<String>,
     pub command: Vec<String>,
+    pub broker: bool,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -62,6 +63,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
         command,
+        broker,
         config_file,
         file,
         mut set,
@@ -511,6 +513,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         handle_run(
             &mut spinner,
             command,
+            broker,
             print_secrets.clone(),
             secrets,
             is_from_file,
@@ -649,6 +652,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         handle_run(
                             &mut spinner,
                             command,
+                            broker,
                             print_secrets.clone(),
                             secrets,
                             is_from_file,
@@ -674,6 +678,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     handle_run(
                         &mut spinner,
                         command,
+                        broker,
                         print_secrets.clone(),
                         secrets,
                         is_from_file,
@@ -777,6 +782,7 @@ fn load_run_secrets_from_file(
 async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
+    broker: bool,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
@@ -885,12 +891,34 @@ async fn handle_run(
         .map(|s| s)
         .collect::<Vec<String>>();
 
-    // TODO: errors: no such file or directory
-    subprocess::run_command(&cmd, args, secrets_hash_map)
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("{}: {}", "Failed to run command".red_if_tty_stderr(), e);
-        });
+    // Broker mode gives the child placeholders, never the loaded secret values.
+    // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
+    if broker {
+        let broker = super::broker::Broker::start(secrets_hash_map).await?;
+        if !silent {
+            let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+            eprintln!(
+                "Broker started on localhost:{}",
+                address.rsplit(':').next().unwrap_or_default()
+            );
+        }
+        subprocess::run_command(&cmd, args, broker.child_env().clone())
+            .await
+            .unwrap_or_else(|e| {
+                eprintln!("{}: {}", "Failed to run command".red_if_tty_stderr(), e);
+            });
+        broker.stop().await;
+        if !silent {
+            eprintln!("Broker stopped");
+        }
+    } else {
+        // TODO: errors: no such file or directory
+        subprocess::run_command(&cmd, args, secrets_hash_map)
+            .await
+            .unwrap_or_else(|e| {
+                eprintln!("{}: {}", "Failed to run command".red_if_tty_stderr(), e);
+            });
+    }
 
     Ok(())
 }

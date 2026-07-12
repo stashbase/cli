@@ -122,6 +122,33 @@ stashbase run --file .env.production -- npm run dev
 stashbase run --file secrets.yaml -- npm run dev
 ```
 
+### Experimental credential broker
+
+`run --broker` starts an in-process, localhost-only HTTP proxy for the lifetime
+of the child command. Instead of receiving the loaded secret, the child receives
+a placeholder such as `**STASHBASE_GH_TOKEN**`. When the child sends that value
+as an `Authorization: Bearer` header, the broker replaces it before forwarding
+the request.
+
+```bash
+stashbase run --broker --only GH_TOKEN -- gh workflow run deploy.yml
+```
+
+The broker prints its temporary localhost port when it starts and stops as soon
+as the child command finishes. It is not a daemon and does not write credentials
+to stdout or logs.
+
+This is a feasibility experiment, not a production credential boundary. HTTPS
+rewriting requires TLS interception, so the broker creates a temporary local CA
+and provides its path through standard child-process trust variables
+(`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO`). `curl` can use this
+on typical systems. A client that ignores these variables, pins certificates,
+uses HTTP/2-only proxy traffic, or bypasses proxy environment variables will
+not work; in particular, `gh` may not trust the temporary CA on every platform.
+Only exact `Authorization: Bearer <placeholder>` headers are rewritten. Other
+credential formats, non-HTTP traffic, policies, and approval flows are out of
+scope.
+
 ### Generate utility values
 
 ```bash
