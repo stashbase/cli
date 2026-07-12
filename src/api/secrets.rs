@@ -85,8 +85,10 @@ pub async fn pull(
 
             query
         }
-        false => Vec::with_capacity(1),
+        false => Vec::new(),
     };
+
+    query.push(("include_value".to_string(), "true".to_string()));
 
     if expand_refs == true {
         query.push(("expand_refs".to_string(), expand_refs.to_string()));
