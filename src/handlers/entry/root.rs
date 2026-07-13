@@ -26,7 +26,7 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
         run::{
-            broker::BrokerPolicy,
+            broker::{BrokerPolicy, SecretInjection},
             entry::{handle_load_env_run, HandleRunArgs},
             subprocess::CommandFailed,
         },
@@ -281,6 +281,34 @@ pub async fn handle_cli(args: Cli) {
                                 )
                             })
                             .collect::<HashMap<_, _>>(),
+                        secret_injections: profile
+                            .secrets
+                            .iter()
+                            .filter_map(|(name, secret)| {
+                                if secret.header.is_none() && secret.value_template.is_none() {
+                                    return None;
+                                }
+                                let header = secret
+                                    .header
+                                    .clone()
+                                    .unwrap_or_else(|| "authorization".to_owned());
+                                let default_template = if header.eq_ignore_ascii_case("authorization") {
+                                    "Bearer {secret}"
+                                } else {
+                                    "{secret}"
+                                };
+                                Some((
+                                    name.clone(),
+                                    SecretInjection {
+                                        value_template: secret
+                                            .value_template
+                                            .clone()
+                                            .unwrap_or_else(|| default_template.to_owned()),
+                                        header,
+                                    },
+                                ))
+                            })
+                            .collect(),
                         allowed_egress_hosts: profile
                             .egress_hosts
                             .clone()

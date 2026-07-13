@@ -15,4 +15,9 @@ pub struct AgentProfile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSecretProfile {
     pub hosts: Vec<String>,
+    /// Request header that carries this credential. Defaults to Authorization.
+    pub header: Option<String>,
+    /// Template for the header value. `{secret}` is replaced only inside the broker.
+    /// Defaults to `Bearer {secret}` for Authorization and `{secret}` for other headers.
+    pub value_template: Option<String>,
 }

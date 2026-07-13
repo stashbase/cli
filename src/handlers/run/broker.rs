@@ -18,7 +18,7 @@ use anyhow::{Context, Result};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     body::{Bytes, Incoming},
-    header::{HeaderValue, AUTHORIZATION},
+    header::{HeaderName, HeaderValue},
     server::conn::http1,
     service::service_fn,
     Method, Request, Response, StatusCode,
@@ -43,14 +43,32 @@ type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infal
 #[derive(Debug, Clone)]
 pub struct BrokerPolicy {
     pub allowed_hosts_by_secret: HashMap<String, HashSet<String>>,
+    pub secret_injections: HashMap<String, SecretInjection>,
     pub allowed_egress_hosts: HashSet<String>,
     pub strict_deny: bool,
+}
+
+/// How a placeholder is represented in a child request and rewritten by the broker.
+#[derive(Debug, Clone)]
+pub struct SecretInjection {
+    pub header: String,
+    pub value_template: String,
+}
+
+impl SecretInjection {
+    pub fn bearer() -> Self {
+        Self {
+            header: "authorization".to_owned(),
+            value_template: "Bearer {secret}".to_owned(),
+        }
+    }
 }
 
 impl BrokerPolicy {
     pub fn permissive() -> Self {
         Self {
             allowed_hosts_by_secret: HashMap::new(),
+            secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             strict_deny: false,
         }
@@ -91,6 +109,7 @@ impl Broker {
             .into_iter()
             .map(|(name, hosts)| (placeholder_for(&name), normalize_hosts(hosts)))
             .collect();
+        policy.secret_injections = normalize_injections(policy.secret_injections)?;
         policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
         let state = BrokerState {
             secrets: Arc::new(placeholders),
@@ -423,33 +442,44 @@ fn replace_placeholder(
     state: &BrokerState,
     host: Option<&str>,
 ) -> bool {
-    let Some(header) = request
-        .headers()
-        .get(AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return true;
-    };
-    let Some(placeholder) = header.strip_prefix("Bearer ") else {
-        return true;
-    };
-    let Some(secret) = state.secrets.get(placeholder) else {
-        return true;
-    };
-    if state.policy.strict_deny
-        && !state
+    for (placeholder, secret) in state.secrets.iter() {
+        let injection = state
             .policy
-            .allowed_hosts_by_secret
+            .secret_injections
             .get(placeholder)
-            .is_some_and(|hosts| {
-                host.is_some_and(|host| hosts.iter().any(|allowed| host_matches(allowed, host)))
-            })
-    {
-        return false;
+            .cloned()
+            .unwrap_or_else(SecretInjection::bearer);
+        let Ok(header_name) = HeaderName::from_bytes(injection.header.as_bytes()) else {
+            continue;
+        };
+        let expected = injection.value_template.replace("{secret}", placeholder);
+        let matches_placeholder = request
+            .headers()
+            .get(&header_name)
+            .and_then(|value| value.to_str().ok())
+            == Some(expected.as_str());
+        if !matches_placeholder {
+            continue;
+        }
+
+        if state.policy.strict_deny
+            && !state
+                .policy
+                .allowed_hosts_by_secret
+                .get(placeholder)
+                .is_some_and(|hosts| {
+                    host.is_some_and(|host| hosts.iter().any(|allowed| host_matches(allowed, host)))
+                })
+        {
+            return false;
+        }
+        let value = injection.value_template.replace("{secret}", secret);
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            request.headers_mut().insert(header_name, value);
+        }
+        return true;
     }
-    if let Ok(value) = HeaderValue::from_str(&format!("Bearer {secret}")) {
-        request.headers_mut().insert(AUTHORIZATION, value);
-    }
+
     true
 }
 
@@ -482,6 +512,30 @@ fn normalize_hosts(hosts: HashSet<String>) -> HashSet<String> {
         .collect()
 }
 
+fn normalize_injections(
+    injections: HashMap<String, SecretInjection>,
+) -> Result<HashMap<String, SecretInjection>> {
+    injections
+        .into_iter()
+        .map(|(name, injection)| {
+            let header = HeaderName::from_bytes(injection.header.as_bytes())
+                .with_context(|| format!("invalid credential header for secret '{name}'"))?;
+            if !injection.value_template.contains("{secret}") {
+                anyhow::bail!(
+                    "credential value template for secret '{name}' must contain '{{secret}}'"
+                );
+            }
+            Ok((
+                placeholder_for(&name),
+                SecretInjection {
+                    header: header.as_str().to_owned(),
+                    value_template: injection.value_template,
+                },
+            ))
+        })
+        .collect()
+}
+
 fn host_matches(allowed: &str, host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     match allowed.strip_prefix("*.") {
@@ -500,9 +554,16 @@ fn response(status: StatusCode, message: &str) -> Response<ProxyBody> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hyper::header::AUTHORIZATION;
     use tokio::sync::oneshot;
 
     async fn start_backend() -> (std::net::SocketAddr, oneshot::Receiver<Option<String>>) {
+        start_backend_capturing(AUTHORIZATION).await
+    }
+
+    async fn start_backend_capturing(
+        header_name: HeaderName,
+    ) -> (std::net::SocketAddr, oneshot::Receiver<Option<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (authorization, receiver) = oneshot::channel();
@@ -511,9 +572,10 @@ mod tests {
             let (stream, _) = listener.accept().await.unwrap();
             let service = service_fn(move |request: Request<Incoming>| {
                 let authorization = authorization.clone();
+                let header_name = header_name.clone();
                 let value = request
                     .headers()
-                    .get(AUTHORIZATION)
+                    .get(&header_name)
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned);
                 if let Some(sender) = authorization.lock().unwrap().take() {
@@ -555,6 +617,7 @@ mod tests {
                 "**STASHBASE_GH_TOKEN**".to_owned(),
                 normalize_hosts(HashSet::from(["API.GITHUB.COM.".to_owned()])),
             )]),
+            secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             strict_deny: true,
         };
@@ -580,6 +643,7 @@ mod tests {
                 "**STASHBASE_GH_TOKEN**".to_owned(),
                 HashSet::from(["api.github.com".to_owned()]),
             )]),
+            secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             strict_deny: true,
         };
@@ -616,6 +680,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rewrites_a_placeholder_in_a_configured_api_key_header() {
+        let header_name = HeaderName::from_static("x-api-key");
+        let (address, api_key) = start_backend_capturing(header_name.clone()).await;
+        let broker = Broker::start(
+            HashMap::from([("ANTHROPIC_API_KEY".to_owned(), "real-token".to_owned())]),
+            BrokerPolicy {
+                allowed_hosts_by_secret: HashMap::from([(
+                    "ANTHROPIC_API_KEY".to_owned(),
+                    HashSet::from(["127.0.0.1".to_owned()]),
+                )]),
+                secret_injections: HashMap::from([(
+                    "ANTHROPIC_API_KEY".to_owned(),
+                    SecretInjection {
+                        header: header_name.to_string(),
+                        value_template: "{secret}".to_owned(),
+                    },
+                )]),
+                allowed_egress_hosts: HashSet::new(),
+                strict_deny: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&broker)
+            .get(format!("http://{address}/"))
+            .header("x-api-key", "**STASHBASE_ANTHROPIC_API_KEY**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(api_key.await.unwrap().as_deref(), Some("real-token"));
+        broker.stop().await;
+    }
+
+    #[tokio::test]
     async fn strict_policy_denies_unapproved_destinations_and_sets_node_environment() {
         let (address, _authorization) = start_backend().await;
         let broker = Broker::start(
@@ -625,6 +726,7 @@ mod tests {
                     "GH_TOKEN".to_owned(),
                     HashSet::from(["api.github.com".to_owned()]),
                 )]),
+                secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::new(),
                 strict_deny: true,
             },
@@ -655,6 +757,7 @@ mod tests {
                     "GH_TOKEN".to_owned(),
                     HashSet::from(["api.github.com".to_owned()]),
                 )]),
+                secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 strict_deny: true,
             },
