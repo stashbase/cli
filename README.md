@@ -201,6 +201,24 @@ matches subdomains only, never the apex domain itself.
 credential. Keep a secret's `hosts` list limited to destinations that should
 receive that specific credential.
 
+An optional `.stashbase.toml` in the command's current directory can narrow an
+existing user profile for that repository. It cannot define `file`, `project`,
+or `environment`, add a secret, or add a host. This keeps credential sources
+under user control while allowing a checked-in project file to remove unused
+secrets or destinations:
+
+```toml
+# .stashbase.toml
+[agent_profiles.coding]
+egress_hosts = ["registry.npmjs.org"]
+
+[agent_profiles.coding.secrets.GH_TOKEN]
+hosts = ["api.github.com"]
+```
+
+If a repository restriction names `secrets`, that list becomes the complete
+secret set for the profile; omit `secrets` to retain the user profile's set.
+
 Some tools, including some `gh` builds, ignore the CA-file environment variables
 used by the broker. Opt into temporary operating-system trust-store integration
 for those tools:

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cmd::config::{OutputFormat, SecretsOutputFormat},
-    models::agent::AgentProfile,
+    models::agent::{AgentProfile, AgentProfileRestrictions},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +21,14 @@ pub struct OutputFormatConfig {
     pub secrets: Option<SecretsOutputFormat>,
 }
 
+/// The deliberately limited schema for a repository-local `.stashbase.toml`.
+/// It is not allowed to contain global credentials or agent secret sources.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectConfig {
+    pub agent_profiles: Option<HashMap<String, AgentProfileRestrictions>>,
+}
+
 impl OutputFormatConfig {
     pub fn new() -> Self {
         Self {
@@ -32,7 +40,7 @@ impl OutputFormatConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::{Config, ProjectConfig};
 
     #[test]
     fn parses_agent_profile_with_secret_host_allowlist() {
@@ -73,6 +81,26 @@ mod tests {
         assert_eq!(
             profile.egress_hosts.as_ref().unwrap(),
             &vec!["registry.npmjs.org".to_owned()]
+        );
+    }
+
+    #[test]
+    fn parses_project_agent_restrictions_without_secret_sources() {
+        let config: ProjectConfig = toml::from_str(
+            r#"
+                [agent_profiles.coding]
+                egress_hosts = ["registry.npmjs.org"]
+
+                [agent_profiles.coding.secrets.GH_TOKEN]
+                hosts = ["api.github.com"]
+            "#,
+        )
+        .unwrap();
+
+        let profile = &config.agent_profiles.unwrap()["coding"];
+        assert_eq!(
+            profile.secrets.as_ref().unwrap()["GH_TOKEN"].hosts,
+            ["api.github.com"]
         );
     }
 }

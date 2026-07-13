@@ -220,7 +220,7 @@ pub async fn handle_cli(args: Cli) {
                     .await
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
-                AgentSubcommand::Run(agent_run) => {
+                AgentSubcommand::Run(agent_run) => async {
                     let Some(profile) = config
                         .agent_profiles
                         .as_ref()
@@ -230,14 +230,20 @@ pub async fn handle_cli(args: Cli) {
                             "Agent profile '{}' was not found in the Stashbase config file.",
                             agent_run.profile
                         );
-                        return;
+                        return Ok(());
+                    };
+
+                    let profile = match config::get_project_agent_restrictions(&agent_run.profile)? {
+                        Some(restrictions) => profile.restricted_by(&restrictions)?,
+                        None => profile.clone(),
                     };
 
                     if profile.secrets.is_empty() {
-                        return eprintln!(
+                        eprintln!(
                             "Agent profile '{}' does not grant any secrets.",
                             agent_run.profile
                         );
+                        return Ok(());
                     }
 
                     let valid_source = matches!(
@@ -245,10 +251,11 @@ pub async fn handle_cli(args: Cli) {
                         (Some(_), None, None) | (None, Some(_), Some(_))
                     );
                     if !valid_source {
-                        return eprintln!(
+                        eprintln!(
                             "Agent profile '{}' must define either 'file' or both 'project' and 'environment'.",
                             agent_run.profile
                         );
+                        return Ok(());
                     }
 
                     let policy = BrokerPolicy {
@@ -272,8 +279,8 @@ pub async fn handle_cli(args: Cli) {
                     };
                     let args = HandleRunArgs {
                         api_key,
-                        project: profile.project.clone(),
-                        environment: profile.environment.clone(),
+                        project: profile.project,
+                        environment: profile.environment,
                         command: agent_run.command,
                         broker: true,
                         broker_policy: Some(policy),
@@ -285,7 +292,7 @@ pub async fn handle_cli(args: Cli) {
                         print_secrets: None,
                         no_print_secrets: true,
                         config_file: None,
-                        file: profile.file.clone(),
+                        file: profile.file,
                         expand_refs: None,
                         json_format: raw_output,
                         silent,
@@ -293,6 +300,7 @@ pub async fn handle_cli(args: Cli) {
                     };
                     handle_load_env_run(args).await
                 }
+                .await,
             },
             EntityType::Run(run_cmd) => {
                 // Validate scope conflicts

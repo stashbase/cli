@@ -6,7 +6,10 @@ use std::{
 use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
 
-use crate::models::config::{Config, OutputFormatConfig, UpdateConfig};
+use crate::models::{
+    agent::AgentProfileRestrictions,
+    config::{Config, OutputFormatConfig, ProjectConfig, UpdateConfig},
+};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -99,6 +102,25 @@ pub fn get_config() -> Result<Config> {
     } else {
         bail!("Could not find config directory.")
     }
+}
+
+/// Load optional, repository-local restrictions for the current working directory.
+/// This file never creates config directories and is ignored when absent.
+pub fn get_project_agent_restrictions(
+    profile_name: &str,
+) -> Result<Option<AgentProfileRestrictions>> {
+    let path = std::env::current_dir()?.join(".stashbase.toml");
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("Could not read project config file '{}'.", path.display()))?;
+    let config: ProjectConfig = toml::from_str(&content)
+        .with_context(|| format!("Could not parse project config file '{}'.", path.display()))?;
+    Ok(config
+        .agent_profiles
+        .and_then(|profiles| profiles.get(profile_name).cloned()))
 }
 
 pub fn update_config(args: UpdateConfig) -> Result<()> {
