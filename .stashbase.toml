@@ -1,15 +1,23 @@
 # .stashbase.toml
 [agent_profiles.coding]
 egress_hosts = ["*"]
-file = "./.env.agent-test"
 
 [agent_profiles.coding.secrets.GH_TOKEN]
+from = "GITHUB_TOKEN"
 # Copilot authenticates across these GitHub-owned endpoints. The token still
 # cannot be injected into arbitrary hosts allowed by `egress_hosts`.
 hosts = [
-  "api.github.com",
-  "github.com",
-  "copilot-proxy.githubusercontent.com",
-  "origin-tracker.githubusercontent.com",
-  "*.githubcopilot.com",
+    "api.github.com",
+    "github.com",
+    "copilot-proxy.githubusercontent.com",
+    "origin-tracker.githubusercontent.com",
+    "*.githubcopilot.com",
 ]
+
+[agent_profiles.third-party-test]
+file = "./.env.third-party-test"
+egress_hosts = ["*"]
+
+[agent_profiles.third-party-test.secrets.DEMO_PARTNER_API_KEY]
+hosts = ["postman-echo.com"]
+header = "x-api-key"
