@@ -1,7 +1,11 @@
-use std::sync::atomic::Ordering;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::atomic::Ordering,
+};
 
 use crate::{
     cmd::{
+        agent::AgentSubcommand,
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
@@ -21,7 +25,10 @@ use crate::{
         open::handle_open_dashboard,
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
-        run::entry::{handle_load_env_run, HandleRunArgs},
+        run::{
+            broker::BrokerPolicy,
+            entry::{handle_load_env_run, HandleRunArgs},
+        },
         setup::setup,
     },
     models::{config::Config, validation::InputValidationError},
@@ -211,6 +218,63 @@ pub async fn handle_cli(args: Cli) {
                 handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
                     .await
             }
+            EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
+                AgentSubcommand::Run(agent_run) => {
+                    let Some(profile) = config
+                        .agent_profiles
+                        .as_ref()
+                        .and_then(|profiles| profiles.get(&agent_run.profile))
+                    else {
+                        eprintln!(
+                            "Agent profile '{}' was not found in the Stashbase config file.",
+                            agent_run.profile
+                        );
+                        return;
+                    };
+
+                    if profile.secrets.is_empty() {
+                        return eprintln!(
+                            "Agent profile '{}' does not grant any secrets.",
+                            agent_run.profile
+                        );
+                    }
+
+                    let policy = BrokerPolicy {
+                        allowed_hosts_by_secret: profile
+                            .secrets
+                            .iter()
+                            .map(|(name, secret)| {
+                                (
+                                    name.clone(),
+                                    secret.hosts.iter().cloned().collect::<HashSet<_>>(),
+                                )
+                            })
+                            .collect::<HashMap<_, _>>(),
+                        strict_deny: true,
+                    };
+                    let args = HandleRunArgs {
+                        api_key,
+                        project: Some(profile.project.clone()),
+                        environment: Some(profile.environment.clone()),
+                        command: agent_run.command,
+                        broker: true,
+                        broker_policy: Some(policy),
+                        only: profile.secrets.keys().cloned().collect(),
+                        exclude: Vec::new(),
+                        set: Vec::new(),
+                        set_comments: Vec::new(),
+                        print_secrets: None,
+                        no_print_secrets: true,
+                        config_file: None,
+                        file: None,
+                        expand_refs: None,
+                        json_format: raw_output,
+                        silent,
+                        scope: None,
+                    };
+                    handle_load_env_run(args).await
+                }
+            },
             EntityType::Run(run_cmd) => {
                 // Validate scope conflicts
                 if let Err(err) = run_cmd.validate_scope_conflicts() {
@@ -236,6 +300,7 @@ pub async fn handle_cli(args: Cli) {
                     environment: run_cmd.environment,
                     command: run_cmd.command,
                     broker: run_cmd.broker,
+                    broker_policy: None,
                     exclude: run_cmd.exclude,
                     only: run_cmd.only,
                     set: run_cmd.set,

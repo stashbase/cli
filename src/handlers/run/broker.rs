@@ -5,7 +5,12 @@
 //! This is an experiment, not a hardened proxy implementation.
 
 use std::{
-    collections::HashMap, convert::Infallible, future::Future, path::PathBuf, pin::Pin, sync::Arc,
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    future::Future,
+    path::PathBuf,
+    pin::Pin,
+    sync::Arc,
 };
 
 use anyhow::{Context, Result};
@@ -30,9 +35,26 @@ use uuid::Uuid;
 type ProxyBody = Full<Bytes>;
 type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infallible>> + Send>>;
 
+/// Destination policy for credentials brokered into an agent process.
+#[derive(Debug, Clone)]
+pub struct BrokerPolicy {
+    pub allowed_hosts_by_secret: HashMap<String, HashSet<String>>,
+    pub strict_deny: bool,
+}
+
+impl BrokerPolicy {
+    pub fn permissive() -> Self {
+        Self {
+            allowed_hosts_by_secret: HashMap::new(),
+            strict_deny: false,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct BrokerState {
     secrets: Arc<HashMap<String, String>>,
+    policy: BrokerPolicy,
     client: reqwest::Client,
     certificate_authority: Arc<Certificate>,
 }
@@ -47,7 +69,7 @@ pub struct Broker {
 }
 
 impl Broker {
-    pub async fn start(secrets: HashMap<String, String>) -> Result<Self> {
+    pub async fn start(secrets: HashMap<String, String>, mut policy: BrokerPolicy) -> Result<Self> {
         let (certificate_authority, ca_file) = create_certificate_authority()?;
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -57,10 +79,21 @@ impl Broker {
             .into_iter()
             .map(|(name, value)| (placeholder_for(&name), value))
             .collect::<HashMap<_, _>>();
+        policy.allowed_hosts_by_secret = policy
+            .allowed_hosts_by_secret
+            .into_iter()
+            .map(|(name, hosts)| (placeholder_for(&name), normalize_hosts(hosts)))
+            .collect();
         let state = BrokerState {
             secrets: Arc::new(placeholders),
+            policy,
             // Forwarding must never use proxy variables inherited by Stashbase itself.
-            client: reqwest::Client::builder().no_proxy().build()?,
+            client: reqwest::Client::builder()
+                .no_proxy()
+                // Return redirects to the child, which will make its next request through
+                // this proxy and therefore re-run destination policy checks.
+                .redirect(reqwest::redirect::Policy::none())
+                .build()?,
             certificate_authority: Arc::new(certificate_authority),
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
@@ -186,6 +219,12 @@ fn proxy_request(
                     "CONNECT requires an authority",
                 ));
             };
+            if !state.host_allowed(Some(host_from_authority(&authority))) {
+                return Ok(response(
+                    StatusCode::FORBIDDEN,
+                    "Broker policy denied destination",
+                ));
+            }
             tokio::spawn(async move {
                 if let Ok(upgraded) = hyper::upgrade::on(&mut request).await {
                     let _ = serve_tls_connection(upgraded, authority, state).await;
@@ -197,7 +236,19 @@ fn proxy_request(
                 .unwrap());
         }
 
-        replace_placeholder(&mut request, &state.secrets);
+        let host = request_host(&request, connect_authority.as_deref());
+        if !state.host_allowed(host.as_deref()) {
+            return Ok(response(
+                StatusCode::FORBIDDEN,
+                "Broker policy denied destination",
+            ));
+        }
+        if !replace_placeholder(&mut request, &state, host.as_deref()) {
+            return Ok(response(
+                StatusCode::FORBIDDEN,
+                "Broker policy denied credential",
+            ));
+        }
         let url = match request_url(&request, connect_authority.as_deref()) {
             Ok(url) => url,
             Err(_) => {
@@ -309,23 +360,81 @@ async fn serve_tls_connection(
     Ok(())
 }
 
-fn replace_placeholder(request: &mut Request<Incoming>, secrets: &HashMap<String, String>) {
+impl BrokerState {
+    fn host_allowed(&self, host: Option<&str>) -> bool {
+        !self.policy.strict_deny || host.is_some_and(|host| policy_allows_host(&self.policy, host))
+    }
+}
+
+fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
+    policy
+        .allowed_hosts_by_secret
+        .values()
+        .any(|hosts| hosts.contains(&host.to_ascii_lowercase()))
+}
+
+fn replace_placeholder(
+    request: &mut Request<Incoming>,
+    state: &BrokerState,
+    host: Option<&str>,
+) -> bool {
     let Some(header) = request
         .headers()
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
     else {
-        return;
+        return true;
     };
     let Some(placeholder) = header.strip_prefix("Bearer ") else {
-        return;
+        return true;
     };
-    let Some(secret) = secrets.get(placeholder) else {
-        return;
+    let Some(secret) = state.secrets.get(placeholder) else {
+        return true;
     };
+    if state.policy.strict_deny
+        && !state
+            .policy
+            .allowed_hosts_by_secret
+            .get(placeholder)
+            .is_some_and(|hosts| {
+                host.is_some_and(|host| hosts.contains(&host.to_ascii_lowercase()))
+            })
+    {
+        return false;
+    }
     if let Ok(value) = HeaderValue::from_str(&format!("Bearer {secret}")) {
         request.headers_mut().insert(AUTHORIZATION, value);
     }
+    true
+}
+
+fn request_host(request: &Request<Incoming>, connect_authority: Option<&str>) -> Option<String> {
+    connect_authority
+        .map(host_from_authority)
+        .map(str::to_owned)
+        .or_else(|| request.uri().host().map(str::to_owned))
+        .or_else(|| {
+            request
+                .headers()
+                .get("host")
+                .and_then(|value| value.to_str().ok())
+                .map(host_from_authority)
+                .map(str::to_owned)
+        })
+}
+
+fn host_from_authority(authority: &str) -> &str {
+    authority
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(authority)
+}
+
+fn normalize_hosts(hosts: HashSet<String>) -> HashSet<String> {
+    hosts
+        .into_iter()
+        .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
+        .collect()
 }
 
 fn response(status: StatusCode, message: &str) -> Response<ProxyBody> {
@@ -342,5 +451,19 @@ mod tests {
     #[test]
     fn creates_expected_placeholders() {
         assert_eq!(placeholder_for("GH_TOKEN"), "**STASHBASE_GH_TOKEN**");
+    }
+
+    #[test]
+    fn strict_policy_allows_only_configured_hosts() {
+        let policy = BrokerPolicy {
+            allowed_hosts_by_secret: HashMap::from([(
+                "**STASHBASE_GH_TOKEN**".to_owned(),
+                normalize_hosts(HashSet::from(["API.GITHUB.COM.".to_owned()])),
+            )]),
+            strict_deny: true,
+        };
+
+        assert!(policy_allows_host(&policy, "api.github.com"));
+        assert!(!policy_allows_host(&policy, "example.com"));
     }
 }

@@ -3,9 +3,10 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::cmd::scans::{ScanCommands, ScanConfigSubcommand, ScanSubcommand};
 
 use super::{
-    config::ConfigCommand, doctor::DoctorCommand, environments::EnvironmentCommands,
-    generate::GenerateCommand, projects::ProjectCommands, pull::PullCommand, push::PushCommand,
-    run::RunCommand, secrets::SecretArgs, setup::SetupCommand, webhooks::WebhookCommand,
+    agent::AgentCommand, config::ConfigCommand, doctor::DoctorCommand,
+    environments::EnvironmentCommands, generate::GenerateCommand, projects::ProjectCommands,
+    pull::PullCommand, push::PushCommand, run::RunCommand, secrets::SecretArgs,
+    setup::SetupCommand, webhooks::WebhookCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -50,6 +51,9 @@ pub enum ColorChoice {
 
 #[derive(Debug, Subcommand)]
 pub enum EntityType {
+    /// Run an agent with brokered, profile-scoped credentials
+    Agent(AgentCommand),
+
     /// Load environment and run command
     Run(RunCommand),
 

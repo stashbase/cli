@@ -146,8 +146,38 @@ on typical systems. A client that ignores these variables, pins certificates,
 uses HTTP/2-only proxy traffic, or bypasses proxy environment variables will
 not work; in particular, `gh` may not trust the temporary CA on every platform.
 Only exact `Authorization: Bearer <placeholder>` headers are rewritten. Other
-credential formats, non-HTTP traffic, policies, and approval flows are out of
-scope.
+credential formats, non-HTTP traffic, and approval flows are out of scope.
+
+### Agent profiles (experimental)
+
+For a coding agent, use an agent profile instead of allowing the agent to select
+its own secret names or destinations. Add the profile to the user-level
+Stashbase `config.toml`:
+
+```toml
+[agent_profiles.coding]
+project = "my-project"
+environment = "development"
+
+[agent_profiles.coding.secrets.GH_TOKEN]
+hosts = ["api.github.com"]
+```
+
+Then start the agent through the restricted command:
+
+```bash
+stashbase agent run --profile coding -- codex
+```
+
+`agent run` always uses broker mode, exposes only placeholders to the child,
+suppresses secret printing, and strictly denies HTTP(S) destinations outside the
+profile. A placeholder can only be exchanged for its mapped secret at one of
+that secret's configured hosts. The agent command deliberately has no `--set`,
+`--file`, `--only`, or host-override options.
+
+This is still a local experimental mode. A sandboxed agent must not have access
+to the user's unrestricted Stashbase API credentials or it could invoke normal
+`stashbase run` directly instead of this restricted command.
 
 ### Generate utility values
 

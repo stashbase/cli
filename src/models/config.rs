@@ -1,12 +1,18 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::cmd::config::{OutputFormat, SecretsOutputFormat};
+use crate::{
+    cmd::config::{OutputFormat, SecretsOutputFormat},
+    models::agent::AgentProfile,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub api_key: Option<String>,
     pub expand_refs: Option<bool>,
     pub ouput_format: Option<OutputFormatConfig>,
+    pub agent_profiles: Option<HashMap<String, AgentProfile>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,19 +30,49 @@ impl OutputFormatConfig {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn parses_agent_profile_with_secret_host_allowlist() {
+        let config: Config = toml::from_str(
+            r#"
+                [agent_profiles.coding]
+                project = "project"
+                environment = "development"
+
+                [agent_profiles.coding.secrets.GH_TOKEN]
+                hosts = ["api.github.com"]
+            "#,
+        )
+        .unwrap();
+
+        let profile = &config.agent_profiles.unwrap()["coding"];
+        assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
+    }
+}
+
 impl Config {
     pub fn new() -> Self {
         Self {
             api_key: None,
             ouput_format: None,
+            agent_profiles: None,
             expand_refs: None,
         }
     }
     pub fn is_empty(&self) -> bool {
         if let Some(output_format) = &self.ouput_format {
-            self.api_key.is_none() && output_format.is_empty() && self.expand_refs.is_none()
+            self.api_key.is_none()
+                && output_format.is_empty()
+                && self.expand_refs.is_none()
+                && self.agent_profiles.is_none()
         } else {
-            self.api_key.is_none() && self.ouput_format.is_none() && self.expand_refs.is_none()
+            self.api_key.is_none()
+                && self.ouput_format.is_none()
+                && self.expand_refs.is_none()
+                && self.agent_profiles.is_none()
         }
     }
 }
