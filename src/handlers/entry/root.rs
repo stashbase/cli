@@ -268,11 +268,13 @@ pub async fn handle_cli(args: Cli) {
 
                     let valid_source = matches!(
                         (&profile.file, &profile.project, &profile.environment),
-                        (Some(_), None, None) | (None, Some(_), Some(_))
+                        (Some(_), None, None)
+                            | (None, Some(_), Some(_))
+                            | (Some(_), Some(_), Some(_))
                     );
                     if !valid_source {
                         eprintln!(
-                            "Agent profile '{}' must define either 'file' or both 'project' and 'environment'.",
+                            "Agent profile '{}' must define 'file', both 'project' and 'environment', or both sources together.",
                             agent_run.profile
                         );
                         return Ok(());
@@ -361,6 +363,7 @@ pub async fn handle_cli(args: Cli) {
                         sandbox: agent_run.sandbox,
                         audit_log,
                         secret_bindings: secret_bindings.clone(),
+                        allow_file_override: true,
                         only: secret_bindings.keys().cloned().collect(),
                         exclude: Vec::new(),
                         set: Vec::new(),
@@ -408,6 +411,7 @@ pub async fn handle_cli(args: Cli) {
                     sandbox: false,
                     audit_log: None,
                     secret_bindings: HashMap::new(),
+                    allow_file_override: false,
                     exclude: run_cmd.exclude,
                     only: run_cmd.only,
                     set: run_cmd.set,
