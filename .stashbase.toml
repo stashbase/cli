@@ -2,6 +2,11 @@
 [agent_profiles.coding]
 egress_hosts = ["*"]
 
+file = "./.env.agent-test"
+# project = "booking-app"
+# environment = "development"
+
+
 [agent_profiles.coding.secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
 # Copilot authenticates across these GitHub-owned endpoints. The token still
