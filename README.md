@@ -189,6 +189,9 @@ profile. A placeholder can only be exchanged for its mapped secret at one of
 that secret's configured hosts. The agent command deliberately has no `--set`,
 `--file`, `--only`, or host-override options.
 
+Hosts may use a leading subdomain wildcard such as `*.githubcopilot.com`; it
+matches subdomains only, never the apex domain itself.
+
 Some tools, including some `gh` builds, ignore the CA-file environment variables
 used by the broker. Opt into temporary operating-system trust-store integration
 for those tools:

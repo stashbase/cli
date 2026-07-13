@@ -383,7 +383,7 @@ fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
     policy
         .allowed_hosts_by_secret
         .values()
-        .any(|hosts| hosts.contains(&host.to_ascii_lowercase()))
+        .any(|hosts| hosts.iter().any(|allowed| host_matches(allowed, host)))
 }
 
 fn replace_placeholder(
@@ -410,7 +410,7 @@ fn replace_placeholder(
             .allowed_hosts_by_secret
             .get(placeholder)
             .is_some_and(|hosts| {
-                host.is_some_and(|host| hosts.contains(&host.to_ascii_lowercase()))
+                host.is_some_and(|host| hosts.iter().any(|allowed| host_matches(allowed, host)))
             })
     {
         return false;
@@ -448,6 +448,14 @@ fn normalize_hosts(hosts: HashSet<String>) -> HashSet<String> {
         .into_iter()
         .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
         .collect()
+}
+
+fn host_matches(allowed: &str, host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    match allowed.strip_prefix("*.") {
+        Some(suffix) => host != suffix && host.ends_with(&format!(".{suffix}")),
+        None => allowed == host,
+    }
 }
 
 fn response(status: StatusCode, message: &str) -> Response<ProxyBody> {
@@ -520,6 +528,16 @@ mod tests {
 
         assert!(policy_allows_host(&policy, "api.github.com"));
         assert!(!policy_allows_host(&policy, "example.com"));
+    }
+
+    #[test]
+    fn policy_supports_subdomain_wildcards_without_matching_the_apex() {
+        assert!(host_matches("*.githubcopilot.com", "api.githubcopilot.com"));
+        assert!(!host_matches("*.githubcopilot.com", "githubcopilot.com"));
+        assert!(!host_matches(
+            "*.githubcopilot.com",
+            "evilgithubcopilot.com"
+        ));
     }
 
     #[tokio::test]
