@@ -302,6 +302,39 @@ struct BrokerState {
     client: reqwest::Client,
     certificate_authority: Arc<Certificate>,
     audit_log: Option<AuditLog>,
+    connections: Arc<ActiveConnections>,
+}
+
+/// Tracks every accepted proxy and TLS-upgrade task so broker shutdown closes
+/// existing sockets as well as the listening socket.
+#[derive(Default)]
+struct ActiveConnections {
+    inner: Mutex<ActiveConnectionState>,
+}
+
+#[derive(Default)]
+struct ActiveConnectionState {
+    stopped: bool,
+    tasks: Vec<JoinHandle<()>>,
+}
+
+impl ActiveConnections {
+    fn track(&self, task: JoinHandle<()>) {
+        let mut state = self.inner.lock().expect("broker connection lock poisoned");
+        if state.stopped {
+            task.abort();
+        } else {
+            state.tasks.push(task);
+        }
+    }
+
+    fn stop(&self) {
+        let mut state = self.inner.lock().expect("broker connection lock poisoned");
+        state.stopped = true;
+        for task in state.tasks.drain(..) {
+            task.abort();
+        }
+    }
 }
 
 /// Owns the listener and the temporary trust anchor for exactly one child process.
@@ -313,6 +346,7 @@ pub struct Broker {
     ca_file: PathBuf,
     ca_subject: String,
     audit_log: Option<AuditLog>,
+    connections: Arc<ActiveConnections>,
 }
 
 impl Broker {
@@ -337,6 +371,7 @@ impl Broker {
             .collect();
         policy.secret_injections = normalize_injections(policy.secret_injections)?;
         policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
+        let connections = Arc::new(ActiveConnections::default());
         let state = BrokerState {
             secrets: Arc::new(placeholders),
             policy,
@@ -352,6 +387,7 @@ impl Broker {
                 .build()?,
             certificate_authority: Arc::new(certificate_authority),
             audit_log: audit_log.clone(),
+            connections: connections.clone(),
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -392,6 +428,7 @@ impl Broker {
             ca_file,
             ca_subject,
             audit_log,
+            connections,
         })
     }
 
@@ -400,6 +437,7 @@ impl Broker {
     }
 
     pub async fn stop(mut self) {
+        self.connections.stop();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -418,6 +456,7 @@ impl Broker {
 
 impl Drop for Broker {
     fn drop(&mut self) {
+        self.connections.stop();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -468,13 +507,15 @@ async fn run_listener(
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
                     let state = state.clone();
-                    tokio::spawn(async move {
+                    let connections = state.connections.clone();
+                    let task = tokio::spawn(async move {
                         let service = service_fn(move |request| proxy_request(request, state.clone(), None));
                         let _ = http1::Builder::new()
                             .serve_connection(TokioIo::new(stream), service)
                             .with_upgrades()
                             .await;
                     });
+                    connections.track(task);
                 }
                 Err(_) => break,
             }
@@ -523,11 +564,13 @@ fn proxy_request(
                 Some(StatusCode::OK),
                 Some(started.elapsed()),
             );
-            tokio::spawn(async move {
+            let connections = state.connections.clone();
+            let task = tokio::spawn(async move {
                 if let Ok(upgraded) = hyper::upgrade::on(&mut request).await {
                     let _ = serve_tls_connection(upgraded, authority, state).await;
                 }
             });
+            connections.track(task);
             return Ok(Response::builder()
                 .status(StatusCode::OK)
                 .body(Full::new(Bytes::new()))
@@ -939,6 +982,29 @@ mod tests {
     #[test]
     fn creates_expected_placeholders() {
         assert_eq!(placeholder_for("GH_TOKEN"), "**STASHBASE_GH_TOKEN**");
+    }
+
+    #[tokio::test]
+    async fn broker_stop_closes_the_listener() {
+        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let address: std::net::SocketAddr = broker.child_env()["HTTP_PROXY"]
+            .trim_start_matches("http://")
+            .parse()
+            .unwrap();
+
+        assert!(tokio::net::TcpStream::connect(address).await.is_ok());
+        broker.stop().await;
+        let mut closed = false;
+        for _ in 0..10 {
+            if tokio::net::TcpStream::connect(address).await.is_err() {
+                closed = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(closed, "broker listener remained reachable after stop");
     }
 
     #[test]
