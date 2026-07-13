@@ -415,7 +415,7 @@ fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
         || policy
             .allowed_egress_hosts
             .iter()
-            .any(|allowed| host_matches(allowed, host))
+            .any(|allowed| allowed == "*" || host_matches(allowed, host))
 }
 
 fn replace_placeholder(
@@ -571,6 +571,23 @@ mod tests {
             "*.githubcopilot.com",
             "evilgithubcopilot.com"
         ));
+    }
+
+    #[test]
+    fn egress_wildcard_allows_any_destination_without_widening_secret_hosts() {
+        let policy = BrokerPolicy {
+            allowed_hosts_by_secret: HashMap::from([(
+                "**STASHBASE_GH_TOKEN**".to_owned(),
+                HashSet::from(["api.github.com".to_owned()]),
+            )]),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            strict_deny: true,
+        };
+
+        assert!(policy_allows_host(&policy, "example.com"));
+        assert!(!policy.allowed_hosts_by_secret["**STASHBASE_GH_TOKEN**"]
+            .iter()
+            .any(|allowed| host_matches(allowed, "example.com")));
     }
 
     #[tokio::test]

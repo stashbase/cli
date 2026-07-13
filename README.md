@@ -200,6 +200,8 @@ matches subdomains only, never the apex domain itself.
 `egress_hosts` permits ordinary traffic without injecting a Stashbase
 credential. Keep a secret's `hosts` list limited to destinations that should
 receive that specific credential.
+Use `egress_hosts = ["*"]` only when the agent needs unrestricted HTTP(S)
+egress; it does not widen a secret's configured injection hosts.
 
 Agent profiles can also live in `.stashbase.toml` in the command's current
 directory. The directory file contains a complete profile and never stores API

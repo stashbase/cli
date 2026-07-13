@@ -890,6 +890,7 @@ async fn handle_run(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *mutex = true;
+    drop(mutex);
 
     let Some(cmd) = command.first().cloned() else {
         let error = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
