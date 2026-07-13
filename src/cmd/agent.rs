@@ -14,7 +14,7 @@ pub enum AgentSubcommand {
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "agent run --profile <PROFILE> [--profile-source <global|directory|auto>] -- <COMMAND> [ARGS]..."
+    override_usage = "agent run --profile <PROFILE> [--profile-source <auto|global|directory>] -- <COMMAND> [ARGS]..."
 )]
 pub struct AgentRunCommand {
     /// Trusted agent profile from the Stashbase config file
@@ -22,7 +22,7 @@ pub struct AgentRunCommand {
     pub profile: String,
 
     /// Where to load the agent profile from
-    #[arg(long, value_enum, default_value = "global")]
+    #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
 
     /// Temporarily trust the broker CA in the operating system trust store

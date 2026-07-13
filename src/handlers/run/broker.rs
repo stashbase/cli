@@ -10,10 +10,10 @@ use std::{
     fs::{self, OpenOptions},
     future::Future,
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::{Context, Result};
@@ -45,6 +45,9 @@ use std::os::unix::fs::PermissionsExt;
 type ProxyBody = Full<Bytes>;
 type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infallible>> + Send>>;
 
+const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const AUDIT_LOG_MAX_FILES: usize = 1_000;
+
 /// Private, metadata-only audit log for one broker session.
 #[derive(Debug, Clone)]
 pub struct AuditLog {
@@ -64,6 +67,7 @@ impl AuditLog {
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+        prune_audit_logs(&directory)?;
 
         let session_id = Uuid::new_v4().to_string();
         let path = directory.join(format!("agent-{}.jsonl", session_id));
@@ -110,6 +114,43 @@ impl AuditLog {
             let _ = writeln!(file, "{event}");
         }
     }
+}
+
+/// Keeps local audit storage bounded without touching files outside our session naming scheme.
+fn prune_audit_logs(directory: &Path) -> Result<()> {
+    let now = SystemTime::now();
+    let mut logs = Vec::new();
+
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if !file_name.starts_with("agent-") || !file_name.ends_with(".jsonl") {
+            continue;
+        }
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+
+        let modified = entry.metadata()?.modified()?;
+        if now
+            .duration_since(modified)
+            .is_ok_and(|age| age > AUDIT_LOG_RETENTION)
+        {
+            fs::remove_file(entry.path())?;
+        } else {
+            logs.push((entry.path(), modified));
+        }
+    }
+
+    // Reserve a slot for the session log that is about to be created.
+    logs.sort_by_key(|(_, modified)| *modified);
+    let excess = logs.len().saturating_sub(AUDIT_LOG_MAX_FILES - 1);
+    for (path, _) in logs.into_iter().take(excess) {
+        fs::remove_file(path)?;
+    }
+
+    Ok(())
 }
 
 /// Destination policy for credentials brokered into an agent process.
@@ -825,6 +866,28 @@ mod tests {
         assert!(content.contains("EXAMPLE_API_KEY"));
         assert!(!content.contains("real-secret-value"));
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn audit_log_pruning_reserves_a_slot_for_the_new_session() {
+        let directory =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}", Uuid::new_v4()));
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("unrelated.txt"), "keep me").unwrap();
+        for index in 0..AUDIT_LOG_MAX_FILES {
+            fs::write(directory.join(format!("agent-{index}.jsonl")), "{}").unwrap();
+        }
+
+        prune_audit_logs(&directory).unwrap();
+
+        let retained = fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("agent-"))
+            .count();
+        assert_eq!(retained, AUDIT_LOG_MAX_FILES - 1);
+        assert!(directory.join("unrelated.txt").exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
