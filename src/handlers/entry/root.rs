@@ -1,11 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::atomic::Ordering,
+    time::Duration,
 };
 
 use crate::{
     cmd::{
-        agent::{AgentProfileSource, AgentSubcommand},
+        agent::{AgentLogsCommand, AgentProfileSource, AgentSubcommand},
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
@@ -26,7 +27,9 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
         run::{
-            broker::{AuditLog, BrokerPolicy, SecretInjection},
+            broker::{
+                read_local_audit_logs, AuditLog, AuditLogEvent, BrokerPolicy, SecretInjection,
+            },
             entry::{handle_load_env_run, HandleRunArgs},
             subprocess::CommandFailed,
         },
@@ -134,7 +137,8 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
-        let api_key = api_key.unwrap();
+        // Local commands such as `agent logs` do not need Stashbase authentication.
+        let api_key = api_key.unwrap_or_default();
 
         let result = match args.entity_type {
             EntityType::Whoami(WhoamiCommand { format }) => {
@@ -220,6 +224,9 @@ pub async fn handle_cli(args: Cli) {
                     .await
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
+                AgentSubcommand::Logs(agent_logs) => {
+                    handle_agent_logs(agent_logs, raw_output).await
+                }
                 AgentSubcommand::Run(agent_run) => async {
                     let global_profile = config
                         .agent_profiles
@@ -502,4 +509,86 @@ pub async fn handle_cli(args: Cli) {
         }
         eprintln!("{:?}", err);
     }
+}
+
+async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Result<()> {
+    if command.limit == 0 || command.limit > 1_000 {
+        anyhow::bail!("--limit must be between 1 and 1000.");
+    }
+    let since = command
+        .since
+        .as_deref()
+        .map(parse_audit_duration)
+        .transpose()?;
+    if !command.follow {
+        let events = read_local_audit_logs(command.limit, since)?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&events)?);
+        } else {
+            for event in &events {
+                print_audit_event(event, false)?;
+            }
+        }
+        return Ok(());
+    }
+
+    let mut displayed = HashSet::new();
+
+    loop {
+        if REQUEST_ABORTED.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        for event in read_local_audit_logs(command.limit, since)? {
+            if !displayed.insert(event.clone()) {
+                continue;
+            }
+            print_audit_event(&event, json)?;
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+fn parse_audit_duration(value: &str) -> anyhow::Result<Duration> {
+    let split_at = value.find(|character: char| !character.is_ascii_digit());
+    let Some(split_at) = split_at else {
+        anyhow::bail!("Invalid --since value '{value}'. Use a value such as 30m, 24h, or 7d.");
+    };
+    let (amount, unit) = value.split_at(split_at);
+    let amount = amount.parse::<u64>().map_err(|_| {
+        anyhow::anyhow!("Invalid --since value '{value}'. Use a value such as 30m, 24h, or 7d.")
+    })?;
+    let seconds_per_unit = match unit {
+        "m" => 60,
+        "h" => 60 * 60,
+        "d" => 24 * 60 * 60,
+        _ => anyhow::bail!("Invalid --since value '{value}'. Use a value such as 30m, 24h, or 7d."),
+    };
+    let seconds = amount.checked_mul(seconds_per_unit).ok_or_else(|| {
+        anyhow::anyhow!("Invalid --since value '{value}': duration is too large.")
+    })?;
+    Ok(Duration::from_secs(seconds))
+}
+
+fn print_audit_event(event: &AuditLogEvent, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string(event)?);
+        return Ok(());
+    }
+
+    let host = event.destination_host.as_deref().unwrap_or("-");
+    let secret = event.secret_name.as_deref().unwrap_or("-");
+    let status = event
+        .response_status
+        .map(|status| status.to_string())
+        .unwrap_or_else(|| "-".to_owned());
+    let duration = event
+        .duration_ms
+        .map(|duration| format!("{duration}ms"))
+        .unwrap_or_else(|| "-".to_owned());
+    println!(
+        "{}  profile={} action={} host={} secret={} status={} duration={}",
+        event.timestamp, event.profile, event.action, host, secret, status, duration
+    );
+    Ok(())
 }

@@ -10,6 +10,8 @@ pub struct AgentCommand {
 pub enum AgentSubcommand {
     /// Run an agent with a brokered credential profile
     Run(AgentRunCommand),
+    /// View local metadata-only broker audit logs
+    Logs(AgentLogsCommand),
 }
 
 #[derive(Debug, Args)]
@@ -45,6 +47,21 @@ pub struct AgentRunCommand {
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentLogsCommand {
+    /// Number of most recent events to show
+    #[arg(long, default_value_t = 50)]
+    pub limit: usize,
+
+    /// Only show events from this duration (for example: 30m, 24h, or 7d)
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Keep watching for new events
+    #[arg(long)]
+    pub follow: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

@@ -3,10 +3,18 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::cmd::scans::{ScanCommands, ScanConfigSubcommand, ScanSubcommand};
 
 use super::{
-    agent::AgentCommand, config::ConfigCommand, doctor::DoctorCommand,
-    environments::EnvironmentCommands, generate::GenerateCommand, projects::ProjectCommands,
-    pull::PullCommand, push::PushCommand, run::RunCommand, secrets::SecretArgs,
-    setup::SetupCommand, webhooks::WebhookCommand,
+    agent::{AgentCommand, AgentSubcommand},
+    config::ConfigCommand,
+    doctor::DoctorCommand,
+    environments::EnvironmentCommands,
+    generate::GenerateCommand,
+    projects::ProjectCommands,
+    pull::PullCommand,
+    push::PushCommand,
+    run::RunCommand,
+    secrets::SecretArgs,
+    setup::SetupCommand,
+    webhooks::WebhookCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -112,6 +120,9 @@ impl EntityType {
             EntityType::Generate(_) => false,
             EntityType::Config(_) => false,
             EntityType::Doctor(_) => false,
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Logs(_),
+            }) => false,
             EntityType::Scan(scan_cmd) => match &scan_cmd.subcommand {
                 ScanSubcommand::Install(_) | ScanSubcommand::Uninstall(_) => false,
                 ScanSubcommand::Config(config_cmd) => !matches!(

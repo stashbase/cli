@@ -17,7 +17,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     body::{Bytes, Incoming},
@@ -33,6 +33,7 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     ServerConfig,
 };
+use serde::{Deserialize, Serialize};
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tokio_rustls::TlsAcceptor;
 use uuid::Uuid;
@@ -48,6 +49,20 @@ type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infal
 const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const AUDIT_LOG_MAX_FILES: usize = 1_000;
 
+/// One metadata-only event emitted by the local broker audit log.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
+pub struct AuditLogEvent {
+    pub timestamp: String,
+    pub session_id: String,
+    pub profile: String,
+    pub action: String,
+    pub destination_host: Option<String>,
+    pub method: Option<String>,
+    pub secret_name: Option<String>,
+    pub response_status: Option<u16>,
+    pub duration_ms: Option<u64>,
+}
+
 /// Private, metadata-only audit log for one broker session.
 #[derive(Debug, Clone)]
 pub struct AuditLog {
@@ -59,11 +74,7 @@ pub struct AuditLog {
 
 impl AuditLog {
     pub fn local(profile: &str) -> Result<Self> {
-        let config_path = crate::config::config::get_config_path()?;
-        let directory = config_path
-            .parent()
-            .context("Stashbase config path has no parent directory")?
-            .join("audit");
+        let directory = audit_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
@@ -99,21 +110,75 @@ impl AuditLog {
         status: Option<StatusCode>,
         duration: Option<Duration>,
     ) {
-        let event = serde_json::json!({
-            "timestamp": Utc::now().to_rfc3339(),
-            "session_id": self.session_id,
-            "profile": self.profile,
-            "action": action,
-            "destination_host": host,
-            "method": method.map(Method::as_str),
-            "secret_name": secret_name,
-            "response_status": status.map(|status| status.as_u16()),
-            "duration_ms": duration.map(|duration| duration.as_millis()),
-        });
+        let event = AuditLogEvent {
+            timestamp: Utc::now().to_rfc3339(),
+            session_id: self.session_id.clone(),
+            profile: self.profile.clone(),
+            action: action.to_owned(),
+            destination_host: host.map(str::to_owned),
+            method: method.map(Method::as_str).map(str::to_owned),
+            secret_name: secret_name.map(str::to_owned),
+            response_status: status.map(|status| status.as_u16()),
+            duration_ms: duration.and_then(|duration| u64::try_from(duration.as_millis()).ok()),
+        };
         if let Ok(mut file) = self.file.lock() {
-            let _ = writeln!(file, "{event}");
+            let _ = writeln!(
+                file,
+                "{}",
+                serde_json::to_string(&event).unwrap_or_default()
+            );
         }
     }
+}
+
+/// Returns the most recent local audit events, ordered oldest to newest.
+pub fn read_local_audit_logs(limit: usize, since: Option<Duration>) -> Result<Vec<AuditLogEvent>> {
+    let directory = audit_directory()?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+
+    let cutoff = since
+        .and_then(|duration| chrono::Duration::from_std(duration).ok())
+        .map(|duration| Utc::now() - duration);
+    let mut events = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("agent-") || !name.ends_with(".jsonl") || !entry.file_type()?.is_file()
+        {
+            continue;
+        }
+
+        let contents = fs::read_to_string(entry.path())?;
+        for line in contents.lines() {
+            let Ok(event) = serde_json::from_str::<AuditLogEvent>(line) else {
+                continue;
+            };
+            let timestamp = DateTime::parse_from_rfc3339(&event.timestamp)
+                .ok()
+                .map(|timestamp| timestamp.with_timezone(&Utc));
+            if cutoff.is_some_and(|cutoff| timestamp.is_some_and(|timestamp| timestamp < cutoff)) {
+                continue;
+            }
+            events.push(event);
+        }
+    }
+
+    events.sort_by(|left, right| left.timestamp.cmp(&right.timestamp));
+    if events.len() > limit {
+        events.drain(..events.len() - limit);
+    }
+    Ok(events)
+}
+
+fn audit_directory() -> Result<PathBuf> {
+    let config_path = crate::config::config::get_config_path()?;
+    Ok(config_path
+        .parent()
+        .context("Stashbase config path has no parent directory")?
+        .join("audit"))
 }
 
 /// Keeps local audit storage bounded without touching files outside our session naming scheme.
