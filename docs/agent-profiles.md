@@ -229,6 +229,27 @@ be injected anywhere beyond its own `hosts` list.
 egress_hosts = ["*"]
 ```
 
+## Compatibility and proxy limits
+
+The broker is intentionally focused on common developer-tool HTTP(S) traffic.
+Use this matrix when deciding whether a workflow belongs in an agent profile.
+
+| Workflow or protocol | Broker support | Notes |
+| --- | --- | --- |
+| `curl` and ordinary HTTP clients | Yes | The client must honor `HTTP_PROXY` / `HTTPS_PROXY` and place the placeholder in a configured header. |
+| HTTPS APIs | Yes, with temporary CA trust | Most clients use the CA-file variables supplied by the CLI. Use `--trust-broker-ca` only when a client requires operating-system trust-store integration. |
+| Node.js / `fetch` | Usually | The CLI enables `NODE_USE_ENV_PROXY`; use a Node runtime that supports environment proxy settings. |
+| `gh` and GitHub Copilot CLI | Usually | Configure every required GitHub/Copilot host. Some builds need `--trust-broker-ca`. |
+| Agent-spawned HTTP tools | Yes | They inherit the placeholders and proxy variables from the agent process. The same broker handles every descendant; no nested broker is needed. |
+| Custom API-key headers | Yes | Configure `header` and, when needed, `value_template`. |
+| Request bodies, query parameters, cookies, or arbitrary CLI arguments | No | Injection is header-only. Do not put real credentials in another channel to work around this. |
+| SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets | No | These protocols do not use the HTTP(S) broker. |
+| Proxy-bypassing tools | No containment by default | They can connect directly unless they honor the proxy settings. macOS `--sandbox` limits direct network access to the broker loopback port; Linux and Windows sandbox support is not implemented. |
+| HTTP/2 proxy clients, WebSockets, SSE, or large streaming uploads/downloads | Not a supported target | This proof-of-concept proxy accepts HTTP/1 proxy traffic and buffers request bodies before forwarding. |
+
+The broker is not a general-purpose proxy, policy engine, or network firewall.
+It is a short-lived credential-injection boundary for supported HTTP(S) tools.
+
 ## Current boundary
 
 This remains an HTTP(S) broker. It cannot inject credentials into local-only
