@@ -29,6 +29,10 @@ pub struct AgentRunCommand {
     #[arg(long = "trust-broker-ca")]
     pub trust_broker_ca: bool,
 
+    /// Experimental macOS network sandbox: only allows loopback access to the broker
+    #[arg(long)]
+    pub sandbox: bool,
+
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,

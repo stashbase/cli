@@ -47,6 +47,7 @@ pub struct HandleRunArgs {
     pub broker: bool,
     pub broker_policy: Option<super::broker::BrokerPolicy>,
     pub trust_broker_ca: bool,
+    pub sandbox: bool,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -68,6 +69,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         broker,
         broker_policy,
         trust_broker_ca,
+        sandbox,
         config_file,
         file,
         mut set,
@@ -520,6 +522,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             broker,
             broker_policy.clone(),
             trust_broker_ca,
+            sandbox,
             print_secrets.clone(),
             secrets,
             is_from_file,
@@ -661,6 +664,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             broker,
                             broker_policy.clone(),
                             trust_broker_ca,
+                            sandbox,
                             print_secrets.clone(),
                             secrets,
                             is_from_file,
@@ -689,6 +693,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         broker,
                         broker_policy.clone(),
                         trust_broker_ca,
+                        sandbox,
                         print_secrets.clone(),
                         secrets,
                         is_from_file,
@@ -795,6 +800,7 @@ async fn handle_run(
     broker: bool,
     broker_policy: Option<super::broker::BrokerPolicy>,
     trust_broker_ca: bool,
+    sandbox: bool,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
@@ -920,7 +926,7 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let result = subprocess::run_command(&cmd, args, broker.child_env().clone()).await;
+        let result = subprocess::run_command(&cmd, args, broker.child_env().clone(), sandbox).await;
         broker.stop().await;
         if !silent {
             eprintln!("Broker stopped");
@@ -928,7 +934,7 @@ async fn handle_run(
         result
     } else {
         // TODO: errors: no such file or directory
-        subprocess::run_command(&cmd, args, secrets_hash_map).await
+        subprocess::run_command(&cmd, args, secrets_hash_map, sandbox).await
     };
 
     let mut mutex = SUBPROCESS_RUNNING
