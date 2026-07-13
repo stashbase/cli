@@ -452,6 +452,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     if is_from_file {
         let mut secrets =
             prepare_local_run_secrets(file_secrets.unwrap_or_default(), &only, &exclude);
+        let missing_secrets = missing_secret_labels(&only, &secrets, &secret_bindings);
 
         if secrets.is_empty() && setted_secrets.is_empty() {
             let message = if only_len == 0 {
@@ -463,7 +464,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             if json_format {
                 let message = serde_json::json!({
                     "error": {
-                        "message": message
+                        "message": message,
+                        "details": {
+                            "missing_secrets": missing_secrets,
+                        }
                     }
                 });
 
@@ -471,12 +475,18 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 eprintln!("{}", json_str);
             } else if let Some(ref mut spinner) = spinner {
                 spinner.stop_with_message(&format!(
-                    "{}\n  Message: {}",
+                    "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
                     "Error".red_if_tty_stderr(),
-                    message
+                    message,
+                    missing_secrets.join(", ")
                 ));
             } else if !silent {
-                eprintln!("{}\n  Message: {}", "Error".red_if_tty_stderr(), message);
+                eprintln!(
+                    "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
+                    "Error".red_if_tty_stderr(),
+                    message,
+                    missing_secrets.join(", ")
+                );
             }
 
             return Ok(());
@@ -491,6 +501,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             );
 
             msg.insert_str(0, "\n");
+            msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
             if let Some(ref mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
@@ -545,7 +556,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         api_key,
         api_project,
         api_environment,
-        only,
+        only.clone(),
         exclude,
         false,
         expand_refs.unwrap_or(false),
@@ -572,42 +583,32 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             let secrets = serde_json::from_str::<Vec<SecretWithoutComment>>(&data.text);
 
             if let Ok(mut secrets) = secrets {
+                let missing_secrets = missing_secret_labels(&only, &secrets, &secret_bindings);
                 if secrets.is_empty() && setted_secrets.is_empty() {
-                    if json_format {
-                        if only_len == 0 {
-                            let message = serde_json::json!({
-                                "error": {
-                                    "message": "No secrets found."
-                                }
-                            });
-
-                            let json_str = get_formatted_json_string(&message, false).unwrap();
-                            eprintln!("{}", json_str);
-                        } else {
-                            let message = serde_json::json!({
-                                "error": {
-                                    "message": format!("{} secret(s) requested, no secrets found.", only_len)
-                                }
-                            });
-
-                            let json_str = get_formatted_json_string(&message, false).unwrap();
-                            eprintln!("{}", json_str);
-                        }
+                    let message = if only_len == 0 {
+                        "No secrets found.".to_owned()
                     } else {
-                        let msg = if only_len == 0 {
-                            format!(
-                                "{}\n{}",
-                                "Error".red_if_tty_stderr(),
-                                "  Message: No secrets found."
-                            )
-                        } else {
-                            format!(
-                                "{}\n{} ({} requested)",
-                                "Error".red_if_tty_stderr(),
-                                "  Message: No secrets found.",
-                                only_len
-                            )
-                        };
+                        format!("{} secret(s) requested, no secrets found.", only_len)
+                    };
+                    if json_format {
+                        let message = serde_json::json!({
+                            "error": {
+                                "message": message,
+                                "details": {
+                                    "missing_secrets": missing_secrets,
+                                }
+                            }
+                        });
+
+                        let json_str = get_formatted_json_string(&message, false).unwrap();
+                        eprintln!("{}", json_str);
+                    } else {
+                        let msg = format!(
+                            "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
+                            "Error".red_if_tty_stderr(),
+                            message,
+                            missing_secrets.join(", ")
+                        );
 
                         if let Some(ref mut spinner) = spinner {
                             spinner.stop_with_message(&msg);
@@ -630,6 +631,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     if !is_from_file {
                         msg.insert_str(0, "\n");
                     }
+                    msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
                     if let Some(ref mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
@@ -984,9 +986,33 @@ fn apply_secret_bindings(
     }
 }
 
+fn missing_secret_labels(
+    requested: &[String],
+    loaded: &[SecretWithoutComment],
+    bindings: &HashMap<String, String>,
+) -> Vec<String> {
+    let loaded_names = loaded
+        .iter()
+        .map(|secret| secret.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut missing = requested
+        .iter()
+        .filter(|source| !loaded_names.contains(source.as_str()))
+        .map(|source| match bindings.get(source) {
+            Some(target) if target != source => format!("{target} (from {source})"),
+            _ => source.clone(),
+        })
+        .collect::<Vec<_>>();
+    missing.sort();
+    missing
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{apply_secret_bindings, load_run_secrets_from_file, prepare_local_run_secrets};
+    use super::{
+        apply_secret_bindings, load_run_secrets_from_file, missing_secret_labels,
+        prepare_local_run_secrets,
+    };
     use crate::models::secrets::SecretWithoutComment;
     use std::{
         collections::HashMap,
@@ -1081,6 +1107,20 @@ mod tests {
         assert_eq!(secrets.len(), 1);
         assert_eq!(secrets[0].name, "GH_TOKEN");
         assert_eq!(secrets[0].value, "token");
+    }
+
+    #[test]
+    fn missing_secret_labels_include_the_child_binding_name() {
+        let missing = missing_secret_labels(
+            &["GITHUB_TOKEN".to_owned(), "OPENAI_API_KEY".to_owned()],
+            &[SecretWithoutComment {
+                name: "OPENAI_API_KEY".to_owned(),
+                value: "token".to_owned(),
+            }],
+            &HashMap::from([("GITHUB_TOKEN".to_owned(), "GH_TOKEN".to_owned())]),
+        );
+
+        assert_eq!(missing, ["GH_TOKEN (from GITHUB_TOKEN)"]);
     }
 }
 
