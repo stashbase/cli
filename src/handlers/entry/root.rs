@@ -26,7 +26,7 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
         run::{
-            broker::{BrokerPolicy, SecretInjection},
+            broker::{AuditLog, BrokerPolicy, SecretInjection},
             entry::{handle_load_env_run, HandleRunArgs},
             subprocess::CommandFailed,
         },
@@ -317,6 +317,15 @@ pub async fn handle_cli(args: Cli) {
                             .collect(),
                         strict_deny: true,
                     };
+                    let audit_log = agent_run
+                        .audit_log
+                        .then(|| AuditLog::local(&agent_run.profile))
+                        .transpose()?;
+                    if let Some(audit_log) = &audit_log {
+                        if !silent {
+                            eprintln!("Audit log: {}", audit_log.path().display());
+                        }
+                    }
                     let args = HandleRunArgs {
                         api_key,
                         project: profile.project,
@@ -326,6 +335,7 @@ pub async fn handle_cli(args: Cli) {
                         broker_policy: Some(policy),
                         trust_broker_ca: agent_run.trust_broker_ca,
                         sandbox: agent_run.sandbox,
+                        audit_log,
                         only: profile.secrets.keys().cloned().collect(),
                         exclude: Vec::new(),
                         set: Vec::new(),
@@ -371,6 +381,7 @@ pub async fn handle_cli(args: Cli) {
                     broker_policy: None,
                     trust_broker_ca: false,
                     sandbox: false,
+                    audit_log: None,
                     exclude: run_cmd.exclude,
                     only: run_cmd.only,
                     set: run_cmd.set,

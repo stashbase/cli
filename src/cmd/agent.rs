@@ -33,6 +33,15 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub sandbox: bool,
 
+    /// Store metadata-only broker audit events locally
+    #[arg(
+        long,
+        action = clap::ArgAction::Set,
+        default_value_t = true,
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    pub audit_log: bool,
+
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,

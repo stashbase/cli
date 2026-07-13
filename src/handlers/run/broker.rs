@@ -7,14 +7,17 @@
 use std::{
     collections::{HashMap, HashSet},
     convert::Infallible,
+    fs::{self, OpenOptions},
     future::Future,
+    io::Write,
     path::PathBuf,
     pin::Pin,
-    sync::Arc,
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use http_body_util::{BodyExt, Full};
 use hyper::{
     body::{Bytes, Incoming},
@@ -36,8 +39,78 @@ use uuid::Uuid;
 
 use crate::REQUEST_TIMEOUT_SECS;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 type ProxyBody = Full<Bytes>;
 type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infallible>> + Send>>;
+
+/// Private, metadata-only audit log for one broker session.
+#[derive(Debug, Clone)]
+pub struct AuditLog {
+    session_id: String,
+    profile: String,
+    path: Arc<PathBuf>,
+    file: Arc<Mutex<std::fs::File>>,
+}
+
+impl AuditLog {
+    pub fn local(profile: &str) -> Result<Self> {
+        let config_path = crate::config::config::get_config_path()?;
+        let directory = config_path
+            .parent()
+            .context("Stashbase config path has no parent directory")?
+            .join("audit");
+        fs::create_dir_all(&directory)?;
+        #[cfg(unix)]
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+
+        let session_id = Uuid::new_v4().to_string();
+        let path = directory.join(format!("agent-{}.jsonl", session_id));
+        let file = OpenOptions::new()
+            .create_new(true)
+            .append(true)
+            .open(&path)?;
+        #[cfg(unix)]
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+
+        Ok(Self {
+            session_id,
+            profile: profile.to_owned(),
+            path: Arc::new(path),
+            file: Arc::new(Mutex::new(file)),
+        })
+    }
+
+    pub fn path(&self) -> &PathBuf {
+        &self.path
+    }
+
+    fn record(
+        &self,
+        action: &str,
+        host: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+    ) {
+        let event = serde_json::json!({
+            "timestamp": Utc::now().to_rfc3339(),
+            "session_id": self.session_id,
+            "profile": self.profile,
+            "action": action,
+            "destination_host": host,
+            "method": method.map(Method::as_str),
+            "secret_name": secret_name,
+            "response_status": status.map(|status| status.as_u16()),
+            "duration_ms": duration.map(|duration| duration.as_millis()),
+        });
+        if let Ok(mut file) = self.file.lock() {
+            let _ = writeln!(file, "{event}");
+        }
+    }
+}
 
 /// Destination policy for credentials brokered into an agent process.
 #[derive(Debug, Clone)]
@@ -81,6 +154,7 @@ struct BrokerState {
     policy: BrokerPolicy,
     client: reqwest::Client,
     certificate_authority: Arc<Certificate>,
+    audit_log: Option<AuditLog>,
 }
 
 /// Owns the listener and the temporary trust anchor for exactly one child process.
@@ -91,10 +165,15 @@ pub struct Broker {
     // Keeping this file alive makes the CA available to the child. Drop removes it.
     ca_file: PathBuf,
     ca_subject: String,
+    audit_log: Option<AuditLog>,
 }
 
 impl Broker {
-    pub async fn start(secrets: HashMap<String, String>, mut policy: BrokerPolicy) -> Result<Self> {
+    pub async fn start(
+        secrets: HashMap<String, String>,
+        mut policy: BrokerPolicy,
+        audit_log: Option<AuditLog>,
+    ) -> Result<Self> {
         let (certificate_authority, ca_file, ca_subject) = create_certificate_authority()?;
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -125,6 +204,7 @@ impl Broker {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
             certificate_authority: Arc::new(certificate_authority),
+            audit_log: audit_log.clone(),
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -154,12 +234,17 @@ impl Broker {
             );
         }
 
+        if let Some(audit_log) = &audit_log {
+            audit_log.record("session_started", None, None, None, None, None);
+        }
+
         Ok(Self {
             child_env,
             shutdown: Some(shutdown),
             task: Some(task),
             ca_file,
             ca_subject,
+            audit_log,
         })
     }
 
@@ -173,6 +258,9 @@ impl Broker {
         }
         if let Some(task) = self.task.take() {
             let _ = task.await;
+        }
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record("session_stopped", None, None, None, None, None);
         }
     }
 
@@ -253,6 +341,7 @@ fn proxy_request(
     connect_authority: Option<String>,
 ) -> ProxyFuture {
     Box::pin(async move {
+        let started = Instant::now();
         if request.method() == Method::CONNECT {
             let authority = request.uri().authority().map(|value| value.to_string());
             let Some(authority) = authority else {
@@ -266,11 +355,27 @@ fn proxy_request(
                     "broker denied destination: {}",
                     host_from_authority(&authority)
                 );
+                state.record_audit(
+                    "denied_destination",
+                    Some(host_from_authority(&authority)),
+                    Some(&Method::CONNECT),
+                    None,
+                    Some(StatusCode::FORBIDDEN),
+                    Some(started.elapsed()),
+                );
                 return Ok(response(
                     StatusCode::FORBIDDEN,
                     "Broker policy denied destination",
                 ));
             }
+            state.record_audit(
+                "connect_allowed",
+                Some(host_from_authority(&authority)),
+                Some(&Method::CONNECT),
+                None,
+                Some(StatusCode::OK),
+                Some(started.elapsed()),
+            );
             tokio::spawn(async move {
                 if let Ok(upgraded) = hyper::upgrade::on(&mut request).await {
                     let _ = serve_tls_connection(upgraded, authority, state).await;
@@ -288,28 +393,55 @@ fn proxy_request(
                 "broker denied destination: {}",
                 host.as_deref().unwrap_or("unknown")
             );
+            state.record_audit(
+                "denied_destination",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
             return Ok(response(
                 StatusCode::FORBIDDEN,
                 "Broker policy denied destination",
             ));
         }
-        if !replace_placeholder(&mut request, &state, host.as_deref()) {
-            debug!(
-                "broker denied credential injection for destination: {}",
-                host.as_deref().unwrap_or("unknown")
-            );
-            return Ok(response(
-                StatusCode::FORBIDDEN,
-                "Broker policy denied credential",
-            ));
-        }
+        let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
+            Ok(secret_name) => secret_name,
+            Err(secret_name) => {
+                debug!(
+                    "broker denied credential injection for destination: {}",
+                    host.as_deref().unwrap_or("unknown")
+                );
+                state.record_audit(
+                    "denied_credential",
+                    host.as_deref(),
+                    Some(request.method()),
+                    Some(&secret_name),
+                    Some(StatusCode::FORBIDDEN),
+                    Some(started.elapsed()),
+                );
+                return Ok(response(
+                    StatusCode::FORBIDDEN,
+                    "Broker policy denied credential",
+                ));
+            }
+        };
         let url = match request_url(&request, connect_authority.as_deref()) {
             Ok(url) => url,
             Err(_) => {
+                state.record_audit(
+                    "invalid_request",
+                    host.as_deref(),
+                    Some(request.method()),
+                    secret_name.as_deref(),
+                    Some(StatusCode::BAD_REQUEST),
+                    Some(started.elapsed()),
+                );
                 return Ok(response(
                     StatusCode::BAD_REQUEST,
                     "Unable to determine request URL",
-                ))
+                ));
             }
         };
         let method = request.method().clone();
@@ -317,16 +449,24 @@ fn proxy_request(
         let body = match request.into_body().collect().await {
             Ok(body) => body.to_bytes(),
             Err(_) => {
+                state.record_audit(
+                    "invalid_request_body",
+                    host.as_deref(),
+                    Some(&method),
+                    secret_name.as_deref(),
+                    Some(StatusCode::BAD_REQUEST),
+                    Some(started.elapsed()),
+                );
                 return Ok(response(
                     StatusCode::BAD_REQUEST,
                     "Unable to read request body",
-                ))
+                ));
             }
         };
 
         match state
             .client
-            .request(method, url)
+            .request(method.clone(), url)
             .headers(headers)
             .body(body)
             .send()
@@ -342,18 +482,48 @@ fn proxy_request(
                             .body(Full::new(body))
                             .unwrap();
                         *response.headers_mut() = headers;
+                        state.record_audit(
+                            if secret_name.is_some() {
+                                "injected"
+                            } else {
+                                "forwarded"
+                            },
+                            host.as_deref(),
+                            Some(&method),
+                            secret_name.as_deref(),
+                            Some(status),
+                            Some(started.elapsed()),
+                        );
                         Ok(response)
                     }
-                    Err(_) => Ok(response(
-                        StatusCode::BAD_GATEWAY,
-                        "Unable to read upstream response",
-                    )),
+                    Err(_) => {
+                        state.record_audit(
+                            "upstream_failed",
+                            host.as_deref(),
+                            Some(&method),
+                            secret_name.as_deref(),
+                            Some(StatusCode::BAD_GATEWAY),
+                            Some(started.elapsed()),
+                        );
+                        Ok(response(
+                            StatusCode::BAD_GATEWAY,
+                            "Unable to read upstream response",
+                        ))
+                    }
                 }
             }
             Err(_) => {
                 debug!(
                     "broker could not forward request to destination: {}",
                     host.as_deref().unwrap_or("unknown")
+                );
+                state.record_audit(
+                    "upstream_failed",
+                    host.as_deref(),
+                    Some(&method),
+                    secret_name.as_deref(),
+                    Some(StatusCode::BAD_GATEWAY),
+                    Some(started.elapsed()),
                 );
                 Ok(response(
                     StatusCode::BAD_GATEWAY,
@@ -424,6 +594,20 @@ impl BrokerState {
     fn host_allowed(&self, host: Option<&str>) -> bool {
         !self.policy.strict_deny || host.is_some_and(|host| policy_allows_host(&self.policy, host))
     }
+
+    fn record_audit(
+        &self,
+        action: &str,
+        host: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+    ) {
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record(action, host, method, secret_name, status, duration);
+        }
+    }
 }
 
 fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
@@ -441,7 +625,7 @@ fn replace_placeholder(
     request: &mut Request<Incoming>,
     state: &BrokerState,
     host: Option<&str>,
-) -> bool {
+) -> std::result::Result<Option<String>, String> {
     for (placeholder, secret) in state.secrets.iter() {
         let injection = state
             .policy
@@ -471,16 +655,16 @@ fn replace_placeholder(
                     host.is_some_and(|host| hosts.iter().any(|allowed| host_matches(allowed, host)))
                 })
         {
-            return false;
+            return Err(secret_name_from_placeholder(placeholder));
         }
         let value = injection.value_template.replace("{secret}", secret);
         if let Ok(value) = HeaderValue::from_str(&value) {
             request.headers_mut().insert(header_name, value);
         }
-        return true;
+        return Ok(Some(secret_name_from_placeholder(placeholder)));
     }
 
-    true
+    Ok(None)
 }
 
 fn request_host(request: &Request<Incoming>, connect_authority: Option<&str>) -> Option<String> {
@@ -611,6 +795,39 @@ mod tests {
     }
 
     #[test]
+    fn audit_log_records_metadata_without_credential_values() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = AuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+
+        audit_log.record(
+            "injected",
+            Some("api.example.com"),
+            Some(&Method::POST),
+            Some("EXAMPLE_API_KEY"),
+            Some(StatusCode::OK),
+            Some(Duration::from_millis(12)),
+        );
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("api.example.com"));
+        assert!(content.contains("EXAMPLE_API_KEY"));
+        assert!(!content.contains("real-secret-value"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn strict_policy_allows_only_configured_hosts() {
         let policy = BrokerPolicy {
             allowed_hosts_by_secret: HashMap::from([(
@@ -660,6 +877,7 @@ mod tests {
         let broker = Broker::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
             BrokerPolicy::permissive(),
+            None,
         )
         .await
         .unwrap();
@@ -700,6 +918,7 @@ mod tests {
                 allowed_egress_hosts: HashSet::new(),
                 strict_deny: true,
             },
+            None,
         )
         .await
         .unwrap();
@@ -730,6 +949,7 @@ mod tests {
                 allowed_egress_hosts: HashSet::new(),
                 strict_deny: true,
             },
+            None,
         )
         .await
         .unwrap();
@@ -761,6 +981,7 @@ mod tests {
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 strict_deny: true,
             },
+            None,
         )
         .await
         .unwrap();

@@ -48,6 +48,7 @@ pub struct HandleRunArgs {
     pub broker_policy: Option<super::broker::BrokerPolicy>,
     pub trust_broker_ca: bool,
     pub sandbox: bool,
+    pub audit_log: Option<super::broker::AuditLog>,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -70,6 +71,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         broker_policy,
         trust_broker_ca,
         sandbox,
+        audit_log,
         config_file,
         file,
         mut set,
@@ -523,6 +525,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             broker_policy.clone(),
             trust_broker_ca,
             sandbox,
+            audit_log.clone(),
             print_secrets.clone(),
             secrets,
             is_from_file,
@@ -665,6 +668,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             broker_policy.clone(),
                             trust_broker_ca,
                             sandbox,
+                            audit_log.clone(),
                             print_secrets.clone(),
                             secrets,
                             is_from_file,
@@ -694,6 +698,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         broker_policy.clone(),
                         trust_broker_ca,
                         sandbox,
+                        audit_log.clone(),
                         print_secrets.clone(),
                         secrets,
                         is_from_file,
@@ -801,6 +806,7 @@ async fn handle_run(
     broker_policy: Option<super::broker::BrokerPolicy>,
     trust_broker_ca: bool,
     sandbox: bool,
+    audit_log: Option<super::broker::AuditLog>,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
@@ -916,6 +922,7 @@ async fn handle_run(
         let broker = super::broker::Broker::start(
             secrets_hash_map,
             broker_policy.unwrap_or_else(super::broker::BrokerPolicy::permissive),
+            audit_log,
         )
         .await?;
         let _trusted_ca = trust_broker_ca.then(|| broker.trust_ca()).transpose()?;
