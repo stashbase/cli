@@ -145,8 +145,9 @@ and provides its path through standard child-process trust variables
 on typical systems. A client that ignores these variables, pins certificates,
 uses HTTP/2-only proxy traffic, or bypasses proxy environment variables will
 not work; in particular, `gh` may not trust the temporary CA on every platform.
-Only exact `Authorization: Bearer <placeholder>` headers are rewritten. Other
-credential formats, non-HTTP traffic, and approval flows are out of scope.
+For `run --broker`, only exact `Authorization: Bearer <placeholder>` headers
+are rewritten. Agent profiles can additionally configure a provider-specific
+HTTP header; non-HTTP traffic and approval flows remain out of scope.
 
 Node's built-in `fetch` is configured through `NODE_USE_ENV_PROXY=1` and
 `NODE_EXTRA_CA_CERTS`, which the broker supplies automatically.
@@ -194,6 +195,16 @@ profile. A placeholder can only be exchanged for its mapped secret at one of
 that secret's configured hosts. The agent command deliberately has no `--set`,
 `--file`, `--only`, or host-override options.
 
+By default, a secret is exchanged from `Authorization: Bearer <placeholder>`.
+For providers with a different credential header, set `header` and optionally
+`value_template` (which must contain `{secret}`):
+
+```toml
+[agent_profiles.claude.secrets.ANTHROPIC_API_KEY]
+hosts = ["api.anthropic.com"]
+header = "x-api-key"
+```
+
 Hosts may use a leading subdomain wildcard such as `*.githubcopilot.com`; it
 matches subdomains only, never the apex domain itself.
 
@@ -234,6 +245,10 @@ The default is `global` so simply entering a directory cannot change an
 agent's credential policy. Use `directory` only for repositories you trust:
 the file is security policy and can select its own Stashbase environment or
 local secret file.
+
+See the [agent broker profile cookbook](docs/agent-profiles.md) for ready-made
+GitHub Copilot and OpenAI API client profiles, plus guidance for unsupported
+header formats.
 
 Some tools, including some `gh` builds, ignore the CA-file environment variables
 used by the broker. Opt into temporary operating-system trust-store integration
