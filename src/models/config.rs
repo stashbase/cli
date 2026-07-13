@@ -49,7 +49,26 @@ mod tests {
         .unwrap();
 
         let profile = &config.agent_profiles.unwrap()["coding"];
+        assert_eq!(profile.project.as_deref(), Some("project"));
         assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
+    }
+
+    #[test]
+    fn parses_agent_profile_with_local_file_source() {
+        let config: Config = toml::from_str(
+            r#"
+                [agent_profiles.local]
+                file = "/tmp/agent.env"
+
+                [agent_profiles.local.secrets.GH_TOKEN]
+                hosts = ["api.github.com"]
+            "#,
+        )
+        .unwrap();
+
+        let profile = &config.agent_profiles.unwrap()["local"];
+        assert_eq!(profile.file.as_deref(), Some("/tmp/agent.env"));
+        assert!(profile.project.is_none());
     }
 }
 

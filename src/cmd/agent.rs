@@ -19,6 +19,10 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub profile: String,
 
+    /// Temporarily trust the broker CA in the operating system trust store
+    #[arg(long = "trust-broker-ca")]
+    pub trust_broker_ca: bool,
+
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,

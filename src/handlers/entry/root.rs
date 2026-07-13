@@ -239,6 +239,17 @@ pub async fn handle_cli(args: Cli) {
                         );
                     }
 
+                    let valid_source = matches!(
+                        (&profile.file, &profile.project, &profile.environment),
+                        (Some(_), None, None) | (None, Some(_), Some(_))
+                    );
+                    if !valid_source {
+                        return eprintln!(
+                            "Agent profile '{}' must define either 'file' or both 'project' and 'environment'.",
+                            agent_run.profile
+                        );
+                    }
+
                     let policy = BrokerPolicy {
                         allowed_hosts_by_secret: profile
                             .secrets
@@ -254,11 +265,12 @@ pub async fn handle_cli(args: Cli) {
                     };
                     let args = HandleRunArgs {
                         api_key,
-                        project: Some(profile.project.clone()),
-                        environment: Some(profile.environment.clone()),
+                        project: profile.project.clone(),
+                        environment: profile.environment.clone(),
                         command: agent_run.command,
                         broker: true,
                         broker_policy: Some(policy),
+                        trust_broker_ca: agent_run.trust_broker_ca,
                         only: profile.secrets.keys().cloned().collect(),
                         exclude: Vec::new(),
                         set: Vec::new(),
@@ -266,7 +278,7 @@ pub async fn handle_cli(args: Cli) {
                         print_secrets: None,
                         no_print_secrets: true,
                         config_file: None,
-                        file: None,
+                        file: profile.file.clone(),
                         expand_refs: None,
                         json_format: raw_output,
                         silent,
@@ -301,6 +313,7 @@ pub async fn handle_cli(args: Cli) {
                     command: run_cmd.command,
                     broker: run_cmd.broker,
                     broker_policy: None,
+                    trust_broker_ca: false,
                     exclude: run_cmd.exclude,
                     only: run_cmd.only,
                     set: run_cmd.set,

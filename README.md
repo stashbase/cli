@@ -163,6 +163,17 @@ environment = "development"
 hosts = ["api.github.com"]
 ```
 
+Profiles can instead use a fixed local secrets file. The profile owns this path;
+the agent cannot provide a different file at runtime.
+
+```toml
+[agent_profiles.local-coding]
+file = "/absolute/path/to/.env.agent"
+
+[agent_profiles.local-coding.secrets.GH_TOKEN]
+hosts = ["api.github.com"]
+```
+
 Then start the agent through the restricted command:
 
 ```bash
@@ -174,6 +185,20 @@ suppresses secret printing, and strictly denies HTTP(S) destinations outside the
 profile. A placeholder can only be exchanged for its mapped secret at one of
 that secret's configured hosts. The agent command deliberately has no `--set`,
 `--file`, `--only`, or host-override options.
+
+Some tools, including some `gh` builds, ignore the CA-file environment variables
+used by the broker. Opt into temporary operating-system trust-store integration
+for those tools:
+
+```bash
+stashbase agent run --profile coding --trust-broker-ca -- codex
+```
+
+The temporary CA is removed when the command finishes. On macOS this uses the
+login Keychain; on Windows it uses the current-user Root store; on Linux it uses
+the platform's system trust-store updater and may prompt for `sudo`. This option
+intentionally changes host trust only for the session and should be used only on
+a machine where the launched agent is trusted.
 
 This is still a local experimental mode. A sandboxed agent must not have access
 to the user's unrestricted Stashbase API credentials or it could invoke normal

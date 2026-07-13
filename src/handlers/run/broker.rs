@@ -23,7 +23,7 @@ use hyper::{
     Method, Request, Response, StatusCode,
 };
 use hyper_util::rt::TokioIo;
-use rcgen::{BasicConstraints, Certificate, CertificateParams, IsCa, KeyUsagePurpose};
+use rcgen::{BasicConstraints, Certificate, CertificateParams, DnType, IsCa, KeyUsagePurpose};
 use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     ServerConfig,
@@ -66,11 +66,12 @@ pub struct Broker {
     task: Option<JoinHandle<()>>,
     // Keeping this file alive makes the CA available to the child. Drop removes it.
     ca_file: PathBuf,
+    ca_subject: String,
 }
 
 impl Broker {
     pub async fn start(secrets: HashMap<String, String>, mut policy: BrokerPolicy) -> Result<Self> {
-        let (certificate_authority, ca_file) = create_certificate_authority()?;
+        let (certificate_authority, ca_file, ca_subject) = create_certificate_authority()?;
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .context("failed to bind credential broker to localhost")?;
@@ -126,6 +127,7 @@ impl Broker {
             shutdown: Some(shutdown),
             task: Some(task),
             ca_file,
+            ca_subject,
         })
     }
 
@@ -140,6 +142,10 @@ impl Broker {
         if let Some(task) = self.task.take() {
             let _ = task.await;
         }
+    }
+
+    pub fn trust_ca(&self) -> Result<super::trust::TemporaryCaTrust> {
+        super::trust::install(&self.ca_file, &self.ca_subject)
     }
 }
 
@@ -166,8 +172,12 @@ fn secret_name_from_placeholder(placeholder: &str) -> String {
         .to_owned()
 }
 
-fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
+fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
+    let subject = format!("Stashbase Broker {}", Uuid::new_v4());
     let mut params = CertificateParams::new(vec!["stashbase-broker.local".to_owned()]);
+    params
+        .distinguished_name
+        .push(DnType::CommonName, subject.clone());
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     params.key_usages = vec![
         KeyUsagePurpose::KeyCertSign,
@@ -177,7 +187,7 @@ fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
     let ca = Certificate::from_params(params)?;
     let path = std::env::temp_dir().join(format!("stashbase-broker-ca-{}.pem", Uuid::new_v4()));
     std::fs::write(&path, ca.serialize_pem()?).context("failed to write temporary broker CA")?;
-    Ok((ca, path))
+    Ok((ca, path, subject))
 }
 
 async fn run_listener(

@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 /// A trusted, user-configured capability profile for a local coding agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentProfile {
-    pub project: String,
-    pub environment: String,
+    pub project: Option<String>,
+    pub environment: Option<String>,
+    pub file: Option<String>,
     pub secrets: HashMap<String, AgentSecretProfile>,
 }
 

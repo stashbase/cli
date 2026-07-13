@@ -46,6 +46,7 @@ pub struct HandleRunArgs {
     pub command: Vec<String>,
     pub broker: bool,
     pub broker_policy: Option<super::broker::BrokerPolicy>,
+    pub trust_broker_ca: bool,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -66,6 +67,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         command,
         broker,
         broker_policy,
+        trust_broker_ca,
         config_file,
         file,
         mut set,
@@ -517,6 +519,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             command,
             broker,
             broker_policy.clone(),
+            trust_broker_ca,
             print_secrets.clone(),
             secrets,
             is_from_file,
@@ -657,6 +660,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             command,
                             broker,
                             broker_policy.clone(),
+                            trust_broker_ca,
                             print_secrets.clone(),
                             secrets,
                             is_from_file,
@@ -684,6 +688,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         command,
                         broker,
                         broker_policy.clone(),
+                        trust_broker_ca,
                         print_secrets.clone(),
                         secrets,
                         is_from_file,
@@ -789,6 +794,7 @@ async fn handle_run(
     command: Vec<String>,
     broker: bool,
     broker_policy: Option<super::broker::BrokerPolicy>,
+    trust_broker_ca: bool,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
@@ -905,6 +911,7 @@ async fn handle_run(
             broker_policy.unwrap_or_else(super::broker::BrokerPolicy::permissive),
         )
         .await?;
+        let _trusted_ca = trust_broker_ca.then(|| broker.trust_ca()).transpose()?;
         if !silent {
             let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
             eprintln!(
