@@ -158,6 +158,14 @@ secret values.
 
 ### Agent profiles (experimental)
 
+> **Early access — local exposure reduction, not hostile-agent isolation.**
+> `agent run` keeps profile secrets out of the child environment and brokers
+> them only to configured HTTP(S) destinations. It does not prevent a
+> malicious same-user process from accessing the developer's broader Stashbase
+> credentials or bypassing the intended workflow. The remote `only` parameter
+> limits this CLI request; it is not server-enforced authorization for a holder
+> of a normal personal or service API key.
+
 For a coding agent, use an agent profile instead of allowing the agent to select
 its own secret names or destinations. Add the profile to the user-level
 Stashbase `config.toml`:
