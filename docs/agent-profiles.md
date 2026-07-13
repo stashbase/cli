@@ -1,5 +1,11 @@
 # Agent broker profile cookbook
 
+> **Early access — local exposure reduction, not hostile-agent isolation.**
+> Agent profiles keep their granted secrets out of a child environment and
+> inject them only through the supported HTTP(S) broker. They do not prevent a
+> malicious process running as the same user from accessing broader Stashbase
+> credentials or bypassing this workflow.
+
 These are copy-paste starting points for `.stashbase.toml` in a trusted working
 directory. Run one with:
 
