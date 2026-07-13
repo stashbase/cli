@@ -70,6 +70,63 @@ With `GITHUB_TOKEN` in `.env.local`, Stashbase requests only
 `OPENAI_API_KEY`, never their real values. Each `from` source may be bound once
 within a profile. Never place secret values or API keys in an untrusted file.
 
+## Full-stack coding-agent profile
+
+One profile can grant several independent capabilities to one coding-agent
+session and any HTTP(S)-aware tools it launches. Each secret has its own source
+binding, destination allowlist, and header representation; `egress_hosts` is
+for ordinary traffic that must never receive a credential.
+
+```toml
+# .stashbase.toml
+[agent_profiles.full-stack]
+project = "platform"
+environment = "development"
+file = ".env.local" # Optional local overrides for the source names below.
+egress_hosts = [
+  "registry.npmjs.org",
+  "pypi.org",
+  "files.pythonhosted.org",
+  "docs.rs",
+]
+
+# GitHub CLI / Copilot: remote GITHUB_TOKEN becomes GH_TOKEN for the child.
+[agent_profiles.full-stack.secrets.GH_TOKEN]
+from = "GITHUB_TOKEN"
+hosts = [
+  "api.github.com",
+  "github.com",
+  "copilot-proxy.githubusercontent.com",
+  "*.githubcopilot.com",
+]
+
+# OpenAI-compatible clients use the default Authorization: Bearer header.
+[agent_profiles.full-stack.secrets.OPENAI_API_KEY]
+hosts = ["api.openai.com"]
+
+# Anthropic uses a dedicated API-key header.
+[agent_profiles.full-stack.secrets.ANTHROPIC_API_KEY]
+hosts = ["api.anthropic.com"]
+header = "x-api-key"
+
+# A third-party service can use any configured header and source binding.
+[agent_profiles.full-stack.secrets.PARTNER_API_KEY]
+from = "PLATFORM_PARTNER_KEY"
+hosts = ["api.partner.example"]
+header = "x-api-key"
+```
+
+Run the session normally:
+
+```bash
+stashbase agent run --profile full-stack -- codex
+```
+
+If `.env.local` contains `GITHUB_TOKEN`, the remote request omits that source;
+the API receives an `only` list for the remaining sources. The child receives
+only `GH_TOKEN`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and
+`PARTNER_API_KEY` placeholders. It never receives a real secret value.
+
 ## GitHub Copilot CLI
 
 GitHub documents Copilot's GitHub, Copilot service, and telemetry endpoints in
