@@ -201,23 +201,37 @@ matches subdomains only, never the apex domain itself.
 credential. Keep a secret's `hosts` list limited to destinations that should
 receive that specific credential.
 
-An optional `.stashbase.toml` in the command's current directory can narrow an
-existing user profile for that repository. It cannot define `file`, `project`,
-or `environment`, add a secret, or add a host. This keeps credential sources
-under user control while allowing a checked-in project file to remove unused
-secrets or destinations:
+Agent profiles can also live in `.stashbase.toml` in the command's current
+directory. The directory file contains a complete profile and never stores API
+keys or secret values:
 
 ```toml
 # .stashbase.toml
 [agent_profiles.coding]
+file = ".env.agent"
 egress_hosts = ["registry.npmjs.org"]
 
 [agent_profiles.coding.secrets.GH_TOKEN]
 hosts = ["api.github.com"]
 ```
 
-If a repository restriction names `secrets`, that list becomes the complete
-secret set for the profile; omit `secrets` to retain the user profile's set.
+Select where the profile is loaded with `--profile-source`:
+
+```bash
+# Default: user-level Stashbase config
+stashbase agent run --profile coding --profile-source global -- codex
+
+# Require ./.stashbase.toml
+stashbase agent run --profile coding --profile-source directory -- codex
+
+# Use ./.stashbase.toml when present, otherwise global config
+stashbase agent run --profile coding --profile-source auto -- codex
+```
+
+The default is `global` so simply entering a directory cannot change an
+agent's credential policy. Use `directory` only for repositories you trust:
+the file is security policy and can select its own Stashbase environment or
+local secret file.
 
 Some tools, including some `gh` builds, ignore the CA-file environment variables
 used by the broker. Opt into temporary operating-system trust-store integration

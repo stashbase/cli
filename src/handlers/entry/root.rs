@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     cmd::{
-        agent::AgentSubcommand,
+        agent::{AgentProfileSource, AgentSubcommand},
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
@@ -221,21 +221,33 @@ pub async fn handle_cli(args: Cli) {
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
                 AgentSubcommand::Run(agent_run) => async {
-                    let Some(profile) = config
+                    let global_profile = config
                         .agent_profiles
                         .as_ref()
                         .and_then(|profiles| profiles.get(&agent_run.profile))
-                    else {
-                        eprintln!(
-                            "Agent profile '{}' was not found in the Stashbase config file.",
-                            agent_run.profile
-                        );
-                        return Ok(());
+                        .cloned();
+                    let profile = match agent_run.profile_source {
+                        AgentProfileSource::Global => global_profile,
+                        AgentProfileSource::Directory => {
+                            config::get_directory_agent_profile(&agent_run.profile)?
+                        }
+                        AgentProfileSource::Auto => config::get_directory_agent_profile(
+                            &agent_run.profile,
+                        )?
+                        .or(global_profile),
                     };
 
-                    let profile = match config::get_project_agent_restrictions(&agent_run.profile)? {
-                        Some(restrictions) => profile.restricted_by(&restrictions)?,
-                        None => profile.clone(),
+                    let Some(profile) = profile else {
+                        let source = match agent_run.profile_source {
+                            AgentProfileSource::Global => "global",
+                            AgentProfileSource::Directory => "directory",
+                            AgentProfileSource::Auto => "global or directory",
+                        };
+                        eprintln!(
+                            "Agent profile '{}' was not found in the {source} config.",
+                            agent_run.profile,
+                        );
+                        return Ok(());
                     };
 
                     if profile.secrets.is_empty() {

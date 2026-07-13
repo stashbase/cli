@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     cmd::config::{OutputFormat, SecretsOutputFormat},
-    models::agent::{AgentProfile, AgentProfileRestrictions},
+    models::agent::AgentProfile,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,12 +21,12 @@ pub struct OutputFormatConfig {
     pub secrets: Option<SecretsOutputFormat>,
 }
 
-/// The deliberately limited schema for a repository-local `.stashbase.toml`.
-/// It is not allowed to contain global credentials or agent secret sources.
+/// Schema for a directory-local `.stashbase.toml` agent profile file.
+/// Secret values and API keys are never stored here.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectConfig {
-    pub agent_profiles: Option<HashMap<String, AgentProfileRestrictions>>,
+pub struct DirectoryConfig {
+    pub agent_profiles: Option<HashMap<String, AgentProfile>>,
 }
 
 impl OutputFormatConfig {
@@ -40,7 +40,7 @@ impl OutputFormatConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, ProjectConfig};
+    use super::{Config, DirectoryConfig};
 
     #[test]
     fn parses_agent_profile_with_secret_host_allowlist() {
@@ -85,10 +85,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_project_agent_restrictions_without_secret_sources() {
-        let config: ProjectConfig = toml::from_str(
+    fn parses_complete_directory_agent_profile() {
+        let config: DirectoryConfig = toml::from_str(
             r#"
                 [agent_profiles.coding]
+                file = ".env.agent"
                 egress_hosts = ["registry.npmjs.org"]
 
                 [agent_profiles.coding.secrets.GH_TOKEN]
@@ -98,10 +99,8 @@ mod tests {
         .unwrap();
 
         let profile = &config.agent_profiles.unwrap()["coding"];
-        assert_eq!(
-            profile.secrets.as_ref().unwrap()["GH_TOKEN"].hosts,
-            ["api.github.com"]
-        );
+        assert_eq!(profile.file.as_deref(), Some(".env.agent"));
+        assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
     }
 }
 

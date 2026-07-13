@@ -1,0 +1,7 @@
+# .stashbase.toml
+[agent_profiles.coding]
+egress_hosts = ["*"]
+file = "./env.agent-test"
+
+[agent_profiles.coding.secrets.GH_TOKEN]
+hosts = ["api.github.com"]

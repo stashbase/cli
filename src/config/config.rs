@@ -7,8 +7,8 @@ use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
 
 use crate::models::{
-    agent::AgentProfileRestrictions,
-    config::{Config, OutputFormatConfig, ProjectConfig, UpdateConfig},
+    agent::AgentProfile,
+    config::{Config, DirectoryConfig, OutputFormatConfig, UpdateConfig},
 };
 
 #[cfg(unix)]
@@ -104,11 +104,9 @@ pub fn get_config() -> Result<Config> {
     }
 }
 
-/// Load optional, repository-local restrictions for the current working directory.
-/// This file never creates config directories and is ignored when absent.
-pub fn get_project_agent_restrictions(
-    profile_name: &str,
-) -> Result<Option<AgentProfileRestrictions>> {
+/// Load an optional complete agent profile from `.stashbase.toml` in the current
+/// directory. This file never creates config directories and is ignored when absent.
+pub fn get_directory_agent_profile(profile_name: &str) -> Result<Option<AgentProfile>> {
     let path = std::env::current_dir()?.join(".stashbase.toml");
     if !path.is_file() {
         return Ok(None);
@@ -116,7 +114,7 @@ pub fn get_project_agent_restrictions(
 
     let content = fs::read_to_string(&path)
         .with_context(|| format!("Could not read project config file '{}'.", path.display()))?;
-    let config: ProjectConfig = toml::from_str(&content)
+    let config: DirectoryConfig = toml::from_str(&content)
         .with_context(|| format!("Could not parse project config file '{}'.", path.display()))?;
     Ok(config
         .agent_profiles

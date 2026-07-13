@@ -1,4 +1,4 @@
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
 pub struct AgentCommand {
@@ -13,11 +13,17 @@ pub enum AgentSubcommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent run --profile <PROFILE> -- <COMMAND> [ARGS]...")]
+#[command(
+    override_usage = "agent run --profile <PROFILE> [--profile-source <global|directory|auto>] -- <COMMAND> [ARGS]..."
+)]
 pub struct AgentRunCommand {
     /// Trusted agent profile from the Stashbase config file
     #[arg(long)]
     pub profile: String,
+
+    /// Where to load the agent profile from
+    #[arg(long, value_enum, default_value = "global")]
+    pub profile_source: AgentProfileSource,
 
     /// Temporarily trust the broker CA in the operating system trust store
     #[arg(long = "trust-broker-ca")]
@@ -26,4 +32,14 @@ pub struct AgentRunCommand {
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum AgentProfileSource {
+    /// User-level Stashbase config
+    Global,
+    /// .stashbase.toml in the current directory
+    Directory,
+    /// Directory config when present, otherwise user-level config
+    Auto,
 }
