@@ -11,6 +11,7 @@ use std::{
     path::PathBuf,
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -23,6 +24,7 @@ use hyper::{
     Method, Request, Response, StatusCode,
 };
 use hyper_util::rt::TokioIo;
+use log::debug;
 use rcgen::{BasicConstraints, Certificate, CertificateParams, DnType, IsCa, KeyUsagePurpose};
 use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
@@ -31,6 +33,8 @@ use rustls::{
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tokio_rustls::TlsAcceptor;
 use uuid::Uuid;
+
+use crate::REQUEST_TIMEOUT_SECS;
 
 type ProxyBody = Full<Bytes>;
 type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infallible>> + Send>>;
@@ -94,6 +98,9 @@ impl Broker {
             // Forwarding must never use proxy variables inherited by Stashbase itself.
             client: reqwest::Client::builder()
                 .no_proxy()
+                .timeout(Duration::from_secs(
+                    REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+                ))
                 // Return redirects to the child, which will make its next request through
                 // this proxy and therefore re-run destination policy checks.
                 .redirect(reqwest::redirect::Policy::none())
@@ -236,6 +243,10 @@ fn proxy_request(
                 ));
             };
             if !state.host_allowed(Some(host_from_authority(&authority))) {
+                debug!(
+                    "broker denied destination: {}",
+                    host_from_authority(&authority)
+                );
                 return Ok(response(
                     StatusCode::FORBIDDEN,
                     "Broker policy denied destination",
@@ -254,12 +265,20 @@ fn proxy_request(
 
         let host = request_host(&request, connect_authority.as_deref());
         if !state.host_allowed(host.as_deref()) {
+            debug!(
+                "broker denied destination: {}",
+                host.as_deref().unwrap_or("unknown")
+            );
             return Ok(response(
                 StatusCode::FORBIDDEN,
                 "Broker policy denied destination",
             ));
         }
         if !replace_placeholder(&mut request, &state, host.as_deref()) {
+            debug!(
+                "broker denied credential injection for destination: {}",
+                host.as_deref().unwrap_or("unknown")
+            );
             return Ok(response(
                 StatusCode::FORBIDDEN,
                 "Broker policy denied credential",
@@ -312,10 +331,16 @@ fn proxy_request(
                     )),
                 }
             }
-            Err(_) => Ok(response(
-                StatusCode::BAD_GATEWAY,
-                "Unable to forward broker request",
-            )),
+            Err(_) => {
+                debug!(
+                    "broker could not forward request to destination: {}",
+                    host.as_deref().unwrap_or("unknown")
+                );
+                Ok(response(
+                    StatusCode::BAD_GATEWAY,
+                    "Unable to forward broker request",
+                ))
+            }
         }
     })
 }

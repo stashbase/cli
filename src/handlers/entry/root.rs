@@ -28,6 +28,7 @@ use crate::{
         run::{
             broker::BrokerPolicy,
             entry::{handle_load_env_run, HandleRunArgs},
+            subprocess::CommandFailed,
         },
         setup::setup,
     },
@@ -418,6 +419,9 @@ pub async fn handle_cli(args: Cli) {
                 return;
             }
             eprintln!("{:?}", err);
+            if let Some(command_failed) = err.downcast_ref::<CommandFailed>() {
+                std::process::exit(command_failed.exit_code());
+            }
         }
     } else {
         if let EntityType::Config(cmd) = args.entity_type {

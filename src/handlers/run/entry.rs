@@ -905,7 +905,7 @@ async fn handle_run(
 
     // Broker mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
-    if broker {
+    let command_result = if broker {
         let broker = super::broker::Broker::start(
             secrets_hash_map,
             broker_policy.unwrap_or_else(super::broker::BrokerPolicy::permissive),
@@ -919,22 +919,26 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        subprocess::run_command(&cmd, args, broker.child_env().clone())
-            .await
-            .unwrap_or_else(|e| {
-                eprintln!("{}: {}", "Failed to run command".red_if_tty_stderr(), e);
-            });
+        let result = subprocess::run_command(&cmd, args, broker.child_env().clone()).await;
         broker.stop().await;
         if !silent {
             eprintln!("Broker stopped");
         }
+        result
     } else {
         // TODO: errors: no such file or directory
-        subprocess::run_command(&cmd, args, secrets_hash_map)
-            .await
-            .unwrap_or_else(|e| {
-                eprintln!("{}: {}", "Failed to run command".red_if_tty_stderr(), e);
-            });
+        subprocess::run_command(&cmd, args, secrets_hash_map).await
+    };
+
+    let mut mutex = SUBPROCESS_RUNNING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *mutex = false;
+    drop(mutex);
+
+    let status = command_result?;
+    if !status.success() {
+        return Err(subprocess::CommandFailed { status }.into());
     }
 
     Ok(())

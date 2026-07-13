@@ -151,6 +151,10 @@ credential formats, non-HTTP traffic, and approval flows are out of scope.
 Node's built-in `fetch` is configured through `NODE_USE_ENV_PROXY=1` and
 `NODE_EXTRA_CA_CERTS`, which the broker supplies automatically.
 
+For safe troubleshooting, set `RUST_LOG=debug`. Broker diagnostics identify
+only the denied or unreachable destination host; they never include headers or
+secret values.
+
 ### Agent profiles (experimental)
 
 For a coding agent, use an agent profile instead of allowing the agent to select
