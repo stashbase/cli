@@ -8,6 +8,7 @@ pub struct AgentProfile {
     pub project: Option<String>,
     pub environment: Option<String>,
     pub file: Option<String>,
+    pub egress_hosts: Option<Vec<String>>,
     pub secrets: HashMap<String, AgentSecretProfile>,
 }
 

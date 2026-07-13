@@ -161,6 +161,7 @@ Stashbase `config.toml`:
 [agent_profiles.coding]
 project = "my-project"
 environment = "development"
+egress_hosts = ["collector.github.com"]
 
 [agent_profiles.coding.secrets.GH_TOKEN]
 hosts = ["api.github.com"]
@@ -191,6 +192,10 @@ that secret's configured hosts. The agent command deliberately has no `--set`,
 
 Hosts may use a leading subdomain wildcard such as `*.githubcopilot.com`; it
 matches subdomains only, never the apex domain itself.
+
+`egress_hosts` permits ordinary traffic without injecting a Stashbase
+credential. Keep a secret's `hosts` list limited to destinations that should
+receive that specific credential.
 
 Some tools, including some `gh` builds, ignore the CA-file environment variables
 used by the broker. Opt into temporary operating-system trust-store integration

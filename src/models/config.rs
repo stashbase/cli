@@ -59,6 +59,7 @@ mod tests {
             r#"
                 [agent_profiles.local]
                 file = "/tmp/agent.env"
+                egress_hosts = ["registry.npmjs.org"]
 
                 [agent_profiles.local.secrets.GH_TOKEN]
                 hosts = ["api.github.com"]
@@ -69,6 +70,10 @@ mod tests {
         let profile = &config.agent_profiles.unwrap()["local"];
         assert_eq!(profile.file.as_deref(), Some("/tmp/agent.env"));
         assert!(profile.project.is_none());
+        assert_eq!(
+            profile.egress_hosts.as_ref().unwrap(),
+            &vec!["registry.npmjs.org".to_owned()]
+        );
     }
 }
 

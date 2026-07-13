@@ -39,6 +39,7 @@ type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infal
 #[derive(Debug, Clone)]
 pub struct BrokerPolicy {
     pub allowed_hosts_by_secret: HashMap<String, HashSet<String>>,
+    pub allowed_egress_hosts: HashSet<String>,
     pub strict_deny: bool,
 }
 
@@ -46,6 +47,7 @@ impl BrokerPolicy {
     pub fn permissive() -> Self {
         Self {
             allowed_hosts_by_secret: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
             strict_deny: false,
         }
     }
@@ -85,6 +87,7 @@ impl Broker {
             .into_iter()
             .map(|(name, hosts)| (placeholder_for(&name), normalize_hosts(hosts)))
             .collect();
+        policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
         let state = BrokerState {
             secrets: Arc::new(placeholders),
             policy,
@@ -384,6 +387,10 @@ fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
         .allowed_hosts_by_secret
         .values()
         .any(|hosts| hosts.iter().any(|allowed| host_matches(allowed, host)))
+        || policy
+            .allowed_egress_hosts
+            .iter()
+            .any(|allowed| host_matches(allowed, host))
 }
 
 fn replace_placeholder(
@@ -523,6 +530,7 @@ mod tests {
                 "**STASHBASE_GH_TOKEN**".to_owned(),
                 normalize_hosts(HashSet::from(["API.GITHUB.COM.".to_owned()])),
             )]),
+            allowed_egress_hosts: HashSet::new(),
             strict_deny: true,
         };
 
@@ -575,6 +583,7 @@ mod tests {
                     "GH_TOKEN".to_owned(),
                     HashSet::from(["api.github.com".to_owned()]),
                 )]),
+                allowed_egress_hosts: HashSet::new(),
                 strict_deny: true,
             },
         )
@@ -591,6 +600,34 @@ mod tests {
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(broker.child_env()["NODE_USE_ENV_PROXY"], "1");
         assert!(std::path::Path::new(&broker.child_env()["NODE_EXTRA_CA_CERTS"]).exists());
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn egress_only_host_is_forwarded_without_credential_injection() {
+        let (address, authorization) = start_backend().await;
+        let broker = Broker::start(
+            HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
+            BrokerPolicy {
+                allowed_hosts_by_secret: HashMap::from([(
+                    "GH_TOKEN".to_owned(),
+                    HashSet::from(["api.github.com".to_owned()]),
+                )]),
+                allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
+                strict_deny: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&broker)
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(authorization.await.unwrap(), None);
         broker.stop().await;
     }
 }

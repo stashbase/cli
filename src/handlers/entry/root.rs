@@ -261,6 +261,12 @@ pub async fn handle_cli(args: Cli) {
                                 )
                             })
                             .collect::<HashMap<_, _>>(),
+                        allowed_egress_hosts: profile
+                            .egress_hosts
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
                         strict_deny: true,
                     };
                     let args = HandleRunArgs {
