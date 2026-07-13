@@ -231,8 +231,8 @@ hosts = ["api.github.com"]
 Select where the profile is loaded with `--profile-source`:
 
 ```bash
-# Default: user-level Stashbase config
-stashbase agent run --profile coding --profile-source global -- codex
+# Default: ./.stashbase.toml when present, otherwise global config
+stashbase agent run --profile coding -- codex
 
 # Require ./.stashbase.toml
 stashbase agent run --profile coding --profile-source directory -- codex
@@ -241,10 +241,28 @@ stashbase agent run --profile coding --profile-source directory -- codex
 stashbase agent run --profile coding --profile-source auto -- codex
 ```
 
-The default is `global` so simply entering a directory cannot change an
-agent's credential policy. Use `directory` only for repositories you trust:
-the file is security policy and can select its own Stashbase environment or
-local secret file.
+The default is `auto`: a `.stashbase.toml` in the current directory is used
+when present, otherwise Stashbase falls back to global config. Treat a
+repository profile as trusted policy: it can select its Stashbase environment
+or local secret file and determines where secrets may be sent.
+
+An agent profile may define both a Stashbase `project`/`environment` and a
+local `file`. The file is a local override: its configured source names win,
+and Stashbase requests only the remaining profile sources from the API.
+
+```toml
+[agent_profiles.coding]
+project = "platform"
+environment = "development"
+file = ".env.local"
+
+[agent_profiles.coding.secrets.GH_TOKEN]
+from = "GITHUB_TOKEN"
+hosts = ["api.github.com"]
+```
+
+Here `.env.local` may provide `GITHUB_TOKEN`; otherwise the CLI fetches that
+source from the configured Stashbase environment.
 
 See the [agent broker profile cookbook](docs/agent-profiles.md) for ready-made
 GitHub Copilot and OpenAI API client profiles, plus guidance for unsupported
@@ -263,6 +281,70 @@ login Keychain; on Windows it uses the current-user Root store; on Linux it uses
 the platform's system trust-store updater and may prompt for `sudo`. This option
 intentionally changes host trust only for the session and should be used only on
 a machine where the launched agent is trusted.
+
+### macOS network sandbox (experimental)
+
+On macOS, add `--sandbox` to deny the child direct inbound and outbound network
+access while retaining its loopback connection to the embedded broker:
+
+```bash
+stashbase agent run --sandbox --profile coding --profile-source directory -- codex
+```
+
+This prevents a sandboxed tool from bypassing the broker with a direct internet
+connection. It is a network-containment experiment built on macOS's deprecated
+`sandbox-exec` utility; it is not yet full filesystem or same-user
+process-memory isolation. Linux and Windows support are not implemented.
+
+### Threat model and security boundary
+
+`agent run` is designed to reduce accidental or normal agent-tool exposure of
+credentials during local development. The child receives placeholders rather
+than real secret values; the broker replaces those placeholders only in the
+configured request header, only for that secret's approved hosts. Strict egress
+policy and audit logs make those brokered HTTP(S) decisions visible.
+
+It is not a security boundary against a malicious or compromised process
+running as the same user. Such a process may inspect local files or process
+memory, alter the environment, invoke ordinary `stashbase run`, or otherwise
+bypass the intended workflow. Without macOS `--sandbox`, a tool that ignores
+proxy environment variables can also make direct network connections. The
+macOS sandbox reduces that bypass route, but does not provide filesystem,
+process-memory, kernel, administrator, or root isolation.
+
+Treat directory profiles as trusted policy: with the default `--profile-source
+auto`, a repository `.stashbase.toml` can select a secret source and its allowed
+destinations. Do not run an agent with secrets from an untrusted repository, or
+give it unrestricted Stashbase API credentials.
+
+### Audit logs
+
+`agent run` writes a private JSONL audit log by default. It records session
+events and broker decisions (destination host, method, secret name, status, and
+duration), never secret values, placeholders, headers, bodies, URLs, or command
+arguments. Logs are stored per session under the Stashbase config directory and
+are permission-restricted on Unix. On each agent run, logs older than 30 days
+are removed and storage is capped at 1,000 session files. Disable persistence
+for a session with:
+
+```bash
+stashbase agent run --audit-log false --profile coding -- codex
+```
+
+View the recent local broker decisions without reading JSONL files directly:
+
+```bash
+stashbase agent logs
+stashbase agent logs --since 24h --limit 100
+stashbase agent logs --profile coding --action injected --host api.github.com
+stashbase agent logs --session <session-id>
+stashbase agent logs --follow
+```
+
+`--json` returns a JSON array for a one-time view. With `--follow`, it emits
+one JSON event per line as new events arrive. Profile, action, host, and session
+filters use exact matches. Each audited `agent run` prints its session ID at
+startup, which can be passed to `--session`.
 
 This is still a local experimental mode. A sandboxed agent must not have access
 to the user's unrestricted Stashbase API credentials or it could invoke normal
