@@ -59,6 +59,22 @@ pub struct AgentLogsCommand {
     #[arg(long)]
     pub since: Option<String>,
 
+    /// Only show events for this agent profile
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Only show events with this broker action (for example: injected)
+    #[arg(long)]
+    pub action: Option<String>,
+
+    /// Only show events for this destination host
+    #[arg(long)]
+    pub host: Option<String>,
+
+    /// Only show events for this broker session ID
+    #[arg(long)]
+    pub session: Option<String>,
+
     /// Keep watching for new events
     #[arg(long)]
     pub follow: bool,

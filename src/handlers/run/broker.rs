@@ -63,6 +63,37 @@ pub struct AuditLogEvent {
     pub duration_ms: Option<u64>,
 }
 
+/// Exact-match filters for the local audit-log viewer.
+#[derive(Debug, Clone, Default)]
+pub struct AuditLogFilter {
+    pub profile: Option<String>,
+    pub action: Option<String>,
+    pub host: Option<String>,
+    pub session: Option<String>,
+}
+
+impl AuditLogFilter {
+    fn matches(&self, event: &AuditLogEvent) -> bool {
+        self.profile
+            .as_ref()
+            .is_none_or(|value| value == &event.profile)
+            && self
+                .action
+                .as_ref()
+                .is_none_or(|value| value == &event.action)
+            && self.host.as_ref().is_none_or(|value| {
+                event
+                    .destination_host
+                    .as_ref()
+                    .is_some_and(|host| host == value)
+            })
+            && self
+                .session
+                .as_ref()
+                .is_none_or(|value| value == &event.session_id)
+    }
+}
+
 /// Private, metadata-only audit log for one broker session.
 #[derive(Debug, Clone)]
 pub struct AuditLog {
@@ -101,6 +132,10 @@ impl AuditLog {
         &self.path
     }
 
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
     fn record(
         &self,
         action: &str,
@@ -132,7 +167,11 @@ impl AuditLog {
 }
 
 /// Returns the most recent local audit events, ordered oldest to newest.
-pub fn read_local_audit_logs(limit: usize, since: Option<Duration>) -> Result<Vec<AuditLogEvent>> {
+pub fn read_local_audit_logs(
+    limit: usize,
+    since: Option<Duration>,
+    filter: &AuditLogFilter,
+) -> Result<Vec<AuditLogEvent>> {
     let directory = audit_directory()?;
     if !directory.exists() {
         return Ok(Vec::new());
@@ -162,7 +201,9 @@ pub fn read_local_audit_logs(limit: usize, since: Option<Duration>) -> Result<Ve
             if cutoff.is_some_and(|cutoff| timestamp.is_some_and(|timestamp| timestamp < cutoff)) {
                 continue;
             }
-            events.push(event);
+            if filter.matches(&event) {
+                events.push(event);
+            }
         }
     }
 
@@ -953,6 +994,34 @@ mod tests {
         assert_eq!(retained, AUDIT_LOG_MAX_FILES - 1);
         assert!(directory.join("unrelated.txt").exists());
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn audit_log_filters_match_only_the_requested_metadata() {
+        let event = AuditLogEvent {
+            timestamp: "2026-01-01T00:00:00Z".to_owned(),
+            session_id: "session-1".to_owned(),
+            profile: "coding".to_owned(),
+            action: "injected".to_owned(),
+            destination_host: Some("api.github.com".to_owned()),
+            method: Some("POST".to_owned()),
+            secret_name: Some("GH_TOKEN".to_owned()),
+            response_status: Some(200),
+            duration_ms: Some(42),
+        };
+
+        assert!(AuditLogFilter {
+            profile: Some("coding".to_owned()),
+            action: Some("injected".to_owned()),
+            host: Some("api.github.com".to_owned()),
+            session: Some("session-1".to_owned()),
+        }
+        .matches(&event));
+        assert!(!AuditLogFilter {
+            host: Some("example.com".to_owned()),
+            ..Default::default()
+        }
+        .matches(&event));
     }
 
     #[test]

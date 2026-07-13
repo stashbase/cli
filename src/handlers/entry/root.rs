@@ -28,7 +28,8 @@ use crate::{
         push::entry::{handle_push, HandlePushArgs},
         run::{
             broker::{
-                read_local_audit_logs, AuditLog, AuditLogEvent, BrokerPolicy, SecretInjection,
+                read_local_audit_logs, AuditLog, AuditLogEvent, AuditLogFilter, BrokerPolicy,
+                SecretInjection,
             },
             entry::{handle_load_env_run, HandleRunArgs},
             subprocess::CommandFailed,
@@ -330,6 +331,7 @@ pub async fn handle_cli(args: Cli) {
                         .transpose()?;
                     if let Some(audit_log) = &audit_log {
                         if !silent {
+                            eprintln!("Audit session: {}", audit_log.session_id());
                             eprintln!("Audit log: {}", audit_log.path().display());
                         }
                     }
@@ -520,8 +522,14 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         .as_deref()
         .map(parse_audit_duration)
         .transpose()?;
+    let filter = AuditLogFilter {
+        profile: command.profile,
+        action: command.action,
+        host: command.host,
+        session: command.session,
+    };
     if !command.follow {
-        let events = read_local_audit_logs(command.limit, since)?;
+        let events = read_local_audit_logs(command.limit, since, &filter)?;
         if json {
             println!("{}", serde_json::to_string_pretty(&events)?);
         } else {
@@ -538,7 +546,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         if REQUEST_ABORTED.load(Ordering::SeqCst) {
             return Ok(());
         }
-        for event in read_local_audit_logs(command.limit, since)? {
+        for event in read_local_audit_logs(command.limit, since, &filter)? {
             if !displayed.insert(event.clone()) {
                 continue;
             }
