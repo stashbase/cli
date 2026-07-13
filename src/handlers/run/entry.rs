@@ -49,6 +49,8 @@ pub struct HandleRunArgs {
     pub trust_broker_ca: bool,
     pub sandbox: bool,
     pub audit_log: Option<super::broker::AuditLog>,
+    /// Maps fetched source secret names to the names exposed to the child.
+    pub secret_bindings: HashMap<String, String>,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -72,6 +74,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         trust_broker_ca,
         sandbox,
         audit_log,
+        secret_bindings,
         config_file,
         file,
         mut set,
@@ -526,6 +529,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             trust_broker_ca,
             sandbox,
             audit_log.clone(),
+            &secret_bindings,
             print_secrets.clone(),
             secrets,
             is_from_file,
@@ -669,6 +673,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             trust_broker_ca,
                             sandbox,
                             audit_log.clone(),
+                            &secret_bindings,
                             print_secrets.clone(),
                             secrets,
                             is_from_file,
@@ -699,6 +704,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         trust_broker_ca,
                         sandbox,
                         audit_log.clone(),
+                        &secret_bindings,
                         print_secrets.clone(),
                         secrets,
                         is_from_file,
@@ -807,12 +813,14 @@ async fn handle_run(
     trust_broker_ca: bool,
     sandbox: bool,
     audit_log: Option<super::broker::AuditLog>,
+    secret_bindings: &HashMap<String, String>,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
     silent: bool,
     json_format: bool,
 ) -> anyhow::Result<()> {
+    apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
 
     if !silent {
@@ -958,11 +966,30 @@ async fn handle_run(
     Ok(())
 }
 
+fn apply_secret_bindings(
+    secrets: &mut Vec<SecretWithoutComment>,
+    bindings: &HashMap<String, String>,
+) {
+    if bindings.is_empty() {
+        return;
+    }
+
+    // A brokered profile should never expose an API response that was not one of
+    // its explicitly requested source names.
+    secrets.retain(|secret| bindings.contains_key(&secret.name));
+    for secret in secrets {
+        if let Some(target) = bindings.get(&secret.name) {
+            secret.name.clone_from(target);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{load_run_secrets_from_file, prepare_local_run_secrets};
+    use super::{apply_secret_bindings, load_run_secrets_from_file, prepare_local_run_secrets};
     use crate::models::secrets::SecretWithoutComment;
     use std::{
+        collections::HashMap,
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
@@ -1031,6 +1058,29 @@ mod tests {
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "FIRST");
+    }
+
+    #[test]
+    fn secret_binding_renames_only_an_explicitly_requested_source() {
+        let mut secrets = vec![
+            SecretWithoutComment {
+                name: "GITHUB_TOKEN".to_owned(),
+                value: "token".to_owned(),
+            },
+            SecretWithoutComment {
+                name: "UNREQUESTED".to_owned(),
+                value: "must-not-reach-child".to_owned(),
+            },
+        ];
+
+        apply_secret_bindings(
+            &mut secrets,
+            &HashMap::from([("GITHUB_TOKEN".to_owned(), "GH_TOKEN".to_owned())]),
+        );
+
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0].name, "GH_TOKEN");
+        assert_eq!(secrets[0].value, "token");
     }
 }
 

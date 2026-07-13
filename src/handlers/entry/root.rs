@@ -278,6 +278,21 @@ pub async fn handle_cli(args: Cli) {
                         return Ok(());
                     }
 
+                    let secret_bindings = profile
+                        .secrets
+                        .iter()
+                        .map(|(target, secret)| {
+                            (secret.from.clone().unwrap_or_else(|| target.clone()), target.clone())
+                        })
+                        .collect::<HashMap<_, _>>();
+                    if secret_bindings.len() != profile.secrets.len() {
+                        eprintln!(
+                            "Agent profile '{}' maps more than one binding to the same source secret.",
+                            agent_run.profile
+                        );
+                        return Ok(());
+                    }
+
                     let policy = BrokerPolicy {
                         allowed_hosts_by_secret: profile
                             .secrets
@@ -345,7 +360,8 @@ pub async fn handle_cli(args: Cli) {
                         trust_broker_ca: agent_run.trust_broker_ca,
                         sandbox: agent_run.sandbox,
                         audit_log,
-                        only: profile.secrets.keys().cloned().collect(),
+                        secret_bindings: secret_bindings.clone(),
+                        only: secret_bindings.keys().cloned().collect(),
                         exclude: Vec::new(),
                         set: Vec::new(),
                         set_comments: Vec::new(),
@@ -391,6 +407,7 @@ pub async fn handle_cli(args: Cli) {
                     trust_broker_ca: false,
                     sandbox: false,
                     audit_log: None,
+                    secret_bindings: HashMap::new(),
                     exclude: run_cmd.exclude,
                     only: run_cmd.only,
                     set: run_cmd.set,
