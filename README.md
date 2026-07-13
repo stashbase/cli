@@ -148,6 +148,9 @@ not work; in particular, `gh` may not trust the temporary CA on every platform.
 Only exact `Authorization: Bearer <placeholder>` headers are rewritten. Other
 credential formats, non-HTTP traffic, and approval flows are out of scope.
 
+Node's built-in `fetch` is configured through `NODE_USE_ENV_PROXY=1` and
+`NODE_EXTRA_CA_CERTS`, which the broker supplies automatically.
+
 ### Agent profiles (experimental)
 
 For a coding agent, use an agent profile instead of allowing the agent to select

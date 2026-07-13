@@ -111,7 +111,10 @@ impl Broker {
             // HTTPS interception without manually trusting the temporary CA.
             ("SSL_CERT_FILE".to_owned(), ca_path.clone()),
             ("CURL_CA_BUNDLE".to_owned(), ca_path.clone()),
-            ("GIT_SSL_CAINFO".to_owned(), ca_path),
+            ("GIT_SSL_CAINFO".to_owned(), ca_path.clone()),
+            ("NODE_EXTRA_CA_CERTS".to_owned(), ca_path),
+            // Node's built-in fetch requires this opt-in before it reads proxy variables.
+            ("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()),
             ("NO_PROXY".to_owned(), String::new()),
             ("no_proxy".to_owned(), String::new()),
         ]);
@@ -457,6 +460,48 @@ fn response(status: StatusCode, message: &str) -> Response<ProxyBody> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::oneshot;
+
+    async fn start_backend() -> (std::net::SocketAddr, oneshot::Receiver<Option<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (authorization, receiver) = oneshot::channel();
+        let authorization = Arc::new(std::sync::Mutex::new(Some(authorization)));
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(move |request: Request<Incoming>| {
+                let authorization = authorization.clone();
+                let value = request
+                    .headers()
+                    .get(AUTHORIZATION)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned);
+                if let Some(sender) = authorization.lock().unwrap().take() {
+                    let _ = sender.send(value);
+                }
+                async move {
+                    Ok::<_, Infallible>(
+                        Response::builder()
+                            .status(StatusCode::NO_CONTENT)
+                            .body(Full::new(Bytes::new()))
+                            .unwrap(),
+                    )
+                }
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        (address, receiver)
+    }
+
+    fn proxy_client(broker: &Broker) -> reqwest::Client {
+        reqwest::Client::builder()
+            .proxy(reqwest::Proxy::all(&broker.child_env()["HTTP_PROXY"]).unwrap())
+            .build()
+            .unwrap()
+    }
 
     #[test]
     fn creates_expected_placeholders() {
@@ -475,5 +520,59 @@ mod tests {
 
         assert!(policy_allows_host(&policy, "api.github.com"));
         assert!(!policy_allows_host(&policy, "example.com"));
+    }
+
+    #[tokio::test]
+    async fn rewrites_a_placeholder_before_forwarding_a_http_request() {
+        let (address, authorization) = start_backend().await;
+        let broker = Broker::start(
+            HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
+            BrokerPolicy::permissive(),
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&broker)
+            .get(format!("http://{address}/"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GH_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            authorization.await.unwrap().as_deref(),
+            Some("Bearer real-token")
+        );
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn strict_policy_denies_unapproved_destinations_and_sets_node_environment() {
+        let (address, _authorization) = start_backend().await;
+        let broker = Broker::start(
+            HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
+            BrokerPolicy {
+                allowed_hosts_by_secret: HashMap::from([(
+                    "GH_TOKEN".to_owned(),
+                    HashSet::from(["api.github.com".to_owned()]),
+                )]),
+                strict_deny: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&broker)
+            .get(format!("http://{address}/"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GH_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(broker.child_env()["NODE_USE_ENV_PROXY"], "1");
+        assert!(std::path::Path::new(&broker.child_env()["NODE_EXTRA_CA_CERTS"]).exists());
+        broker.stop().await;
     }
 }
