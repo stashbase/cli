@@ -285,10 +285,11 @@ Use this matrix when deciding whether a workflow belongs in an agent profile.
 | `gh` and GitHub Copilot CLI | Usually | Configure every required GitHub/Copilot host. Some builds need `--trust-broker-ca`. |
 | Agent-spawned HTTP tools | Yes | They inherit the placeholders and proxy variables from the agent process. The same broker handles every descendant; no nested broker is needed. |
 | Custom API-key headers | Yes | Configure `header` and, when needed, `value_template`. |
+| Streaming uploads, downloads, and SSE | Yes over HTTP/1 | Bodies are forwarded incrementally and unchanged; credential replacement remains header-only. |
 | Request bodies, query parameters, cookies, or arbitrary CLI arguments | No | Injection is header-only. Do not put real credentials in another channel to work around this. |
 | SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets | No | These protocols do not use the HTTP(S) broker. |
 | Proxy-bypassing tools | No containment by default | They can connect directly unless they honor the proxy settings. `--sandbox` limits direct network access to the broker loopback port on macOS and systemd-based Linux; Windows is not implemented. |
-| HTTP/2 proxy clients, WebSockets, SSE, or large streaming uploads/downloads | Not a supported target | This proof-of-concept proxy accepts HTTP/1 proxy traffic and buffers request bodies before forwarding. |
+| HTTP/2 proxy clients and WebSockets | Not a supported target | This proof-of-concept proxy accepts HTTP/1 proxy traffic only. |
 
 The broker is not a general-purpose proxy, policy engine, or network firewall.
 It is a short-lived credential-injection boundary for supported HTTP(S) tools.

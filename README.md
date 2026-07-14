@@ -128,7 +128,8 @@ stashbase run --file secrets.yaml -- npm run dev
 of the child command. Instead of receiving the loaded secret, the child receives
 a placeholder such as `**STASHBASE_GH_TOKEN**`. When the child sends that value
 as an `Authorization: Bearer` header, the broker replaces it before forwarding
-the request.
+the request. It rewrites headers only: request and response bodies stream
+through unchanged, including chunked uploads, downloads, and SSE responses.
 
 ```bash
 stashbase run --broker --only GH_TOKEN -- gh workflow run deploy.yml

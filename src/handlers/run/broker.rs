@@ -18,9 +18,10 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use http_body_util::{BodyExt, Full};
+use futures_util::StreamExt;
+use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
 use hyper::{
-    body::{Bytes, Incoming},
+    body::{Bytes, Frame, Incoming},
     header::{HeaderName, HeaderValue, CONTENT_TYPE},
     server::conn::http1,
     service::service_fn,
@@ -43,7 +44,8 @@ use crate::REQUEST_TIMEOUT_SECS;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-type ProxyBody = Full<Bytes>;
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+type ProxyBody = UnsyncBoxBody<Bytes, BoxError>;
 type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infallible>> + Send>>;
 
 const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -392,7 +394,13 @@ impl Broker {
             // Forwarding must never use proxy variables inherited by Stashbase itself.
             client: reqwest::Client::builder()
                 .no_proxy()
-                .timeout(Duration::from_secs(
+                // A total request timeout would terminate healthy long-lived streams.
+                // Keep the existing timeout budget for connecting and for each stalled
+                // read instead, so active uploads, downloads, and SSE can continue.
+                .connect_timeout(Duration::from_secs(
+                    REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+                ))
+                .read_timeout(Duration::from_secs(
                     REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
                 ))
                 // Return redirects to the child, which will make its next request through
@@ -600,7 +608,7 @@ fn proxy_request(
             connections.track(task);
             return Ok(Response::builder()
                 .status(StatusCode::OK)
-                .body(Full::new(Bytes::new()))
+                .body(full_body(Bytes::new()))
                 .unwrap());
         }
 
@@ -681,24 +689,10 @@ fn proxy_request(
         };
         let method = request.method().clone();
         let headers = request.headers().clone();
-        let body = match request.into_body().collect().await {
-            Ok(body) => body.to_bytes(),
-            Err(_) => {
-                state.record_audit(
-                    "request_body_invalid",
-                    host.as_deref(),
-                    Some(&method),
-                    secret_name.as_deref(),
-                    Some(StatusCode::BAD_REQUEST),
-                    Some(started.elapsed()),
-                );
-                return Ok(broker_error_response(
-                    StatusCode::BAD_REQUEST,
-                    "broker.request_body_invalid",
-                    "Unable to read request body",
-                ));
-            }
-        };
+        // `Incoming` is converted into a data stream without collecting it. Reqwest
+        // applies chunked transfer encoding when no content length is available, so
+        // streaming uploads retain their incremental delivery to the upstream.
+        let body = reqwest::Body::wrap_stream(request.into_body().into_data_stream());
 
         match state
             .client
@@ -711,43 +705,29 @@ fn proxy_request(
             Ok(upstream) => {
                 let status = upstream.status();
                 let headers = upstream.headers().clone();
-                match upstream.bytes().await {
-                    Ok(body) => {
-                        let mut response = Response::builder()
-                            .status(status)
-                            .body(Full::new(body))
-                            .unwrap();
-                        *response.headers_mut() = headers;
-                        state.record_audit(
-                            if secret_name.is_some() {
-                                "injected"
-                            } else {
-                                "forwarded"
-                            },
-                            host.as_deref(),
-                            Some(&method),
-                            secret_name.as_deref(),
-                            Some(status),
-                            Some(started.elapsed()),
-                        );
-                        Ok(response)
-                    }
-                    Err(_) => {
-                        state.record_audit(
-                            "upstream_response_failed",
-                            host.as_deref(),
-                            Some(&method),
-                            secret_name.as_deref(),
-                            Some(StatusCode::BAD_GATEWAY),
-                            Some(started.elapsed()),
-                        );
-                        Ok(broker_error_response(
-                            StatusCode::BAD_GATEWAY,
-                            "broker.upstream_response_failed",
-                            "Unable to read upstream response",
-                        ))
-                    }
-                }
+                // Do not await `bytes()`: forwarding this stream lets clients observe
+                // each upstream chunk (including SSE events) as it arrives.
+                let body = StreamBody::new(upstream.bytes_stream().map(|chunk| {
+                    chunk
+                        .map(Frame::data)
+                        .map_err(|error| -> BoxError { Box::new(error) })
+                }))
+                .boxed_unsync();
+                let mut response = Response::builder().status(status).body(body).unwrap();
+                *response.headers_mut() = headers;
+                state.record_audit(
+                    if secret_name.is_some() {
+                        "injected"
+                    } else {
+                        "forwarded"
+                    },
+                    host.as_deref(),
+                    Some(&method),
+                    secret_name.as_deref(),
+                    Some(status),
+                    Some(started.elapsed()),
+                );
+                Ok(response)
             }
             Err(error) => {
                 debug!(
@@ -1032,15 +1012,25 @@ fn broker_error_response(status: StatusCode, code: &str, message: &str) -> Respo
     Response::builder()
         .status(status)
         .header(CONTENT_TYPE, "application/json")
-        .body(Full::new(Bytes::from(body)))
+        .body(full_body(Bytes::from(body)))
         .unwrap()
+}
+
+fn full_body(body: Bytes) -> ProxyBody {
+    Full::new(body)
+        .map_err(|never| -> BoxError { match never {} })
+        .boxed_unsync()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hyper::header::AUTHORIZATION;
-    use tokio::sync::oneshot;
+    use futures_util::{stream, StreamExt};
+    use hyper::header::{AUTHORIZATION, TRANSFER_ENCODING};
+    use tokio::{
+        sync::oneshot,
+        time::{sleep, timeout},
+    };
 
     async fn start_backend() -> (std::net::SocketAddr, oneshot::Receiver<Option<String>>) {
         start_backend_capturing(AUTHORIZATION).await
@@ -1317,6 +1307,219 @@ mod tests {
             authorization.await.unwrap().as_deref(),
             Some("Bearer real-token")
         );
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn forwards_a_json_request_body_without_modifying_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (body_sender, body) = oneshot::channel();
+        let body_sender = Arc::new(Mutex::new(Some(body_sender)));
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(move |request: Request<Incoming>| {
+                let body_sender = body_sender.clone();
+                async move {
+                    let bytes = request.into_body().collect().await.unwrap().to_bytes();
+                    if let Some(sender) = body_sender.lock().unwrap().take() {
+                        let _ = sender.send(bytes);
+                    }
+                    Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
+                }
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        let payload = r#"{"model":"example","stream":true}"#;
+        let response = proxy_client(&broker)
+            .post(format!("http://{address}/v1/chat"))
+            .header(CONTENT_TYPE, "application/json")
+            .body(payload)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body.await.unwrap(), Bytes::from(payload));
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn streams_request_chunks_to_the_upstream_before_the_body_completes() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (first_chunk_sender, first_chunk) = oneshot::channel();
+        let first_chunk_sender = Arc::new(Mutex::new(Some(first_chunk_sender)));
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(move |request: Request<Incoming>| {
+                let first_chunk_sender = first_chunk_sender.clone();
+                async move {
+                    let transfer_encoding = request
+                        .headers()
+                        .get(TRANSFER_ENCODING)
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_owned);
+                    let mut body = request.into_body().into_data_stream();
+                    if let Some(Ok(chunk)) = body.next().await {
+                        if let Some(sender) = first_chunk_sender.lock().unwrap().take() {
+                            let _ = sender.send((transfer_encoding, chunk));
+                        }
+                    }
+                    while body.next().await.is_some() {}
+                    Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
+                }
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let client = proxy_client(&broker);
+        let body = stream::iter([Ok::<Bytes, std::io::Error>(Bytes::from_static(b"first"))]).chain(
+            stream::once(async {
+                sleep(Duration::from_millis(200)).await;
+                Ok(Bytes::from_static(b"second"))
+            }),
+        );
+        let request = tokio::spawn(async move {
+            client
+                .post(format!("http://{address}/upload"))
+                .body(reqwest::Body::wrap_stream(body))
+                .send()
+                .await
+                .unwrap()
+        });
+
+        let (transfer_encoding, first_chunk) = timeout(Duration::from_millis(100), first_chunk)
+            .await
+            .expect("the first chunk was buffered by the broker")
+            .unwrap();
+        assert_eq!(transfer_encoding.as_deref(), Some("chunked"));
+        assert_eq!(first_chunk, Bytes::from_static(b"first"));
+        assert_eq!(request.await.unwrap().status(), StatusCode::OK);
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn streams_sse_response_chunks_without_waiting_for_completion() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(|_: Request<Incoming>| async move {
+                let events = stream::iter([Ok::<Bytes, Infallible>(Bytes::from_static(
+                    b"data: first\n\n",
+                ))])
+                .chain(stream::once(async {
+                    sleep(Duration::from_millis(200)).await;
+                    Ok(Bytes::from_static(b"data: second\n\n"))
+                }))
+                .map(|chunk| chunk.map(Frame::data));
+                Ok::<_, Infallible>(
+                    Response::builder()
+                        .header(CONTENT_TYPE, "text/event-stream")
+                        .body(StreamBody::new(events))
+                        .unwrap(),
+                )
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&broker)
+            .get(format!("http://{address}/events"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.headers()[CONTENT_TYPE], "text/event-stream");
+        assert_eq!(response.headers()[TRANSFER_ENCODING], "chunked");
+        let mut events = response.bytes_stream();
+        assert_eq!(
+            timeout(Duration::from_millis(100), events.next())
+                .await
+                .expect("the first SSE event was buffered by the broker")
+                .unwrap()
+                .unwrap(),
+            Bytes::from_static(b"data: first\n\n")
+        );
+        assert_eq!(
+            events.next().await.unwrap().unwrap(),
+            Bytes::from_static(b"data: second\n\n")
+        );
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn streams_large_request_and_response_bodies() {
+        const CHUNK_SIZE: usize = 128 * 1024;
+        const CHUNKS: usize = 64;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(|request: Request<Incoming>| async move {
+                let mut request_body = request.into_body().into_data_stream();
+                let mut request_size = 0;
+                while let Some(chunk) = request_body.next().await {
+                    request_size += chunk.unwrap().len();
+                }
+                assert_eq!(request_size, CHUNK_SIZE * CHUNKS);
+                let response = stream::unfold(0, |index| async move {
+                    (index < CHUNKS).then(|| {
+                        (
+                            Ok::<Bytes, Infallible>(Bytes::from(vec![b'r'; CHUNK_SIZE])),
+                            index + 1,
+                        )
+                    })
+                })
+                .map(|chunk| chunk.map(Frame::data));
+                Ok::<_, Infallible>(Response::new(StreamBody::new(response)))
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let request = stream::unfold(0, |index| async move {
+            (index < CHUNKS).then(|| {
+                (
+                    Ok::<Bytes, std::io::Error>(Bytes::from(vec![b'q'; CHUNK_SIZE])),
+                    index + 1,
+                )
+            })
+        });
+
+        let mut response = proxy_client(&broker)
+            .post(format!("http://{address}/large"))
+            .body(reqwest::Body::wrap_stream(request))
+            .send()
+            .await
+            .unwrap()
+            .bytes_stream();
+        let mut response_size = 0;
+        while let Some(chunk) = response.next().await {
+            response_size += chunk.unwrap().len();
+        }
+        assert_eq!(response_size, CHUNK_SIZE * CHUNKS);
         broker.stop().await;
     }
 
