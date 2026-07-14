@@ -287,6 +287,16 @@ pub async fn handle_cli(args: Cli) {
                         );
                     }
 
+                    if !silent {
+                        if agent_run.sandbox {
+                            eprintln!("Network sandbox: enabled");
+                        } else {
+                            eprintln!(
+                                "Warning: Network sandbox is disabled. A tool that bypasses proxy settings may make direct network requests. Enable --sandbox for network containment on supported platforms."
+                            );
+                        }
+                    }
+
                     if profile.secrets.is_empty() {
                         eprintln!(
                             "Agent profile '{}' does not grant any secrets.",
