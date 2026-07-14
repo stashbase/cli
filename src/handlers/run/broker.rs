@@ -1284,6 +1284,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_and_audits_an_unknown_placeholder_without_recording_it() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = AuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+        let broker = Broker::start(
+            HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
+            BrokerPolicy::permissive(),
+            Some(audit_log),
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&broker)
+            .get("http://127.0.0.1:1/")
+            .header(AUTHORIZATION, "Bearer **STASHBASE_STALE_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        broker.stop().await;
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("unknown_placeholder"));
+        assert!(!content.contains("STASHBASE_STALE_TOKEN"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn rewrites_a_placeholder_in_a_configured_api_key_header() {
         let header_name = HeaderName::from_static("x-api-key");
         let (address, api_key) = start_backend_capturing(header_name.clone()).await;
