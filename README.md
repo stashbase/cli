@@ -326,19 +326,22 @@ the platform's system trust-store updater and may prompt for `sudo`. This option
 intentionally changes host trust only for the session and should be used only on
 a machine where the launched agent is trusted.
 
-### macOS network sandbox (experimental)
+### Network sandbox (experimental)
 
-On macOS, add `--sandbox` to deny the child direct inbound and outbound network
-access while retaining its loopback connection to the embedded broker:
+On macOS and systemd-based Linux systems, add `--sandbox` to deny the child
+direct network access while retaining its loopback connection to the embedded
+broker:
 
 ```bash
 stashbase agent run --sandbox --profile coding --profile-source directory -- codex
 ```
 
 This prevents a sandboxed tool from bypassing the broker with a direct internet
-connection. It is a network-containment experiment built on macOS's deprecated
-`sandbox-exec` utility; it is not yet full filesystem or same-user
-process-memory isolation. Linux and Windows support are not implemented.
+connection. macOS uses the deprecated `sandbox-exec` utility. Linux uses
+`systemd-run --user --scope` with cgroup IP allow/deny rules, so it requires
+`systemd-run` and an active systemd user session. Windows is not implemented.
+This is network containment only, not filesystem or same-user process-memory
+isolation.
 
 ### Threat model and security boundary
 
@@ -351,9 +354,9 @@ policy and audit logs make those brokered HTTP(S) decisions visible.
 It is not a security boundary against a malicious or compromised process
 running as the same user. Such a process may inspect local files or process
 memory, alter the environment, invoke ordinary `stashbase run`, or otherwise
-bypass the intended workflow. Without macOS `--sandbox`, a tool that ignores
+bypass the intended workflow. Without `--sandbox`, a tool that ignores
 proxy environment variables can also make direct network connections. The
-macOS sandbox reduces that bypass route, but does not provide filesystem,
+sandbox reduces that bypass route, but does not provide filesystem,
 process-memory, kernel, administrator, or root isolation.
 
 As defense in depth, `agent run` removes the inherited `STASHBASE_API_KEY`
