@@ -2,8 +2,6 @@ use std::collections::HashMap;
 use std::env;
 use std::process::ExitStatus;
 
-#[cfg(not(target_os = "macos"))]
-use anyhow::bail;
 use anyhow::Result;
 use duct::{cmd, Expression};
 use thiserror::Error;
@@ -135,10 +133,42 @@ fn sandbox_command(
         ));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     {
-        bail!("--sandbox is currently supported only on macOS")
+        if !command_in_path("systemd-run") {
+            anyhow::bail!(
+                "--sandbox on Linux requires systemd-run and an active systemd user session"
+            )
+        }
+        // systemd applies these cgroup IP rules only to the child command. The
+        // parent-owned broker remains outside the scope and can forward approved
+        // requests to the internet, while the child can reach only 127.0.0.1.
+        return Ok((
+            "systemd-run".to_owned(),
+            vec![
+                "--user".to_owned(),
+                "--scope".to_owned(),
+                "--quiet".to_owned(),
+                "--property=IPAddressDeny=any".to_owned(),
+                "--property=IPAddressAllow=127.0.0.1".to_owned(),
+                "--property=IPAddressAllow=::1".to_owned(),
+                "--".to_owned(),
+                command.to_owned(),
+            ],
+        ));
     }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        anyhow::bail!("--sandbox is currently supported on macOS and systemd-based Linux")
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn command_in_path(command: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path).any(|directory| directory.join(command).is_file())
+    })
 }
 
 #[cfg(all(test, unix))]
@@ -264,5 +294,19 @@ mod tests {
             .status()
             .unwrap();
         assert!(!denied.success());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_sandbox_uses_systemd_cgroup_network_rules() {
+        let env_vars = HashMap::from([(
+            "HTTPS_PROXY".to_owned(),
+            "http://127.0.0.1:49152".to_owned(),
+        )]);
+        let (program, args) = sandbox_command("curl", true, &env_vars).unwrap();
+        assert_eq!(program, "systemd-run");
+        assert!(args.contains(&"--property=IPAddressDeny=any".to_owned()));
+        assert!(args.contains(&"--property=IPAddressAllow=127.0.0.1".to_owned()));
+        assert_eq!(args.last(), Some(&"curl".to_owned()));
     }
 }
