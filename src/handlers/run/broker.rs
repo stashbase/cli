@@ -558,7 +558,7 @@ fn proxy_request(
                     host_from_authority(&authority)
                 );
                 state.record_audit(
-                    "denied_destination",
+                    "host_denied",
                     Some(host_from_authority(&authority)),
                     Some(&Method::CONNECT),
                     None,
@@ -579,9 +579,20 @@ fn proxy_request(
                 Some(started.elapsed()),
             );
             let connections = state.connections.clone();
+            let connection_state = state.clone();
             let task = tokio::spawn(async move {
-                if let Ok(upgraded) = hyper::upgrade::on(&mut request).await {
-                    let _ = serve_tls_connection(upgraded, authority, state).await;
+                match hyper::upgrade::on(&mut request).await {
+                    Ok(upgraded) => {
+                        let _ = serve_tls_connection(upgraded, authority, connection_state).await;
+                    }
+                    Err(_) => connection_state.record_audit(
+                        "connect_upgrade_failed",
+                        Some(host_from_authority(&authority)),
+                        Some(&Method::CONNECT),
+                        None,
+                        None,
+                        None,
+                    ),
                 }
             });
             connections.track(task);
@@ -598,7 +609,7 @@ fn proxy_request(
                 host.as_deref().unwrap_or("unknown")
             );
             state.record_audit(
-                "denied_destination",
+                "host_denied",
                 host.as_deref(),
                 Some(request.method()),
                 None,
@@ -610,6 +621,20 @@ fn proxy_request(
                 "Broker policy denied destination",
             ));
         }
+        if contains_unknown_placeholder(&request, &state) {
+            state.record_audit(
+                "unknown_placeholder",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(response(
+                StatusCode::FORBIDDEN,
+                "Broker received an unknown credential placeholder",
+            ));
+        }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
             Ok(secret_name) => secret_name,
             Err(secret_name) => {
@@ -618,7 +643,7 @@ fn proxy_request(
                     host.as_deref().unwrap_or("unknown")
                 );
                 state.record_audit(
-                    "denied_credential",
+                    "host_denied",
                     host.as_deref(),
                     Some(request.method()),
                     Some(&secret_name),
@@ -635,7 +660,7 @@ fn proxy_request(
             Ok(url) => url,
             Err(_) => {
                 state.record_audit(
-                    "invalid_request",
+                    "request_invalid",
                     host.as_deref(),
                     Some(request.method()),
                     secret_name.as_deref(),
@@ -654,7 +679,7 @@ fn proxy_request(
             Ok(body) => body.to_bytes(),
             Err(_) => {
                 state.record_audit(
-                    "invalid_request_body",
+                    "request_body_invalid",
                     host.as_deref(),
                     Some(&method),
                     secret_name.as_deref(),
@@ -702,7 +727,7 @@ fn proxy_request(
                     }
                     Err(_) => {
                         state.record_audit(
-                            "upstream_failed",
+                            "upstream_response_failed",
                             host.as_deref(),
                             Some(&method),
                             secret_name.as_deref(),
@@ -716,13 +741,13 @@ fn proxy_request(
                     }
                 }
             }
-            Err(_) => {
+            Err(error) => {
                 debug!(
                     "broker could not forward request to destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
                 state.record_audit(
-                    "upstream_failed",
+                    upstream_error_action(&error),
                     host.as_deref(),
                     Some(&method),
                     secret_name.as_deref(),
@@ -783,14 +808,33 @@ async fn serve_tls_connection(
             )],
             PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf.serialize_private_key_der())),
         )?;
-    let stream = TlsAcceptor::from(Arc::new(config))
+    let handshake_started = Instant::now();
+    let stream = match TlsAcceptor::from(Arc::new(config))
         .accept(TokioIo::new(upgraded))
-        .await?;
+        .await
+    {
+        Ok(stream) => stream,
+        Err(error) => {
+            // A client that rejects the temporary CA usually terminates here. The
+            // TLS protocol does not reveal the exact client-side reason, so this
+            // is intentionally phrased as a trust/handshake failure.
+            state.record_audit(
+                "tls_trust_failed",
+                Some(host),
+                Some(&Method::CONNECT),
+                None,
+                None,
+                Some(handshake_started.elapsed()),
+            );
+            return Err(error.into());
+        }
+    };
     let service =
         service_fn(move |request| proxy_request(request, state.clone(), Some(authority.clone())));
     http1::Builder::new()
         .serve_connection(TokioIo::new(stream), service)
-        .await?;
+        .await
+        .context("TLS proxy connection ended before the HTTP request completed")?;
     Ok(())
 }
 
@@ -869,6 +913,40 @@ fn replace_placeholder(
     }
 
     Ok(None)
+}
+
+/// Reject placeholder-shaped values that do not belong to this session instead
+/// of forwarding them to an upstream service. This avoids accidental leakage of
+/// a placeholder and makes stale profile bindings diagnosable from audit logs.
+fn contains_unknown_placeholder(request: &Request<Incoming>, state: &BrokerState) -> bool {
+    request.headers().values().any(|value| {
+        let Ok(value) = value.to_str() else {
+            return false;
+        };
+        let mut remaining = value;
+        while let Some(index) = remaining.find("**STASHBASE_") {
+            let candidate = &remaining[index..];
+            let Some(end) = candidate[2..].find("**") else {
+                return false;
+            };
+            let placeholder = &candidate[..end + 4];
+            if !state.secrets.contains_key(placeholder) {
+                return true;
+            }
+            remaining = &candidate[end + 4..];
+        }
+        false
+    })
+}
+
+fn upstream_error_action(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "upstream_timeout"
+    } else if error.is_connect() {
+        "upstream_connection_failed"
+    } else {
+        "upstream_request_failed"
+    }
 }
 
 fn request_host(request: &Request<Incoming>, connect_authority: Option<&str>) -> Option<String> {
