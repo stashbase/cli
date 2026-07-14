@@ -247,8 +247,9 @@ egress; it does not widen a secret's configured injection hosts.
 
 Egress is a developer policy choice in this local mode. If a profile allows
 your Stashbase API host (including through `egress_hosts = ["*"]`), a child may
-run ordinary Stashbase CLI commands with the developer's locally stored normal
-authentication. Tight profiles should allow only required tool hosts; unlisted
+run ordinary Stashbase CLI commands—including `stashbase secrets list`—with the
+developer's locally stored normal authentication and retrieve authorized
+secrets. Tight profiles should allow only required tool hosts; unlisted
 Stashbase API hosts are denied as `broker.host_denied`. Use `--sandbox` on
 macOS to prevent direct network bypasses. Scoped agent-session tokens will add
 server-enforced permissions in a future release.

@@ -254,9 +254,10 @@ egress_hosts = ["*"]
 
 `egress_hosts` is host-based. If it includes your Stashbase API host—or uses
 the `"*"` wildcard—the child may be able to use ordinary Stashbase CLI commands
-such as project or environment discovery through the broker. With a normal
-personal or service API key available in the operating-system credential store,
-those commands may authenticate as the developer.
+such as project/environment discovery or `stashbase secrets list` through the
+broker. With a normal personal or service API key available in the
+operating-system credential store, those commands may authenticate as the
+developer and retrieve secrets the developer is authorized to access.
 
 For a tight coding profile, allow only the tool destinations the agent needs:
 
