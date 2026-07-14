@@ -17,6 +17,19 @@ The default profile source is `auto`: Stashbase uses `./.stashbase.toml` when
 present and otherwise falls back to the user-level config. Use
 `--profile-source directory` to require the current directory's profile.
 
+Validate a profile before granting it secrets—locally or in CI:
+
+```bash
+stashbase agent validate --profile coding
+stashbase agent validate --profile coding --profile-source directory
+stashbase --json agent validate --profile coding
+```
+
+Validation does not fetch or read secret values and does not start a broker. It
+checks the selected source, local-file availability, duplicate `from` bindings,
+child environment-variable names, host rules, custom header names, and value
+templates. `egress_hosts = ["*"]` is valid but reported as a warning.
+
 By default, the broker exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
 another HTTP header; the default value template is `{secret}` for a custom
@@ -74,7 +87,9 @@ hosts = ["api.openai.com"]
 With `GITHUB_TOKEN` in `.env.local`, Stashbase requests only
 `OPENAI_API_KEY`. The child receives placeholders named `GH_TOKEN` and
 `OPENAI_API_KEY`, never their real values. Each `from` source may be bound once
-within a profile. Never place secret values or API keys in an untrusted file.
+within a profile. File-only profiles do not require a Stashbase API key; a key
+is required only when one or more remote sources are needed. Never place secret
+values or API keys in an untrusted file.
 
 ## Full-stack coding-agent profile
 
@@ -235,6 +250,27 @@ be injected anywhere beyond its own `hosts` list.
 egress_hosts = ["*"]
 ```
 
+### Stashbase API access is a profile decision
+
+`egress_hosts` is host-based. If it includes your Stashbase API host—or uses
+the `"*"` wildcard—the child may be able to use ordinary Stashbase CLI commands
+such as project or environment discovery through the broker. With a normal
+personal or service API key available in the operating-system credential store,
+those commands may authenticate as the developer.
+
+For a tight coding profile, allow only the tool destinations the agent needs:
+
+```toml
+egress_hosts = ["api.github.com", "registry.npmjs.org"]
+```
+
+Then a child request to an unlisted Stashbase API host is denied with
+`broker.host_denied`. Use `--sandbox` on macOS as well when direct network
+bypass must be blocked. Allowing broad egress is an explicit developer trust
+decision; the CLI does not implement fragile path-by-path rules for Stashbase
+endpoints. Future scoped agent-session tokens will let the API enforce finer
+permissions server-side.
+
 ## Compatibility and proxy limits
 
 The broker is intentionally focused on common developer-tool HTTP(S) traffic.
@@ -256,6 +292,21 @@ Use this matrix when deciding whether a workflow belongs in an agent profile.
 The broker is not a general-purpose proxy, policy engine, or network firewall.
 It is a short-lived credential-injection boundary for supported HTTP(S) tools.
 
+Before adding a new tool to a workflow, run the local compatibility report:
+
+```bash
+stashbase agent doctor curl
+stashbase agent doctor gh
+stashbase agent doctor copilot
+stashbase agent doctor codex
+```
+
+It never loads a profile or secret. It verifies that the executable is present,
+starts a temporary no-secret broker, confirms the proxy and temporary CA
+environment it would pass to a child, and reports known compatibility guidance.
+It cannot prove that every release or plugin inside a third-party tool will
+honor proxy settings, so also perform an allowed-host end-to-end test.
+
 ## Current boundary
 
 This remains an HTTP(S) broker. It cannot inject credentials into local-only
@@ -263,14 +314,24 @@ commands, SSH, databases, raw TCP, or tools that bypass proxy environment
 variables. Do not work around that boundary by exposing a real secret to the
 child process.
 
+In broker mode, Stashbase clears inherited `NO_PROXY` / `no_proxy`,
+`ALL_PROXY` / `all_proxy`, and npm proxy override variables before starting the
+child, then supplies its own `HTTP_PROXY` and `HTTPS_PROXY`. This prevents the
+most common accidental bypasses. A tool can still intentionally use its own
+direct connection or proxy configuration; use macOS `--sandbox` when direct
+network egress must be blocked.
+
 It reduces exposure during normal local agent and developer-tool workflows; it
 is not a defense against a malicious or compromised same-user process. A
 same-user process can potentially inspect local files or process memory, alter
 the environment, or invoke ordinary Stashbase commands. Without macOS
 `--sandbox`, proxy-bypassing tools can make direct network connections. The
 macOS sandbox limits that network bypass but is not filesystem or process-memory
-isolation. Directory profiles are trusted policy: review a repository's
-`.stashbase.toml` before granting it secrets.
+isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
+variable as defense in depth, but this does not protect credentials stored in
+CLI configuration or the operating-system credential store. Directory profiles
+are trusted policy: review a repository's `.stashbase.toml` before granting it
+secrets.
 
 ## Audit logs
 
@@ -279,6 +340,22 @@ prints an audit session ID and the local log path. Events include the profile,
 broker action, destination host, secret name, response status, and duration.
 They never include secret values, placeholders, headers, bodies, URLs, or
 command arguments.
+
+Common diagnostic actions are `host_denied`, `unknown_placeholder`,
+`tls_trust_failed`, `upstream_timeout`, `upstream_connection_failed`, and
+`upstream_response_failed`. For example:
+
+```bash
+stashbase agent logs --action host_denied
+stashbase agent logs --action tls_trust_failed --since 1h
+```
+
+`unknown_placeholder` means a placeholder from another or stale session was
+blocked before it could be forwarded. `tls_trust_failed` means the HTTPS
+handshake ended while the broker's temporary certificate was being presented;
+the protocol cannot reveal the exact client-side trust error. A direct proxy
+bypass cannot be logged because no request reaches the broker—use the macOS
+`--sandbox` option when that containment matters.
 
 ```text
 Audit session: 5fd2...
