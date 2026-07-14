@@ -123,6 +123,12 @@ impl EntityType {
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Logs(_),
             }) => false,
+            // File-only agent profiles require no Stashbase authentication.
+            // Remote fallback is validated after the profile and local overrides
+            // have been resolved.
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Run(_),
+            }) => false,
             EntityType::Scan(scan_cmd) => match &scan_cmd.subcommand {
                 ScanSubcommand::Install(_) | ScanSubcommand::Uninstall(_) => false,
                 ScanSubcommand::Config(config_cmd) => !matches!(

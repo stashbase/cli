@@ -604,6 +604,17 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if api_key.is_empty() {
+        let error = InputValidationError::MissingApiKey;
+        let formatted_err = error.format_error_output(json_format)?;
+        if let Some(ref mut spinner) = spinner {
+            spinner.stop_with_message(&formatted_err);
+        } else if !silent {
+            eprintln!("{formatted_err}");
+        }
+        return Ok(());
+    }
+
     let res = secrets::pull(
         api_key,
         api_project,
