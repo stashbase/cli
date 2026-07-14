@@ -12,6 +12,8 @@ use thiserror::Error;
 use std::io::prelude::*;
 use std::io::BufReader;
 
+const RESTRICTED_CHILD_ENV_REMOVALS: &[&str] = &["STASHBASE_API_KEY"];
+
 // for now stdout to stderr - working great
 #[derive(Debug, Error)]
 #[error("command exited with status {status}")]
@@ -30,11 +32,20 @@ pub async fn run_command(
     args: Vec<String>,
     env_vars: HashMap<String, String>,
     sandbox: bool,
+    restrict_stashbase_credentials: bool,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
     let (program, launcher_args) = sandbox_command(command, sandbox, &env_vars)?;
     let cmd: Expression = cmd(program, launcher_args)
         .before_spawn(move |cmd| {
+            if restrict_stashbase_credentials {
+                // Do not inherit the developer's Stashbase API key into a
+                // restricted agent child. Explicit profile placeholders are
+                // added below and remain supported.
+                for name in RESTRICTED_CHILD_ENV_REMOVALS {
+                    cmd.env_remove(name);
+                }
+            }
             for arg in args.iter() {
                 cmd.arg(arg);
             }
@@ -111,6 +122,12 @@ fn sandbox_command(
 mod tests {
     use super::{run_command, sandbox_command};
     use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    fn environment_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[tokio::test]
     async fn returns_the_child_exit_status() {
@@ -119,11 +136,35 @@ mod tests {
             vec!["-c".to_owned(), "exit 7".to_owned()],
             HashMap::new(),
             false,
+            false,
         )
         .await
         .unwrap();
 
         assert_eq!(status.code(), Some(7));
+    }
+
+    #[tokio::test]
+    async fn restricted_child_does_not_inherit_stashbase_api_key() {
+        let _guard = environment_lock().lock().unwrap();
+        let previous = std::env::var_os("STASHBASE_API_KEY");
+        std::env::set_var("STASHBASE_API_KEY", "parent-api-key");
+
+        let status = run_command(
+            "sh",
+            vec!["-c".to_owned(), "test -z \"$STASHBASE_API_KEY\"".to_owned()],
+            HashMap::new(),
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+
+        match previous {
+            Some(value) => std::env::set_var("STASHBASE_API_KEY", value),
+            None => std::env::remove_var("STASHBASE_API_KEY"),
+        }
+        assert!(status.success());
     }
 
     #[cfg(target_os = "macos")]

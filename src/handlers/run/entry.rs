@@ -980,6 +980,9 @@ async fn handle_run(
         .skip(1)
         .map(|s| s)
         .collect::<Vec<String>>();
+    let restrict_stashbase_credentials = broker_policy
+        .as_ref()
+        .is_some_and(|policy| policy.strict_deny);
 
     // Broker mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
@@ -998,7 +1001,14 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let result = subprocess::run_command(&cmd, args, broker.child_env().clone(), sandbox).await;
+        let result = subprocess::run_command(
+            &cmd,
+            args,
+            broker.child_env().clone(),
+            sandbox,
+            restrict_stashbase_credentials,
+        )
+        .await;
         broker.stop().await;
         if !silent {
             eprintln!("Broker stopped");
@@ -1006,7 +1016,7 @@ async fn handle_run(
         result
     } else {
         // TODO: errors: no such file or directory
-        subprocess::run_command(&cmd, args, secrets_hash_map, sandbox).await
+        subprocess::run_command(&cmd, args, secrets_hash_map, sandbox, false).await
     };
 
     let mut mutex = SUBPROCESS_RUNNING
