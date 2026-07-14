@@ -1025,6 +1025,7 @@ async fn handle_run(
             args,
             broker.child_env().clone(),
             sandbox,
+            true,
             restrict_stashbase_credentials,
         )
         .await;
@@ -1035,7 +1036,7 @@ async fn handle_run(
         result
     } else {
         // TODO: errors: no such file or directory
-        subprocess::run_command(&cmd, args, secrets_hash_map, sandbox, false).await
+        subprocess::run_command(&cmd, args, secrets_hash_map, sandbox, false, false).await
     };
 
     let mut mutex = SUBPROCESS_RUNNING
