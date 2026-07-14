@@ -286,7 +286,7 @@ Use this matrix when deciding whether a workflow belongs in an agent profile.
 | Custom API-key headers | Yes | Configure `header` and, when needed, `value_template`. |
 | Request bodies, query parameters, cookies, or arbitrary CLI arguments | No | Injection is header-only. Do not put real credentials in another channel to work around this. |
 | SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets | No | These protocols do not use the HTTP(S) broker. |
-| Proxy-bypassing tools | No containment by default | They can connect directly unless they honor the proxy settings. macOS `--sandbox` limits direct network access to the broker loopback port; Linux and Windows sandbox support is not implemented. |
+| Proxy-bypassing tools | No containment by default | They can connect directly unless they honor the proxy settings. `--sandbox` limits direct network access to the broker loopback port on macOS and systemd-based Linux; Windows is not implemented. |
 | HTTP/2 proxy clients, WebSockets, SSE, or large streaming uploads/downloads | Not a supported target | This proof-of-concept proxy accepts HTTP/1 proxy traffic and buffers request bodies before forwarding. |
 
 The broker is not a general-purpose proxy, policy engine, or network firewall.
@@ -318,16 +318,15 @@ In broker mode, Stashbase clears inherited `NO_PROXY` / `no_proxy`,
 `ALL_PROXY` / `all_proxy`, and npm proxy override variables before starting the
 child, then supplies its own `HTTP_PROXY` and `HTTPS_PROXY`. This prevents the
 most common accidental bypasses. A tool can still intentionally use its own
-direct connection or proxy configuration; use macOS `--sandbox` when direct
-network egress must be blocked.
+direct connection or proxy configuration; use `--sandbox` when direct network
+egress must be blocked.
 
 It reduces exposure during normal local agent and developer-tool workflows; it
 is not a defense against a malicious or compromised same-user process. A
 same-user process can potentially inspect local files or process memory, alter
-the environment, or invoke ordinary Stashbase commands. Without macOS
-`--sandbox`, proxy-bypassing tools can make direct network connections. The
-macOS sandbox limits that network bypass but is not filesystem or process-memory
-isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
+the environment, or invoke ordinary Stashbase commands. Without `--sandbox`,
+proxy-bypassing tools can make direct network connections. The sandbox limits
+that network bypass but is not filesystem or process-memory isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
 variable as defense in depth, but this does not protect credentials stored in
 CLI configuration or the operating-system credential store. Directory profiles
 are trusted policy: review a repository's `.stashbase.toml` before granting it
