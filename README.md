@@ -122,7 +122,7 @@ stashbase run --file .env.production -- npm run dev
 stashbase run --file secrets.yaml -- npm run dev
 ```
 
-### Experimental credential broker
+### Agent Credential Broker (Experimental)
 
 `run --broker` starts an in-process, localhost-only HTTP proxy for the lifetime
 of the child command. Instead of receiving the loaded secret, the child receives
