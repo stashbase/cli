@@ -254,12 +254,12 @@ Stashbase API hosts are denied as `broker.host_denied`. Use `--sandbox` on
 macOS to prevent direct network bypasses. Scoped agent-session tokens will add
 server-enforced permissions in a future release.
 
-Agent profiles can also live in `.stashbase.toml` in the command's current
+Agent profiles can also live in `stashbase-agent.toml` in the command's current
 directory. The directory file contains a complete profile and never stores API
 keys or secret values:
 
 ```toml
-# .stashbase.toml
+# stashbase-agent.toml
 [agent_profiles.coding]
 file = ".env.agent"
 egress_hosts = ["registry.npmjs.org"]
@@ -271,17 +271,17 @@ hosts = ["api.github.com"]
 Select where the profile is loaded with `--profile-source`:
 
 ```bash
-# Default: ./.stashbase.toml when present, otherwise global config
+# Default: ./stashbase-agent.toml when present, otherwise global config
 stashbase agent run --profile coding -- codex
 
-# Require ./.stashbase.toml
+# Require ./stashbase-agent.toml
 stashbase agent run --profile coding --profile-source directory -- codex
 
-# Use ./.stashbase.toml when present, otherwise global config
+# Use ./stashbase-agent.toml when present, otherwise global config
 stashbase agent run --profile coding --profile-source auto -- codex
 ```
 
-The default is `auto`: a `.stashbase.toml` in the current directory is used
+The default is `auto`: a `stashbase-agent.toml` in the current directory is used
 when present, otherwise Stashbase falls back to global config. Treat a
 repository profile as trusted policy: it can select its Stashbase environment
 or local secret file and determines where secrets may be sent.
@@ -366,7 +366,7 @@ from accessing credentials stored elsewhere, such as CLI configuration or the
 operating-system credential store.
 
 Treat directory profiles as trusted policy: with the default `--profile-source
-auto`, a repository `.stashbase.toml` can select a secret source and its allowed
+auto`, a repository `stashbase-agent.toml` can select a secret source and its allowed
 destinations. Do not run an agent with secrets from an untrusted repository, or
 give it unrestricted Stashbase API credentials.
 

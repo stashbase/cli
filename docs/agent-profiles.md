@@ -6,14 +6,14 @@
 > malicious process running as the same user from accessing broader Stashbase
 > credentials or bypassing this workflow.
 
-These are copy-paste starting points for `.stashbase.toml` in a trusted working
+These are copy-paste starting points for `stashbase-agent.toml` in a trusted working
 directory. Run one with:
 
 ```bash
 stashbase agent run --profile <name> -- <command>
 ```
 
-The default profile source is `auto`: Stashbase uses `./.stashbase.toml` when
+The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
 present and otherwise falls back to the user-level config. Use
 `--profile-source directory` to require the current directory's profile.
 
@@ -99,7 +99,7 @@ binding, destination allowlist, and header representation; `egress_hosts` is
 for ordinary traffic that must never receive a credential.
 
 ```toml
-# .stashbase.toml
+# stashbase-agent.toml
 [agent_profiles.full-stack]
 project = "platform"
 environment = "development"
@@ -330,7 +330,7 @@ proxy-bypassing tools can make direct network connections. The sandbox limits
 that network bypass but is not filesystem or process-memory isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
 variable as defense in depth, but this does not protect credentials stored in
 CLI configuration or the operating-system credential store. Directory profiles
-are trusted policy: review a repository's `.stashbase.toml` before granting it
+are trusted policy: review a repository's `stashbase-agent.toml` before granting it
 secrets.
 
 ## Audit logs

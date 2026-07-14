@@ -21,7 +21,7 @@ pub struct OutputFormatConfig {
     pub secrets: Option<SecretsOutputFormat>,
 }
 
-/// Schema for a directory-local `.stashbase.toml` agent profile file.
+/// Schema for a directory-local `stashbase-agent.toml` agent profile file.
 /// Secret values and API keys are never stored here.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]

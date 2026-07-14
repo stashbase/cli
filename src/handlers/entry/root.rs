@@ -282,7 +282,7 @@ pub async fn handle_cli(args: Cli) {
                         && !silent
                     {
                         eprintln!(
-                            "Warning: Loaded agent profile '{}' from ./.stashbase.toml. Review this repository policy before granting secrets.",
+                            "Warning: Loaded agent profile '{}' from ./stashbase-agent.toml. Review this repository policy before granting secrets.",
                             agent_run.profile
                         );
                     }

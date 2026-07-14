@@ -82,7 +82,7 @@ pub async fn handle_agent_validate_command(
     checks.push(ok(
         "Profile source",
         if directory_profile {
-            "Loaded from ./.stashbase.toml".to_owned()
+            "Loaded from ./stashbase-agent.toml".to_owned()
         } else {
             "Loaded from user-level config".to_owned()
         },
@@ -90,7 +90,7 @@ pub async fn handle_agent_validate_command(
     if directory_profile && matches!(command.profile_source, AgentProfileSource::Auto) {
         checks.push(warn(
             "Repository policy",
-            "Auto selected ./.stashbase.toml. Review this repository-controlled policy before granting secrets."
+            "Auto selected ./stashbase-agent.toml. Review this repository-controlled policy before granting secrets."
                 .to_owned(),
         ));
     }
