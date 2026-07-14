@@ -234,15 +234,18 @@ pub async fn handle_cli(args: Cli) {
                         .as_ref()
                         .and_then(|profiles| profiles.get(&agent_run.profile))
                         .cloned();
-                    let profile = match agent_run.profile_source {
-                        AgentProfileSource::Global => global_profile,
-                        AgentProfileSource::Directory => {
-                            config::get_directory_agent_profile(&agent_run.profile)?
+                    let (profile, loaded_from_directory) = match agent_run.profile_source {
+                        AgentProfileSource::Global => (global_profile, false),
+                        AgentProfileSource::Directory => (
+                            config::get_directory_agent_profile(&agent_run.profile)?,
+                            true,
+                        ),
+                        AgentProfileSource::Auto => {
+                            let directory_profile =
+                                config::get_directory_agent_profile(&agent_run.profile)?;
+                            let loaded_from_directory = directory_profile.is_some();
+                            (directory_profile.or(global_profile), loaded_from_directory)
                         }
-                        AgentProfileSource::Auto => config::get_directory_agent_profile(
-                            &agent_run.profile,
-                        )?
-                        .or(global_profile),
                     };
 
                     let Some(profile) = profile else {
@@ -257,6 +260,16 @@ pub async fn handle_cli(args: Cli) {
                         );
                         return Ok(());
                     };
+
+                    if loaded_from_directory
+                        && matches!(agent_run.profile_source, AgentProfileSource::Auto)
+                        && !silent
+                    {
+                        eprintln!(
+                            "Warning: Loaded agent profile '{}' from ./.stashbase.toml. Review this repository policy before granting secrets.",
+                            agent_run.profile
+                        );
+                    }
 
                     if profile.secrets.is_empty() {
                         eprintln!(
