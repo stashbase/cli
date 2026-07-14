@@ -12,6 +12,7 @@ use crate::{
     },
     config::{config, secure_store},
     handlers::{
+        agent_doctor::handle_agent_doctor_command,
         doctor::handle_doctor_command,
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
@@ -227,6 +228,13 @@ pub async fn handle_cli(args: Cli) {
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
                 AgentSubcommand::Logs(agent_logs) => {
                     handle_agent_logs(agent_logs, raw_output).await
+                }
+                AgentSubcommand::Doctor(agent_doctor) => {
+                    match handle_agent_doctor_command(agent_doctor, raw_output).await {
+                        Ok(true) => std::process::exit(1),
+                        Ok(false) => Ok(()),
+                        Err(error) => Err(error),
+                    }
                 }
                 AgentSubcommand::Run(agent_run) => async {
                     let global_profile = config

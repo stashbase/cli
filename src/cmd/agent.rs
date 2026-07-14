@@ -10,6 +10,8 @@ pub struct AgentCommand {
 pub enum AgentSubcommand {
     /// Run an agent with a brokered credential profile
     Run(AgentRunCommand),
+    /// Check a tool's compatibility with the temporary credential broker
+    Doctor(AgentDoctorCommand),
     /// View local metadata-only broker audit logs
     Logs(AgentLogsCommand),
 }
@@ -51,6 +53,13 @@ pub struct AgentRunCommand {
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "agent doctor <TOOL>")]
+pub struct AgentDoctorCommand {
+    /// Executable to check (for example: curl, gh, node, copilot, or codex)
+    pub tool: String,
 }
 
 #[derive(Debug, Args)]
