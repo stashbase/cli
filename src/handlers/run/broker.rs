@@ -21,7 +21,7 @@ use chrono::{DateTime, Utc};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     body::{Bytes, Incoming},
-    header::{HeaderName, HeaderValue},
+    header::{HeaderName, HeaderValue, CONTENT_TYPE},
     server::conn::http1,
     service::service_fn,
     Method, Request, Response, StatusCode,
@@ -547,8 +547,9 @@ fn proxy_request(
         if request.method() == Method::CONNECT {
             let authority = request.uri().authority().map(|value| value.to_string());
             let Some(authority) = authority else {
-                return Ok(response(
+                return Ok(broker_error_response(
                     StatusCode::BAD_REQUEST,
+                    "broker.invalid_connect",
                     "CONNECT requires an authority",
                 ));
             };
@@ -565,8 +566,9 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(response(
+                return Ok(broker_error_response(
                     StatusCode::FORBIDDEN,
+                    "broker.host_denied",
                     "Broker policy denied destination",
                 ));
             }
@@ -616,8 +618,9 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(response(
+            return Ok(broker_error_response(
                 StatusCode::FORBIDDEN,
+                "broker.host_denied",
                 "Broker policy denied destination",
             ));
         }
@@ -630,8 +633,9 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(response(
+            return Ok(broker_error_response(
                 StatusCode::FORBIDDEN,
+                "broker.unknown_placeholder",
                 "Broker received an unknown credential placeholder",
             ));
         }
@@ -650,8 +654,9 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(response(
+                return Ok(broker_error_response(
                     StatusCode::FORBIDDEN,
+                    "broker.credential_host_denied",
                     "Broker policy denied credential",
                 ));
             }
@@ -667,8 +672,9 @@ fn proxy_request(
                     Some(StatusCode::BAD_REQUEST),
                     Some(started.elapsed()),
                 );
-                return Ok(response(
+                return Ok(broker_error_response(
                     StatusCode::BAD_REQUEST,
+                    "broker.request_invalid",
                     "Unable to determine request URL",
                 ));
             }
@@ -686,8 +692,9 @@ fn proxy_request(
                     Some(StatusCode::BAD_REQUEST),
                     Some(started.elapsed()),
                 );
-                return Ok(response(
+                return Ok(broker_error_response(
                     StatusCode::BAD_REQUEST,
+                    "broker.request_body_invalid",
                     "Unable to read request body",
                 ));
             }
@@ -734,8 +741,9 @@ fn proxy_request(
                             Some(StatusCode::BAD_GATEWAY),
                             Some(started.elapsed()),
                         );
-                        Ok(response(
+                        Ok(broker_error_response(
                             StatusCode::BAD_GATEWAY,
+                            "broker.upstream_response_failed",
                             "Unable to read upstream response",
                         ))
                     }
@@ -754,8 +762,9 @@ fn proxy_request(
                     Some(StatusCode::BAD_GATEWAY),
                     Some(started.elapsed()),
                 );
-                Ok(response(
+                Ok(broker_error_response(
                     StatusCode::BAD_GATEWAY,
+                    &format!("broker.{}", upstream_error_action(&error)),
                     "Unable to forward broker request",
                 ))
             }
@@ -1010,10 +1019,20 @@ fn host_matches(allowed: &str, host: &str) -> bool {
     }
 }
 
-fn response(status: StatusCode, message: &str) -> Response<ProxyBody> {
+/// Broker failures use the public API error envelope so a nested `stashbase`
+/// command can report policy denials clearly instead of failing JSON parsing.
+fn broker_error_response(status: StatusCode, code: &str, message: &str) -> Response<ProxyBody> {
+    let body = serde_json::json!({
+        "error": {
+            "code": code,
+            "message": message,
+        }
+    })
+    .to_string();
     Response::builder()
         .status(status)
-        .body(Full::new(Bytes::from(message.to_owned())))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Full::new(Bytes::from(body)))
         .unwrap()
 }
 
@@ -1074,6 +1093,24 @@ mod tests {
     #[test]
     fn creates_expected_placeholders() {
         assert_eq!(placeholder_for("GH_TOKEN"), "**STASHBASE_GH_TOKEN**");
+    }
+
+    #[tokio::test]
+    async fn broker_errors_use_the_api_error_envelope() {
+        let response = broker_error_response(
+            StatusCode::FORBIDDEN,
+            "broker.host_denied",
+            "Broker policy denied destination",
+        );
+        assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(error.error.code, "broker.host_denied");
+        assert_eq!(
+            error.error.message.as_deref(),
+            Some("Broker policy denied destination")
+        );
     }
 
     #[tokio::test]
