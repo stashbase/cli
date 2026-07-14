@@ -188,9 +188,9 @@ fn tool_compatibility(tool: &str) -> Check {
             "Python libraries vary: requests and httpx normally honor proxy variables, but a library can opt out."
                 .to_owned(),
         ),
-        "codex" => warn(
+        "codex" => ok(
             "Tool compatibility",
-            "Codex compatibility depends on the installed release and the HTTP client used by its tools. Run a real allowed-host request to verify it."
+            "Codex is supported over HTTP/1 WebSocket upgrades as well as ordinary HTTP(S). Configure every required Codex host and use --trust-broker-ca if its installed release requires OS trust-store integration."
                 .to_owned(),
         ),
         _ => warn(

@@ -2395,6 +2395,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sha2",

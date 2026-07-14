@@ -22,6 +22,7 @@ use futures_util::StreamExt;
 use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
 use hyper::{
     body::{Bytes, Frame, Incoming},
+    client::conn::http1 as client_http1,
     header::{HeaderName, HeaderValue, CONTENT_TYPE},
     server::conn::http1,
     service::service_fn,
@@ -31,12 +32,18 @@ use hyper_util::rt::TokioIo;
 use log::debug;
 use rcgen::{BasicConstraints, Certificate, CertificateParams, DnType, IsCa, KeyUsagePurpose};
 use rustls::{
-    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
-    ServerConfig,
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
+    ClientConfig, ServerConfig,
 };
+use rustls_platform_verifier::BuilderVerifierExt;
 use serde::{Deserialize, Serialize};
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
-use tokio_rustls::TlsAcceptor;
+use tokio::{
+    io::copy_bidirectional,
+    net::{TcpListener, TcpStream},
+    sync::oneshot,
+    task::JoinHandle,
+};
+use tokio_rustls::{TlsAcceptor, TlsConnector};
 use uuid::Uuid;
 
 use crate::REQUEST_TIMEOUT_SECS;
@@ -669,6 +676,20 @@ fn proxy_request(
                 ));
             }
         };
+        // Reqwest deliberately does not support HTTP upgrade responses. Coding agents
+        // such as Codex use a WSS connection for streaming, so tunnel an upgraded
+        // connection after applying the same destination and placeholder checks.
+        if is_upgrade_request(&request) {
+            return forward_upgrade(
+                request,
+                state,
+                connect_authority,
+                host,
+                secret_name,
+                started,
+            )
+            .await;
+        }
         let url = match request_url(&request, connect_authority.as_deref()) {
             Ok(url) => url,
             Err(_) => {
@@ -752,6 +773,248 @@ fn proxy_request(
     })
 }
 
+fn is_upgrade_request(request: &Request<Incoming>) -> bool {
+    request.headers().contains_key(hyper::header::UPGRADE)
+}
+
+/// For WebSockets and other HTTP/1 upgrades, make the upstream connection with
+/// Hyper rather than Reqwest, then copy the two upgraded byte streams. The
+/// request has already passed policy checks and placeholder replacement.
+async fn forward_upgrade(
+    request: Request<Incoming>,
+    state: BrokerState,
+    connect_authority: Option<String>,
+    host: Option<String>,
+    secret_name: Option<String>,
+    started: Instant,
+) -> Result<Response<ProxyBody>, Infallible> {
+    let authority = match upstream_authority(&request, connect_authority.as_deref()) {
+        Ok(authority) => authority,
+        Err(_) => {
+            return Ok(broker_error_response(
+                StatusCode::BAD_REQUEST,
+                "broker.request_invalid",
+                "Unable to determine request URL",
+            ));
+        }
+    };
+    let (hostname, port) = match split_authority(&authority, connect_authority.is_some()) {
+        Some(parts) => parts,
+        None => {
+            return Ok(broker_error_response(
+                StatusCode::BAD_REQUEST,
+                "broker.request_invalid",
+                "Unable to determine request URL",
+            ));
+        }
+    };
+    let stream = match TcpStream::connect(format!("{hostname}:{port}")).await {
+        Ok(stream) => stream,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ));
+        }
+    };
+
+    if connect_authority.is_some() {
+        let server_name = match ServerName::try_from(hostname.clone()) {
+            Ok(name) => name,
+            Err(_) => {
+                return Ok(broker_error_response(
+                    StatusCode::BAD_REQUEST,
+                    "broker.request_invalid",
+                    "Unable to determine request URL",
+                ));
+            }
+        };
+        let config = match ClientConfig::builder().with_platform_verifier() {
+            Ok(config) => config.with_no_client_auth(),
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ));
+            }
+        };
+        let stream = match TlsConnector::from(Arc::new(config))
+            .connect(server_name, stream)
+            .await
+        {
+            Ok(stream) => stream,
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ));
+            }
+        };
+        return tunnel_upgrade(request, stream, state, host, secret_name, started).await;
+    }
+
+    tunnel_upgrade(request, stream, state, host, secret_name, started).await
+}
+
+async fn tunnel_upgrade<S>(
+    mut request: Request<Incoming>,
+    stream: S,
+    state: BrokerState,
+    host: Option<String>,
+    secret_name: Option<String>,
+    started: Instant,
+) -> Result<Response<ProxyBody>, Infallible>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    // `Proxy-Connection` is meaningful only between a client and its proxy.
+    request.headers_mut().remove("proxy-connection");
+    let client_upgrade = hyper::upgrade::on(&mut request);
+    let (mut sender, connection) = match client_http1::handshake(TokioIo::new(stream)).await {
+        Ok(connection) => connection,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ));
+        }
+    };
+    let connections = state.connections.clone();
+    connections.track(tokio::spawn(async move {
+        let _ = connection.with_upgrades().await;
+    }));
+
+    let mut upstream = match sender.send_request(request).await {
+        Ok(response) => response,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ));
+        }
+    };
+    let status = upstream.status();
+    let headers = upstream.headers().clone();
+    if status != StatusCode::SWITCHING_PROTOCOLS {
+        state.record_audit(
+            "upgrade_rejected",
+            host.as_deref(),
+            None,
+            secret_name.as_deref(),
+            Some(status),
+            Some(started.elapsed()),
+        );
+        let body = StreamBody::new(upstream.into_body().into_data_stream().map(|chunk| {
+            chunk
+                .map(Frame::data)
+                .map_err(|error| -> BoxError { Box::new(error) })
+        }))
+        .boxed_unsync();
+        let mut response = Response::builder().status(status).body(body).unwrap();
+        *response.headers_mut() = headers;
+        return Ok(response);
+    }
+
+    let upstream_upgrade = hyper::upgrade::on(&mut upstream);
+    let state_for_task = state.clone();
+    let task = tokio::spawn(async move {
+        let Ok(client) = client_upgrade.await else {
+            return;
+        };
+        let Ok(upstream) = upstream_upgrade.await else {
+            return;
+        };
+        let mut client = TokioIo::new(client);
+        let mut upstream = TokioIo::new(upstream);
+        let _ = copy_bidirectional(&mut client, &mut upstream).await;
+        state_for_task.record_audit("upgrade_closed", None, None, None, None, None);
+    });
+    state.connections.track(task);
+    state.record_audit(
+        if secret_name.is_some() {
+            "injected_upgrade"
+        } else {
+            "upgrade_tunneled"
+        },
+        host.as_deref(),
+        None,
+        secret_name.as_deref(),
+        Some(status),
+        Some(started.elapsed()),
+    );
+    let mut response = Response::builder()
+        .status(status)
+        .body(full_body(Bytes::new()))
+        .unwrap();
+    *response.headers_mut() = headers;
+    Ok(response)
+}
+
+fn upgrade_error_response(
+    state: &BrokerState,
+    host: Option<&str>,
+    secret_name: Option<&str>,
+    started: Instant,
+) -> Response<ProxyBody> {
+    state.record_audit(
+        "upgrade_failed",
+        host,
+        None,
+        secret_name,
+        Some(StatusCode::BAD_GATEWAY),
+        Some(started.elapsed()),
+    );
+    broker_error_response(
+        StatusCode::BAD_GATEWAY,
+        "broker.upgrade_failed",
+        "Unable to establish upgraded broker connection",
+    )
+}
+
+fn upstream_authority(
+    request: &Request<Incoming>,
+    connect_authority: Option<&str>,
+) -> Result<String> {
+    if let Some(authority) = connect_authority {
+        return Ok(authority.to_owned());
+    }
+    if let Some(authority) = request.uri().authority() {
+        return Ok(authority.to_string());
+    }
+    request
+        .headers()
+        .get("host")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .context("HTTP proxy request is missing a Host header")
+}
+
+fn split_authority(authority: &str, tls: bool) -> Option<(String, u16)> {
+    if authority.starts_with('[') {
+        let (host, port) = authority.rsplit_once("]:")?;
+        return port
+            .parse()
+            .ok()
+            .map(|port| (host.trim_start_matches('[').to_owned(), port));
+    }
+    if let Some((host, port)) = authority.rsplit_once(':') {
+        if let Ok(port) = port.parse() {
+            return Some((host.to_owned(), port));
+        }
+    }
+    Some((authority.to_owned(), if tls { 443 } else { 80 }))
+}
+
 fn request_url(request: &Request<Incoming>, connect_authority: Option<&str>) -> Result<String> {
     if let Some(authority) = connect_authority {
         let path = request
@@ -822,6 +1085,9 @@ async fn serve_tls_connection(
         service_fn(move |request| proxy_request(request, state.clone(), Some(authority.clone())));
     http1::Builder::new()
         .serve_connection(TokioIo::new(stream), service)
+        // A CONNECT tunnel can contain a WebSocket upgrade (Codex uses WSS for
+        // streaming), so preserve HTTP/1 upgrade support after TLS interception.
+        .with_upgrades()
         .await
         .context("TLS proxy connection ended before the HTTP request completed")?;
     Ok(())
@@ -1028,6 +1294,7 @@ mod tests {
     use futures_util::{stream, StreamExt};
     use hyper::header::{AUTHORIZATION, TRANSFER_ENCODING};
     use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
         sync::oneshot,
         time::{sleep, timeout},
     };
@@ -1307,6 +1574,64 @@ mod tests {
             authorization.await.unwrap().as_deref(),
             Some("Bearer real-token")
         );
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn tunnels_an_http_upgrade_request() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backend = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(|mut request: Request<Incoming>| async move {
+                let upgraded = hyper::upgrade::on(&mut request);
+                tokio::spawn(async move {
+                    let upgraded = upgraded.await.unwrap();
+                    let mut stream = TokioIo::new(upgraded);
+                    let mut received = [0; 4];
+                    stream.read_exact(&mut received).await.unwrap();
+                    assert_eq!(&received, b"ping");
+                    stream.write_all(b"pong").await.unwrap();
+                });
+                Ok::<_, Infallible>(
+                    Response::builder()
+                        .status(StatusCode::SWITCHING_PROTOCOLS)
+                        .header("connection", "upgrade")
+                        .header("upgrade", "websocket")
+                        .body(Full::new(Bytes::new()))
+                        .unwrap(),
+                )
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .with_upgrades()
+                .await
+                .unwrap();
+        });
+
+        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let proxy = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+        let stream = TcpStream::connect(proxy).await.unwrap();
+        let (mut sender, connection) = client_http1::handshake(TokioIo::new(stream)).await.unwrap();
+        tokio::spawn(async move {
+            let _ = connection.with_upgrades().await;
+        });
+        let request = Request::builder()
+            .uri(format!("http://{backend}/ws"))
+            .header("connection", "upgrade")
+            .header("upgrade", "websocket")
+            .body(Full::new(Bytes::new()))
+            .unwrap();
+        let mut response = sender.send_request(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+        let mut stream = TokioIo::new(hyper::upgrade::on(&mut response).await.unwrap());
+        stream.write_all(b"ping").await.unwrap();
+        let mut response = [0; 4];
+        stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(&response, b"pong");
         broker.stop().await;
     }
 
