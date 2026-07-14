@@ -13,6 +13,7 @@ use crate::{
     config::{config, secure_store},
     handlers::{
         agent_doctor::handle_agent_doctor_command,
+        agent_validate::handle_agent_validate_command,
         doctor::handle_doctor_command,
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
@@ -231,6 +232,13 @@ pub async fn handle_cli(args: Cli) {
                 }
                 AgentSubcommand::Doctor(agent_doctor) => {
                     match handle_agent_doctor_command(agent_doctor, raw_output).await {
+                        Ok(true) => std::process::exit(1),
+                        Ok(false) => Ok(()),
+                        Err(error) => Err(error),
+                    }
+                }
+                AgentSubcommand::Validate(agent_validate) => {
+                    match handle_agent_validate_command(agent_validate, &config, raw_output).await {
                         Ok(true) => std::process::exit(1),
                         Ok(false) => Ok(()),
                         Err(error) => Err(error),

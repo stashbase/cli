@@ -10,6 +10,8 @@ pub struct AgentCommand {
 pub enum AgentSubcommand {
     /// Run an agent with a brokered credential profile
     Run(AgentRunCommand),
+    /// Validate an agent profile without loading secrets or starting a broker
+    Validate(AgentValidateCommand),
     /// Check a tool's compatibility with the temporary credential broker
     Doctor(AgentDoctorCommand),
     /// View local metadata-only broker audit logs
@@ -60,6 +62,20 @@ pub struct AgentRunCommand {
 pub struct AgentDoctorCommand {
     /// Executable to check (for example: curl, gh, node, copilot, or codex)
     pub tool: String,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    override_usage = "agent validate --profile <PROFILE> [--profile-source <auto|global|directory>]"
+)]
+pub struct AgentValidateCommand {
+    /// Agent profile to validate
+    #[arg(long)]
+    pub profile: String,
+
+    /// Where to load the agent profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
 }
 
 #[derive(Debug, Args)]

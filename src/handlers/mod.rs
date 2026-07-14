@@ -1,4 +1,5 @@
 pub mod agent_doctor;
+pub mod agent_validate;
 pub mod config;
 pub mod doctor;
 pub mod entry;
