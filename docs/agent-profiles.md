@@ -22,7 +22,7 @@ Validate a profile before granting it secrets—locally or in CI:
 ```bash
 stashbase agent validate --profile coding
 stashbase agent validate --profile coding --profile-source directory
-stashbase --json agent validate --profile coding
+stashbase agent validate --profile coding --json
 ```
 
 Validation does not fetch or read secret values and does not start a broker. It
