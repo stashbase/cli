@@ -295,6 +295,7 @@ pub async fn handle_cli(args: Cli) {
                                 "Warning: Network sandbox is disabled. A tool that bypasses proxy settings may make direct network requests. Enable --sandbox for network containment on supported platforms."
                             );
                         }
+                        print_agent_egress_warnings(&profile);
                     }
 
                     if profile.secrets.is_empty() {
@@ -619,6 +620,51 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     }
 }
 
+/// Makes the active risk visible at launch time. The broker remains host-based:
+/// allowing the Stashbase API host lets a child use any API route its normal
+/// local credential is authorized for.
+fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
+    let unrestricted_egress = profile
+        .egress_hosts
+        .as_ref()
+        .is_some_and(|hosts| hosts.iter().any(|host| host.trim() == "*"));
+    if unrestricted_egress {
+        eprintln!(
+            "Warning: Profile allows unrestricted HTTP(S) egress. The child may reach the Stashbase API and use locally stored normal authentication."
+        );
+        return;
+    }
+
+    let Some(api_host) = crate::api::client::get_api_host() else {
+        return;
+    };
+    let egress_allows_api = profile.egress_hosts.as_ref().is_some_and(|hosts| {
+        hosts
+            .iter()
+            .any(|allowed| configured_host_matches(allowed, &api_host))
+    });
+    let secret_allows_api = profile.secrets.values().any(|secret| {
+        secret
+            .hosts
+            .iter()
+            .any(|allowed| configured_host_matches(allowed, &api_host))
+    });
+    if egress_allows_api || secret_allows_api {
+        eprintln!(
+            "Warning: Profile allows the Stashbase API host ({api_host}). The child may run normal Stashbase CLI commands using locally stored authentication."
+        );
+    }
+}
+
+fn configured_host_matches(allowed: &str, host: &str) -> bool {
+    let allowed = allowed.trim().trim_end_matches('.').to_ascii_lowercase();
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    match allowed.strip_prefix("*.") {
+        Some(suffix) => host != suffix && host.ends_with(&format!(".{suffix}")),
+        None => allowed == host,
+    }
+}
+
 fn parse_audit_duration(value: &str) -> anyhow::Result<Duration> {
     let split_at = value.find(|character: char| !character.is_ascii_digit());
     let Some(split_at) = split_at else {
@@ -661,4 +707,26 @@ fn print_audit_event(event: &AuditLogEvent, json: bool) -> anyhow::Result<()> {
         event.timestamp, event.profile, event.action, host, secret, status, duration
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configured_host_matches;
+
+    #[test]
+    fn configured_host_matching_supports_exact_and_subdomain_wildcards() {
+        assert!(configured_host_matches(
+            "api.stashbase.dev",
+            "api.stashbase.dev"
+        ));
+        assert!(configured_host_matches(
+            "*.stashbase.dev",
+            "api.stashbase.dev"
+        ));
+        assert!(!configured_host_matches("*.stashbase.dev", "stashbase.dev"));
+        assert!(!configured_host_matches(
+            "api.stashbase.dev",
+            "other.example"
+        ));
+    }
 }

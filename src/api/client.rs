@@ -23,7 +23,7 @@ const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
 const BUILD_TIME_API_URL: Option<&str> = option_env!("STASHBASE_API_URL");
 const CLI_USER_AGENT: &str = concat!("stashbase/cli/", env!("CARGO_PKG_VERSION"));
 
-fn get_api_url() -> String {
+pub fn get_api_url() -> String {
     env::var(API_URL_ENV_VAR)
         .ok()
         .map(|v| v.trim().trim_end_matches('/').to_string())
@@ -34,6 +34,15 @@ fn get_api_url() -> String {
                 .filter(|v| !v.is_empty())
         })
         .unwrap_or_else(|| DEFAULT_API_URL.to_string())
+}
+
+/// Hostname used for the current API endpoint, including local development
+/// overrides supplied through `STASHBASE_API_URL`.
+pub fn get_api_host() -> Option<String> {
+    reqwest::Url::parse(&get_api_url())
+        .ok()?
+        .host_str()
+        .map(|host| host.trim_end_matches('.').to_ascii_lowercase())
 }
 
 struct RetryReqPolicy;
