@@ -35,6 +35,10 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub sandbox: bool,
 
+    /// Bind the temporary broker to this localhost port instead of a random port
+    #[arg(long)]
+    pub broker_port: Option<u16>,
+
     /// Store metadata-only broker audit events locally
     #[arg(
         long,

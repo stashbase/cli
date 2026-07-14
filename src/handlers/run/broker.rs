@@ -350,15 +350,29 @@ pub struct Broker {
 }
 
 impl Broker {
+    #[cfg(test)]
     pub async fn start(
+        secrets: HashMap<String, String>,
+        policy: BrokerPolicy,
+        audit_log: Option<AuditLog>,
+    ) -> Result<Self> {
+        Self::start_with_port(secrets, policy, audit_log, None).await
+    }
+
+    pub async fn start_with_port(
         secrets: HashMap<String, String>,
         mut policy: BrokerPolicy,
         audit_log: Option<AuditLog>,
+        broker_port: Option<u16>,
     ) -> Result<Self> {
+        if broker_port == Some(0) {
+            anyhow::bail!("--broker-port must be between 1 and 65535");
+        }
         let (certificate_authority, ca_file, ca_subject) = create_certificate_authority()?;
-        let listener = TcpListener::bind("127.0.0.1:0")
+        let bind_address = format!("127.0.0.1:{}", broker_port.unwrap_or(0));
+        let listener = TcpListener::bind(&bind_address)
             .await
-            .context("failed to bind credential broker to localhost")?;
+            .with_context(|| format!("failed to bind credential broker to {bind_address}"))?;
         let address = listener.local_addr()?;
         let placeholders = secrets
             .into_iter()
@@ -1005,6 +1019,37 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         assert!(closed, "broker listener remained reachable after stop");
+    }
+
+    #[tokio::test]
+    async fn broker_uses_an_explicit_local_port() {
+        let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reservation.local_addr().unwrap().port();
+        drop(reservation);
+
+        let broker =
+            Broker::start_with_port(HashMap::new(), BrokerPolicy::permissive(), None, Some(port))
+                .await
+                .unwrap();
+
+        assert_eq!(
+            broker.child_env()["HTTP_PROXY"],
+            format!("http://127.0.0.1:{port}")
+        );
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn broker_rejects_port_zero_override() {
+        let result =
+            Broker::start_with_port(HashMap::new(), BrokerPolicy::permissive(), None, Some(0))
+                .await;
+        let error = match result {
+            Ok(_) => panic!("port zero should be rejected"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("between 1 and 65535"));
     }
 
     #[test]

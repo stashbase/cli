@@ -13,6 +13,10 @@ pub struct RunCommand {
     #[arg(long = "broker")]
     pub broker: bool,
 
+    /// Bind the temporary broker to this localhost port instead of a random port
+    #[arg(long, requires = "broker")]
+    pub broker_port: Option<u16>,
+
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,

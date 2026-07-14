@@ -45,6 +45,7 @@ pub struct HandleRunArgs {
     pub environment: Option<String>,
     pub command: Vec<String>,
     pub broker: bool,
+    pub broker_port: Option<u16>,
     pub broker_policy: Option<super::broker::BrokerPolicy>,
     pub trust_broker_ca: bool,
     pub sandbox: bool,
@@ -72,6 +73,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         api_key,
         command,
         broker,
+        broker_port,
         broker_policy,
         trust_broker_ca,
         sandbox,
@@ -550,6 +552,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             &mut spinner,
             command,
             broker,
+            broker_port,
             broker_policy.clone(),
             trust_broker_ca,
             sandbox,
@@ -589,6 +592,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             &mut spinner,
             command,
             broker,
+            broker_port,
             broker_policy.clone(),
             trust_broker_ca,
             sandbox,
@@ -737,6 +741,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             &mut spinner,
                             command,
                             broker,
+                            broker_port,
                             broker_policy.clone(),
                             trust_broker_ca,
                             sandbox,
@@ -768,6 +773,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         &mut spinner,
                         command,
                         broker,
+                        broker_port,
                         broker_policy.clone(),
                         trust_broker_ca,
                         sandbox,
@@ -877,6 +883,7 @@ async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
     broker: bool,
+    broker_port: Option<u16>,
     broker_policy: Option<super::broker::BrokerPolicy>,
     trust_broker_ca: bool,
     sandbox: bool,
@@ -998,10 +1005,11 @@ async fn handle_run(
     // Broker mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if broker {
-        let broker = super::broker::Broker::start(
+        let broker = super::broker::Broker::start_with_port(
             secrets_hash_map,
             broker_policy.unwrap_or_else(super::broker::BrokerPolicy::permissive),
             audit_log,
+            broker_port,
         )
         .await?;
         let _trusted_ca = trust_broker_ca.then(|| broker.trust_ca()).transpose()?;
