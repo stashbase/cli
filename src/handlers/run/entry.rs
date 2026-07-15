@@ -44,6 +44,16 @@ pub struct HandleRunArgs {
     pub project: Option<String>,
     pub environment: Option<String>,
     pub command: Vec<String>,
+    pub broker: bool,
+    pub broker_port: Option<u16>,
+    pub broker_policy: Option<super::broker::BrokerPolicy>,
+    pub trust_broker_ca: bool,
+    pub sandbox: bool,
+    pub audit_log: Option<super::broker::AuditLog>,
+    /// Maps fetched source secret names to the names exposed to the child.
+    pub secret_bindings: HashMap<String, String>,
+    /// Allows a profile file to override values fetched from project/environment.
+    pub allow_file_override: bool,
     pub only: Vec<String>,
     pub exclude: Vec<String>,
     pub set: Vec<String>,
@@ -62,6 +72,14 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
         command,
+        broker,
+        broker_port,
+        broker_policy,
+        trust_broker_ca,
+        sandbox,
+        audit_log,
+        secret_bindings,
+        allow_file_override,
         config_file,
         file,
         mut set,
@@ -85,7 +103,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     // Handle environment scope - workspace scope behaves like no scope
     let is_environment_scope = scope.as_ref() == Some(&Scope::Environment);
 
-    if file.is_some() && (project.is_some() || environment.is_some()) {
+    if file.is_some() && (project.is_some() || environment.is_some()) && !allow_file_override {
         let error = InputValidationError::LoadEnvironment(
             LoadEnvironmentInputValidationError::FileArgWithInline,
         );
@@ -107,6 +125,37 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         bail!(formatted_err);
     }
 
+    // An agent profile with no source and no secret bindings is intentionally
+    // egress-only. Do not fall through to normal `run` config discovery: that
+    // could load unrelated repository secrets into a no-secret agent session.
+    let egress_only = broker_policy
+        .as_ref()
+        .is_some_and(|policy| policy.strict_deny)
+        && secret_bindings.is_empty()
+        && file.is_none()
+        && project.is_none()
+        && environment.is_none();
+    if egress_only {
+        let mut spinner = None;
+        return handle_run(
+            &mut spinner,
+            command,
+            broker,
+            broker_port,
+            broker_policy,
+            trust_broker_ca,
+            sandbox,
+            audit_log,
+            &secret_bindings,
+            None,
+            Vec::new(),
+            false,
+            silent,
+            json_format,
+        )
+        .await;
+    }
+
     if let Err(error) = validate_no_duplicate_set_names(&set) {
         let formatted_err = error.format_error_output(json_format)?;
 
@@ -116,14 +165,16 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         bail!(formatted_err);
     }
 
-    let mut is_from_file = true;
+    let mut is_from_file = false;
     let mut file_secrets: Option<Vec<SecretWithoutComment>> = None;
 
     let mut setted_secrets = HashMap::<String, String>::new();
 
     if let Some(input_path) = &file {
         file_secrets = Some(load_run_secrets_from_file(input_path, json_format, silent)?);
-    } else if is_environment_scope {
+    }
+
+    if is_environment_scope {
         // For environment scope, load from API (not from file)
         is_from_file = false;
     } else if let (Some(_), Some(_)) = (&project, &environment) {
@@ -150,6 +201,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             eprintln!();
         }
         bail!(formatted_err);
+    } else if file.is_some() {
+        is_from_file = true;
     } else {
         let config_action_command = ConfigActionCommand::Run;
         // LOAD from file
@@ -435,10 +488,18 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     } else {
         (project.clone(), environment.clone())
     };
+    let local_overrides = (!is_from_file)
+        .then(|| {
+            file_secrets
+                .as_ref()
+                .map(|secrets| prepare_local_run_secrets(secrets.clone(), &only, &exclude))
+        })
+        .flatten();
 
     if is_from_file {
         let mut secrets =
             prepare_local_run_secrets(file_secrets.unwrap_or_default(), &only, &exclude);
+        let missing_secrets = missing_secret_labels(&only, &secrets, &secret_bindings);
 
         if secrets.is_empty() && setted_secrets.is_empty() {
             let message = if only_len == 0 {
@@ -450,7 +511,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             if json_format {
                 let message = serde_json::json!({
                     "error": {
-                        "message": message
+                        "message": message,
+                        "details": {
+                            "missing_secrets": missing_secrets,
+                        }
                     }
                 });
 
@@ -458,12 +522,18 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 eprintln!("{}", json_str);
             } else if let Some(ref mut spinner) = spinner {
                 spinner.stop_with_message(&format!(
-                    "{}\n  Message: {}",
+                    "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
                     "Error".red_if_tty_stderr(),
-                    message
+                    message,
+                    missing_secrets.join(", ")
                 ));
             } else if !silent {
-                eprintln!("{}\n  Message: {}", "Error".red_if_tty_stderr(), message);
+                eprintln!(
+                    "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
+                    "Error".red_if_tty_stderr(),
+                    message,
+                    missing_secrets.join(", ")
+                );
             }
 
             return Ok(());
@@ -478,6 +548,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             );
 
             msg.insert_str(0, "\n");
+            msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
             if let Some(ref mut spinner) = spinner {
                 spinner.stop_and_persist("", "");
@@ -511,6 +582,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         handle_run(
             &mut spinner,
             command,
+            broker,
+            broker_port,
+            broker_policy.clone(),
+            trust_broker_ca,
+            sandbox,
+            audit_log.clone(),
+            &secret_bindings,
             print_secrets.clone(),
             secrets,
             is_from_file,
@@ -522,11 +600,61 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let remote_only = local_overrides
+        .as_ref()
+        .map(|local_secrets| {
+            let local_names = local_secrets
+                .iter()
+                .map(|secret| secret.name.as_str())
+                .collect::<HashSet<_>>();
+            only.iter()
+                .filter(|name| !local_names.contains(name.as_str()))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|| only.clone());
+
+    if remote_only.is_empty() {
+        let mut secrets = local_overrides.unwrap_or_default();
+        for secret in &mut secrets {
+            secret.value = format_env_variable_value(secret.value.to_string());
+        }
+        handle_run(
+            &mut spinner,
+            command,
+            broker,
+            broker_port,
+            broker_policy.clone(),
+            trust_broker_ca,
+            sandbox,
+            audit_log.clone(),
+            &secret_bindings,
+            print_secrets.clone(),
+            secrets,
+            false,
+            silent,
+            json_format,
+        )
+        .await?;
+        return Ok(());
+    }
+
+    if api_key.is_empty() {
+        let error = InputValidationError::MissingApiKey;
+        let formatted_err = error.format_error_output(json_format)?;
+        if let Some(ref mut spinner) = spinner {
+            spinner.stop_with_message(&formatted_err);
+        } else if !silent {
+            eprintln!("{formatted_err}");
+        }
+        return Ok(());
+    }
+
     let res = secrets::pull(
         api_key,
         api_project,
         api_environment,
-        only,
+        remote_only,
         exclude,
         false,
         expand_refs.unwrap_or(false),
@@ -553,42 +681,35 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             let secrets = serde_json::from_str::<Vec<SecretWithoutComment>>(&data.text);
 
             if let Ok(mut secrets) = secrets {
+                if let Some(local_secrets) = local_overrides {
+                    secrets = merge_remote_and_local_secrets(secrets, local_secrets, &only);
+                }
+                let missing_secrets = missing_secret_labels(&only, &secrets, &secret_bindings);
                 if secrets.is_empty() && setted_secrets.is_empty() {
-                    if json_format {
-                        if only_len == 0 {
-                            let message = serde_json::json!({
-                                "error": {
-                                    "message": "No secrets found."
-                                }
-                            });
-
-                            let json_str = get_formatted_json_string(&message, false).unwrap();
-                            eprintln!("{}", json_str);
-                        } else {
-                            let message = serde_json::json!({
-                                "error": {
-                                    "message": format!("{} secret(s) requested, no secrets found.", only_len)
-                                }
-                            });
-
-                            let json_str = get_formatted_json_string(&message, false).unwrap();
-                            eprintln!("{}", json_str);
-                        }
+                    let message = if only_len == 0 {
+                        "No secrets found.".to_owned()
                     } else {
-                        let msg = if only_len == 0 {
-                            format!(
-                                "{}\n{}",
-                                "Error".red_if_tty_stderr(),
-                                "  Message: No secrets found."
-                            )
-                        } else {
-                            format!(
-                                "{}\n{} ({} requested)",
-                                "Error".red_if_tty_stderr(),
-                                "  Message: No secrets found.",
-                                only_len
-                            )
-                        };
+                        format!("{} secret(s) requested, no secrets found.", only_len)
+                    };
+                    if json_format {
+                        let message = serde_json::json!({
+                            "error": {
+                                "message": message,
+                                "details": {
+                                    "missing_secrets": missing_secrets,
+                                }
+                            }
+                        });
+
+                        let json_str = get_formatted_json_string(&message, false).unwrap();
+                        eprintln!("{}", json_str);
+                    } else {
+                        let msg = format!(
+                            "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
+                            "Error".red_if_tty_stderr(),
+                            message,
+                            missing_secrets.join(", ")
+                        );
 
                         if let Some(ref mut spinner) = spinner {
                             spinner.stop_with_message(&msg);
@@ -611,6 +732,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     if !is_from_file {
                         msg.insert_str(0, "\n");
                     }
+                    msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
                     if let Some(ref mut spinner) = spinner {
                         spinner.stop_and_persist("", "");
@@ -649,6 +771,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         handle_run(
                             &mut spinner,
                             command,
+                            broker,
+                            broker_port,
+                            broker_policy.clone(),
+                            trust_broker_ca,
+                            sandbox,
+                            audit_log.clone(),
+                            &secret_bindings,
                             print_secrets.clone(),
                             secrets,
                             is_from_file,
@@ -674,6 +803,13 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     handle_run(
                         &mut spinner,
                         command,
+                        broker,
+                        broker_port,
+                        broker_policy.clone(),
+                        trust_broker_ca,
+                        sandbox,
+                        audit_log.clone(),
+                        &secret_bindings,
                         print_secrets.clone(),
                         secrets,
                         is_from_file,
@@ -777,19 +913,31 @@ fn load_run_secrets_from_file(
 async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
+    broker: bool,
+    broker_port: Option<u16>,
+    broker_policy: Option<super::broker::BrokerPolicy>,
+    trust_broker_ca: bool,
+    sandbox: bool,
+    audit_log: Option<super::broker::AuditLog>,
+    secret_bindings: &HashMap<String, String>,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
     is_from_file: bool,
     silent: bool,
     json_format: bool,
 ) -> anyhow::Result<()> {
+    apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
 
     if !silent {
         let mut success_msg = format!(
             "{} {} ({} {})",
             "✓".green_if_tty_stderr(),
-            "Environment loaded",
+            if secrets.is_empty() {
+                "Egress-only profile"
+            } else {
+                "Environment loaded"
+            },
             secrets.len(),
             if secrets.len() == 1 {
                 "secret"
@@ -872,6 +1020,7 @@ async fn handle_run(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *mutex = true;
+    drop(mutex);
 
     let Some(cmd) = command.first().cloned() else {
         let error = InputValidationError::Run(RunInputValidationError::NoCmdProvided);
@@ -884,22 +1033,127 @@ async fn handle_run(
         .skip(1)
         .map(|s| s)
         .collect::<Vec<String>>();
+    let restrict_stashbase_credentials = broker_policy
+        .as_ref()
+        .is_some_and(|policy| policy.strict_deny);
 
-    // TODO: errors: no such file or directory
-    subprocess::run_command(&cmd, args, secrets_hash_map)
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("{}: {}", "Failed to run command".red_if_tty_stderr(), e);
-        });
+    // Broker mode gives the child placeholders, never the loaded secret values.
+    // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
+    let command_result = if broker {
+        let broker = super::broker::Broker::start_with_port(
+            secrets_hash_map,
+            broker_policy.unwrap_or_else(super::broker::BrokerPolicy::permissive),
+            audit_log,
+            broker_port,
+        )
+        .await?;
+        let _trusted_ca = trust_broker_ca.then(|| broker.trust_ca()).transpose()?;
+        if !silent {
+            let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+            eprintln!(
+                "Broker started on localhost:{}",
+                address.rsplit(':').next().unwrap_or_default()
+            );
+        }
+        let result = subprocess::run_command(
+            &cmd,
+            args,
+            broker.child_env().clone(),
+            sandbox,
+            true,
+            restrict_stashbase_credentials,
+        )
+        .await;
+        broker.stop().await;
+        if !silent {
+            eprintln!("Broker stopped");
+        }
+        result
+    } else {
+        // TODO: errors: no such file or directory
+        subprocess::run_command(&cmd, args, secrets_hash_map, sandbox, false, false).await
+    };
+
+    let mut mutex = SUBPROCESS_RUNNING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *mutex = false;
+    drop(mutex);
+
+    let status = command_result?;
+    if !status.success() {
+        return Err(subprocess::CommandFailed { status }.into());
+    }
 
     Ok(())
 }
 
+fn apply_secret_bindings(
+    secrets: &mut Vec<SecretWithoutComment>,
+    bindings: &HashMap<String, String>,
+) {
+    if bindings.is_empty() {
+        return;
+    }
+
+    // A brokered profile should never expose an API response that was not one of
+    // its explicitly requested source names.
+    secrets.retain(|secret| bindings.contains_key(&secret.name));
+    for secret in secrets {
+        if let Some(target) = bindings.get(&secret.name) {
+            secret.name.clone_from(target);
+        }
+    }
+}
+
+/// Combines the remote fallback with local overrides. Names outside the
+/// profile's requested source set are discarded before a child can receive them.
+fn merge_remote_and_local_secrets(
+    remote: Vec<SecretWithoutComment>,
+    local: Vec<SecretWithoutComment>,
+    requested: &[String],
+) -> Vec<SecretWithoutComment> {
+    let mut merged = remote
+        .into_iter()
+        .filter(|secret| requested.contains(&secret.name))
+        .map(|secret| (secret.name.clone(), secret))
+        .collect::<HashMap<_, _>>();
+    for secret in local {
+        merged.insert(secret.name.clone(), secret);
+    }
+    merged.into_values().collect()
+}
+
+fn missing_secret_labels(
+    requested: &[String],
+    loaded: &[SecretWithoutComment],
+    bindings: &HashMap<String, String>,
+) -> Vec<String> {
+    let loaded_names = loaded
+        .iter()
+        .map(|secret| secret.name.as_str())
+        .collect::<HashSet<_>>();
+    let mut missing = requested
+        .iter()
+        .filter(|source| !loaded_names.contains(source.as_str()))
+        .map(|source| match bindings.get(source) {
+            Some(target) if target != source => format!("{target} (from {source})"),
+            _ => source.clone(),
+        })
+        .collect::<Vec<_>>();
+    missing.sort();
+    missing
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{load_run_secrets_from_file, prepare_local_run_secrets};
+    use super::{
+        apply_secret_bindings, load_run_secrets_from_file, merge_remote_and_local_secrets,
+        missing_secret_labels, prepare_local_run_secrets,
+    };
     use crate::models::secrets::SecretWithoutComment;
     use std::{
+        collections::HashMap,
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
@@ -968,6 +1222,68 @@ mod tests {
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name, "FIRST");
+    }
+
+    #[test]
+    fn secret_binding_renames_only_an_explicitly_requested_source() {
+        let mut secrets = vec![
+            SecretWithoutComment {
+                name: "GITHUB_TOKEN".to_owned(),
+                value: "token".to_owned(),
+            },
+            SecretWithoutComment {
+                name: "UNREQUESTED".to_owned(),
+                value: "must-not-reach-child".to_owned(),
+            },
+        ];
+
+        apply_secret_bindings(
+            &mut secrets,
+            &HashMap::from([("GITHUB_TOKEN".to_owned(), "GH_TOKEN".to_owned())]),
+        );
+
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0].name, "GH_TOKEN");
+        assert_eq!(secrets[0].value, "token");
+    }
+
+    #[test]
+    fn missing_secret_labels_include_the_child_binding_name() {
+        let missing = missing_secret_labels(
+            &["GITHUB_TOKEN".to_owned(), "OPENAI_API_KEY".to_owned()],
+            &[SecretWithoutComment {
+                name: "OPENAI_API_KEY".to_owned(),
+                value: "token".to_owned(),
+            }],
+            &HashMap::from([("GITHUB_TOKEN".to_owned(), "GH_TOKEN".to_owned())]),
+        );
+
+        assert_eq!(missing, ["GH_TOKEN (from GITHUB_TOKEN)"]);
+    }
+
+    #[test]
+    fn local_overrides_replace_remote_values_without_adding_unrequested_secrets() {
+        let merged = merge_remote_and_local_secrets(
+            vec![
+                SecretWithoutComment {
+                    name: "GITHUB_TOKEN".to_owned(),
+                    value: "remote-token".to_owned(),
+                },
+                SecretWithoutComment {
+                    name: "UNREQUESTED".to_owned(),
+                    value: "must-not-reach-child".to_owned(),
+                },
+            ],
+            vec![SecretWithoutComment {
+                name: "GITHUB_TOKEN".to_owned(),
+                value: "local-token".to_owned(),
+            }],
+            &["GITHUB_TOKEN".to_owned()],
+        );
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].name, "GITHUB_TOKEN");
+        assert_eq!(merged[0].value, "local-token");
     }
 }
 

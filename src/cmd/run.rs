@@ -9,6 +9,14 @@ use crate::models::{
 #[derive(Debug, Args)]
 #[command(override_usage = "run [OPTIONS] -- <COMMAND> [ARGS]...")]
 pub struct RunCommand {
+    /// Route HTTP(S) requests through a temporary credential broker
+    #[arg(long = "broker")]
+    pub broker: bool,
+
+    /// Bind the temporary broker to this localhost port instead of a random port
+    #[arg(long, requires = "broker")]
+    pub broker_port: Option<u16>,
+
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,

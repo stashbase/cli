@@ -1,12 +1,19 @@
-use std::sync::atomic::Ordering;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::atomic::Ordering,
+    time::Duration,
+};
 
 use crate::{
     cmd::{
+        agent::{AgentLogsCommand, AgentProfileSource, AgentSubcommand},
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
     handlers::{
+        agent_doctor::handle_agent_doctor_command,
+        agent_validate::handle_agent_validate_command,
         doctor::handle_doctor_command,
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
@@ -21,7 +28,14 @@ use crate::{
         open::handle_open_dashboard,
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
-        run::entry::{handle_load_env_run, HandleRunArgs},
+        run::{
+            broker::{
+                read_local_audit_logs, AuditLog, AuditLogEvent, AuditLogFilter, BrokerPolicy,
+                SecretInjection,
+            },
+            entry::{handle_load_env_run, HandleRunArgs},
+            subprocess::CommandFailed,
+        },
         setup::setup,
     },
     models::{config::Config, validation::InputValidationError},
@@ -126,7 +140,8 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
-        let api_key = api_key.unwrap();
+        // Local commands such as `agent logs` do not need Stashbase authentication.
+        let api_key = api_key.unwrap_or_default();
 
         let result = match args.entity_type {
             EntityType::Whoami(WhoamiCommand { format }) => {
@@ -211,6 +226,213 @@ pub async fn handle_cli(args: Cli) {
                 handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
                     .await
             }
+            EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
+                AgentSubcommand::Logs(agent_logs) => {
+                    handle_agent_logs(agent_logs, raw_output).await
+                }
+                AgentSubcommand::Doctor(agent_doctor) => {
+                    match handle_agent_doctor_command(agent_doctor, raw_output).await {
+                        Ok(true) => std::process::exit(1),
+                        Ok(false) => Ok(()),
+                        Err(error) => Err(error),
+                    }
+                }
+                AgentSubcommand::Validate(agent_validate) => {
+                    match handle_agent_validate_command(agent_validate, &config, raw_output).await {
+                        Ok(true) => std::process::exit(1),
+                        Ok(false) => Ok(()),
+                        Err(error) => Err(error),
+                    }
+                }
+                AgentSubcommand::Run(agent_run) => async {
+                    let global_profile = config
+                        .agent_profiles
+                        .as_ref()
+                        .and_then(|profiles| profiles.get(&agent_run.profile))
+                        .cloned();
+                    let (profile, loaded_from_directory) = match agent_run.profile_source {
+                        AgentProfileSource::Global => (global_profile, false),
+                        AgentProfileSource::Directory => (
+                            config::get_directory_agent_profile(&agent_run.profile)?,
+                            true,
+                        ),
+                        AgentProfileSource::Auto => {
+                            let directory_profile =
+                                config::get_directory_agent_profile(&agent_run.profile)?;
+                            let loaded_from_directory = directory_profile.is_some();
+                            (directory_profile.or(global_profile), loaded_from_directory)
+                        }
+                    };
+
+                    let Some(profile) = profile else {
+                        let source = match agent_run.profile_source {
+                            AgentProfileSource::Global => "global",
+                            AgentProfileSource::Directory => "directory",
+                            AgentProfileSource::Auto => "global or directory",
+                        };
+                        eprintln!(
+                            "Agent profile '{}' was not found in the {source} config.",
+                            agent_run.profile,
+                        );
+                        return Ok(());
+                    };
+
+                    if loaded_from_directory
+                        && matches!(agent_run.profile_source, AgentProfileSource::Auto)
+                        && !silent
+                    {
+                        eprintln!(
+                            "Warning: Loaded agent profile '{}' from ./stashbase-agent.toml. Review this repository policy before granting secrets.",
+                            agent_run.profile
+                        );
+                    }
+
+                    if !silent {
+                        if agent_run.sandbox {
+                            eprintln!("Network sandbox: enabled");
+                        } else {
+                            eprintln!(
+                                "Warning: Network sandbox is disabled. A tool that bypasses proxy settings may make direct network requests. Enable --sandbox for network containment on supported platforms."
+                            );
+                        }
+                        print_agent_egress_warnings(&profile);
+                    }
+
+                    let valid_source = matches!(
+                        (&profile.file, &profile.project, &profile.environment),
+                        (Some(_), None, None)
+                            | (None, Some(_), Some(_))
+                            | (Some(_), Some(_), Some(_))
+                    );
+                    let egress_only = profile.secrets.is_empty();
+                    if egress_only && !matches!((&profile.file, &profile.project, &profile.environment), (None, None, None)) {
+                        eprintln!(
+                            "Egress-only agent profile '{}' must not define 'file', 'project', or 'environment'.",
+                            agent_run.profile
+                        );
+                        return Ok(());
+                    }
+                    if !egress_only && !valid_source {
+                        eprintln!(
+                            "Agent profile '{}' must define 'file', both 'project' and 'environment', or both sources together.",
+                            agent_run.profile
+                        );
+                        return Ok(());
+                    }
+                    if egress_only && !silent {
+                        eprintln!(
+                            "Warning: Egress-only profile. No Stashbase-managed secrets are granted to this agent."
+                        );
+                    }
+
+                    let secret_bindings = profile
+                        .secrets
+                        .iter()
+                        .map(|(target, secret)| {
+                            (secret.from.clone().unwrap_or_else(|| target.clone()), target.clone())
+                        })
+                        .collect::<HashMap<_, _>>();
+                    if secret_bindings.len() != profile.secrets.len() {
+                        eprintln!(
+                            "Agent profile '{}' maps more than one binding to the same source secret.",
+                            agent_run.profile
+                        );
+                        return Ok(());
+                    }
+
+                    let policy = BrokerPolicy {
+                        allowed_hosts_by_secret: profile
+                            .secrets
+                            .iter()
+                            .map(|(name, secret)| {
+                                (
+                                    name.clone(),
+                                    secret.hosts.iter().cloned().collect::<HashSet<_>>(),
+                                )
+                            })
+                            .collect::<HashMap<_, _>>(),
+                        secret_injections: profile
+                            .secrets
+                            .iter()
+                            .filter_map(|(name, secret)| {
+                                if secret.header.is_none() && secret.value_template.is_none() {
+                                    return None;
+                                }
+                                let header = secret
+                                    .header
+                                    .clone()
+                                    .unwrap_or_else(|| "authorization".to_owned());
+                                let default_template = if header.eq_ignore_ascii_case("authorization") {
+                                    "Bearer {secret}"
+                                } else {
+                                    "{secret}"
+                                };
+                                Some((
+                                    name.clone(),
+                                    SecretInjection {
+                                        value_template: secret
+                                            .value_template
+                                            .clone()
+                                            .unwrap_or_else(|| default_template.to_owned()),
+                                        header,
+                                    },
+                                ))
+                            })
+                            .collect(),
+                        allowed_egress_hosts: profile
+                            .egress_hosts
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
+                        denied_hosts: profile
+                            .deny_hosts
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
+                        strict_deny: true,
+                    };
+                    let audit_log = agent_run
+                        .audit_log
+                        .then(|| AuditLog::local(&agent_run.profile))
+                        .transpose()?;
+                    if let Some(audit_log) = &audit_log {
+                        if !silent {
+                            eprintln!("Audit session: {}", audit_log.session_id());
+                            eprintln!("Audit log: {}", audit_log.path().display());
+                        }
+                    }
+                    let args = HandleRunArgs {
+                        api_key,
+                        project: profile.project,
+                        environment: profile.environment,
+                        command: agent_run.command,
+                        broker: true,
+                        broker_port: agent_run.broker_port,
+                        broker_policy: Some(policy),
+                        trust_broker_ca: agent_run.trust_broker_ca,
+                        sandbox: agent_run.sandbox,
+                        audit_log,
+                        secret_bindings: secret_bindings.clone(),
+                        allow_file_override: true,
+                        only: secret_bindings.keys().cloned().collect(),
+                        exclude: Vec::new(),
+                        set: Vec::new(),
+                        set_comments: Vec::new(),
+                        print_secrets: None,
+                        no_print_secrets: true,
+                        config_file: None,
+                        file: profile.file,
+                        expand_refs: None,
+                        json_format: raw_output,
+                        silent,
+                        scope: None,
+                    };
+                    handle_load_env_run(args).await
+                }
+                .await,
+            },
             EntityType::Run(run_cmd) => {
                 // Validate scope conflicts
                 if let Err(err) = run_cmd.validate_scope_conflicts() {
@@ -235,6 +457,14 @@ pub async fn handle_cli(args: Cli) {
                     project: run_cmd.project,
                     environment: run_cmd.environment,
                     command: run_cmd.command,
+                    broker: run_cmd.broker,
+                    broker_port: run_cmd.broker_port,
+                    broker_policy: None,
+                    trust_broker_ca: false,
+                    sandbox: false,
+                    audit_log: None,
+                    secret_bindings: HashMap::new(),
+                    allow_file_override: false,
                     exclude: run_cmd.exclude,
                     only: run_cmd.only,
                     set: run_cmd.set,
@@ -333,6 +563,9 @@ pub async fn handle_cli(args: Cli) {
                 return;
             }
             eprintln!("{:?}", err);
+            if let Some(command_failed) = err.downcast_ref::<CommandFailed>() {
+                std::process::exit(command_failed.exit_code());
+            }
         }
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
@@ -351,5 +584,164 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
         eprintln!("{:?}", err);
+    }
+}
+
+async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Result<()> {
+    if command.limit == 0 || command.limit > 1_000 {
+        anyhow::bail!("--limit must be between 1 and 1000.");
+    }
+    let since = command
+        .since
+        .as_deref()
+        .map(parse_audit_duration)
+        .transpose()?;
+    let filter = AuditLogFilter {
+        profile: command.profile,
+        action: command.action,
+        host: command.host,
+        session: command.session,
+    };
+    if !command.follow {
+        let events = read_local_audit_logs(command.limit, since, &filter)?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&events)?);
+        } else {
+            for event in &events {
+                print_audit_event(event, false)?;
+            }
+        }
+        return Ok(());
+    }
+
+    let mut displayed = HashSet::new();
+
+    loop {
+        if REQUEST_ABORTED.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        for event in read_local_audit_logs(command.limit, since, &filter)? {
+            if !displayed.insert(event.clone()) {
+                continue;
+            }
+            print_audit_event(&event, json)?;
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+/// Makes the active risk visible at launch time. The broker remains host-based:
+/// allowing the Stashbase API host lets a child use any API route its normal
+/// local credential is authorized for.
+fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
+    let Some(api_host) = crate::api::client::get_api_host() else {
+        return;
+    };
+    let api_denied = profile.deny_hosts.as_ref().is_some_and(|hosts| {
+        hosts
+            .iter()
+            .any(|denied| denied == "*" || configured_host_matches(denied, &api_host))
+    });
+    let unrestricted_egress = profile
+        .egress_hosts
+        .as_ref()
+        .is_some_and(|hosts| hosts.iter().any(|host| host.trim() == "*"));
+    if unrestricted_egress && !api_denied {
+        eprintln!(
+            "Warning: Profile allows unrestricted HTTP(S) egress. The child may reach the Stashbase API and use locally stored normal authentication."
+        );
+        return;
+    }
+    let egress_allows_api = profile.egress_hosts.as_ref().is_some_and(|hosts| {
+        hosts
+            .iter()
+            .any(|allowed| configured_host_matches(allowed, &api_host))
+    });
+    let secret_allows_api = profile.secrets.values().any(|secret| {
+        secret
+            .hosts
+            .iter()
+            .any(|allowed| configured_host_matches(allowed, &api_host))
+    });
+    if !api_denied && (egress_allows_api || secret_allows_api) {
+        eprintln!(
+            "Warning: Profile allows the Stashbase API host ({api_host}). The child may run normal Stashbase CLI commands using locally stored authentication."
+        );
+    }
+}
+
+fn configured_host_matches(allowed: &str, host: &str) -> bool {
+    let allowed = allowed.trim().trim_end_matches('.').to_ascii_lowercase();
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    match allowed.strip_prefix("*.") {
+        Some(suffix) => host != suffix && host.ends_with(&format!(".{suffix}")),
+        None => allowed == host,
+    }
+}
+
+fn parse_audit_duration(value: &str) -> anyhow::Result<Duration> {
+    let split_at = value.find(|character: char| !character.is_ascii_digit());
+    let Some(split_at) = split_at else {
+        anyhow::bail!("Invalid --since value '{value}'. Use a value such as 30m, 24h, or 7d.");
+    };
+    let (amount, unit) = value.split_at(split_at);
+    let amount = amount.parse::<u64>().map_err(|_| {
+        anyhow::anyhow!("Invalid --since value '{value}'. Use a value such as 30m, 24h, or 7d.")
+    })?;
+    let seconds_per_unit = match unit {
+        "m" => 60,
+        "h" => 60 * 60,
+        "d" => 24 * 60 * 60,
+        _ => anyhow::bail!("Invalid --since value '{value}'. Use a value such as 30m, 24h, or 7d."),
+    };
+    let seconds = amount.checked_mul(seconds_per_unit).ok_or_else(|| {
+        anyhow::anyhow!("Invalid --since value '{value}': duration is too large.")
+    })?;
+    Ok(Duration::from_secs(seconds))
+}
+
+fn print_audit_event(event: &AuditLogEvent, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string(event)?);
+        return Ok(());
+    }
+
+    let host = event.destination_host.as_deref().unwrap_or("-");
+    let secret = event.secret_name.as_deref().unwrap_or("-");
+    let status = event
+        .response_status
+        .map(|status| status.to_string())
+        .unwrap_or_else(|| "-".to_owned());
+    let duration = event
+        .duration_ms
+        .map(|duration| format!("{duration}ms"))
+        .unwrap_or_else(|| "-".to_owned());
+    println!(
+        "{}  profile={} action={} host={} secret={} status={} duration={}",
+        event.timestamp, event.profile, event.action, host, secret, status, duration
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::configured_host_matches;
+
+    #[test]
+    fn configured_host_matching_supports_exact_and_subdomain_wildcards() {
+        assert!(configured_host_matches(
+            "api.stashbase.dev",
+            "api.stashbase.dev"
+        ));
+        assert!(configured_host_matches(
+            "*.stashbase.dev",
+            "api.stashbase.dev"
+        ));
+        assert!(!configured_host_matches("*.stashbase.dev", "stashbase.dev"));
+        assert!(!configured_host_matches(
+            "api.stashbase.dev",
+            "other.example"
+        ));
     }
 }

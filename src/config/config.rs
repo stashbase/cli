@@ -6,7 +6,10 @@ use std::{
 use anyhow::{bail, Context, Result};
 use directories::ProjectDirs;
 
-use crate::models::config::{Config, OutputFormatConfig, UpdateConfig};
+use crate::models::{
+    agent::AgentProfile,
+    config::{Config, DirectoryConfig, OutputFormatConfig, UpdateConfig},
+};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -15,6 +18,9 @@ use std::os::unix::fs::PermissionsExt;
 const CONFIG_DIR_MODE: u32 = 0o700;
 #[cfg(unix)]
 const CONFIG_FILE_MODE: u32 = 0o600;
+
+/// Repository-local, security-sensitive policy for `stashbase agent run`.
+pub const DIRECTORY_AGENT_PROFILE_FILE: &str = "stashbase-agent.toml";
 
 fn ensure_config_dir(config_dir: &Path) -> Result<()> {
     fs::create_dir_all(config_dir)?;
@@ -99,6 +105,23 @@ pub fn get_config() -> Result<Config> {
     } else {
         bail!("Could not find config directory.")
     }
+}
+
+/// Load an optional complete agent profile from `stashbase-agent.toml` in the current
+/// directory. This file never creates config directories and is ignored when absent.
+pub fn get_directory_agent_profile(profile_name: &str) -> Result<Option<AgentProfile>> {
+    let path = std::env::current_dir()?.join(DIRECTORY_AGENT_PROFILE_FILE);
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("Could not read agent profile file '{}'.", path.display()))?;
+    let config: DirectoryConfig = toml::from_str(&content)
+        .with_context(|| format!("Could not parse agent profile file '{}'.", path.display()))?;
+    Ok(config
+        .agent_profiles
+        .and_then(|profiles| profiles.get(profile_name).cloned()))
 }
 
 pub fn update_config(args: UpdateConfig) -> Result<()> {
