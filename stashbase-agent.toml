@@ -1,4 +1,7 @@
 # Repository-local agent policy. Keep the Stashbase API host out of egress.
+# Local testing and development agent policy for this CLI repository.
+# Do not store real production secrets in this file.
+
 [agent_profiles.coding]
 # Practical local-agent mode: let Codex and configured MCP tools use the
 # internet, but prevent a nested Stashbase CLI from reaching this API.
