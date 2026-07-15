@@ -225,7 +225,7 @@ that secret's configured hosts. The agent command deliberately has no `--set`,
 Broker mode clears inherited `NO_PROXY`, `ALL_PROXY`, and npm proxy override
 variables before applying its own proxy settings, preventing common accidental
 proxy bypasses. This does not stop a tool from deliberately creating a direct
-connection; use macOS `--sandbox` when direct network egress must be blocked.
+connection; use `--sandbox` on supported platforms when direct network egress must be blocked.
 
 By default, a secret is exchanged from `Authorization: Bearer <placeholder>`.
 For providers with a different credential header, set `header` and optionally
@@ -251,8 +251,10 @@ your Stashbase API host (including through `egress_hosts = ["*"]`), a child may
 run ordinary Stashbase CLI commands—including `stashbase secrets list`—with the
 developer's locally stored normal authentication and retrieve authorized
 secrets. Tight profiles should allow only required tool hosts; unlisted
-Stashbase API hosts are denied as `broker.host_denied`. Use `--sandbox` on
-macOS to prevent direct network bypasses. Scoped agent-session tokens will add
+Stashbase API hosts are denied and recorded as `host_denied` in the audit log.
+Some HTTPS clients report a CONNECT-level denial as a generic connection error.
+Use `--sandbox` on
+supported platforms to prevent direct network bypasses. Scoped agent-session tokens will add
 server-enforced permissions in a future release.
 
 For a practical local-agent profile, allow ordinary internet access while
@@ -400,7 +402,7 @@ Failure actions include `host_denied`, `unknown_placeholder`,
 `tls_trust_failed`, `upstream_timeout`, and `upstream_connection_failed`.
 An unknown or stale placeholder is denied before forwarding. A direct proxy
 bypass cannot be logged because the request never reaches the broker; use the
-macOS `--sandbox` option when that containment matters.
+`--sandbox` option on supported platforms when that containment matters.
 
 View the recent local broker decisions without reading JSONL files directly:
 
@@ -417,9 +419,10 @@ one JSON event per line as new events arrive. Profile, action, host, and session
 filters use exact matches. Each audited `agent run` prints its session ID at
 startup, which can be passed to `--session`.
 
-This is still a local experimental mode. A sandboxed agent must not have access
-to the user's unrestricted Stashbase API credentials or it could invoke normal
-`stashbase run` directly instead of this restricted command.
+This is still a local experimental mode. If a profile permits the Stashbase API
+host, a sandboxed agent can still invoke normal `stashbase` commands through the
+broker using same-user credentials. Use `deny_hosts` for the Stashbase API host
+when that route must be blocked.
 
 ### Generate utility values
 

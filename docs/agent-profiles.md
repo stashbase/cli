@@ -266,7 +266,7 @@ egress_hosts = ["*"]
 ### Stashbase API access is a profile decision
 
 `egress_hosts` is host-based. If it includes your Stashbase API host—or uses
-the `"*"` wildcard—the child may be able to use ordinary Stashbase CLI commands
+the `"*"` wildcard without a matching `deny_hosts` entry—the child may be able to use ordinary Stashbase CLI commands
 such as project/environment discovery or `stashbase secrets list` through the
 broker. With a normal personal or service API key available in the
 operating-system credential store, those commands may authenticate as the
@@ -278,8 +278,17 @@ For a tight coding profile, allow only the tool destinations the agent needs:
 egress_hosts = ["api.github.com", "registry.npmjs.org"]
 ```
 
-Then a child request to an unlisted Stashbase API host is denied with
-`broker.host_denied`. Use `--sandbox` on macOS as well when direct network
+For compatible local development, allow ordinary egress but deny the API as a
+final override:
+
+```toml
+egress_hosts = ["*"]
+deny_hosts = ["api.stashbase.dev"]
+```
+
+Then a child request to an unlisted Stashbase API host is denied and recorded
+as `host_denied` in the broker audit log. Some HTTPS clients surface that
+CONNECT-level denial as a generic connection error. Use `--sandbox` on supported platforms as well when direct network
 bypass must be blocked. Allowing broad egress is an explicit developer trust
 decision; the CLI does not implement fragile path-by-path rules for Stashbase
 endpoints. Future scoped agent-session tokens will let the API enforce finer
