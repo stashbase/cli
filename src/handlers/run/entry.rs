@@ -550,7 +550,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             msg.insert_str(0, "\n");
             msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
-            if let Some(ref mut spinner) = spinner {
+            // `spinoff` spinners can only be stopped once. The confirmed run
+            // below will finish its own spinner, so discard this one after
+            // clearing the warning line.
+            if let Some(mut spinner) = spinner.take() {
                 spinner.stop_and_persist("", "");
             }
 
@@ -734,7 +737,9 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     }
                     msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
-                    if let Some(ref mut spinner) = spinner {
+                    // The warning ends the loading spinner before prompting.
+                    // Do not leave a stopped spinner for `handle_run` to stop.
+                    if let Some(mut spinner) = spinner.take() {
                         spinner.stop_and_persist("", "");
                     }
 
@@ -948,19 +953,19 @@ async fn handle_run(
 
         if print_secrets.is_some() && !is_from_file {
             success_msg.insert_str(0, "\n");
-            if let Some(spinner) = spinner {
+            if let Some(mut spinner) = spinner.take() {
                 spinner.stop_with_message(&success_msg);
             } else {
                 eprintln!("{}", success_msg);
             }
         } else {
-            if let Some(spinner) = spinner {
+            if let Some(mut spinner) = spinner.take() {
                 spinner.stop_with_message(&success_msg);
             } else {
                 eprintln!("{}", success_msg);
             }
         }
-    } else if let Some(spinner) = spinner {
+    } else if let Some(mut spinner) = spinner.take() {
         spinner.stop_and_persist("", "");
     }
     // success msg
