@@ -100,6 +100,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_egress_only_agent_profile_without_a_secret_source() {
+        let config: DirectoryConfig = toml::from_str(
+            r#"
+                [agent_profiles.coding]
+                egress_hosts = ["chatgpt.com"]
+                deny_hosts = ["api.stashbase.dev"]
+            "#,
+        )
+        .unwrap();
+
+        let profile = &config.agent_profiles.unwrap()["coding"];
+        assert!(profile.file.is_none());
+        assert!(profile.secrets.is_empty());
+        assert_eq!(
+            profile.deny_hosts.as_ref(),
+            Some(&vec!["api.stashbase.dev".to_owned()])
+        );
+    }
+
+    #[test]
     fn parses_complete_directory_agent_profile() {
         let config: DirectoryConfig = toml::from_str(
             r#"

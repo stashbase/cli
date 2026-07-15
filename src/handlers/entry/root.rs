@@ -298,26 +298,31 @@ pub async fn handle_cli(args: Cli) {
                         print_agent_egress_warnings(&profile);
                     }
 
-                    if profile.secrets.is_empty() {
-                        eprintln!(
-                            "Agent profile '{}' does not grant any secrets.",
-                            agent_run.profile
-                        );
-                        return Ok(());
-                    }
-
                     let valid_source = matches!(
                         (&profile.file, &profile.project, &profile.environment),
                         (Some(_), None, None)
                             | (None, Some(_), Some(_))
                             | (Some(_), Some(_), Some(_))
                     );
-                    if !valid_source {
+                    let egress_only = profile.secrets.is_empty();
+                    if egress_only && !matches!((&profile.file, &profile.project, &profile.environment), (None, None, None)) {
+                        eprintln!(
+                            "Egress-only agent profile '{}' must not define 'file', 'project', or 'environment'.",
+                            agent_run.profile
+                        );
+                        return Ok(());
+                    }
+                    if !egress_only && !valid_source {
                         eprintln!(
                             "Agent profile '{}' must define 'file', both 'project' and 'environment', or both sources together.",
                             agent_run.profile
                         );
                         return Ok(());
+                    }
+                    if egress_only && !silent {
+                        eprintln!(
+                            "Warning: Egress-only profile. No Stashbase-managed secrets are granted to this agent."
+                        );
                     }
 
                     let secret_bindings = profile

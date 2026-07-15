@@ -125,6 +125,37 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         bail!(formatted_err);
     }
 
+    // An agent profile with no source and no secret bindings is intentionally
+    // egress-only. Do not fall through to normal `run` config discovery: that
+    // could load unrelated repository secrets into a no-secret agent session.
+    let egress_only = broker_policy
+        .as_ref()
+        .is_some_and(|policy| policy.strict_deny)
+        && secret_bindings.is_empty()
+        && file.is_none()
+        && project.is_none()
+        && environment.is_none();
+    if egress_only {
+        let mut spinner = None;
+        return handle_run(
+            &mut spinner,
+            command,
+            broker,
+            broker_port,
+            broker_policy,
+            trust_broker_ca,
+            sandbox,
+            audit_log,
+            &secret_bindings,
+            None,
+            Vec::new(),
+            false,
+            silent,
+            json_format,
+        )
+        .await;
+    }
+
     if let Err(error) = validate_no_duplicate_set_names(&set) {
         let formatted_err = error.format_error_output(json_format)?;
 
@@ -902,7 +933,11 @@ async fn handle_run(
         let mut success_msg = format!(
             "{} {} ({} {})",
             "✓".green_if_tty_stderr(),
-            "Environment loaded",
+            if secrets.is_empty() {
+                "Egress-only profile"
+            } else {
+                "Environment loaded"
+            },
             secrets.len(),
             if secrets.len() == 1 {
                 "secret"

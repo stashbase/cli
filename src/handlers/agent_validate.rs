@@ -133,11 +133,29 @@ fn print_report(profile: String, checks: Vec<Check>, json_format: bool) -> Resul
 
 fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
+    let egress_only = profile.secrets.is_empty();
     let valid_source = matches!(
         (&profile.file, &profile.project, &profile.environment),
         (Some(_), None, None) | (None, Some(_), Some(_)) | (Some(_), Some(_), Some(_))
     );
-    if valid_source {
+    if egress_only {
+        if matches!(
+            (&profile.file, &profile.project, &profile.environment),
+            (None, None, None)
+        ) {
+            checks.push(ok(
+                "Profile mode",
+                "Egress-only: no Stashbase-managed secrets or secret source are configured."
+                    .to_owned(),
+            ));
+        } else {
+            checks.push(fail(
+                "Profile mode",
+                "An egress-only profile must not define 'file', 'project', or 'environment'."
+                    .to_owned(),
+            ));
+        }
+    } else if valid_source {
         checks.push(ok(
             "Secret source",
             match (&profile.file, &profile.project) {
@@ -184,14 +202,6 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 format!("Readable: {}", path.display()),
             ));
         }
-    }
-
-    if profile.secrets.is_empty() {
-        checks.push(fail(
-            "Secrets",
-            "Profile does not grant any secrets.".to_owned(),
-        ));
-        return checks;
     }
 
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -431,5 +441,21 @@ mod tests {
         assert!(validate_profile(&profile)
             .iter()
             .any(|check| check.status == Status::Fail && check.name.contains("value_template")));
+    }
+
+    #[test]
+    fn rejects_an_egress_only_profile_with_a_secret_source() {
+        let profile = AgentProfile {
+            project: None,
+            environment: None,
+            file: Some(".env.agent".to_owned()),
+            egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
+            deny_hosts: None,
+            secrets: HashMap::new(),
+        };
+
+        assert!(validate_profile(&profile).iter().any(|check| {
+            check.status == Status::Fail && check.message.contains("egress-only profile")
+        }));
     }
 }

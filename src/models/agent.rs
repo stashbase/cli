@@ -11,6 +11,7 @@ pub struct AgentProfile {
     pub egress_hosts: Option<Vec<String>>,
     /// Destinations denied after both secret and ordinary egress rules are evaluated.
     pub deny_hosts: Option<Vec<String>>,
+    #[serde(default)]
     pub secrets: HashMap<String, AgentSecretProfile>,
 }
 

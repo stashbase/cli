@@ -302,6 +302,18 @@ or local secret file and determines where secrets may be sent.
 When `auto` selects a directory profile, the CLI prints a warning so the policy
 choice is visible before secrets are loaded.
 
+An egress-only profile needs neither a secret source nor a `secrets` table. It
+still starts the broker and enforces its destination policy, but grants the
+child no Stashbase-managed credentials:
+
+```toml
+[agent_profiles.codex]
+egress_hosts = ["chatgpt.com", "mcp.context7.com"]
+deny_hosts = ["api.stashbase.dev"]
+```
+
+The CLI prints an explicit warning when this mode starts.
+
 An agent profile may define both a Stashbase `project`/`environment` and a
 local `file`. The file is a local override: its configured source names win,
 and Stashbase requests only the remaining profile sources from the API.

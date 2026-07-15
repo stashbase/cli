@@ -50,6 +50,22 @@ deny_hosts = ["api.stashbase.dev"]
 
 For a custom deployment, deny the hostname from `STASHBASE_API_URL` instead.
 
+## Egress-only profiles
+
+An agent profile may omit `file`, `project`, `environment`, and `secrets`
+entirely. It starts the broker solely to enforce egress policy and grants no
+Stashbase-managed credentials—useful for Codex with an existing local login or
+for MCP-only workflows:
+
+```toml
+[agent_profiles.codex]
+egress_hosts = ["chatgpt.com", "mcp.context7.com", "mcp.linear.app"]
+deny_hosts = ["api.stashbase.dev"]
+```
+
+The CLI prints an egress-only warning at startup. To prevent accidental secret
+loading, this mode rejects a configured `file`, `project`, or `environment`.
+
 ## Secret sources, bindings, and local overrides
 
 Without `from`, each secret-table key is also its remote source name. This
