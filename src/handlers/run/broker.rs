@@ -1,8 +1,14 @@
-//! A deliberately small, per-command HTTP proxy used by `stashbase run --broker`.
+//! Embedded, per-command credential broker for `stashbase run --broker` and
+//! `stashbase agent run`.
 //!
-//! HTTPS traffic is intercepted with a temporary locally-trusted CA so the proxy can
-//! replace Stashbase placeholders in request headers before forwarding the request.
-//! This is an experiment, not a hardened proxy implementation.
+//! The broker binds only to localhost and lives for the child process lifetime.
+//! HTTPS traffic is intercepted with a temporary locally-trusted CA so it can
+//! replace Stashbase placeholders in approved request headers before forwarding
+//! them to policy-approved destinations. It also enforces ordinary egress rules
+//! and records metadata-only audit events for agent sessions.
+//!
+//! This is experimental local exposure reduction, not a hardened general-purpose
+//! proxy or isolation boundary.
 
 use std::{
     collections::{HashMap, HashSet},
