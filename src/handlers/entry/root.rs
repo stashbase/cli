@@ -33,7 +33,7 @@ use crate::{
                 read_local_audit_logs, AuditLog, AuditLogEvent, AuditLogFilter, BrokerPolicy,
                 SecretInjection,
             },
-            entry::{handle_load_env_run, HandleRunArgs},
+            entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
             subprocess::CommandFailed,
         },
         setup::setup,
@@ -402,6 +402,45 @@ pub async fn handle_cli(args: Cli) {
                             eprintln!("Audit session: {}", audit_log.session_id());
                             eprintln!("Audit log: {}", audit_log.path().display());
                         }
+                    }
+                    if agent_run.remote {
+                        let (Some(project), Some(environment)) =
+                            (profile.project.clone(), profile.environment.clone())
+                        else {
+                            anyhow::bail!("--remote requires a project/environment-backed agent profile.");
+                        };
+                        if profile.file.is_some() || profile.secrets.is_empty() {
+                            anyhow::bail!("--remote currently supports Stashbase-managed secret bindings, not local-file or egress-only profiles.");
+                        }
+                        let allowed_hosts = policy.allowed_hosts_by_secret.values()
+                            .flat_map(|hosts| hosts.iter().cloned())
+                            .chain(policy.allowed_egress_hosts.iter().cloned())
+                            .collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();
+                        let bindings = profile.secrets.iter().map(|(name, secret)| {
+                            crate::api::remote_broker::RemoteBinding {
+                                name: name.clone(),
+                                secret_name: secret.from.clone().unwrap_or_else(|| name.clone()),
+                                header: secret.header.clone().unwrap_or_else(|| "authorization".to_owned()),
+                                placeholder: format!("${{{name}}}"),
+                            }
+                        }).collect::<Vec<_>>();
+                        let session = crate::api::remote_broker::create_session(
+                            api_key.clone(), project, environment, allowed_hosts, bindings.clone()
+                        ).await?;
+                        let placeholders = bindings.into_iter().map(|binding| (binding.name, binding.placeholder)).collect();
+                        let token = session.session_token;
+                        let result = handle_remote_agent_run(
+                            agent_run.command,
+                            policy,
+                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url: session.proxy_url, session_token: token.clone(), placeholders },
+                            agent_run.broker_port,
+                            agent_run.sandbox,
+                            agent_run.trust_broker_ca,
+                            audit_log,
+                            silent,
+                        ).await;
+                        crate::api::remote_broker::revoke_session(api_key, &token).await;
+                        return result;
                     }
                     let args = HandleRunArgs {
                         api_key,

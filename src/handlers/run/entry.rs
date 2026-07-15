@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use log::debug;
 use spinoff::{Spinner, Streams};
 use tabled::Tabled;
@@ -37,6 +37,44 @@ use crate::{
 };
 
 use super::format::format_env_variable_value;
+
+/// Runs an agent through the localhost relay while credentials stay in the
+/// control-plane's short-lived remote broker session.
+pub async fn handle_remote_agent_run(
+    command: Vec<String>,
+    policy: super::broker::BrokerPolicy,
+    remote: super::broker::RemoteBrokerConfig,
+    broker_port: Option<u16>,
+    sandbox: bool,
+    trust_broker_ca: bool,
+    audit_log: Option<super::broker::AuditLog>,
+    silent: bool,
+) -> anyhow::Result<()> {
+    let cmd = command.first().context("no command provided")?.clone();
+    let args = command.into_iter().skip(1).collect();
+    let broker =
+        super::broker::Broker::start_remote_with_port(remote, policy, audit_log, broker_port)
+            .await?;
+    let _trusted_ca = trust_broker_ca.then(|| broker.trust_ca()).transpose()?;
+    if !silent {
+        let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+        eprintln!(
+            "Broker started on localhost:{}",
+            address.rsplit(':').next().unwrap_or_default()
+        );
+    }
+    let result =
+        subprocess::run_command(&cmd, args, broker.child_env().clone(), sandbox, true, true).await;
+    broker.stop().await;
+    if !silent {
+        eprintln!("Broker stopped");
+    }
+    let status = result?;
+    if !status.success() {
+        return Err(subprocess::CommandFailed { status }.into());
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub struct HandleRunArgs {

@@ -13,6 +13,22 @@ directory. Run one with:
 stashbase agent run --profile <name> -- <command>
 ```
 
+## Remote broker sessions
+
+For a project/environment-backed profile whose secrets are stored in Stashbase,
+add `--remote` to resolve and retain credentials only in the control plane:
+
+```bash
+stashbase agent run --remote --profile coding -- codex
+```
+
+The CLI authenticates normally, creates one short-lived scoped session, and
+passes only `${SECRET_NAME}` placeholders to the child. Its temporary localhost
+relay sends the opaque session token directly to the remote broker; it is never
+added to the child environment and is revoked when the child exits. Remote mode
+does not support local-file overrides, egress-only profiles, WebSockets, or
+HTTP/2 yet.
+
 The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
 present and otherwise falls back to the user-level config. Use
 `--profile-source directory` to require the current directory's profile.

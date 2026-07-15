@@ -43,6 +43,10 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub broker_port: Option<u16>,
 
+    /// Resolve Stashbase secrets in a short-lived remote broker session
+    #[arg(long)]
+    pub remote: bool,
+
     /// Store metadata-only broker audit events locally
     #[arg(
         long,

@@ -291,6 +291,15 @@ pub struct SecretInjection {
     pub value_template: String,
 }
 
+/// Opaque, control-plane-issued credentials used by the local relay.
+/// The token is never placed in the child environment.
+#[derive(Debug, Clone)]
+pub struct RemoteBrokerConfig {
+    pub proxy_url: String,
+    pub session_token: String,
+    pub placeholders: HashMap<String, String>,
+}
+
 impl SecretInjection {
     pub fn bearer() -> Self {
         Self {
@@ -320,6 +329,7 @@ struct BrokerState {
     certificate_authority: Arc<Certificate>,
     audit_log: Option<AuditLog>,
     connections: Arc<ActiveConnections>,
+    remote: Option<RemoteBrokerConfig>,
 }
 
 /// Tracks every accepted proxy and TLS-upgrade task so broker shutdown closes
@@ -378,9 +388,29 @@ impl Broker {
 
     pub async fn start_with_port(
         secrets: HashMap<String, String>,
+        policy: BrokerPolicy,
+        audit_log: Option<AuditLog>,
+        broker_port: Option<u16>,
+    ) -> Result<Self> {
+        Self::start_inner(secrets, policy, audit_log, broker_port, None).await
+    }
+
+    pub async fn start_remote_with_port(
+        remote: RemoteBrokerConfig,
+        policy: BrokerPolicy,
+        audit_log: Option<AuditLog>,
+        broker_port: Option<u16>,
+    ) -> Result<Self> {
+        let placeholders = remote.placeholders.clone();
+        Self::start_inner(placeholders, policy, audit_log, broker_port, Some(remote)).await
+    }
+
+    async fn start_inner(
+        secrets: HashMap<String, String>,
         mut policy: BrokerPolicy,
         audit_log: Option<AuditLog>,
         broker_port: Option<u16>,
+        remote: Option<RemoteBrokerConfig>,
     ) -> Result<Self> {
         if broker_port == Some(0) {
             anyhow::bail!("--broker-port must be between 1 and 65535");
@@ -391,14 +421,29 @@ impl Broker {
             .await
             .with_context(|| format!("failed to bind credential broker to {bind_address}"))?;
         let address = listener.local_addr()?;
-        let placeholders = secrets
-            .into_iter()
-            .map(|(name, value)| (placeholder_for(&name), value))
-            .collect::<HashMap<_, _>>();
+        let placeholders = if remote.is_some() {
+            secrets
+                .into_iter()
+                .map(|(_name, placeholder)| (placeholder, String::new()))
+                .collect()
+        } else {
+            secrets
+                .into_iter()
+                .map(|(name, value)| (placeholder_for(&name), value))
+                .collect()
+        };
+        let remote_placeholders = remote.as_ref().map(|remote| remote.placeholders.clone());
         policy.allowed_hosts_by_secret = policy
             .allowed_hosts_by_secret
             .into_iter()
-            .map(|(name, hosts)| (placeholder_for(&name), normalize_hosts(hosts)))
+            .map(|(name, hosts)| {
+                let placeholder = remote_placeholders
+                    .as_ref()
+                    .and_then(|placeholders| placeholders.get(&name))
+                    .cloned()
+                    .unwrap_or_else(|| placeholder_for(&name));
+                (placeholder, normalize_hosts(hosts))
+            })
             .collect();
         policy.secret_injections = normalize_injections(policy.secret_injections)?;
         policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
@@ -426,6 +471,7 @@ impl Broker {
             certificate_authority: Arc::new(certificate_authority),
             audit_log: audit_log.clone(),
             connections: connections.clone(),
+            remote,
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -510,9 +556,16 @@ fn placeholder_for(name: &str) -> String {
 }
 
 fn secret_name_from_placeholder(placeholder: &str) -> String {
+    if let Some(value) = placeholder
+        .strip_prefix("**STASHBASE_")
+        .and_then(|value| value.strip_suffix("**"))
+    {
+        return value.to_owned();
+    }
     placeholder
-        .trim_start_matches("**STASHBASE_")
-        .trim_end_matches("**")
+        .strip_prefix("${")
+        .and_then(|value| value.strip_suffix('}'))
+        .unwrap_or(placeholder)
         .to_owned()
 }
 
@@ -688,6 +741,13 @@ fn proxy_request(
         // Reqwest deliberately does not support HTTP upgrade responses. Coding agents
         // such as Codex use a WSS connection for streaming, so tunnel an upgraded
         // connection after applying the same destination and placeholder checks.
+        if state.remote.is_some() && is_upgrade_request(&request) {
+            return Ok(broker_error_response(
+                StatusCode::NOT_IMPLEMENTED,
+                "broker.remote_protocol_not_supported",
+                "The remote broker does not support WebSockets or HTTP/2",
+            ));
+        }
         if is_upgrade_request(&request) {
             return forward_upgrade(
                 request,
@@ -718,15 +778,30 @@ fn proxy_request(
             }
         };
         let method = request.method().clone();
-        let headers = request.headers().clone();
+        let mut headers = request.headers().clone();
         // `Incoming` is converted into a data stream without collecting it. Reqwest
         // applies chunked transfer encoding when no content length is available, so
         // streaming uploads retain their incremental delivery to the upstream.
         let body = reqwest::Body::wrap_stream(request.into_body().into_data_stream());
 
+        let destination_url = if let Some(remote) = &state.remote {
+            headers.remove("x-stashbase-target");
+            headers.remove("x-stashbase-session");
+            headers.insert(
+                "x-stashbase-target",
+                HeaderValue::from_str(url.as_str()).unwrap(),
+            );
+            headers.insert(
+                "x-stashbase-session",
+                HeaderValue::from_str(&remote.session_token).unwrap(),
+            );
+            remote.proxy_url.clone()
+        } else {
+            url.to_string()
+        };
         match state
             .client
-            .request(method.clone(), url)
+            .request(method.clone(), destination_url)
             .headers(headers)
             .body(body)
             .send()
@@ -1180,6 +1255,9 @@ fn replace_placeholder(
         {
             return Err(secret_name_from_placeholder(placeholder));
         }
+        if state.remote.is_some() {
+            return Ok(Some(secret_name_from_placeholder(placeholder)));
+        }
         let value = injection.value_template.replace("{secret}", secret);
         if let Ok(value) = HeaderValue::from_str(&value) {
             request.headers_mut().insert(header_name, value);
@@ -1209,6 +1287,17 @@ fn contains_unknown_placeholder(request: &Request<Incoming>, state: &BrokerState
                 return true;
             }
             remaining = &candidate[end + 4..];
+        }
+        if state.remote.is_some() {
+            for candidate in value.match_indices("${") {
+                let suffix = &value[candidate.0..];
+                let Some(end) = suffix.find('}') else {
+                    return true;
+                };
+                if !state.secrets.contains_key(&suffix[..=end]) {
+                    return true;
+                }
+            }
         }
         false
     })
@@ -1594,6 +1683,7 @@ mod tests {
             ),
             audit_log: None,
             connections: Arc::new(ActiveConnections::default()),
+            remote: None,
         };
 
         assert!(state.host_allowed(Some("chatgpt.com")));
