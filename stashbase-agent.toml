@@ -1,6 +1,9 @@
-# .stashbase.toml
+# Repository-local agent policy. Keep the Stashbase API host out of egress.
 [agent_profiles.coding]
+# Practical local-agent mode: let Codex and configured MCP tools use the
+# internet, but prevent a nested Stashbase CLI from reaching this API.
 egress_hosts = ["*"]
+deny_hosts = ["api.stashbase.dev"]
 
 file = "./.env.agent-test"
 # project = "booking-app"
