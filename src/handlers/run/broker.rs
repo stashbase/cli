@@ -274,6 +274,7 @@ pub struct BrokerPolicy {
     pub allowed_hosts_by_secret: HashMap<String, HashSet<String>>,
     pub secret_injections: HashMap<String, SecretInjection>,
     pub allowed_egress_hosts: HashSet<String>,
+    pub denied_hosts: HashSet<String>,
     pub strict_deny: bool,
 }
 
@@ -299,6 +300,7 @@ impl BrokerPolicy {
             allowed_hosts_by_secret: HashMap::new(),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
             strict_deny: false,
         }
     }
@@ -394,6 +396,7 @@ impl Broker {
             .collect();
         policy.secret_injections = normalize_injections(policy.secret_injections)?;
         policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
+        policy.denied_hosts = normalize_hosts(policy.denied_hosts);
         let connections = Arc::new(ActiveConnections::default());
         let state = BrokerState {
             secrets: Arc::new(placeholders),
@@ -1095,7 +1098,11 @@ async fn serve_tls_connection(
 
 impl BrokerState {
     fn host_allowed(&self, host: Option<&str>) -> bool {
-        !self.policy.strict_deny || host.is_some_and(|host| policy_allows_host(&self.policy, host))
+        let Some(host) = host else {
+            return !self.policy.strict_deny;
+        };
+        !policy_denies_host(&self.policy, host)
+            && (!self.policy.strict_deny || policy_allows_host(&self.policy, host))
     }
 
     fn record_audit(
@@ -1122,6 +1129,13 @@ fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
             .allowed_egress_hosts
             .iter()
             .any(|allowed| allowed == "*" || host_matches(allowed, host))
+}
+
+fn policy_denies_host(policy: &BrokerPolicy, host: &str) -> bool {
+    policy
+        .denied_hosts
+        .iter()
+        .any(|denied| denied == "*" || host_matches(denied, host))
 }
 
 fn replace_placeholder(
@@ -1516,6 +1530,7 @@ mod tests {
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
             strict_deny: true,
         };
 
@@ -1542,6 +1557,7 @@ mod tests {
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::new(),
             strict_deny: true,
         };
 
@@ -1549,6 +1565,33 @@ mod tests {
         assert!(!policy.allowed_hosts_by_secret["**STASHBASE_GH_TOKEN**"]
             .iter()
             .any(|allowed| host_matches(allowed, "example.com")));
+    }
+
+    #[test]
+    fn denied_hosts_override_wildcard_egress_and_secret_destinations() {
+        let policy = BrokerPolicy {
+            allowed_hosts_by_secret: HashMap::from([(
+                "**STASHBASE_GH_TOKEN**".to_owned(),
+                HashSet::from(["api.stashbase.dev".to_owned()]),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
+            strict_deny: true,
+        };
+        let state = BrokerState {
+            secrets: Arc::new(HashMap::new()),
+            policy,
+            client: reqwest::Client::new(),
+            certificate_authority: Arc::new(
+                Certificate::from_params(CertificateParams::default()).unwrap(),
+            ),
+            audit_log: None,
+            connections: Arc::new(ActiveConnections::default()),
+        };
+
+        assert!(state.host_allowed(Some("chatgpt.com")));
+        assert!(!state.host_allowed(Some("api.stashbase.dev")));
     }
 
     #[tokio::test]
@@ -1907,6 +1950,7 @@ mod tests {
                     },
                 )]),
                 allowed_egress_hosts: HashSet::new(),
+                denied_hosts: HashSet::new(),
                 strict_deny: true,
             },
             None,
@@ -1938,6 +1982,7 @@ mod tests {
                 )]),
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::new(),
+                denied_hosts: HashSet::new(),
                 strict_deny: true,
             },
             None,
@@ -1970,6 +2015,7 @@ mod tests {
                 )]),
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
+                denied_hosts: HashSet::new(),
                 strict_deny: true,
             },
             None,

@@ -255,6 +255,17 @@ Stashbase API hosts are denied as `broker.host_denied`. Use `--sandbox` on
 macOS to prevent direct network bypasses. Scoped agent-session tokens will add
 server-enforced permissions in a future release.
 
+For a practical local-agent profile, allow ordinary internet access while
+blocking the Stashbase API explicitly. `deny_hosts` always wins over both
+`egress_hosts` and a secret's `hosts` list:
+
+```toml
+egress_hosts = ["*"]
+deny_hosts = ["api.stashbase.dev"]
+```
+
+Use the hostname from `STASHBASE_API_URL` instead when targeting a custom API.
+
 Agent profiles can also live in `stashbase-agent.toml` in the command's current
 directory. The directory file contains a complete profile and never stores API
 keys or secret values:

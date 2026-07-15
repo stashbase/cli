@@ -277,13 +277,31 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
     }
 
+    let mut seen_denied = HashSet::new();
+    for host in profile.deny_hosts.as_deref().unwrap_or_default() {
+        if let Err(reason) = validate_host(host, true) {
+            checks.push(fail("Denied host", reason));
+        } else if host == "*" {
+            checks.push(warn(
+                "Denied host",
+                "'*' blocks every destination, including configured secret hosts.".to_owned(),
+            ));
+        } else if !seen_denied.insert(host.trim().trim_end_matches('.').to_ascii_lowercase()) {
+            checks.push(warn(
+                "Denied host",
+                format!("Duplicate denied host '{host}'."),
+            ));
+        }
+    }
+
     if !checks.iter().any(|check| check.status == Status::Fail) {
         checks.push(ok(
             "Profile policy",
             format!(
-                "{} secret binding(s) and {} egress host rule(s) are valid.",
+                "{} secret binding(s), {} egress host rule(s), and {} denied host rule(s) are valid.",
                 profile.secrets.len(),
-                profile.egress_hosts.as_ref().map_or(0, Vec::len)
+                profile.egress_hosts.as_ref().map_or(0, Vec::len),
+                profile.deny_hosts.as_ref().map_or(0, Vec::len)
             ),
         ));
     }
@@ -297,9 +315,9 @@ fn validate_host(host: &str, allow_all: bool) -> std::result::Result<(), String>
         ));
     }
     if host == "*" {
-        return allow_all
-            .then_some(())
-            .ok_or_else(|| "'*' is allowed only in egress_hosts, never for a secret.".to_owned());
+        return allow_all.then_some(()).ok_or_else(|| {
+            "'*' is allowed only in egress_hosts or deny_hosts, never for a secret.".to_owned()
+        });
     }
     let host = host.trim_end_matches('.');
     let host = host.strip_prefix("*.").unwrap_or(host);
@@ -399,6 +417,7 @@ mod tests {
             environment: Some("development".to_owned()),
             file: None,
             egress_hosts: None,
+            deny_hosts: None,
             secrets: HashMap::from([(
                 "API_KEY".to_owned(),
                 crate::models::agent::AgentSecretProfile {

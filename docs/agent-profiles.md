@@ -37,6 +37,19 @@ header. A profile's `hosts` controls where that secret may be injected;
 `egress_hosts` permits ordinary traffic without injecting a credential. Keep
 the two lists separate.
 
+`deny_hosts` is an optional final override. It uses the same exact-host and
+`*.subdomain.example` syntax as `egress_hosts`; a matching deny blocks the
+destination even when wildcard egress or a secret's `hosts` list would allow
+it. This practical local-agent profile allows Codex and MCP tools to use the
+internet while preventing a nested Stashbase CLI from calling the API:
+
+```toml
+egress_hosts = ["*"]
+deny_hosts = ["api.stashbase.dev"]
+```
+
+For a custom deployment, deny the hostname from `STASHBASE_API_URL` instead.
+
 ## Secret sources, bindings, and local overrides
 
 Without `from`, each secret-table key is also its remote source name. This

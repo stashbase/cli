@@ -380,6 +380,12 @@ pub async fn handle_cli(args: Cli) {
                             .unwrap_or_default()
                             .into_iter()
                             .collect(),
+                        denied_hosts: profile
+                            .deny_hosts
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
                         strict_deny: true,
                     };
                     let audit_log = agent_run
@@ -624,20 +630,24 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
 /// allowing the Stashbase API host lets a child use any API route its normal
 /// local credential is authorized for.
 fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
+    let Some(api_host) = crate::api::client::get_api_host() else {
+        return;
+    };
+    let api_denied = profile.deny_hosts.as_ref().is_some_and(|hosts| {
+        hosts
+            .iter()
+            .any(|denied| denied == "*" || configured_host_matches(denied, &api_host))
+    });
     let unrestricted_egress = profile
         .egress_hosts
         .as_ref()
         .is_some_and(|hosts| hosts.iter().any(|host| host.trim() == "*"));
-    if unrestricted_egress {
+    if unrestricted_egress && !api_denied {
         eprintln!(
             "Warning: Profile allows unrestricted HTTP(S) egress. The child may reach the Stashbase API and use locally stored normal authentication."
         );
         return;
     }
-
-    let Some(api_host) = crate::api::client::get_api_host() else {
-        return;
-    };
     let egress_allows_api = profile.egress_hosts.as_ref().is_some_and(|hosts| {
         hosts
             .iter()
@@ -649,7 +659,7 @@ fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
             .iter()
             .any(|allowed| configured_host_matches(allowed, &api_host))
     });
-    if egress_allows_api || secret_allows_api {
+    if !api_denied && (egress_allows_api || secret_allows_api) {
         eprintln!(
             "Warning: Profile allows the Stashbase API host ({api_host}). The child may run normal Stashbase CLI commands using locally stored authentication."
         );
