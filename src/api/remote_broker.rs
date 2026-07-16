@@ -40,7 +40,9 @@ pub async fn create_session(
     bindings: Vec<RemoteBinding>,
 ) -> Result<RemoteBrokerSession> {
     let url = format!("{}/v1/remote-broker/sessions", client::get_api_url());
-    let response = reqwest::Client::new()
+    let response = reqwest::Client::builder()
+        .user_agent(client::CLI_USER_AGENT)
+        .build()?
         .post(url)
         .bearer_auth(&api_key)
         .json(&CreateSession {
@@ -82,7 +84,10 @@ pub async fn create_session(
 }
 
 pub async fn revoke_session(api_key: String, session_token: &str) {
-    let _ = reqwest::Client::new()
+    let _ = reqwest::Client::builder()
+        .user_agent(client::CLI_USER_AGENT)
+        .build()
+        .expect("remote broker revoke client configuration is valid")
         .delete(format!(
             "{}/v1/remote-broker/sessions/current",
             client::get_api_url()
