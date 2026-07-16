@@ -22,12 +22,13 @@ add `--remote` to resolve and retain credentials only in the control plane:
 stashbase agent run --remote --profile coding -- codex
 ```
 
-The CLI authenticates normally, creates one short-lived scoped session, and
-passes only `${SECRET_NAME}` placeholders to the child. Its temporary localhost
-relay sends the opaque session token directly to the remote broker; it is never
-added to the child environment and is revoked when the child exits. Remote mode
-does not support local-file overrides, egress-only profiles, WebSockets, or
-HTTP/2 yet.
+The CLI authenticates normally, creates one 10-minute scoped session, and
+passes only `${STASHBASE_SECRET_NAME}` placeholders to the child. The opaque
+token is memory-only and revoked when the child exits. **Remote Broker Beta is
+not a generic proxy:** it is only for integrations that explicitly use the
+Stashbase custom request transport. WebSockets, HTTP/2, generic MCP proxying,
+browsers, and ordinary SDK proxy configuration are outside the Beta transport
+scope.
 
 The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
 present and otherwise falls back to the user-level config. Use

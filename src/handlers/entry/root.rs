@@ -412,20 +412,40 @@ pub async fn handle_cli(args: Cli) {
                         if profile.file.is_some() || profile.secrets.is_empty() {
                             anyhow::bail!("--remote currently supports Stashbase-managed secret bindings, not local-file or egress-only profiles.");
                         }
-                        let allowed_hosts = policy.allowed_hosts_by_secret.values()
-                            .flat_map(|hosts| hosts.iter().cloned())
-                            .chain(policy.allowed_egress_hosts.iter().cloned())
-                            .collect::<HashSet<_>>().into_iter().collect::<Vec<_>>();
+                        // The remote control plane validates every per-secret destination as a
+                        // member of the session-wide allowlist. Preserve ordinary egress while
+                        // also carrying the already-profiled injection destinations.
+                        let allowed_hosts = profile
+                            .egress_hosts
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .chain(
+                                profile
+                                    .secrets
+                                    .values()
+                                    .flat_map(|secret| secret.hosts.iter().cloned()),
+                            )
+                            .collect::<HashSet<_>>()
+                            .into_iter()
+                            .collect::<Vec<_>>();
+                        let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
                         let bindings = profile.secrets.iter().map(|(name, secret)| {
+                            let header = secret.header.clone().unwrap_or_else(|| "authorization".to_owned());
+                            let value_template = secret.value_template.clone().unwrap_or_else(|| {
+                                if header.eq_ignore_ascii_case("authorization") { "Bearer {secret}".to_owned() } else { "{secret}".to_owned() }
+                            });
                             crate::api::remote_broker::RemoteBinding {
                                 name: name.clone(),
-                                secret_name: secret.from.clone().unwrap_or_else(|| name.clone()),
-                                header: secret.header.clone().unwrap_or_else(|| "authorization".to_owned()),
-                                placeholder: format!("${{{name}}}"),
+                                from: secret.from.clone().unwrap_or_else(|| name.clone()),
+                                hosts: secret.hosts.clone(),
+                                header,
+                                placeholder: format!("${{STASHBASE_{name}}}"),
+                                value_template,
                             }
                         }).collect::<Vec<_>>();
                         let session = crate::api::remote_broker::create_session(
-                            api_key.clone(), project, environment, allowed_hosts, bindings.clone()
+                            api_key.clone(), project, environment, allowed_hosts, deny_hosts, bindings.clone()
                         ).await?;
                         let placeholders = bindings.into_iter().map(|binding| (binding.name, binding.placeholder)).collect();
                         let token = session.session_token;
