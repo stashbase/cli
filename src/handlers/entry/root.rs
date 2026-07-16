@@ -449,10 +449,15 @@ pub async fn handle_cli(args: Cli) {
                         ).await?;
                         let placeholders = bindings.into_iter().map(|binding| (binding.name, binding.placeholder)).collect();
                         let token = session.session_token;
+                        let protocol = match session.protocol.as_str() {
+                            "http/1.1-custom" => crate::handlers::run::broker::RemoteBrokerProtocol::Custom,
+                            "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::broker::RemoteBrokerProtocol::ForwardProxyTlsIntercept,
+                            value => anyhow::bail!("Remote broker returned an unsupported protocol: {value}"),
+                        };
                         let result = handle_remote_agent_run(
                             agent_run.command,
                             policy,
-                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url: session.proxy_url, session_token: token.clone(), placeholders },
+                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url: session.proxy_url, session_token: token.clone(), placeholders, protocol },
                             agent_run.broker_port,
                             agent_run.sandbox,
                             agent_run.trust_broker_ca,

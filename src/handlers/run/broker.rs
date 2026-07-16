@@ -44,7 +44,7 @@ use rustls::{
 use rustls_platform_verifier::BuilderVerifierExt;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::copy_bidirectional,
+    io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::oneshot,
     task::JoinHandle,
@@ -298,6 +298,13 @@ pub struct RemoteBrokerConfig {
     pub proxy_url: String,
     pub session_token: String,
     pub placeholders: HashMap<String, String>,
+    pub protocol: RemoteBrokerProtocol,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteBrokerProtocol {
+    Custom,
+    ForwardProxyTlsIntercept,
 }
 
 impl SecretInjection {
@@ -371,6 +378,7 @@ pub struct Broker {
     task: Option<JoinHandle<()>>,
     // Keeping this file alive makes the CA available to the child. Drop removes it.
     ca_file: PathBuf,
+    remove_ca_file: bool,
     ca_subject: String,
     audit_log: Option<AuditLog>,
     connections: Arc<ActiveConnections>,
@@ -415,7 +423,27 @@ impl Broker {
         if broker_port == Some(0) {
             anyhow::bail!("--broker-port must be between 1 and 65535");
         }
-        let (certificate_authority, ca_file, ca_subject) = create_certificate_authority()?;
+        let (certificate_authority, mut ca_file, ca_subject) = create_certificate_authority()?;
+        let mut remove_ca_file = true;
+        if remote
+            .as_ref()
+            .is_some_and(|remote| remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept)
+        {
+            let remote_ca = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.join(".stashbase/remote-broker/broker-ca.pem"))
+                .context("could not determine the Stashbase remote broker CA path")?;
+            if !remote_ca.is_file() {
+                anyhow::bail!(
+                    "Remote broker CA certificate was not found at {}",
+                    remote_ca.display()
+                );
+            }
+            // The remote listener, not this local relay, presents certificates in
+            // forward-proxy mode. Pass its public CA to the child.
+            ca_file = remote_ca;
+            remove_ca_file = false;
+        }
         let bind_address = format!("127.0.0.1:{}", broker_port.unwrap_or(0));
         let listener = TcpListener::bind(&bind_address)
             .await
@@ -449,25 +477,37 @@ impl Broker {
         policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
         policy.denied_hosts = normalize_hosts(policy.denied_hosts);
         let connections = Arc::new(ActiveConnections::default());
+        let mut client_builder = reqwest::Client::builder()
+            .no_proxy()
+            // A total request timeout would terminate healthy long-lived streams.
+            // Keep the existing timeout budget for connecting and for each stalled
+            // read instead, so active uploads, downloads, and SSE can continue.
+            .connect_timeout(Duration::from_secs(
+                REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+            ))
+            .read_timeout(Duration::from_secs(
+                REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+            ))
+            .redirect(reqwest::redirect::Policy::none());
+        if let Some(remote) = remote
+            .as_ref()
+            .filter(|remote| remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept)
+        {
+            let remote_ca = reqwest::Certificate::from_pem(&fs::read(&ca_file)?)?;
+            client_builder = client_builder.add_root_certificate(remote_ca);
+            let mut proxy_headers = reqwest::header::HeaderMap::new();
+            proxy_headers.insert(
+                reqwest::header::PROXY_AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", remote.session_token))?,
+            );
+            client_builder = client_builder
+                .proxy(reqwest::Proxy::all(&remote.proxy_url)?.headers(proxy_headers));
+        }
         let state = BrokerState {
             secrets: Arc::new(placeholders),
             policy,
             // Forwarding must never use proxy variables inherited by Stashbase itself.
-            client: reqwest::Client::builder()
-                .no_proxy()
-                // A total request timeout would terminate healthy long-lived streams.
-                // Keep the existing timeout budget for connecting and for each stalled
-                // read instead, so active uploads, downloads, and SSE can continue.
-                .connect_timeout(Duration::from_secs(
-                    REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
-                ))
-                .read_timeout(Duration::from_secs(
-                    REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
-                ))
-                // Return redirects to the child, which will make its next request through
-                // this proxy and therefore re-run destination policy checks.
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?,
+            client: client_builder.build()?,
             certificate_authority: Arc::new(certificate_authority),
             audit_log: audit_log.clone(),
             connections: connections.clone(),
@@ -489,6 +529,10 @@ impl Broker {
             ("CURL_CA_BUNDLE".to_owned(), ca_path.clone()),
             ("GIT_SSL_CAINFO".to_owned(), ca_path.clone()),
             ("NODE_EXTRA_CA_CERTS".to_owned(), ca_path),
+            (
+                "CODEX_CA_CERTIFICATE".to_owned(),
+                ca_file.to_string_lossy().into_owned(),
+            ),
             // Node's built-in fetch requires this opt-in before it reads proxy variables.
             ("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()),
             ("NO_PROXY".to_owned(), String::new()),
@@ -510,6 +554,7 @@ impl Broker {
             shutdown: Some(shutdown),
             task: Some(task),
             ca_file,
+            remove_ca_file,
             ca_subject,
             audit_log,
             connections,
@@ -547,7 +592,9 @@ impl Drop for Broker {
         if let Some(task) = self.task.take() {
             task.abort();
         }
-        let _ = std::fs::remove_file(&self.ca_file);
+        if self.remove_ca_file {
+            let _ = std::fs::remove_file(&self.ca_file);
+        }
     }
 }
 
@@ -659,10 +706,24 @@ fn proxy_request(
             );
             let connections = state.connections.clone();
             let connection_state = state.clone();
+            let remote = state.remote.clone();
             let task = tokio::spawn(async move {
                 match hyper::upgrade::on(&mut request).await {
                     Ok(upgraded) => {
-                        let _ = serve_tls_connection(upgraded, authority, connection_state).await;
+                        if let Some(remote) = remote.filter(|remote| {
+                            remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept
+                        }) {
+                            let _ = tunnel_remote_connect(
+                                upgraded,
+                                authority,
+                                remote,
+                                connection_state,
+                            )
+                            .await;
+                        } else {
+                            let _ =
+                                serve_tls_connection(upgraded, authority, connection_state).await;
+                        }
                     }
                     Err(_) => connection_state.record_audit(
                         "connect_upgrade_failed",
@@ -789,7 +850,11 @@ fn proxy_request(
         // streaming uploads retain their incremental delivery to the upstream.
         let body = reqwest::Body::wrap_stream(request.into_body().into_data_stream());
 
-        let destination_url = if let Some(remote) = &state.remote {
+        let destination_url = if let Some(remote) = state
+            .remote
+            .as_ref()
+            .filter(|remote| remote.protocol == RemoteBrokerProtocol::Custom)
+        {
             headers.remove("x-stashbase-target");
             headers.remove("x-stashbase-session");
             headers.insert(
@@ -860,6 +925,52 @@ fn proxy_request(
             }
         }
     })
+}
+
+/// Bridges a child CONNECT tunnel to the standard remote forward proxy. The
+/// session token is written only in this proxy handshake, never into child env.
+async fn tunnel_remote_connect(
+    upgraded: hyper::upgrade::Upgraded,
+    authority: String,
+    remote: RemoteBrokerConfig,
+    state: BrokerState,
+) -> Result<()> {
+    let proxy = reqwest::Url::parse(&remote.proxy_url).context("invalid remote proxy URL")?;
+    let host = proxy.host_str().context("remote proxy URL has no host")?;
+    let port = proxy.port_or_known_default().unwrap_or(80);
+    let mut upstream = TcpStream::connect(format!("{host}:{port}")).await?;
+    upstream
+        .write_all(
+            format!(
+                "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: Bearer {}\r\n\r\n",
+                remote.session_token
+            )
+            .as_bytes(),
+        )
+        .await?;
+    let mut response = Vec::new();
+    let mut byte = [0u8; 1];
+    while response.len() < 16 * 1024 {
+        upstream.read_exact(&mut byte).await?;
+        response.push(byte[0]);
+        if response.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    if !response.starts_with(b"HTTP/1.1 200") && !response.starts_with(b"HTTP/1.0 200") {
+        anyhow::bail!("remote broker rejected CONNECT");
+    }
+    let mut child = TokioIo::new(upgraded);
+    let _ = copy_bidirectional(&mut child, &mut upstream).await;
+    state.record_audit(
+        "remote_connect_closed",
+        Some(host_from_authority(&authority)),
+        Some(&Method::CONNECT),
+        None,
+        None,
+        None,
+    );
+    Ok(())
 }
 
 /// Sends an intercepted WebSocket opening handshake to the remote broker. The
