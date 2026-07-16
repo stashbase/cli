@@ -59,15 +59,16 @@ pub async fn handle_remote_agent_run(
     if !silent {
         let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
         eprintln!(
-            "Broker started on localhost:{}",
+            "Remote broker relay started on localhost:{}",
             address.rsplit(':').next().unwrap_or_default()
         );
+        eprintln!("Remote broker session active");
     }
     let result =
         subprocess::run_command(&cmd, args, broker.child_env().clone(), sandbox, true, true).await;
     broker.stop().await;
     if !silent {
-        eprintln!("Broker stopped");
+        eprintln!("Remote broker relay stopped");
     }
     let status = result?;
     if !status.success() {
