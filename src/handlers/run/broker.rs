@@ -120,13 +120,18 @@ pub struct AuditLog {
 
 impl AuditLog {
     pub fn local(profile: &str) -> Result<Self> {
+        Self::local_with_session_id(profile, Uuid::new_v4().to_string())
+    }
+
+    /// Uses the control-plane session identifier so local metadata can be
+    /// correlated with future server-side remote-broker audit events.
+    pub fn local_with_session_id(profile: &str, session_id: String) -> Result<Self> {
         let directory = audit_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
         prune_audit_logs(&directory)?;
 
-        let session_id = Uuid::new_v4().to_string();
         let path = directory.join(format!("agent-{}.jsonl", session_id));
         let file = OpenOptions::new()
             .create_new(true)

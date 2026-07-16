@@ -15,6 +15,7 @@ pub struct RemoteBinding {
 
 #[derive(Debug, Deserialize)]
 pub struct RemoteBrokerSession {
+    pub session_id: String,
     pub session_token: String,
     pub proxy_url: String,
     pub protocol: String,

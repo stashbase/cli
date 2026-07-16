@@ -393,9 +393,9 @@ pub async fn handle_cli(args: Cli) {
                             .collect(),
                         strict_deny: true,
                     };
-                    let audit_log = agent_run
-                        .audit_log
-                        .then(|| AuditLog::local(&agent_run.profile))
+                    let audit_log = (!agent_run.remote)
+                        .then(|| agent_run.audit_log.then(|| AuditLog::local(&agent_run.profile)))
+                        .flatten()
                         .transpose()?;
                     if let Some(audit_log) = &audit_log {
                         if !silent {
@@ -447,6 +447,16 @@ pub async fn handle_cli(args: Cli) {
                         let session = crate::api::remote_broker::create_session(
                             api_key.clone(), project, environment, allowed_hosts, deny_hosts, bindings.clone()
                         ).await?;
+                        let remote_audit_log = agent_run
+                            .audit_log
+                            .then(|| AuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
+                            .transpose()?;
+                        if let Some(audit_log) = &remote_audit_log {
+                            if !silent {
+                                eprintln!("Audit session: {}", audit_log.session_id());
+                                eprintln!("Audit log: {}", audit_log.path().display());
+                            }
+                        }
                         let placeholders = bindings.into_iter().map(|binding| (binding.name, binding.placeholder)).collect();
                         let token = session.session_token;
                         let protocol = match session.protocol.as_str() {
@@ -461,7 +471,7 @@ pub async fn handle_cli(args: Cli) {
                             agent_run.broker_port,
                             agent_run.sandbox,
                             agent_run.trust_broker_ca,
-                            audit_log,
+                            remote_audit_log,
                             silent,
                         ).await;
                         crate::api::remote_broker::revoke_session(api_key, &token).await;
