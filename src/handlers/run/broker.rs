@@ -741,14 +741,19 @@ fn proxy_request(
         // Reqwest deliberately does not support HTTP upgrade responses. Coding agents
         // such as Codex use a WSS connection for streaming, so tunnel an upgraded
         // connection after applying the same destination and placeholder checks.
-        if state.remote.is_some() && is_upgrade_request(&request) {
-            return Ok(broker_error_response(
-                StatusCode::NOT_IMPLEMENTED,
-                "broker.remote_protocol_not_supported",
-                "The remote broker does not support WebSockets or HTTP/2",
-            ));
-        }
         if is_upgrade_request(&request) {
+            if let Some(remote) = state.remote.clone() {
+                return forward_remote_upgrade(
+                    request,
+                    state,
+                    remote,
+                    connect_authority,
+                    host,
+                    secret_name,
+                    started,
+                )
+                .await;
+            }
             return forward_upgrade(
                 request,
                 state,
@@ -855,6 +860,122 @@ fn proxy_request(
             }
         }
     })
+}
+
+/// Sends an intercepted WebSocket opening handshake to the remote broker. The
+/// remote service owns placeholder resolution; this relay retains only the
+/// opaque session token and streams frames after the HTTP/1 upgrade.
+async fn forward_remote_upgrade(
+    mut request: Request<Incoming>,
+    state: BrokerState,
+    remote: RemoteBrokerConfig,
+    connect_authority: Option<String>,
+    host: Option<String>,
+    secret_name: Option<String>,
+    started: Instant,
+) -> Result<Response<ProxyBody>, Infallible> {
+    let target = match request_url(&request, connect_authority.as_deref()) {
+        Ok(target) => target
+            .replacen("https://", "wss://", 1)
+            .replacen("http://", "ws://", 1),
+        Err(_) => {
+            return Ok(broker_error_response(
+                StatusCode::BAD_REQUEST,
+                "broker.request_invalid",
+                "Unable to determine request URL",
+            ))
+        }
+    };
+    let proxy = match reqwest::Url::parse(&remote.proxy_url) {
+        Ok(proxy) => proxy,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    let Some(proxy_host) = proxy.host_str().map(str::to_owned) else {
+        return Ok(upgrade_error_response(
+            &state,
+            host.as_deref(),
+            secret_name.as_deref(),
+            started,
+        ));
+    };
+    let port = proxy.port_or_known_default().unwrap_or(443);
+    let stream = match TcpStream::connect(format!("{proxy_host}:{port}")).await {
+        Ok(stream) => stream,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    request.headers_mut().remove("x-stashbase-target");
+    request.headers_mut().remove("x-stashbase-session");
+    request.headers_mut().insert(
+        "x-stashbase-target",
+        HeaderValue::from_str(&target).unwrap(),
+    );
+    request.headers_mut().insert(
+        "x-stashbase-session",
+        HeaderValue::from_str(&remote.session_token).unwrap(),
+    );
+    request.headers_mut().insert(
+        hyper::header::HOST,
+        HeaderValue::from_str(proxy.host_str().unwrap()).unwrap(),
+    );
+    let proxy_path = match proxy.query() {
+        Some(query) => format!("{}?{query}", proxy.path()),
+        None => proxy.path().to_owned(),
+    };
+    *request.uri_mut() = proxy_path.parse().unwrap();
+    if proxy.scheme() == "https" {
+        let server_name = match ServerName::try_from(proxy_host.clone()) {
+            Ok(value) => value,
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ))
+            }
+        };
+        let config = match ClientConfig::builder().with_platform_verifier() {
+            Ok(value) => value.with_no_client_auth(),
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ))
+            }
+        };
+        let stream = match TlsConnector::from(Arc::new(config))
+            .connect(server_name, stream)
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ))
+            }
+        };
+        return tunnel_upgrade(request, stream, state, host, secret_name, started).await;
+    }
+    tunnel_upgrade(request, stream, state, host, secret_name, started).await
 }
 
 fn is_upgrade_request(request: &Request<Incoming>) -> bool {

@@ -26,9 +26,9 @@ The CLI authenticates normally, creates one 10-minute scoped session, and
 passes only `${STASHBASE_SECRET_NAME}` placeholders to the child. The opaque
 token is memory-only and revoked when the child exits. **Remote Broker Beta is
 not a generic proxy:** it is only for integrations that explicitly use the
-Stashbase custom request transport. WebSockets, HTTP/2, generic MCP proxying,
-browsers, and ordinary SDK proxy configuration are outside the Beta transport
-scope.
+Stashbase custom request transport. HTTP/1 WebSocket upgrades are relayed for
+agent streaming connections; HTTP/2, generic MCP proxying, browsers, and
+ordinary SDK proxy configuration are outside the Beta transport scope.
 
 The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
 present and otherwise falls back to the user-level config. Use
