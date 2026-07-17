@@ -28,7 +28,6 @@ struct CreateSession<'a> {
     allowed_hosts: &'a [String],
     deny_hosts: &'a [String],
     bindings: &'a [RemoteBinding],
-    ttl_seconds: u16,
 }
 
 pub async fn create_session(
@@ -51,7 +50,6 @@ pub async fn create_session(
             allowed_hosts: &allowed_hosts,
             deny_hosts: &deny_hosts,
             bindings: &bindings,
-            ttl_seconds: 600,
         })
         .send()
         .await
