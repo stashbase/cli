@@ -447,10 +447,18 @@ pub async fn handle_cli(args: Cli) {
                         let session = crate::api::remote_broker::create_session(
                             api_key.clone(), project, environment, allowed_hosts, deny_hosts, bindings.clone()
                         ).await?;
-                        let remote_audit_log = agent_run
+                        let token = session.session_token;
+                        let remote_audit_log = match agent_run
                             .audit_log
                             .then(|| AuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
-                            .transpose()?;
+                            .transpose()
+                        {
+                            Ok(audit_log) => audit_log,
+                            Err(error) => {
+                                crate::api::remote_broker::revoke_session(api_key.clone(), &token).await;
+                                return Err(error);
+                            }
+                        };
                         if let Some(audit_log) = &remote_audit_log {
                             if !silent {
                                 eprintln!("Audit session: {}", audit_log.session_id());
@@ -458,11 +466,13 @@ pub async fn handle_cli(args: Cli) {
                             }
                         }
                         let placeholders = bindings.into_iter().map(|binding| (binding.name, binding.placeholder)).collect();
-                        let token = session.session_token;
                         let protocol = match session.protocol.as_str() {
                             "http/1.1-custom" => crate::handlers::run::broker::RemoteBrokerProtocol::Custom,
                             "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::broker::RemoteBrokerProtocol::ForwardProxyTlsIntercept,
-                            value => anyhow::bail!("Remote broker returned an unsupported protocol: {value}"),
+                            value => {
+                                crate::api::remote_broker::revoke_session(api_key.clone(), &token).await;
+                                anyhow::bail!("Remote broker returned an unsupported protocol: {value}");
+                            }
                         };
                         let result = handle_remote_agent_run(
                             agent_run.command,
