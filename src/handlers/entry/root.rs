@@ -1,8 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::atomic::Ordering,
+    sync::{Arc, RwLock},
     time::Duration,
 };
+
+use chrono::{DateTime, Utc};
+use tokio::{sync::watch, task::JoinHandle};
 
 use crate::{
     cmd::{
@@ -444,10 +448,17 @@ pub async fn handle_cli(args: Cli) {
                                 value_template,
                             }
                         }).collect::<Vec<_>>();
-                        let session = crate::api::remote_broker::create_session(
-                            api_key.clone(), project, environment, allowed_hosts, deny_hosts, bindings.clone()
-                        ).await?;
-                        let token = session.session_token;
+                        let session_request = crate::api::remote_broker::RemoteBrokerSessionRequest {
+                            api_key: api_key.clone(),
+                            project_identifier: project,
+                            environment_identifier: environment,
+                            allowed_hosts,
+                            deny_hosts,
+                            bindings: bindings.clone(),
+                            previous_session_token: None,
+                        };
+                        let session = crate::api::remote_broker::create_session(&session_request).await?;
+                        let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
                             .then(|| AuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
@@ -474,17 +485,38 @@ pub async fn handle_cli(args: Cli) {
                                 anyhow::bail!("Remote broker returned an unsupported protocol: {value}");
                             }
                         };
+                        let proxy_url = session.proxy_url.clone();
+                        let initial_state = match remote_session_state(&session) {
+                            Ok(state) => state,
+                            Err(error) => {
+                                crate::api::remote_broker::revoke_session(api_key.clone(), &token)
+                                    .await;
+                                return Err(error);
+                            }
+                        };
+                        let remote_session = Arc::new(RwLock::new(initial_state));
+                        let (rotation_stop, rotation_task) = spawn_remote_session_rotation(
+                            session_request,
+                            session,
+                            remote_session.clone(),
+                        );
                         let result = handle_remote_agent_run(
                             agent_run.command,
                             policy,
-                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url: session.proxy_url, session_token: token.clone(), placeholders, protocol },
+                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url, session: remote_session.clone(), placeholders, protocol },
                             agent_run.broker_port,
                             agent_run.sandbox,
                             agent_run.trust_broker_ca,
                             remote_audit_log,
                             silent,
                         ).await;
-                        crate::api::remote_broker::revoke_session(api_key, &token).await;
+                        let _ = rotation_stop.send(true);
+                        let _ = rotation_task.await;
+                        let current_token = remote_session
+                            .read()
+                            .map(|session| session.token.clone())
+                            .unwrap_or(token);
+                        crate::api::remote_broker::revoke_session(api_key, &current_token).await;
                         return result;
                     }
                     let args = HandleRunArgs {
@@ -808,9 +840,128 @@ fn print_audit_event(event: &AuditLogEvent, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+const REMOTE_SESSION_ROTATE_EARLY: Duration = Duration::from_secs(120);
+const REMOTE_SESSION_ROTATION_RETRY: Duration = Duration::from_secs(15);
+
+fn remote_session_state(
+    session: &crate::api::remote_broker::RemoteBrokerSession,
+) -> anyhow::Result<crate::handlers::run::broker::RemoteBrokerSessionState> {
+    let expires_at = DateTime::parse_from_rfc3339(&session.expires_at)
+        .map_err(|error| {
+            anyhow::anyhow!("remote broker returned an invalid session expiry: {error}")
+        })?
+        .with_timezone(&Utc);
+    Ok(crate::handlers::run::broker::RemoteBrokerSessionState {
+        token: session.session_token.clone(),
+        expires_at,
+        last_rotation_error: None,
+    })
+}
+
+fn remote_session_rotation_delay(expires_at: DateTime<Utc>) -> Duration {
+    let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
+    remote_session_rotation_delay_for(remaining)
+}
+
+fn remote_session_rotation_delay_for(remaining: Duration) -> Duration {
+    // A normal ten-minute session rotates two minutes early. For deliberately
+    // short test sessions, keep a proportional grace period instead of issuing
+    // a replacement every second.
+    let lead_time = REMOTE_SESSION_ROTATE_EARLY
+        .min(remaining / 5)
+        .max(Duration::from_secs(1));
+    remaining
+        .saturating_sub(lead_time)
+        .max(Duration::from_secs(1))
+}
+
+/// Rotates the control-plane session before it expires. It deliberately never
+/// retries child requests: only future connections see the replacement token.
+fn spawn_remote_session_rotation(
+    request: crate::api::remote_broker::RemoteBrokerSessionRequest,
+    initial_session: crate::api::remote_broker::RemoteBrokerSession,
+    state: Arc<RwLock<crate::handlers::run::broker::RemoteBrokerSessionState>>,
+) -> (watch::Sender<bool>, JoinHandle<()>) {
+    let (stop, mut stop_rx) = watch::channel(false);
+    let task = tokio::spawn(async move {
+        let mut session = initial_session;
+        loop {
+            let expires_at = match remote_session_state(&session) {
+                Ok(state) => state.expires_at,
+                Err(error) => {
+                    if let Ok(mut current) = state.write() {
+                        current.last_rotation_error = Some(error.to_string());
+                    }
+                    return;
+                }
+            };
+            tokio::select! {
+                _ = tokio::time::sleep(remote_session_rotation_delay(expires_at)) => {}
+                result = stop_rx.changed() => {
+                    if result.is_ok() && *stop_rx.borrow() { return; }
+                    return;
+                }
+            }
+
+            let previous_session_token = match state.read() {
+                Ok(current) => current.token.clone(),
+                Err(_) => return,
+            };
+            let mut replacement_request = request.clone();
+            replacement_request.previous_session_token = Some(previous_session_token);
+            match crate::api::remote_broker::create_session(&replacement_request).await {
+                Ok(next_session) => {
+                    let next_state = match remote_session_state(&next_session) {
+                        Ok(next_state) => next_state,
+                        Err(error) => {
+                            if let Ok(mut current) = state.write() {
+                                current.last_rotation_error = Some(error.to_string());
+                            }
+                            return;
+                        }
+                    };
+                    let old_token = {
+                        let mut current = match state.write() {
+                            Ok(current) => current,
+                            Err(_) => return,
+                        };
+                        let old_token = current.token.clone();
+                        *current = next_state;
+                        old_token
+                    };
+
+                    // The control plane retains the replaced token for its
+                    // server-side grace window, then rejects new handshakes.
+                    crate::api::remote_broker::retire_session(request.api_key.clone(), &old_token)
+                        .await;
+                    session = next_session;
+                }
+                Err(error) => {
+                    if let Ok(mut current) = state.write() {
+                        current.last_rotation_error = Some(error.to_string());
+                    }
+                    // Keep the active session usable until its stated expiry. A
+                    // later retry may succeed without disrupting open streams.
+                    let retry = REMOTE_SESSION_ROTATION_RETRY
+                        .min((expires_at - Utc::now()).to_std().unwrap_or_default());
+                    if retry.is_zero() {
+                        return;
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(retry) => {}
+                        _ = stop_rx.changed() => return,
+                    }
+                }
+            }
+        }
+    });
+    (stop, task)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::configured_host_matches;
+    use super::{configured_host_matches, remote_session_rotation_delay_for};
+    use std::time::Duration;
 
     #[test]
     fn configured_host_matching_supports_exact_and_subdomain_wildcards() {
@@ -827,5 +978,17 @@ mod tests {
             "api.stashbase.dev",
             "other.example"
         ));
+    }
+
+    #[test]
+    fn short_remote_sessions_rotate_proportionally_instead_of_every_second() {
+        assert_eq!(
+            remote_session_rotation_delay_for(Duration::from_secs(10)),
+            Duration::from_secs(8)
+        );
+        assert_eq!(
+            remote_session_rotation_delay_for(Duration::from_secs(600)),
+            Duration::from_secs(480)
+        );
     }
 }

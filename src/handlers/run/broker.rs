@@ -18,7 +18,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -298,12 +298,66 @@ pub struct SecretInjection {
 
 /// Opaque, control-plane-issued credentials used by the local relay.
 /// The token is never placed in the child environment.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RemoteBrokerConfig {
     pub proxy_url: String,
-    pub session_token: String,
+    pub session: Arc<RwLock<RemoteBrokerSessionState>>,
     pub placeholders: HashMap<String, String>,
     pub protocol: RemoteBrokerProtocol,
+}
+
+/// The currently usable remote session. The rotation task replaces this atomically
+/// before a new connection is opened; existing tunnels keep their old session.
+#[derive(Clone)]
+pub struct RemoteBrokerSessionState {
+    pub token: String,
+    pub expires_at: DateTime<Utc>,
+    pub last_rotation_error: Option<String>,
+}
+
+impl std::fmt::Debug for RemoteBrokerSessionState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RemoteBrokerSessionState")
+            .field("token", &"[REDACTED]")
+            .field("expires_at", &self.expires_at)
+            .field("last_rotation_error", &self.last_rotation_error)
+            .finish()
+    }
+}
+
+impl RemoteBrokerConfig {
+    /// Never call this for an already-open stream: session rotation only applies
+    /// to new HTTP requests and CONNECT handshakes.
+    fn token_for_new_connection(&self) -> Result<String> {
+        let session = self
+            .session
+            .read()
+            .map_err(|_| anyhow::anyhow!("remote broker session state is unavailable"))?;
+        if Utc::now() >= session.expires_at {
+            let suffix = session
+                .last_rotation_error
+                .as_deref()
+                .map(|error| format!(" (last rotation attempt failed: {error})"))
+                .unwrap_or_default();
+            anyhow::bail!(
+                "remote broker session expired; a new connection cannot be opened{suffix}"
+            );
+        }
+        Ok(session.token.clone())
+    }
+}
+
+impl std::fmt::Debug for RemoteBrokerConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RemoteBrokerConfig")
+            .field("proxy_url", &self.proxy_url)
+            .field("session", &"[REDACTED]")
+            .field("placeholders", &self.placeholders)
+            .field("protocol", &self.protocol)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,6 +392,7 @@ struct BrokerState {
     secrets: Arc<HashMap<String, String>>,
     policy: BrokerPolicy,
     client: reqwest::Client,
+    remote_ca: Option<reqwest::Certificate>,
     certificate_authority: Arc<Certificate>,
     audit_log: Option<AuditLog>,
     connections: Arc<ActiveConnections>,
@@ -494,25 +549,22 @@ impl Broker {
                 REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
             ))
             .redirect(reqwest::redirect::Policy::none());
-        if let Some(remote) = remote
+        let remote_ca = if remote
             .as_ref()
-            .filter(|remote| remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept)
+            .is_some_and(|remote| remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept)
         {
             let remote_ca = reqwest::Certificate::from_pem(&fs::read(&ca_file)?)?;
-            client_builder = client_builder.add_root_certificate(remote_ca);
-            let mut proxy_headers = reqwest::header::HeaderMap::new();
-            proxy_headers.insert(
-                reqwest::header::PROXY_AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", remote.session_token))?,
-            );
-            client_builder = client_builder
-                .proxy(reqwest::Proxy::all(&remote.proxy_url)?.headers(proxy_headers));
-        }
+            client_builder = client_builder.add_root_certificate(remote_ca.clone());
+            Some(remote_ca)
+        } else {
+            None
+        };
         let state = BrokerState {
             secrets: Arc::new(placeholders),
             policy,
             // Forwarding must never use proxy variables inherited by Stashbase itself.
             client: client_builder.build()?,
+            remote_ca,
             certificate_authority: Arc::new(certificate_authority),
             audit_log: audit_log.clone(),
             connections: connections.clone(),
@@ -701,6 +753,23 @@ fn proxy_request(
                     "Broker policy denied destination",
                 ));
             }
+            if let Some(remote) = &state.remote {
+                if let Err(error) = remote.token_for_new_connection() {
+                    state.record_audit(
+                        "session_expired",
+                        Some(host_from_authority(&authority)),
+                        Some(&Method::CONNECT),
+                        None,
+                        Some(StatusCode::SERVICE_UNAVAILABLE),
+                        Some(started.elapsed()),
+                    );
+                    return Ok(broker_error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "broker.session_expired",
+                        &error.to_string(),
+                    ));
+                }
+            }
             state.record_audit(
                 "connect_allowed",
                 Some(host_from_authority(&authority)),
@@ -782,6 +851,23 @@ fn proxy_request(
                 "Broker received an unknown credential placeholder",
             ));
         }
+        if let Some(remote) = &state.remote {
+            if let Err(error) = remote.token_for_new_connection() {
+                state.record_audit(
+                    "session_expired",
+                    host.as_deref(),
+                    Some(request.method()),
+                    None,
+                    Some(StatusCode::SERVICE_UNAVAILABLE),
+                    Some(started.elapsed()),
+                );
+                return Ok(broker_error_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "broker.session_expired",
+                    &error.to_string(),
+                ));
+            }
+        }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
             Ok(secret_name) => secret_name,
             Err(secret_name) => {
@@ -862,20 +948,53 @@ fn proxy_request(
         {
             headers.remove("x-stashbase-target");
             headers.remove("x-stashbase-session");
+            let token = match remote.token_for_new_connection() {
+                Ok(token) => token,
+                Err(error) => {
+                    return Ok(broker_error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "broker.session_expired",
+                        &error.to_string(),
+                    ))
+                }
+            };
             headers.insert(
                 "x-stashbase-target",
                 HeaderValue::from_str(url.as_str()).unwrap(),
             );
-            headers.insert(
-                "x-stashbase-session",
-                HeaderValue::from_str(&remote.session_token).unwrap(),
-            );
+            let token = match HeaderValue::from_str(&token) {
+                Ok(token) => token,
+                Err(_) => {
+                    return Ok(broker_error_response(
+                        StatusCode::BAD_GATEWAY,
+                        "broker.session_invalid",
+                        "Remote broker returned an invalid session token",
+                    ))
+                }
+            };
+            headers.insert("x-stashbase-session", token);
             remote.proxy_url.clone()
         } else {
             url.to_string()
         };
-        match state
-            .client
+        let client = match state
+            .remote
+            .as_ref()
+            .filter(|remote| remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept)
+        {
+            Some(remote) => match remote_forward_client(remote, state.remote_ca.as_ref()) {
+                Ok(client) => client,
+                Err(error) => {
+                    return Ok(broker_error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "broker.session_unavailable",
+                        &error.to_string(),
+                    ))
+                }
+            },
+            None => state.client.clone(),
+        };
+        match client
             .request(method.clone(), destination_url)
             .headers(headers)
             .body(body)
@@ -932,6 +1051,35 @@ fn proxy_request(
     })
 }
 
+/// Standard remote-proxy requests are built per request so a new connection
+/// always observes the latest rotated token. Existing response streams retain
+/// the client and session that opened them.
+fn remote_forward_client(
+    remote: &RemoteBrokerConfig,
+    remote_ca: Option<&reqwest::Certificate>,
+) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(
+            REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+        ))
+        .read_timeout(Duration::from_secs(
+            REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+        ))
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(certificate) = remote_ca {
+        builder = builder.add_root_certificate(certificate.clone());
+    }
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::PROXY_AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", remote.token_for_new_connection()?))?,
+    );
+    Ok(builder
+        .proxy(reqwest::Proxy::all(&remote.proxy_url)?.headers(headers))
+        .build()?)
+}
+
 /// Bridges a child CONNECT tunnel to the standard remote forward proxy. The
 /// session token is written only in this proxy handshake, never into child env.
 async fn tunnel_remote_connect(
@@ -940,6 +1088,7 @@ async fn tunnel_remote_connect(
     remote: RemoteBrokerConfig,
     state: BrokerState,
 ) -> Result<()> {
+    let token = remote.token_for_new_connection()?;
     let proxy = reqwest::Url::parse(&remote.proxy_url).context("invalid remote proxy URL")?;
     let host = proxy.host_str().context("remote proxy URL has no host")?;
     let port = proxy.port_or_known_default().unwrap_or(80);
@@ -948,7 +1097,7 @@ async fn tunnel_remote_connect(
         .write_all(
             format!(
                 "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: Bearer {}\r\n\r\n",
-                remote.session_token
+                token
             )
             .as_bytes(),
         )
@@ -1039,10 +1188,29 @@ async fn forward_remote_upgrade(
         "x-stashbase-target",
         HeaderValue::from_str(&target).unwrap(),
     );
-    request.headers_mut().insert(
-        "x-stashbase-session",
-        HeaderValue::from_str(&remote.session_token).unwrap(),
-    );
+    let token = match remote.token_for_new_connection() {
+        Ok(token) => token,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    let token = match HeaderValue::from_str(&token) {
+        Ok(token) => token,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    request.headers_mut().insert("x-stashbase-session", token);
     request.headers_mut().insert(
         hyper::header::HOST,
         HeaderValue::from_str(proxy.host_str().unwrap()).unwrap(),
@@ -1694,6 +1862,27 @@ mod tests {
     }
 
     #[test]
+    fn remote_session_token_is_redacted_and_expires_for_new_connections() {
+        let config = RemoteBrokerConfig {
+            proxy_url: "https://broker.example".to_owned(),
+            session: Arc::new(RwLock::new(RemoteBrokerSessionState {
+                token: "do-not-log".to_owned(),
+                expires_at: Utc::now() - chrono::Duration::seconds(1),
+                last_rotation_error: Some("temporary control-plane failure".to_owned()),
+            })),
+            placeholders: HashMap::new(),
+            protocol: RemoteBrokerProtocol::ForwardProxyTlsIntercept,
+        };
+
+        assert!(!format!("{config:?}").contains("do-not-log"));
+        assert!(config
+            .token_for_new_connection()
+            .unwrap_err()
+            .to_string()
+            .contains("temporary control-plane failure"));
+    }
+
+    #[test]
     fn creates_expected_placeholders() {
         assert_eq!(placeholder_for("GH_TOKEN"), "**STASHBASE_GH_TOKEN**");
     }
@@ -1915,6 +2104,7 @@ mod tests {
             secrets: Arc::new(HashMap::new()),
             policy,
             client: reqwest::Client::new(),
+            remote_ca: None,
             certificate_authority: Arc::new(
                 Certificate::from_params(CertificateParams::default()).unwrap(),
             ),
