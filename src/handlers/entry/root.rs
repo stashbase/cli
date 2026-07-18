@@ -532,7 +532,7 @@ pub async fn handle_cli(args: Cli) {
                             .read()
                             .map(|session| session.token.clone())
                             .unwrap_or(token);
-                        crate::api::remote_broker::revoke_session(api_key, &current_token).await;
+                        crate::api::remote_broker::end_agent_run(api_key, &current_token).await;
                         return result;
                     }
                     let args = HandleRunArgs {

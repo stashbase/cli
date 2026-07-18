@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::client;
 
+// Temporary short lifetime for exercising CLI session rotation. With the
+// proportional 20% rotation lead, the CLI installs a replacement every ~20s.
+const REMOTE_BROKER_SESSION_TTL_SECS: u16 = 25;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteBinding {
     pub name: String,
@@ -43,6 +47,7 @@ struct CreateSession<'a> {
     allowed_hosts: &'a [String],
     deny_hosts: &'a [String],
     bindings: &'a [RemoteBinding],
+    ttl_seconds: u16,
 }
 
 pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<RemoteBrokerSession> {
@@ -59,6 +64,7 @@ pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<Remo
             allowed_hosts: &request.allowed_hosts,
             deny_hosts: &request.deny_hosts,
             bindings: &request.bindings,
+            ttl_seconds: REMOTE_BROKER_SESSION_TTL_SECS,
         });
     if let Some(previous_session_token) = &request.previous_session_token {
         session_request =
@@ -96,7 +102,18 @@ pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<Remo
 }
 
 pub async fn revoke_session(api_key: String, session_token: &str) {
-    let _ = reqwest::Client::builder()
+    delete_session(api_key, session_token, false).await;
+}
+
+/// Revokes the active token and tells the control plane that this logical agent
+/// invocation has ended. This is best-effort cleanup; abrupt process death is
+/// represented by the server-side session expiry instead.
+pub async fn end_agent_run(api_key: String, session_token: &str) {
+    delete_session(api_key, session_token, true).await;
+}
+
+async fn delete_session(api_key: String, session_token: &str, end_agent_run: bool) {
+    let mut request = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
         .build()
         .expect("remote broker revoke client configuration is valid")
@@ -105,9 +122,11 @@ pub async fn revoke_session(api_key: String, session_token: &str) {
             client::get_api_url()
         ))
         .bearer_auth(api_key)
-        .header("X-Stashbase-Session", session_token)
-        .send()
-        .await;
+        .header("X-Stashbase-Session", session_token);
+    if end_agent_run {
+        request = request.header("X-Stashbase-End-Agent-Run", "true");
+    }
+    let _ = request.send().await;
 }
 
 /// Marks a replaced session for the server-side grace period. The raw token is
