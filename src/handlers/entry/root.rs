@@ -47,8 +47,32 @@ use crate::{
     REQUEST_ABORTED,
 };
 
+#[cfg(unix)]
+fn install_remote_agent_shutdown_handler() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let Ok(mut terminate) = signal(SignalKind::terminate()) else {
+        return;
+    };
+    let Ok(mut hangup) = signal(SignalKind::hangup()) else {
+        return;
+    };
+    tokio::spawn(async move {
+        let exit_code = tokio::select! {
+            _ = terminate.recv() => 143,
+            _ = hangup.recv() => 129,
+        };
+        crate::api::remote_broker::end_registered_agent_run().await;
+        std::process::exit(exit_code);
+    });
+}
+
+#[cfg(not(unix))]
+fn install_remote_agent_shutdown_handler() {}
+
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
+    install_remote_agent_shutdown_handler();
     if let EntityType::Generate(cmd) = args.entity_type {
         if let Err(e) = handle_generate_command(cmd, args.raw) {
             eprintln!("{:?}", e);
@@ -511,6 +535,10 @@ pub async fn handle_cli(args: Cli) {
                             }
                         };
                         let remote_session = Arc::new(RwLock::new(initial_state));
+                        crate::api::remote_broker::register_agent_run_cleanup(
+                            api_key.clone(),
+                            token.clone(),
+                        );
                         let (rotation_stop, rotation_task) = spawn_remote_session_rotation(
                             session_request,
                             session,
@@ -533,6 +561,7 @@ pub async fn handle_cli(args: Cli) {
                             .map(|session| session.token.clone())
                             .unwrap_or(token);
                         crate::api::remote_broker::end_agent_run(api_key, &current_token).await;
+                        crate::api::remote_broker::clear_agent_run_cleanup();
                         return result;
                     }
                     let args = HandleRunArgs {
@@ -945,6 +974,9 @@ fn spawn_remote_session_rotation(
                         *current = next_state;
                         old_token
                     };
+                    crate::api::remote_broker::update_agent_run_cleanup_token(
+                        next_session.session_token.clone(),
+                    );
 
                     // The control plane retains the replaced token for its
                     // server-side grace window, then rejects new handshakes.

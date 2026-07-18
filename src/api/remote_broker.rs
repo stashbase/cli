@@ -1,4 +1,7 @@
+use std::sync::Mutex;
+
 use anyhow::{bail, Context, Result};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
 use crate::api::client;
@@ -6,6 +9,53 @@ use crate::api::client;
 // Temporary short lifetime for exercising CLI session rotation. With the
 // proportional 20% rotation lead, the CLI installs a replacement every ~20s.
 const REMOTE_BROKER_SESSION_TTL_SECS: u16 = 25;
+
+#[derive(Clone)]
+struct ActiveAgentRunCleanup {
+    api_key: String,
+    session_token: String,
+}
+
+// One CLI process runs one foreground agent command at a time. This registry
+// lets Unix termination handlers complete best-effort remote cleanup without
+// putting an API key or session token in the child environment.
+static ACTIVE_AGENT_RUN_CLEANUP: Lazy<Mutex<Option<ActiveAgentRunCleanup>>> =
+    Lazy::new(|| Mutex::new(None));
+
+pub fn register_agent_run_cleanup(api_key: String, session_token: String) {
+    if let Ok(mut active) = ACTIVE_AGENT_RUN_CLEANUP.lock() {
+        *active = Some(ActiveAgentRunCleanup {
+            api_key,
+            session_token,
+        });
+    }
+}
+
+pub fn update_agent_run_cleanup_token(session_token: String) {
+    if let Ok(mut active) = ACTIVE_AGENT_RUN_CLEANUP.lock() {
+        if let Some(active) = active.as_mut() {
+            active.session_token = session_token;
+        }
+    }
+}
+
+pub fn clear_agent_run_cleanup() {
+    if let Ok(mut active) = ACTIVE_AGENT_RUN_CLEANUP.lock() {
+        *active = None;
+    }
+}
+
+/// Ends and clears the registered run, if one exists. Used only for graceful
+/// process termination; SIGKILL cannot run this cleanup.
+pub async fn end_registered_agent_run() {
+    let active = ACTIVE_AGENT_RUN_CLEANUP
+        .lock()
+        .ok()
+        .and_then(|mut active| active.take());
+    if let Some(active) = active {
+        end_agent_run(active.api_key, &active.session_token).await;
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteBinding {
