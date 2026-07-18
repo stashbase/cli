@@ -235,6 +235,9 @@ For providers with a different credential header, set `header` and optionally
 [agent_profiles.claude.secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
 header = "x-api-key"
+env = "ANTHROPIC_API_KEY"
+# Opaque format-compatible value; never a real Anthropic key.
+placeholder = "sk-ant-api03-stashbase-placeholder-000000000000000000000000000000000000"
 ```
 
 Hosts may use a leading subdomain wildcard such as `*.githubcopilot.com`; it

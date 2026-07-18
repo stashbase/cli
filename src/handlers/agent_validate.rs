@@ -206,11 +206,30 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
 
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
     for (target, secret) in &profile.secrets {
-        if !valid_environment_name(target) {
+        let env = secret.env.as_deref().unwrap_or(target);
+        if !valid_environment_name(env) {
             checks.push(fail(
                 format!("Secret binding '{target}'"),
                 "The child environment variable name must use letters, digits, and underscores and cannot start with a digit."
                     .to_owned(),
+            ));
+        }
+        if secret
+            .env
+            .as_deref()
+            .is_some_and(|env| env.trim().is_empty())
+        {
+            checks.push(fail(
+                format!("Secret binding '{target}' env"),
+                "'env' must not be empty when set.".to_owned(),
+            ));
+        }
+        if secret.placeholder.as_deref().is_some_and(|placeholder| {
+            placeholder.trim().is_empty() || placeholder.contains(['\r', '\n'])
+        }) {
+            checks.push(fail(
+                format!("Secret binding '{target}' placeholder"),
+                "'placeholder' must not be empty or contain a line break.".to_owned(),
             ));
         }
         let source = secret.from.as_deref().unwrap_or(target);
@@ -433,6 +452,8 @@ mod tests {
                 crate::models::agent::AgentSecretProfile {
                     hosts: vec!["api.example.com".to_owned()],
                     from: None,
+                    env: None,
+                    placeholder: None,
                     header: Some("x-api-key".to_owned()),
                     value_template: Some("static-value".to_owned()),
                 },

@@ -111,6 +111,38 @@ from = "GITHUB_TOKEN"
 hosts = ["api.github.com"]
 ```
 
+### Explicit child variables and format-aware placeholders
+
+`env` optionally names the environment variable given to the agent. It is
+useful when the Stashbase source name or profile binding name differs from the
+variable a tool expects. The child still receives an opaque placeholder, never
+the secret value:
+
+```toml
+[agent_profiles.example.secrets.TOOL_TOKEN]
+from = "PLATFORM_TOKEN"
+env = "TOOL_API_KEY"
+hosts = ["api.example.com"]
+header = "x-api-key"
+```
+
+In remote mode, that produces `TOOL_API_KEY=${STASHBASE_TOOL_TOKEN}` in the
+child environment. The remote broker exchanges the placeholder only in the
+configured `x-api-key` header for `api.example.com`.
+
+Some clients validate an API-key shape before they send any request. For those
+clients, `placeholder` can provide an opaque, syntactically compatible value:
+
+```toml
+placeholder = "provider-shaped-but-non-secret-placeholder"
+```
+
+This is a compatibility value, not a credential source. `from` still selects
+the real secret from Stashbase, and the child never receives that real value.
+Custom remote placeholders require a remote broker control plane that accepts
+arbitrary safe placeholders. Omit `placeholder` until that backend capability
+is enabled; the default `${STASHBASE_BINDING_NAME}` always remains available.
+
 You can combine a remote source with a local override file. The file is read
 first; for every configured source it supplies, no remote request is made. Any
 source absent from the file is fetched from the configured project/environment.
@@ -260,16 +292,34 @@ hosts = ["llm.example.com"]
 
 Anthropic's API uses `x-api-key`, so configure that header explicitly. The
 [Anthropic API overview](https://platform.claude.com/docs/en/api/overview)
-documents this authentication format.
+documents this authentication format. `env` ensures Claude Code receives its
+credential in the variable it recognizes, while the broker retains control of
+the real key.
 
 ```toml
 [agent_profiles.claude]
-file = "./.env.agent"
+project = "platform"
+environment = "development"
+egress_hosts = ["api.anthropic.com"]
 
 [agent_profiles.claude.secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
 header = "x-api-key"
+env = "ANTHROPIC_API_KEY"
+# Opaque format-compatible value; never a real Anthropic key.
+placeholder = "sk-ant-api03-stashbase-placeholder-000000000000000000000000000000000000"
 ```
+
+The child process sees only
+`ANTHROPIC_API_KEY=${STASHBASE_ANTHROPIC_API_KEY}`. When Claude Code sends an
+`x-api-key` request to `api.anthropic.com`, the broker injects the real
+Stashbase-managed key. A local API key or `ANTHROPIC_AUTH_TOKEN` should not be
+relied upon for this profile-managed path.
+
+The placeholder above lets Claude Code pass its local API-key format check; the
+broker still exchanges it only at `api.anthropic.com`. In remote mode, use it
+only after the control plane supports custom placeholders. This preserves the
+same broker boundary; it merely lets the client begin the proxied request.
 
 ## Gemini API clients
 

@@ -444,7 +444,10 @@ pub async fn handle_cli(args: Cli) {
                                 from: secret.from.clone().unwrap_or_else(|| name.clone()),
                                 hosts: secret.hosts.clone(),
                                 header,
-                                placeholder: format!("${{STASHBASE_{name}}}"),
+                                placeholder: secret
+                                    .placeholder
+                                    .clone()
+                                    .unwrap_or_else(|| format!("${{STASHBASE_{name}}}")),
                                 value_template,
                             }
                         }).collect::<Vec<_>>();
@@ -476,7 +479,20 @@ pub async fn handle_cli(args: Cli) {
                                 eprintln!("Audit log: {}", audit_log.path().display());
                             }
                         }
-                        let placeholders = bindings.into_iter().map(|binding| (binding.name, binding.placeholder)).collect();
+                        let placeholders = bindings
+                            .into_iter()
+                            .map(|binding| (binding.name, binding.placeholder))
+                            .collect();
+                        let child_env = profile
+                            .secrets
+                            .iter()
+                            .map(|(name, secret)| {
+                                (
+                                    name.clone(),
+                                    secret.env.clone().unwrap_or_else(|| name.clone()),
+                                )
+                            })
+                            .collect();
                         let protocol = match session.protocol.as_str() {
                             "http/1.1-custom" => crate::handlers::run::broker::RemoteBrokerProtocol::Custom,
                             "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::broker::RemoteBrokerProtocol::ForwardProxyTlsIntercept,
@@ -503,7 +519,7 @@ pub async fn handle_cli(args: Cli) {
                         let result = handle_remote_agent_run(
                             agent_run.command,
                             policy,
-                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url, session: remote_session.clone(), placeholders, protocol },
+                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol },
                             agent_run.broker_port,
                             agent_run.sandbox,
                             agent_run.trust_broker_ca,

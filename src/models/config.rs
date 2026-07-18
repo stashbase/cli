@@ -53,6 +53,8 @@ mod tests {
                 [agent_profiles.coding.secrets.GH_TOKEN]
                 hosts = ["api.github.com"]
                 from = "GITHUB_TOKEN"
+                env = "GH_TOKEN"
+                placeholder = "example-placeholder"
                 header = "x-api-key"
                 value_template = "Token {secret}"
             "#,
@@ -65,6 +67,11 @@ mod tests {
         assert_eq!(
             profile.secrets["GH_TOKEN"].from.as_deref(),
             Some("GITHUB_TOKEN")
+        );
+        assert_eq!(profile.secrets["GH_TOKEN"].env.as_deref(), Some("GH_TOKEN"));
+        assert_eq!(
+            profile.secrets["GH_TOKEN"].placeholder.as_deref(),
+            Some("example-placeholder")
         );
         assert_eq!(
             profile.secrets["GH_TOKEN"].header.as_deref(),

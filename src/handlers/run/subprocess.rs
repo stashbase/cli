@@ -66,6 +66,12 @@ pub async fn run_command(
                 for name in BROKER_CHILD_ENV_REMOVALS {
                     cmd.env_remove(name);
                 }
+                // Claude Code gives ANTHROPIC_AUTH_TOKEN higher precedence than
+                // ANTHROPIC_API_KEY, so a profile-managed key must replace both.
+                if env_vars.contains_key("ANTHROPIC_API_KEY") {
+                    cmd.env_remove("ANTHROPIC_AUTH_TOKEN");
+                    cmd.env_remove("CLAUDE_CODE_OAUTH_TOKEN");
+                }
             }
             for arg in args.iter() {
                 cmd.arg(arg);
@@ -247,6 +253,50 @@ mod tests {
                 ("NO_PROXY".to_owned(), String::new()),
                 ("no_proxy".to_owned(), String::new()),
             ]),
+            false,
+            true,
+            false,
+        )
+        .await
+        .unwrap();
+
+        for (name, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+        assert!(status.success());
+    }
+
+    #[tokio::test]
+    async fn profile_managed_anthropic_key_overrides_local_auth_variables() {
+        let _guard = environment_lock().lock().unwrap();
+        let saved = [
+            ("ANTHROPIC_API_KEY", std::env::var_os("ANTHROPIC_API_KEY")),
+            (
+                "ANTHROPIC_AUTH_TOKEN",
+                std::env::var_os("ANTHROPIC_AUTH_TOKEN"),
+            ),
+            (
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                std::env::var_os("CLAUDE_CODE_OAUTH_TOKEN"),
+            ),
+        ];
+        std::env::set_var("ANTHROPIC_API_KEY", "local-api-key");
+        std::env::set_var("ANTHROPIC_AUTH_TOKEN", "local-auth-token");
+        std::env::set_var("CLAUDE_CODE_OAUTH_TOKEN", "local-oauth-token");
+
+        let status = run_command(
+            "sh",
+            vec![
+                "-c".to_owned(),
+                "test \"$ANTHROPIC_API_KEY\" = \"broker-placeholder\" && test -z \"$ANTHROPIC_AUTH_TOKEN\" && test -z \"$CLAUDE_CODE_OAUTH_TOKEN\"".to_owned(),
+            ],
+            HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                "broker-placeholder".to_owned(),
+            )]),
             false,
             true,
             false,

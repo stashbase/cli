@@ -20,6 +20,11 @@ pub struct AgentSecretProfile {
     pub hosts: Vec<String>,
     /// Source secret name to request. Defaults to this profile entry's name.
     pub from: Option<String>,
+    /// Environment variable exposed to the child. Defaults to this profile entry's name.
+    pub env: Option<String>,
+    /// Opaque value exposed to clients that validate credential syntax locally.
+    /// Defaults to `${STASHBASE_<binding name>}` for remote broker sessions.
+    pub placeholder: Option<String>,
     /// Request header that carries this credential. Defaults to Authorization.
     pub header: Option<String>,
     /// Template for the header value. `{secret}` is replaced only inside the broker.

@@ -303,6 +303,8 @@ pub struct RemoteBrokerConfig {
     pub proxy_url: String,
     pub session: Arc<RwLock<RemoteBrokerSessionState>>,
     pub placeholders: HashMap<String, String>,
+    /// Maps a profile binding name to the child environment variable name.
+    pub child_env: HashMap<String, String>,
     pub protocol: RemoteBrokerProtocol,
 }
 
@@ -355,6 +357,7 @@ impl std::fmt::Debug for RemoteBrokerConfig {
             .field("proxy_url", &self.proxy_url)
             .field("session", &"[REDACTED]")
             .field("placeholders", &self.placeholders)
+            .field("child_env", &self.child_env)
             .field("protocol", &self.protocol)
             .finish()
     }
@@ -521,6 +524,13 @@ impl Broker {
                 .collect()
         };
         let remote_placeholders = remote.as_ref().map(|remote| remote.placeholders.clone());
+        let remote_child_env = remote.as_ref().map(|remote| remote.child_env.clone());
+        let remote_binding_names = remote_placeholders.as_ref().map(|placeholders| {
+            placeholders
+                .iter()
+                .map(|(name, placeholder)| (placeholder.clone(), name.clone()))
+                .collect::<HashMap<_, _>>()
+        });
         policy.allowed_hosts_by_secret = policy
             .allowed_hosts_by_secret
             .into_iter()
@@ -596,10 +606,17 @@ impl Broker {
             ("no_proxy".to_owned(), String::new()),
         ]);
         for placeholder in state.secrets.keys() {
-            child_env.insert(
-                secret_name_from_placeholder(placeholder),
-                placeholder.clone(),
-            );
+            let binding_name = remote_binding_names
+                .as_ref()
+                .and_then(|names| names.get(placeholder))
+                .cloned()
+                .unwrap_or_else(|| secret_name_from_placeholder(placeholder));
+            let env_name = remote_child_env
+                .as_ref()
+                .and_then(|child_env| child_env.get(&binding_name))
+                .cloned()
+                .unwrap_or(binding_name);
+            child_env.insert(env_name, placeholder.clone());
         }
 
         if let Some(audit_log) = &audit_log {
@@ -1871,6 +1888,7 @@ mod tests {
                 last_rotation_error: Some("temporary control-plane failure".to_owned()),
             })),
             placeholders: HashMap::new(),
+            child_env: HashMap::new(),
             protocol: RemoteBrokerProtocol::ForwardProxyTlsIntercept,
         };
 
