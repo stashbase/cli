@@ -6,10 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::client;
 
-// Temporary short lifetime for exercising CLI session rotation. With the
-// proportional 20% rotation lead, the CLI installs a replacement every ~20s.
-const REMOTE_BROKER_SESSION_TTL_SECS: u16 = 25;
-
 #[derive(Clone)]
 struct ActiveAgentRunCleanup {
     api_key: String,
@@ -97,7 +93,6 @@ struct CreateSession<'a> {
     allowed_hosts: &'a [String],
     deny_hosts: &'a [String],
     bindings: &'a [RemoteBinding],
-    ttl_seconds: u16,
 }
 
 pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<RemoteBrokerSession> {
@@ -114,7 +109,6 @@ pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<Remo
             allowed_hosts: &request.allowed_hosts,
             deny_hosts: &request.deny_hosts,
             bindings: &request.bindings,
-            ttl_seconds: REMOTE_BROKER_SESSION_TTL_SECS,
         });
     if let Some(previous_session_token) = &request.previous_session_token {
         session_request =
