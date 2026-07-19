@@ -139,9 +139,9 @@ placeholder = "provider-shaped-but-non-secret-placeholder"
 
 This is a compatibility value, not a credential source. `from` still selects
 the real secret from Stashbase, and the child never receives that real value.
-Custom remote placeholders require a remote broker control plane that accepts
-arbitrary safe placeholders. Omit `placeholder` until that backend capability
-is enabled; the default `${STASHBASE_BINDING_NAME}` always remains available.
+The remote broker exact-matches the configured safe placeholder before it
+injects the mapped credential. The default
+`${STASHBASE_BINDING_NAME}` remains available when `placeholder` is omitted.
 
 You can combine a remote source with a local override file. The file is read
 first; for every configured source it supplies, no remote request is made. Any
@@ -317,9 +317,8 @@ Stashbase-managed key. A local API key or `ANTHROPIC_AUTH_TOKEN` should not be
 relied upon for this profile-managed path.
 
 The placeholder above lets Claude Code pass its local API-key format check; the
-broker still exchanges it only at `api.anthropic.com`. In remote mode, use it
-only after the control plane supports custom placeholders. This preserves the
-same broker boundary; it merely lets the client begin the proxied request.
+broker still exchanges it only at `api.anthropic.com`. This preserves the same
+broker boundary; it merely lets the client begin the proxied request.
 
 ## Gemini API clients
 
