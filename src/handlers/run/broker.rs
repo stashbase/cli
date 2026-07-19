@@ -606,16 +606,11 @@ impl Broker {
             ("no_proxy".to_owned(), String::new()),
         ]);
         for placeholder in state.secrets.keys() {
-            let binding_name = remote_binding_names
-                .as_ref()
-                .and_then(|names| names.get(placeholder))
-                .cloned()
-                .unwrap_or_else(|| secret_name_from_placeholder(placeholder));
-            let env_name = remote_child_env
-                .as_ref()
-                .and_then(|child_env| child_env.get(&binding_name))
-                .cloned()
-                .unwrap_or(binding_name);
+            let env_name = child_env_name_for_placeholder(
+                placeholder,
+                remote_binding_names.as_ref(),
+                remote_child_env.as_ref(),
+            );
             child_env.insert(env_name, placeholder.clone());
         }
 
@@ -688,6 +683,21 @@ fn secret_name_from_placeholder(placeholder: &str) -> String {
         .and_then(|value| value.strip_suffix('}'))
         .unwrap_or(placeholder)
         .to_owned()
+}
+
+fn child_env_name_for_placeholder(
+    placeholder: &str,
+    remote_binding_names: Option<&HashMap<String, String>>,
+    remote_child_env: Option<&HashMap<String, String>>,
+) -> String {
+    let binding_name = remote_binding_names
+        .and_then(|names| names.get(placeholder))
+        .cloned()
+        .unwrap_or_else(|| secret_name_from_placeholder(placeholder));
+    remote_child_env
+        .and_then(|child_env| child_env.get(&binding_name))
+        .cloned()
+        .unwrap_or(binding_name)
 }
 
 fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
@@ -1898,6 +1908,22 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("temporary control-plane failure"));
+    }
+
+    #[test]
+    fn custom_remote_placeholder_uses_the_configured_child_environment_name() {
+        let placeholder = "sk-ant-api03-stashbase-placeholder";
+        let binding_names =
+            HashMap::from([(placeholder.to_owned(), "ANTHROPIC_API_KEY".to_owned())]);
+        let child_env = HashMap::from([(
+            "ANTHROPIC_API_KEY".to_owned(),
+            "ANTHROPIC_API_KEY".to_owned(),
+        )]);
+
+        assert_eq!(
+            child_env_name_for_placeholder(placeholder, Some(&binding_names), Some(&child_env)),
+            "ANTHROPIC_API_KEY"
+        );
     }
 
     #[test]

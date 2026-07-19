@@ -96,25 +96,10 @@ struct CreateSession<'a> {
 }
 
 pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<RemoteBrokerSession> {
-    let url = format!("{}/v1/remote-broker/sessions", client::get_api_url());
     let client = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
         .build()?;
-    let mut session_request = client
-        .post(url)
-        .bearer_auth(&request.api_key)
-        .json(&CreateSession {
-            project_id: &request.project_identifier,
-            environment_id: &request.environment_identifier,
-            allowed_hosts: &request.allowed_hosts,
-            deny_hosts: &request.deny_hosts,
-            bindings: &request.bindings,
-        });
-    if let Some(previous_session_token) = &request.previous_session_token {
-        session_request =
-            session_request.header("X-Stashbase-Previous-Session", previous_session_token);
-    }
-    let response = session_request
+    let response = create_session_http_request(&client, request)
         .send()
         .await
         .context("failed to create remote broker session")?;
@@ -145,6 +130,30 @@ pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<Remo
     Ok(session)
 }
 
+fn create_session_http_request(
+    client: &reqwest::Client,
+    request: &RemoteBrokerSessionRequest,
+) -> reqwest::RequestBuilder {
+    let mut session_request = client
+        .post(format!(
+            "{}/v1/remote-broker/sessions",
+            client::get_api_url()
+        ))
+        .bearer_auth(&request.api_key)
+        .json(&CreateSession {
+            project_id: &request.project_identifier,
+            environment_id: &request.environment_identifier,
+            allowed_hosts: &request.allowed_hosts,
+            deny_hosts: &request.deny_hosts,
+            bindings: &request.bindings,
+        });
+    if let Some(previous_session_token) = &request.previous_session_token {
+        session_request =
+            session_request.header("X-Stashbase-Previous-Session", previous_session_token);
+    }
+    session_request
+}
+
 pub async fn revoke_session(api_key: String, session_token: &str) {
     delete_session(api_key, session_token, false).await;
 }
@@ -157,10 +166,22 @@ pub async fn end_agent_run(api_key: String, session_token: &str) {
 }
 
 async fn delete_session(api_key: String, session_token: &str, end_agent_run: bool) {
-    let mut request = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
         .build()
-        .expect("remote broker revoke client configuration is valid")
+        .expect("remote broker revoke client configuration is valid");
+    let _ = delete_session_http_request(&client, api_key, session_token, end_agent_run)
+        .send()
+        .await;
+}
+
+fn delete_session_http_request(
+    client: &reqwest::Client,
+    api_key: String,
+    session_token: &str,
+    end_agent_run: bool,
+) -> reqwest::RequestBuilder {
+    let mut request = client
         .delete(format!(
             "{}/v1/remote-broker/sessions/current",
             client::get_api_url()
@@ -170,7 +191,7 @@ async fn delete_session(api_key: String, session_token: &str, end_agent_run: boo
     if end_agent_run {
         request = request.header("X-Stashbase-End-Agent-Run", "true");
     }
-    let _ = request.send().await;
+    request
 }
 
 /// Marks a replaced session for the server-side grace period. The raw token is
@@ -188,4 +209,64 @@ pub async fn retire_session(api_key: String, session_token: &str) {
         .header("X-Stashbase-Session", session_token)
         .send()
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session_request(previous_session_token: Option<&str>) -> RemoteBrokerSessionRequest {
+        RemoteBrokerSessionRequest {
+            api_key: "test-api-key".to_owned(),
+            project_identifier: "project".to_owned(),
+            environment_identifier: "environment".to_owned(),
+            allowed_hosts: vec!["api.example.com".to_owned()],
+            deny_hosts: Vec::new(),
+            bindings: Vec::new(),
+            previous_session_token: previous_session_token.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn replacement_session_request_carries_the_previous_session_token() {
+        let client = reqwest::Client::new();
+        let request = create_session_http_request(&client, &session_request(Some("old-token")))
+            .build()
+            .unwrap();
+
+        assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(
+            request
+                .headers()
+                .get("X-Stashbase-Previous-Session")
+                .unwrap(),
+            "old-token"
+        );
+        assert_eq!(
+            request
+                .headers()
+                .get(reqwest::header::AUTHORIZATION)
+                .unwrap(),
+            "Bearer test-api-key"
+        );
+    }
+
+    #[test]
+    fn final_cleanup_request_marks_the_agent_run_ended() {
+        let client = reqwest::Client::new();
+        let request =
+            delete_session_http_request(&client, "test-api-key".to_owned(), "current-token", true)
+                .build()
+                .unwrap();
+
+        assert_eq!(request.method(), reqwest::Method::DELETE);
+        assert_eq!(
+            request.headers().get("X-Stashbase-Session").unwrap(),
+            "current-token"
+        );
+        assert_eq!(
+            request.headers().get("X-Stashbase-End-Agent-Run").unwrap(),
+            "true"
+        );
+    }
 }
