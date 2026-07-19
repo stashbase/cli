@@ -57,10 +57,14 @@ fn install_remote_agent_shutdown_handler() {
     let Ok(mut hangup) = signal(SignalKind::hangup()) else {
         return;
     };
+    let Ok(mut interrupt) = signal(SignalKind::interrupt()) else {
+        return;
+    };
     tokio::spawn(async move {
         let exit_code = tokio::select! {
             _ = terminate.recv() => 143,
             _ = hangup.recv() => 129,
+            _ = interrupt.recv() => 130,
         };
         crate::api::remote_broker::end_registered_agent_run().await;
         std::process::exit(exit_code);
@@ -930,6 +934,7 @@ fn spawn_remote_session_rotation(
     let (stop, mut stop_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
         let mut session = initial_session;
+        let mut retry_pending = false;
         loop {
             let expires_at = match remote_session_state(&session) {
                 Ok(state) => state.expires_at,
@@ -940,13 +945,16 @@ fn spawn_remote_session_rotation(
                     return;
                 }
             };
-            tokio::select! {
-                _ = tokio::time::sleep(remote_session_rotation_delay(expires_at)) => {}
-                result = stop_rx.changed() => {
-                    if result.is_ok() && *stop_rx.borrow() { return; }
-                    return;
+            if !retry_pending {
+                tokio::select! {
+                    _ = tokio::time::sleep(remote_session_rotation_delay(expires_at)) => {}
+                    result = stop_rx.changed() => {
+                        if result.is_ok() && *stop_rx.borrow() { return; }
+                        return;
+                    }
                 }
             }
+            retry_pending = false;
 
             let previous_session_token = match state.read() {
                 Ok(current) => current.token.clone(),
@@ -959,6 +967,11 @@ fn spawn_remote_session_rotation(
                     let next_state = match remote_session_state(&next_session) {
                         Ok(next_state) => next_state,
                         Err(error) => {
+                            crate::api::remote_broker::revoke_session(
+                                request.api_key.clone(),
+                                &next_session.session_token,
+                            )
+                            .await;
                             if let Ok(mut current) = state.write() {
                                 current.last_rotation_error = Some(error.to_string());
                             }
@@ -999,6 +1012,7 @@ fn spawn_remote_session_rotation(
                         _ = tokio::time::sleep(retry) => {}
                         _ = stop_rx.changed() => return,
                     }
+                    retry_pending = true;
                 }
             }
         }
