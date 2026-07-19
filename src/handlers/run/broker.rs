@@ -1000,6 +1000,30 @@ fn proxy_request(
                 }
             };
             headers.insert("x-stashbase-session", token);
+            let proxy = match reqwest::Url::parse(&remote.proxy_url) {
+                Ok(proxy) => proxy,
+                Err(_) => {
+                    return Ok(broker_error_response(
+                        StatusCode::BAD_GATEWAY,
+                        "broker.session_invalid",
+                        "Remote broker returned an invalid proxy URL",
+                    ))
+                }
+            };
+            // This is a forward request to the remote broker, not the original
+            // destination. Keeping the child's Host header sends the wrong virtual
+            // host for ordinary (non-upgrade) requests.
+            let proxy_host = match proxy_host_header(&proxy) {
+                Ok(value) => value,
+                Err(_) => {
+                    return Ok(broker_error_response(
+                        StatusCode::BAD_GATEWAY,
+                        "broker.session_invalid",
+                        "Remote broker returned an invalid proxy URL",
+                    ))
+                }
+            };
+            headers.insert(hyper::header::HOST, proxy_host);
             remote.proxy_url.clone()
         } else {
             url.to_string()
@@ -1117,9 +1141,7 @@ async fn tunnel_remote_connect(
 ) -> Result<()> {
     let token = remote.token_for_new_connection()?;
     let proxy = reqwest::Url::parse(&remote.proxy_url).context("invalid remote proxy URL")?;
-    let host = proxy.host_str().context("remote proxy URL has no host")?;
-    let port = proxy.port_or_known_default().unwrap_or(80);
-    let mut upstream = TcpStream::connect(format!("{host}:{port}")).await?;
+    let mut upstream = connect_remote_proxy(&proxy).await?;
     upstream
         .write_all(
             format!(
@@ -1152,6 +1174,36 @@ async fn tunnel_remote_connect(
         None,
     );
     Ok(())
+}
+
+trait AsyncStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T> AsyncStream for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+
+/// Opens the connection to the remote proxy itself. Standard forward proxies
+/// can be served over either HTTP or HTTPS; CONNECT must use TLS for the latter
+/// before its plaintext HTTP handshake is written.
+async fn connect_remote_proxy(proxy: &reqwest::Url) -> Result<Box<dyn AsyncStream>> {
+    let host = proxy.host_str().context("remote proxy URL has no host")?;
+    let port = proxy
+        .port_or_known_default()
+        .context("remote proxy URL has no known port")?;
+    let stream = TcpStream::connect(format!("{host}:{port}")).await?;
+    match proxy.scheme() {
+        "http" => Ok(Box::new(stream)),
+        "https" => {
+            let server_name = ServerName::try_from(host.to_owned())
+                .context("remote proxy URL has an invalid TLS host")?;
+            let config = ClientConfig::builder()
+                .with_platform_verifier()?
+                .with_no_client_auth();
+            Ok(Box::new(
+                TlsConnector::from(Arc::new(config))
+                    .connect(server_name, stream)
+                    .await?,
+            ))
+        }
+        scheme => anyhow::bail!("remote proxy URL uses unsupported scheme: {scheme}"),
+    }
 }
 
 /// Sends an intercepted WebSocket opening handshake to the remote broker. The
@@ -1238,10 +1290,20 @@ async fn forward_remote_upgrade(
         }
     };
     request.headers_mut().insert("x-stashbase-session", token);
-    request.headers_mut().insert(
-        hyper::header::HOST,
-        HeaderValue::from_str(proxy.host_str().unwrap()).unwrap(),
-    );
+    let proxy_host_header = match proxy_host_header(&proxy) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    request
+        .headers_mut()
+        .insert(hyper::header::HOST, proxy_host_header);
     let proxy_path = match proxy.query() {
         Some(query) => format!("{}?{query}", proxy.path()),
         None => proxy.path().to_owned(),
@@ -1513,6 +1575,20 @@ fn upstream_authority(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
         .context("HTTP proxy request is missing a Host header")
+}
+
+/// Returns the authority understood by the remote broker's HTTP listener.
+/// Explicit non-default ports are part of the Host header's authority.
+fn proxy_host_header(proxy: &reqwest::Url) -> Result<HeaderValue> {
+    let host = proxy.host_str().context("remote proxy URL has no host")?;
+    let authority = match proxy.port() {
+        Some(port) if host.contains(':') && !host.starts_with('[') => {
+            format!("[{host}]:{port}")
+        }
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_owned(),
+    };
+    HeaderValue::from_str(&authority).context("remote proxy URL has an invalid Host header")
 }
 
 fn split_authority(authority: &str, tls: bool) -> Option<(String, u16)> {
@@ -1833,7 +1909,7 @@ fn full_body(body: Bytes) -> ProxyBody {
 mod tests {
     use super::*;
     use futures_util::{stream, StreamExt};
-    use hyper::header::{AUTHORIZATION, TRANSFER_ENCODING};
+    use hyper::header::{AUTHORIZATION, HOST, TRANSFER_ENCODING};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         sync::oneshot,
@@ -1924,6 +2000,72 @@ mod tests {
             child_env_name_for_placeholder(placeholder, Some(&binding_names), Some(&child_env)),
             "ANTHROPIC_API_KEY"
         );
+    }
+
+    #[test]
+    fn remote_proxy_host_header_uses_the_proxy_authority() {
+        let proxy = reqwest::Url::parse("https://broker.example:8443/v1/proxy").unwrap();
+
+        assert_eq!(
+            proxy_host_header(&proxy).unwrap(),
+            HeaderValue::from_static("broker.example:8443")
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_remote_forward_uses_the_remote_broker_host_header() {
+        let (address, host) = start_backend_capturing(HOST).await;
+        let remote = RemoteBrokerConfig {
+            proxy_url: format!("http://{address}/v1/remote-broker/proxy"),
+            session: Arc::new(RwLock::new(RemoteBrokerSessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::new(),
+            child_env: HashMap::new(),
+            protocol: RemoteBrokerProtocol::Custom,
+        };
+        let broker = Broker::start_remote_with_port(remote, BrokerPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&broker)
+            .get("http://original.example/path")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let expected_host = address.to_string();
+        assert_eq!(host.await.unwrap().as_deref(), Some(expected_host.as_str()));
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn https_remote_proxy_connection_starts_with_tls() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (hello_sender, hello) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 3];
+            stream.read_exact(&mut bytes).await.unwrap();
+            let _ = hello_sender.send(bytes);
+        });
+
+        let proxy =
+            reqwest::Url::parse(&format!("https://127.0.0.1:{}/proxy", address.port())).unwrap();
+        let connect = tokio::spawn(async move { connect_remote_proxy(&proxy).await });
+
+        assert_eq!(
+            timeout(Duration::from_secs(1), hello)
+                .await
+                .unwrap()
+                .unwrap()[0],
+            0x16
+        );
+        assert!(connect.await.unwrap().is_err());
     }
 
     #[test]

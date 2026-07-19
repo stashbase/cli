@@ -76,7 +76,6 @@ fn install_remote_agent_shutdown_handler() {}
 
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
-    install_remote_agent_shutdown_handler();
     if let EntityType::Generate(cmd) = args.entity_type {
         if let Err(e) = handle_generate_command(cmd, args.raw) {
             eprintln!("{:?}", e);
@@ -543,6 +542,10 @@ pub async fn handle_cli(args: Cli) {
                             api_key.clone(),
                             token.clone(),
                         );
+                        // Install signal interception only for a run that has a remote
+                        // session to end. Installing it at CLI startup would replace the
+                        // normal SIGINT/SIGTERM behavior for every Stashbase command.
+                        install_remote_agent_shutdown_handler();
                         let (rotation_stop, rotation_task) = spawn_remote_session_rotation(
                             session_request,
                             session,
