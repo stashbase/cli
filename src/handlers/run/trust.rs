@@ -109,7 +109,7 @@ fn install_platform(certificate: &Path, _subject: &str) -> Result<TemporaryCaTru
     {
         ("/etc/pki/ca-trust/source/anchors", "update-ca-trust")
     } else {
-        bail!("unsupported Linux trust store; install update-ca-certificates or update-ca-trust, or run without --trust-broker-ca")
+        bail!("unsupported Linux trust store; install update-ca-certificates or update-ca-trust, or run without --trust-proxy-ca")
     };
     let target = Path::new(directory).join(format!("stashbase-broker-{}.crt", std::process::id()));
     run(
@@ -139,7 +139,7 @@ fn install_platform(certificate: &Path, _subject: &str) -> Result<TemporaryCaTru
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn install_platform(_certificate: &Path, _subject: &str) -> Result<TemporaryCaTrust> {
-    bail!("--trust-broker-ca is not supported on this platform")
+    bail!("--trust-proxy-ca is not supported on this platform")
 }
 
 fn run(command: &mut Command, error: &str) -> Result<()> {

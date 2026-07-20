@@ -8,13 +8,13 @@ pub struct AgentCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentSubcommand {
-    /// Run an agent with a brokered credential profile
+    /// Run an agent through a Stashbase credential proxy
     Run(AgentRunCommand),
-    /// Validate an agent profile without loading secrets or starting a broker
+    /// Validate an agent profile without loading secrets or starting a proxy
     Validate(AgentValidateCommand),
-    /// Check a tool's compatibility with the temporary credential broker
+    /// Check a tool's compatibility with the temporary credential proxy
     Doctor(AgentDoctorCommand),
-    /// View local metadata-only broker audit logs
+    /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
 }
 
@@ -31,23 +31,23 @@ pub struct AgentRunCommand {
     #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
 
-    /// Temporarily trust the broker CA in the operating system trust store
-    #[arg(long = "trust-broker-ca")]
-    pub trust_broker_ca: bool,
+    /// Temporarily trust the proxy CA in the operating system trust store
+    #[arg(long, visible_alias = "trust-broker-ca")]
+    pub trust_proxy_ca: bool,
 
-    /// Experimental network sandbox: only allows loopback access to the broker
+    /// Experimental network sandbox: only allows loopback access to the proxy
     #[arg(long)]
     pub sandbox: bool,
 
-    /// Bind the temporary broker to this localhost port instead of a random port
-    #[arg(long)]
-    pub broker_port: Option<u16>,
+    /// Bind the temporary proxy to this localhost port instead of a random port
+    #[arg(long, visible_alias = "broker-port")]
+    pub proxy_port: Option<u16>,
 
-    /// Resolve Stashbase secrets in a short-lived remote broker session
+    /// Resolve Stashbase secrets in a short-lived remote agent proxy session
     #[arg(long)]
     pub remote: bool,
 
-    /// Store metadata-only broker audit events locally
+    /// Store metadata-only proxy audit events locally
     #[arg(
         long,
         action = clap::ArgAction::Set,

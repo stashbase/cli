@@ -393,9 +393,9 @@ Use this matrix when deciding whether a workflow belongs in an agent profile.
 | Workflow or protocol | Broker support | Notes |
 | --- | --- | --- |
 | `curl` and ordinary HTTP clients | Yes | The client must honor `HTTP_PROXY` / `HTTPS_PROXY` and place the placeholder in a configured header. |
-| HTTPS APIs | Yes, with temporary CA trust | Most clients use the CA-file variables supplied by the CLI. Use `--trust-broker-ca` only when a client requires operating-system trust-store integration. |
+| HTTPS APIs | Yes, with temporary CA trust | Most clients use the CA-file variables supplied by the CLI. Use `--trust-proxy-ca` only when a client requires operating-system trust-store integration. |
 | Node.js / `fetch` | Usually | The CLI enables `NODE_USE_ENV_PROXY`; use a Node runtime that supports environment proxy settings. |
-| `gh` and GitHub Copilot CLI | Usually | Configure every required GitHub/Copilot host. Some builds need `--trust-broker-ca`. |
+| `gh` and GitHub Copilot CLI | Usually | Configure every required GitHub/Copilot host. Some builds need `--trust-proxy-ca`. |
 | Agent-spawned HTTP tools | Yes | They inherit the placeholders and proxy variables from the agent process. The same broker handles every descendant; no nested broker is needed. |
 | Custom API-key headers | Yes | Configure `header` and, when needed, `value_template`. |
 | Streaming uploads, downloads, and SSE | Yes over HTTP/1 | Bodies are forwarded incrementally and unchanged; credential replacement remains header-only. |

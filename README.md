@@ -143,7 +143,7 @@ It chooses a random localhost port by default. For debugging or a local
 integration that requires a stable port, use `--broker-port`:
 
 ```bash
-stashbase agent run --broker-port 8787 --profile coding -- codex
+stashbase agent run --proxy-port 8787 --profile coding -- codex
 
 # The regular run command supports it too.
 stashbase run --broker --broker-port 8787 --only GH_TOKEN -- gh auth status
@@ -348,7 +348,7 @@ used by the broker. Opt into temporary operating-system trust-store integration
 for those tools:
 
 ```bash
-stashbase agent run --profile coding --trust-broker-ca -- codex
+stashbase agent run --profile coding --trust-proxy-ca -- codex
 ```
 
 The temporary CA is removed when the command finishes. On macOS this uses the

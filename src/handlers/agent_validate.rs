@@ -123,16 +123,16 @@ fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
 
     match crate::handlers::run::broker::cached_remote_broker_ca_files() {
         Ok(paths) if !paths.is_empty() => checks.push(ok(
-            "Remote broker CA",
+            "Remote agent proxy CA",
             format!("Found {} valid cached CA file(s).", paths.len()),
         )),
         Ok(_) => checks.push(warn(
-            "Remote broker CA",
+            "Remote agent proxy CA",
             "Not cached yet; Stashbase will provision it from the authenticated remote session on first run."
                 .to_owned(),
         )),
         Err(error) => checks.push(warn(
-            "Remote broker CA",
+            "Remote agent proxy CA",
             format!("Cached CA is invalid and will be refreshed on the next remote run: {error}"),
         )),
     }

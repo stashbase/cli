@@ -161,10 +161,7 @@ fn create_session_http_request(
     request: &RemoteBrokerSessionRequest,
 ) -> reqwest::RequestBuilder {
     let mut session_request = client
-        .post(format!(
-            "{}/v1/remote-broker/sessions",
-            client::get_api_url()
-        ))
+        .post(format!("{}/v1/agent-proxy/sessions", client::get_api_url()))
         .bearer_auth(&request.api_key)
         .json(&CreateSession {
             project_id: &request.project_identifier,
@@ -210,7 +207,7 @@ fn delete_session_http_request(
 ) -> reqwest::RequestBuilder {
     let mut request = client
         .delete(format!(
-            "{}/v1/remote-broker/sessions/current",
+            "{}/v1/agent-proxy/sessions/current",
             client::get_api_url()
         ))
         .bearer_auth(api_key)
@@ -229,7 +226,7 @@ pub async fn retire_session(api_key: String, session_token: &str) {
         .build()
         .expect("remote broker retire client configuration is valid")
         .post(format!(
-            "{}/v1/remote-broker/sessions/current/retire",
+            "{}/v1/agent-proxy/sessions/current/retire",
             client::get_api_url()
         ))
         .bearer_auth(api_key)
@@ -263,6 +260,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(request.method(), reqwest::Method::POST);
+        assert_eq!(request.url().path(), "/v1/agent-proxy/sessions");
         assert_eq!(
             request
                 .headers()

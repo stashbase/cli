@@ -2254,7 +2254,7 @@ mod tests {
     async fn custom_remote_forward_uses_the_remote_broker_host_header() {
         let (address, host) = start_backend_capturing(HOST).await;
         let remote = RemoteBrokerConfig {
-            proxy_url: format!("http://{address}/v1/remote-broker/proxy"),
+            proxy_url: format!("http://{address}/v1/agent-proxy/proxy"),
             session: Arc::new(RwLock::new(RemoteBrokerSessionState {
                 token: "session-token".to_owned(),
                 expires_at: Utc::now() + chrono::Duration::minutes(10),
@@ -2286,7 +2286,7 @@ mod tests {
         let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let remote_address = remote_listener.local_addr().unwrap();
         let remote = RemoteBrokerConfig {
-            proxy_url: format!("http://{remote_address}/v1/remote-broker/proxy"),
+            proxy_url: format!("http://{remote_address}/v1/agent-proxy/proxy"),
             session: Arc::new(RwLock::new(RemoteBrokerSessionState {
                 token: "session-token".to_owned(),
                 expires_at: Utc::now() + chrono::Duration::minutes(10),

@@ -119,16 +119,16 @@ pub async fn handle_agent_doctor_command(
     if command.remote {
         match crate::handlers::run::broker::cached_remote_broker_ca_files() {
             Ok(paths) if !paths.is_empty() => checks.push(ok(
-                "Remote broker CA",
+                "Remote agent proxy CA",
                 format!("Found {} valid cached CA file(s).", paths.len()),
             )),
             Ok(_) => checks.push(warn(
-                "Remote broker CA",
+                "Remote agent proxy CA",
                 "Not cached yet; Stashbase will provision it from the authenticated remote session on first run."
                     .to_owned(),
             )),
             Err(error) => checks.push(warn(
-                "Remote broker CA",
+                "Remote agent proxy CA",
                 format!("Cached CA is invalid and will be refreshed on the next remote run: {error}"),
             )),
         }
@@ -208,7 +208,7 @@ fn tool_compatibility(tool: &str) -> Check {
         ),
         "codex" => ok(
             "Tool compatibility",
-            "Codex is supported over HTTP/1 WebSocket upgrades as well as ordinary HTTP(S). Configure every required Codex host and use --trust-broker-ca if its installed release requires OS trust-store integration."
+            "Codex is supported over HTTP/1 WebSocket upgrades as well as ordinary HTTP(S). Configure every required Codex host and use --trust-proxy-ca if its installed release requires OS trust-store integration."
                 .to_owned(),
         ),
         _ => warn(

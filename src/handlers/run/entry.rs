@@ -39,7 +39,7 @@ use crate::{
 use super::format::format_env_variable_value;
 
 /// Runs an agent through the localhost relay while credentials stay in the
-/// control-plane's short-lived remote broker session.
+/// control-plane's short-lived remote agent-proxy session.
 pub async fn handle_remote_agent_run(
     command: Vec<String>,
     policy: super::broker::BrokerPolicy,
@@ -59,16 +59,16 @@ pub async fn handle_remote_agent_run(
     if !silent {
         let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
         eprintln!(
-            "Remote broker relay started on localhost:{}",
+            "Remote agent proxy relay started on localhost:{}",
             address.rsplit(':').next().unwrap_or_default()
         );
-        eprintln!("Remote broker session active");
+        eprintln!("Remote agent proxy session active");
     }
     let result =
         subprocess::run_command(&cmd, args, broker.child_env().clone(), sandbox, true, true).await;
     broker.stop().await;
     if !silent {
-        eprintln!("Remote broker relay stopped");
+        eprintln!("Remote agent proxy relay stopped");
     }
     let status = result?;
     if !status.success() {
@@ -1095,7 +1095,7 @@ async fn handle_run(
         if !silent {
             let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
             eprintln!(
-                "Broker started on localhost:{}",
+                "Credential proxy started on localhost:{}",
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
@@ -1110,7 +1110,7 @@ async fn handle_run(
         .await;
         broker.stop().await;
         if !silent {
-            eprintln!("Broker stopped");
+            eprintln!("Credential proxy stopped");
         }
         result
     } else {
