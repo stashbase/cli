@@ -543,7 +543,8 @@ impl Broker {
                 (placeholder, normalize_hosts(hosts))
             })
             .collect();
-        policy.secret_injections = normalize_injections(policy.secret_injections)?;
+        policy.secret_injections =
+            normalize_injections(policy.secret_injections, remote_placeholders.as_ref())?;
         policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
         policy.denied_hosts = normalize_hosts(policy.denied_hosts);
         let connections = Arc::new(ActiveConnections::default());
@@ -797,6 +798,34 @@ fn proxy_request(
                     ));
                 }
             }
+            // Establish the remote CONNECT before acknowledging the child's CONNECT.
+            // Otherwise a rejected or stalled remote proxy produces a misleading local
+            // 200 response followed by an unexplained dead tunnel.
+            let remote_tunnel =
+                match state.remote.clone().filter(|remote| {
+                    remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept
+                }) {
+                    Some(remote) => match establish_remote_connect(&authority, &remote).await {
+                        Ok(upstream) => Some(upstream),
+                        Err(error) => {
+                            debug!("remote broker CONNECT setup failed: {error:#}");
+                            state.record_audit(
+                                "remote_connect_failed",
+                                Some(host_from_authority(&authority)),
+                                Some(&Method::CONNECT),
+                                None,
+                                Some(StatusCode::BAD_GATEWAY),
+                                Some(started.elapsed()),
+                            );
+                            return Ok(broker_error_response(
+                                StatusCode::BAD_GATEWAY,
+                                "broker.remote_connect_failed",
+                                "Unable to establish remote broker tunnel",
+                            ));
+                        }
+                    },
+                    None => None,
+                };
             state.record_audit(
                 "connect_allowed",
                 Some(host_from_authority(&authority)),
@@ -807,20 +836,20 @@ fn proxy_request(
             );
             let connections = state.connections.clone();
             let connection_state = state.clone();
-            let remote = state.remote.clone();
             let task = tokio::spawn(async move {
                 match hyper::upgrade::on(&mut request).await {
                     Ok(upgraded) => {
-                        if let Some(remote) = remote.filter(|remote| {
-                            remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept
-                        }) {
-                            let _ = tunnel_remote_connect(
+                        if let Some(upstream) = remote_tunnel {
+                            if let Err(error) = tunnel_remote_connect(
                                 upgraded,
                                 authority,
-                                remote,
+                                upstream,
                                 connection_state,
                             )
-                            .await;
+                            .await
+                            {
+                                debug!("remote broker CONNECT tunnel failed: {error:#}");
+                            }
                         } else {
                             let _ =
                                 serve_tls_connection(upgraded, authority, connection_state).await;
@@ -1131,26 +1160,37 @@ fn remote_forward_client(
         .build()?)
 }
 
-/// Bridges a child CONNECT tunnel to the standard remote forward proxy. The
-/// session token is written only in this proxy handshake, never into child env.
-async fn tunnel_remote_connect(
-    upgraded: hyper::upgrade::Upgraded,
-    authority: String,
-    remote: RemoteBrokerConfig,
-    state: BrokerState,
-) -> Result<()> {
+/// Establishes the remote side of a CONNECT tunnel before the child is told
+/// that its local CONNECT succeeded. The session token stays in this handshake
+/// and is never placed in the child environment.
+async fn establish_remote_connect(
+    authority: &str,
+    remote: &RemoteBrokerConfig,
+) -> Result<Box<dyn AsyncStream>> {
     let token = remote.token_for_new_connection()?;
     let proxy = reqwest::Url::parse(&remote.proxy_url).context("invalid remote proxy URL")?;
-    let mut upstream = connect_remote_proxy(&proxy).await?;
-    upstream
-        .write_all(
+    let timeout = Duration::from_secs(REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30));
+    let mut upstream = tokio::time::timeout(timeout, connect_remote_proxy(&proxy))
+        .await
+        .context("remote broker CONNECT setup timed out")??;
+    tokio::time::timeout(timeout, async {
+        upstream
+            .write_all(
             format!(
                 "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: Bearer {}\r\n\r\n",
                 token
             )
             .as_bytes(),
-        )
-        .await?;
+            )
+            .await?;
+        read_connect_response(&mut upstream).await
+    })
+    .await
+    .context("remote broker CONNECT handshake timed out")??;
+    Ok(upstream)
+}
+
+async fn read_connect_response(upstream: &mut (dyn AsyncStream + 'static)) -> Result<()> {
     let mut response = Vec::new();
     let mut byte = [0u8; 1];
     while response.len() < 16 * 1024 {
@@ -1163,6 +1203,16 @@ async fn tunnel_remote_connect(
     if !response.starts_with(b"HTTP/1.1 200") && !response.starts_with(b"HTTP/1.0 200") {
         anyhow::bail!("remote broker rejected CONNECT");
     }
+    Ok(())
+}
+
+/// Bridges the already-established remote tunnel to the local child tunnel.
+async fn tunnel_remote_connect(
+    upgraded: hyper::upgrade::Upgraded,
+    authority: String,
+    mut upstream: Box<dyn AsyncStream>,
+    state: BrokerState,
+) -> Result<()> {
     let mut child = TokioIo::new(upgraded);
     let _ = copy_bidirectional(&mut child, &mut upstream).await;
     state.record_audit(
@@ -1837,6 +1887,11 @@ fn request_host(request: &Request<Incoming>, connect_authority: Option<&str>) ->
 }
 
 fn host_from_authority(authority: &str) -> &str {
+    if let Some(bracketed) = authority.strip_prefix('[') {
+        if let Some((host, _)) = bracketed.split_once(']') {
+            return host;
+        }
+    }
     authority
         .rsplit_once(':')
         .map(|(host, _)| host)
@@ -1852,6 +1907,7 @@ fn normalize_hosts(hosts: HashSet<String>) -> HashSet<String> {
 
 fn normalize_injections(
     injections: HashMap<String, SecretInjection>,
+    remote_placeholders: Option<&HashMap<String, String>>,
 ) -> Result<HashMap<String, SecretInjection>> {
     injections
         .into_iter()
@@ -1863,8 +1919,12 @@ fn normalize_injections(
                     "credential value template for secret '{name}' must contain '{{secret}}'"
                 );
             }
+            let placeholder = remote_placeholders
+                .and_then(|placeholders| placeholders.get(&name))
+                .cloned()
+                .unwrap_or_else(|| placeholder_for(&name));
             Ok((
-                placeholder_for(&name),
+                placeholder,
                 SecretInjection {
                     header: header.as_str().to_owned(),
                     value_template: injection.value_template,
@@ -2012,6 +2072,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn remote_custom_header_injection_uses_its_remote_placeholder() {
+        let injections = HashMap::from([(
+            "ANTHROPIC_API_KEY".to_owned(),
+            SecretInjection {
+                header: "x-api-key".to_owned(),
+                value_template: "{secret}".to_owned(),
+            },
+        )]);
+        let placeholders = HashMap::from([(
+            "ANTHROPIC_API_KEY".to_owned(),
+            "sk-ant-api03-stashbase-placeholder".to_owned(),
+        )]);
+
+        let normalized = normalize_injections(injections, Some(&placeholders)).unwrap();
+
+        assert!(normalized.contains_key("sk-ant-api03-stashbase-placeholder"));
+        assert!(!normalized.contains_key("**STASHBASE_ANTHROPIC_API_KEY**"));
+    }
+
+    #[test]
+    fn authority_parser_handles_bracketed_ipv6() {
+        assert_eq!(host_from_authority("[::1]:443"), "::1");
+        assert_eq!(
+            host_from_authority("api.example.com:443"),
+            "api.example.com"
+        );
+    }
+
     #[tokio::test]
     async fn custom_remote_forward_uses_the_remote_broker_host_header() {
         let (address, host) = start_backend_capturing(HOST).await;
@@ -2066,6 +2155,38 @@ mod tests {
             0x16
         );
         assert!(connect.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn remote_connect_rejection_is_reported_before_a_child_tunnel_opens() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 512];
+            let _ = stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let remote = RemoteBrokerConfig {
+            proxy_url: format!("http://{address}"),
+            session: Arc::new(RwLock::new(RemoteBrokerSessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::new(),
+            child_env: HashMap::new(),
+            protocol: RemoteBrokerProtocol::ForwardProxyTlsIntercept,
+        };
+
+        let error = match establish_remote_connect("api.example.com:443", &remote).await {
+            Ok(_) => panic!("rejected remote CONNECT should not open a tunnel"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("rejected CONNECT"));
     }
 
     #[test]

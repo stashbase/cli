@@ -73,7 +73,16 @@ fn install_remote_agent_shutdown_handler() {
 }
 
 #[cfg(not(unix))]
-fn install_remote_agent_shutdown_handler() {}
+fn install_remote_agent_shutdown_handler() {
+    // Windows has no Unix-style SIGTERM/SIGHUP handling here, but Ctrl+C is the
+    // normal interactive termination path. End the remote session before exit.
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            crate::api::remote_broker::end_registered_agent_run().await;
+            std::process::exit(130);
+        }
+    });
+}
 
 /// Classifies only the executable basename for remote-session metadata. Never
 /// forward the command path, prompt, or arguments to the control plane.
@@ -990,7 +999,20 @@ fn spawn_remote_session_rotation(
                             if let Ok(mut current) = state.write() {
                                 current.last_rotation_error = Some(error.to_string());
                             }
-                            return;
+                            // Keep the current session active until its stated expiry.
+                            // A malformed replacement response is recoverable; retrying
+                            // later avoids permanently disabling rotation for this run.
+                            let retry = REMOTE_SESSION_ROTATION_RETRY
+                                .min((expires_at - Utc::now()).to_std().unwrap_or_default());
+                            if retry.is_zero() {
+                                return;
+                            }
+                            tokio::select! {
+                                _ = tokio::time::sleep(retry) => {}
+                                _ = stop_rx.changed() => return,
+                            }
+                            retry_pending = true;
+                            continue;
                         }
                     };
                     let old_token = {
