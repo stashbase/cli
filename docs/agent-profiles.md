@@ -40,12 +40,18 @@ Validate a profile before granting it secrets—locally or in CI:
 stashbase agent validate --profile coding
 stashbase agent validate --profile coding --profile-source directory
 stashbase agent validate --profile coding --json
+stashbase agent validate --remote --profile coding
 ```
 
 Validation does not fetch or read secret values and does not start a broker. It
 checks the selected source, local-file availability, duplicate `from` bindings,
 child environment-variable names, host rules, custom header names, and value
 templates. `egress_hosts = ["*"]` is valid but reported as a warning.
+
+Add `--remote` before a remote run to also verify that the profile is compatible
+with a project/environment-backed remote session and that the public remote
+broker CA exists and is valid PEM at `~/.stashbase/remote-broker/broker-ca.pem`.
+This preflight does not authenticate, fetch secrets, or create a remote session.
 
 By default, the broker exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
@@ -406,11 +412,14 @@ stashbase agent doctor curl
 stashbase agent doctor gh
 stashbase agent doctor copilot
 stashbase agent doctor codex
+stashbase agent doctor --remote codex
 ```
 
 It never loads a profile or secret. It verifies that the executable is present,
 starts a temporary no-secret broker, confirms the proxy and temporary CA
 environment it would pass to a child, and reports known compatibility guidance.
+With `--remote`, it also verifies the remote broker CA required for standard
+forward-proxy TLS interception.
 It cannot prove that every release or plugin inside a third-party tool will
 honor proxy settings, so also perform an allowed-host end-to-end test.
 

@@ -116,6 +116,16 @@ pub async fn handle_agent_doctor_command(
         )),
     }
 
+    if command.remote {
+        match crate::handlers::run::broker::remote_broker_ca_file() {
+            Ok(path) => checks.push(ok(
+                "Remote broker CA",
+                format!("Found valid PEM at {}.", path.display()),
+            )),
+            Err(error) => checks.push(fail("Remote broker CA", error.to_string())),
+        }
+    }
+
     let normalized_tool = Path::new(&tool)
         .file_stem()
         .and_then(|name| name.to_str())

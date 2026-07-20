@@ -492,16 +492,7 @@ impl Broker {
             .as_ref()
             .is_some_and(|remote| remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept)
         {
-            let remote_ca = std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .map(|home| home.join(".stashbase/remote-broker/broker-ca.pem"))
-                .context("could not determine the Stashbase remote broker CA path")?;
-            if !remote_ca.is_file() {
-                anyhow::bail!(
-                    "Remote broker CA certificate was not found at {}",
-                    remote_ca.display()
-                );
-            }
+            let remote_ca = remote_broker_ca_file()?;
             // The remote listener, not this local relay, presents certificates in
             // forward-proxy mode. Pass its public CA to the child.
             ca_file = remote_ca;
@@ -717,6 +708,39 @@ fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
     let path = std::env::temp_dir().join(format!("stashbase-broker-ca-{}.pem", Uuid::new_v4()));
     std::fs::write(&path, ca.serialize_pem()?).context("failed to write temporary broker CA")?;
     Ok((ca, path, subject))
+}
+
+/// Returns the control-plane CA used by the standard remote forward proxy.
+/// This is public trust material only; no session token or secret is read.
+pub fn remote_broker_ca_file() -> Result<PathBuf> {
+    let path = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join(".stashbase/remote-broker/broker-ca.pem"))
+        .context("could not determine the Stashbase remote broker CA path")?;
+    validate_remote_broker_ca_file(&path)?;
+    Ok(path)
+}
+
+fn validate_remote_broker_ca_file(path: &Path) -> Result<()> {
+    if !path.is_file() {
+        anyhow::bail!(
+            "Remote broker CA certificate was not found at {}",
+            path.display()
+        );
+    }
+    reqwest::Certificate::from_pem(&fs::read(path).with_context(|| {
+        format!(
+            "could not read remote broker CA certificate at {}",
+            path.display()
+        )
+    })?)
+    .with_context(|| {
+        format!(
+            "remote broker CA certificate at {} is not valid PEM",
+            path.display()
+        )
+    })?;
+    Ok(())
 }
 
 async fn run_listener(
@@ -2128,6 +2152,64 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         let expected_host = address.to_string();
         assert_eq!(host.await.unwrap().as_deref(), Some(expected_host.as_str()));
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn remote_custom_header_is_denied_before_reaching_the_remote_broker() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let remote_address = remote_listener.local_addr().unwrap();
+        let remote = RemoteBrokerConfig {
+            proxy_url: format!("http://{remote_address}/v1/remote-broker/proxy"),
+            session: Arc::new(RwLock::new(RemoteBrokerSessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                "sk-ant-api03-stashbase-placeholder".to_owned(),
+            )]),
+            child_env: HashMap::new(),
+            protocol: RemoteBrokerProtocol::Custom,
+        };
+        let policy = BrokerPolicy {
+            allowed_hosts_by_secret: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                HashSet::from(["api.anthropic.com".to_owned()]),
+            )]),
+            secret_injections: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                SecretInjection {
+                    header: "x-api-key".to_owned(),
+                    value_template: "{secret}".to_owned(),
+                },
+            )]),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::new(),
+            strict_deny: true,
+        };
+        let broker = Broker::start_remote_with_port(remote, policy, None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&broker)
+            .get("http://unapproved.example/test")
+            .header("x-api-key", "sk-ant-api03-stashbase-placeholder")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.bytes().await.unwrap();
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(error.error.code, "broker.credential_host_denied");
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err()
+        );
         broker.stop().await;
     }
 

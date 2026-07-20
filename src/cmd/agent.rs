@@ -62,15 +62,19 @@ pub struct AgentRunCommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent doctor <TOOL>")]
+#[command(override_usage = "agent doctor [--remote] <TOOL>")]
 pub struct AgentDoctorCommand {
+    /// Also verify the remote broker CA required by --remote sessions
+    #[arg(long)]
+    pub remote: bool,
+
     /// Executable to check (for example: curl, gh, node, copilot, or codex)
     pub tool: String,
 }
 
 #[derive(Debug, Args)]
 #[command(
-    override_usage = "agent validate --profile <PROFILE> [--profile-source <auto|global|directory>]"
+    override_usage = "agent validate --profile <PROFILE> [--profile-source <auto|global|directory>] [--remote]"
 )]
 pub struct AgentValidateCommand {
     /// Agent profile to validate
@@ -80,6 +84,10 @@ pub struct AgentValidateCommand {
     /// Where to load the agent profile from
     #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
+
+    /// Also verify requirements for a --remote agent session
+    #[arg(long)]
+    pub remote: bool,
 }
 
 #[derive(Debug, Args)]

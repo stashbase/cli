@@ -214,6 +214,7 @@ Validate a profile without loading any secret before using it:
 
 ```bash
 stashbase agent validate --profile coding
+stashbase agent validate --remote --profile coding
 ```
 
 `agent run` always uses broker mode, exposes only placeholders to the child,

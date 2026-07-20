@@ -96,7 +96,39 @@ pub async fn handle_agent_validate_command(
     }
 
     checks.extend(validate_profile(&profile));
+    if command.remote {
+        checks.extend(validate_remote_profile(&profile));
+    }
     print_report(command.profile, checks, json_format)
+}
+
+fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
+    let mut checks = Vec::new();
+    if profile.file.is_some()
+        || profile.secrets.is_empty()
+        || profile.project.is_none()
+        || profile.environment.is_none()
+    {
+        checks.push(fail(
+            "Remote session profile",
+            "--remote requires project/environment-backed secret bindings and does not support local-file or egress-only profiles."
+                .to_owned(),
+        ));
+    } else {
+        checks.push(ok(
+            "Remote session profile",
+            "Project/environment-backed secret bindings are compatible with --remote.".to_owned(),
+        ));
+    }
+
+    match crate::handlers::run::broker::remote_broker_ca_file() {
+        Ok(path) => checks.push(ok(
+            "Remote broker CA",
+            format!("Found valid PEM at {}.", path.display()),
+        )),
+        Err(error) => checks.push(fail("Remote broker CA", error.to_string())),
+    }
+    checks
 }
 
 fn print_report(profile: String, checks: Vec<Check>, json_format: bool) -> Result<bool> {
