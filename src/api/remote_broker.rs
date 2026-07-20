@@ -70,11 +70,25 @@ pub struct RemoteBrokerSessionRequest {
     pub api_key: String,
     pub project_identifier: String,
     pub environment_identifier: String,
-    pub allowed_hosts: Vec<String>,
+    /// Ordinary destinations the agent may reach without secret injection.
+    /// Per-secret destinations remain in each binding's `hosts` field.
+    pub egress_hosts: Vec<String>,
     pub deny_hosts: Vec<String>,
     pub bindings: Vec<RemoteBinding>,
+    /// Sent only for the initial logical agent session. The control plane keeps
+    /// that value when a replacement session is issued.
+    pub agent_type: Option<String>,
     /// Present only while rotating an existing logical agent session.
     pub previous_session_token: Option<String>,
+}
+
+impl RemoteBrokerSessionRequest {
+    pub fn replacement(&self, previous_session_token: String) -> Self {
+        let mut request = self.clone();
+        request.agent_type = None;
+        request.previous_session_token = Some(previous_session_token);
+        request
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,9 +104,11 @@ pub struct RemoteBrokerSession {
 struct CreateSession<'a> {
     project_id: &'a str,
     environment_id: &'a str,
-    allowed_hosts: &'a [String],
+    egress_hosts: &'a [String],
     deny_hosts: &'a [String],
     bindings: &'a [RemoteBinding],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_type: Option<&'a str>,
 }
 
 pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<RemoteBrokerSession> {
@@ -143,9 +159,10 @@ fn create_session_http_request(
         .json(&CreateSession {
             project_id: &request.project_identifier,
             environment_id: &request.environment_identifier,
-            allowed_hosts: &request.allowed_hosts,
+            egress_hosts: &request.egress_hosts,
             deny_hosts: &request.deny_hosts,
             bindings: &request.bindings,
+            agent_type: request.agent_type.as_deref(),
         });
     if let Some(previous_session_token) = &request.previous_session_token {
         session_request =
@@ -220,9 +237,10 @@ mod tests {
             api_key: "test-api-key".to_owned(),
             project_identifier: "project".to_owned(),
             environment_identifier: "environment".to_owned(),
-            allowed_hosts: vec!["api.example.com".to_owned()],
+            egress_hosts: vec!["api.example.com".to_owned()],
             deny_hosts: Vec::new(),
             bindings: Vec::new(),
+            agent_type: Some("custom".to_owned()),
             previous_session_token: previous_session_token.map(str::to_owned),
         }
     }
@@ -248,6 +266,71 @@ mod tests {
                 .get(reqwest::header::AUTHORIZATION)
                 .unwrap(),
             "Bearer test-api-key"
+        );
+    }
+
+    #[test]
+    fn session_request_keeps_egress_and_secret_destinations_separate() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        session.egress_hosts = vec!["*".to_owned()];
+        session.bindings = vec![RemoteBinding {
+            name: "GH_TOKEN".to_owned(),
+            from: "GH_TOKEN".to_owned(),
+            hosts: vec!["api.github.com".to_owned(), "github.com".to_owned()],
+            header: "authorization".to_owned(),
+            placeholder: "${STASHBASE_GH_TOKEN}".to_owned(),
+            value_template: "Bearer {secret}".to_owned(),
+        }];
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+
+        assert_eq!(body["egress_hosts"], serde_json::json!(["*"]));
+        assert_eq!(
+            body["bindings"][0]["hosts"],
+            serde_json::json!(["api.github.com", "github.com"])
+        );
+        assert!(body.get("allowed_hosts").is_none());
+    }
+
+    #[test]
+    fn replacement_session_omits_the_initial_agent_type() {
+        let client = reqwest::Client::new();
+        let initial = session_request(None);
+        let replacement = initial.replacement("old-token".to_owned());
+        let initial_request = create_session_http_request(&client, &initial)
+            .build()
+            .unwrap();
+        let replacement_request = create_session_http_request(&client, &replacement)
+            .build()
+            .unwrap();
+        let initial_body: serde_json::Value = serde_json::from_slice(
+            initial_request
+                .body()
+                .and_then(reqwest::Body::as_bytes)
+                .unwrap(),
+        )
+        .unwrap();
+        let replacement_body: serde_json::Value = serde_json::from_slice(
+            replacement_request
+                .body()
+                .and_then(reqwest::Body::as_bytes)
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(initial_body["agent_type"], "custom");
+        assert!(replacement_body.get("agent_type").is_none());
+        assert_eq!(
+            replacement_request
+                .headers()
+                .get("X-Stashbase-Previous-Session")
+                .unwrap(),
+            "old-token"
         );
     }
 

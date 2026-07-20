@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    path::Path,
     sync::atomic::Ordering,
     sync::{Arc, RwLock},
     time::Duration,
@@ -73,6 +74,25 @@ fn install_remote_agent_shutdown_handler() {
 
 #[cfg(not(unix))]
 fn install_remote_agent_shutdown_handler() {}
+
+/// Classifies only the executable basename for remote-session metadata. Never
+/// forward the command path, prompt, or arguments to the control plane.
+fn infer_remote_agent_type(command: &[String]) -> &'static str {
+    let executable = command.first().map(String::as_str).unwrap_or_default();
+    let basename = Path::new(executable)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(executable)
+        .to_ascii_lowercase();
+    match basename.as_str() {
+        "codex" => "codex",
+        "claude" | "claude-code" => "claude-code",
+        "copilot" | "github-copilot" => "copilot",
+        "cursor" | "cursor-agent" => "cursor",
+        "opencode" => "opencode",
+        _ => "custom",
+    }
+}
 
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
@@ -443,21 +463,13 @@ pub async fn handle_cli(args: Cli) {
                         if profile.file.is_some() || profile.secrets.is_empty() {
                             anyhow::bail!("--remote currently supports Stashbase-managed secret bindings, not local-file or egress-only profiles.");
                         }
-                        // The remote control plane validates every per-secret destination as a
-                        // member of the session-wide allowlist. Preserve ordinary egress while
-                        // also carrying the already-profiled injection destinations.
-                        let allowed_hosts = profile
+                        // Keep ordinary egress separate from per-secret destinations. The
+                        // control plane applies `egress_hosts` to uncredentialed requests and
+                        // each binding's `hosts` only when it injects that secret.
+                        let egress_hosts = profile
                             .egress_hosts
                             .clone()
                             .unwrap_or_default()
-                            .into_iter()
-                            .chain(
-                                profile
-                                    .secrets
-                                    .values()
-                                    .flat_map(|secret| secret.hosts.iter().cloned()),
-                            )
-                            .collect::<HashSet<_>>()
                             .into_iter()
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
@@ -482,9 +494,10 @@ pub async fn handle_cli(args: Cli) {
                             api_key: api_key.clone(),
                             project_identifier: project,
                             environment_identifier: environment,
-                            allowed_hosts,
+                            egress_hosts,
                             deny_hosts,
                             bindings: bindings.clone(),
+                            agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
                             previous_session_token: None,
                         };
                         let session = crate::api::remote_broker::create_session(&session_request).await?;
@@ -963,8 +976,7 @@ fn spawn_remote_session_rotation(
                 Ok(current) => current.token.clone(),
                 Err(_) => return,
             };
-            let mut replacement_request = request.clone();
-            replacement_request.previous_session_token = Some(previous_session_token);
+            let replacement_request = request.replacement(previous_session_token);
             match crate::api::remote_broker::create_session(&replacement_request).await {
                 Ok(next_session) => {
                     let next_state = match remote_session_state(&next_session) {
@@ -1025,7 +1037,9 @@ fn spawn_remote_session_rotation(
 
 #[cfg(test)]
 mod tests {
-    use super::{configured_host_matches, remote_session_rotation_delay_for};
+    use super::{
+        configured_host_matches, infer_remote_agent_type, remote_session_rotation_delay_for,
+    };
     use std::time::Duration;
 
     #[test]
@@ -1055,5 +1069,19 @@ mod tests {
             remote_session_rotation_delay_for(Duration::from_secs(600)),
             Duration::from_secs(480)
         );
+    }
+
+    #[test]
+    fn remote_agent_type_uses_only_the_executable_basename() {
+        let classify = |value: &str| infer_remote_agent_type(&[value.to_owned()]);
+
+        assert_eq!(classify("/usr/local/bin/codex"), "codex");
+        assert_eq!(classify("codex.exe"), "codex");
+        assert_eq!(classify("claude-code"), "claude-code");
+        assert_eq!(classify("github-copilot"), "copilot");
+        assert_eq!(classify("cursor-agent"), "cursor");
+        assert_eq!(classify("opencode"), "opencode");
+        assert_eq!(classify("my-wrapper"), "custom");
+        assert_eq!(infer_remote_agent_type(&[]), "custom");
     }
 }
