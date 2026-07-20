@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use tokio::{sync::watch, task::JoinHandle};
 
@@ -550,6 +551,13 @@ pub async fn handle_cli(args: Cli) {
                                 anyhow::bail!("Remote broker returned an unsupported protocol: {value}");
                             }
                         };
+                        let remote_ca_file = match provision_remote_session_ca(&session) {
+                            Ok(path) => path,
+                            Err(error) => {
+                                crate::api::remote_broker::revoke_session(api_key.clone(), &token).await;
+                                return Err(error);
+                            }
+                        };
                         let proxy_url = session.proxy_url.clone();
                         let initial_state = match remote_session_state(&session) {
                             Ok(state) => state,
@@ -576,7 +584,7 @@ pub async fn handle_cli(args: Cli) {
                         let result = handle_remote_agent_run(
                             agent_run.command,
                             policy,
-                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol },
+                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
                             agent_run.broker_port,
                             agent_run.sandbox,
                             agent_run.trust_broker_ca,
@@ -932,6 +940,21 @@ fn remote_session_state(
     })
 }
 
+/// Forward-proxy sessions need the public interception CA before the child is
+/// spawned. Custom-header sessions do not use a TLS-intercepting proxy.
+fn provision_remote_session_ca(
+    session: &crate::api::remote_broker::RemoteBrokerSession,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    if session.protocol == "http/1.1-forward-proxy-tls-intercept" {
+        let certificate = session
+            .broker_ca
+            .as_ref()
+            .context("remote broker session did not include its TLS interception CA")?;
+        return crate::handlers::run::broker::provision_remote_broker_ca(certificate).map(Some);
+    }
+    Ok(None)
+}
+
 fn remote_session_rotation_delay(expires_at: DateTime<Utc>) -> Duration {
     let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
     remote_session_rotation_delay_for(remaining)
@@ -988,7 +1011,9 @@ fn spawn_remote_session_rotation(
             let replacement_request = request.replacement(previous_session_token);
             match crate::api::remote_broker::create_session(&replacement_request).await {
                 Ok(next_session) => {
-                    let next_state = match remote_session_state(&next_session) {
+                    let next_state = match provision_remote_session_ca(&next_session)
+                        .and_then(|_| remote_session_state(&next_session))
+                    {
                         Ok(next_state) => next_state,
                         Err(error) => {
                             crate::api::remote_broker::revoke_session(

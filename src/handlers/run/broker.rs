@@ -43,6 +43,7 @@ use rustls::{
 };
 use rustls_platform_verifier::BuilderVerifierExt;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::{
     io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -306,6 +307,9 @@ pub struct RemoteBrokerConfig {
     /// Maps a profile binding name to the child environment variable name.
     pub child_env: HashMap<String, String>,
     pub protocol: RemoteBrokerProtocol,
+    /// Key-ID-specific public CA cached from the session response. It is pinned
+    /// for this child run so a later CA rotation cannot overwrite its trust file.
+    pub ca_file: Option<PathBuf>,
 }
 
 /// The currently usable remote session. The rotation task replaces this atomically
@@ -359,6 +363,7 @@ impl std::fmt::Debug for RemoteBrokerConfig {
             .field("placeholders", &self.placeholders)
             .field("child_env", &self.child_env)
             .field("protocol", &self.protocol)
+            .field("ca_file", &self.ca_file)
             .finish()
     }
 }
@@ -492,7 +497,10 @@ impl Broker {
             .as_ref()
             .is_some_and(|remote| remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept)
         {
-            let remote_ca = remote_broker_ca_file()?;
+            let remote_ca = remote
+                .as_ref()
+                .and_then(|remote| remote.ca_file.clone())
+                .context("remote forward-proxy session did not provide a cached CA file")?;
             // The remote listener, not this local relay, presents certificates in
             // forward-proxy mode. Pass its public CA to the child.
             ca_file = remote_ca;
@@ -712,13 +720,101 @@ fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
 
 /// Returns the control-plane CA used by the standard remote forward proxy.
 /// This is public trust material only; no session token or secret is read.
-pub fn remote_broker_ca_file() -> Result<PathBuf> {
-    let path = std::env::var_os("HOME")
+/// Returns valid key-ID-specific CA files already cached locally. A missing
+/// cache is expected before the first remote run.
+pub fn cached_remote_broker_ca_files() -> Result<Vec<PathBuf>> {
+    let directory = remote_broker_ca_directory()?;
+    if !directory.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files = fs::read_dir(&directory)?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "pem"))
+        .collect::<Vec<_>>();
+    for path in &files {
+        validate_remote_broker_ca_file(path)?;
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Caches the public CA delivered with a remote forward-proxy session. The
+/// backend digest is verified before any file is trusted by a child process.
+pub fn provision_remote_broker_ca(
+    certificate: &crate::api::remote_broker::RemoteBrokerCa,
+) -> Result<PathBuf> {
+    provision_remote_broker_ca_at(&remote_broker_ca_directory()?, certificate)
+}
+
+fn provision_remote_broker_ca_at(
+    directory: &Path,
+    certificate: &crate::api::remote_broker::RemoteBrokerCa,
+) -> Result<PathBuf> {
+    let actual_sha256 = format!("{:x}", Sha256::digest(certificate.pem.as_bytes()));
+    if actual_sha256 != certificate.sha256 {
+        anyhow::bail!("remote broker CA digest did not match the session response");
+    }
+    reqwest::Certificate::from_pem(certificate.pem.as_bytes())
+        .context("remote broker session returned an invalid CA PEM")?;
+
+    fs::create_dir_all(&directory).with_context(|| {
+        format!(
+            "could not create remote broker CA directory at {}",
+            directory.display()
+        )
+    })?;
+    #[cfg(unix)]
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+
+    let certificate_path = remote_broker_ca_path(directory, &certificate.key_id)?;
+    if validate_remote_broker_ca_file(&certificate_path).is_ok()
+        && fs::read_to_string(&certificate_path)
+            .map(|pem| format!("{:x}", Sha256::digest(pem.as_bytes())) == certificate.sha256)
+            .unwrap_or(false)
+    {
+        return Ok(certificate_path);
+    }
+
+    write_remote_broker_ca_file(&certificate_path, certificate.pem.as_bytes())?;
+    Ok(certificate_path)
+}
+
+fn remote_broker_ca_path(directory: &Path, key_id: &str) -> Result<PathBuf> {
+    if key_id.is_empty()
+        || matches!(key_id, "." | "..")
+        || !key_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    {
+        anyhow::bail!("remote broker session returned an unsafe CA key ID");
+    }
+    Ok(directory.join(format!("{key_id}.pem")))
+}
+
+fn remote_broker_ca_directory() -> Result<PathBuf> {
+    std::env::var_os("HOME")
         .map(PathBuf::from)
-        .map(|home| home.join(".stashbase/remote-broker/broker-ca.pem"))
-        .context("could not determine the Stashbase remote broker CA path")?;
-    validate_remote_broker_ca_file(&path)?;
-    Ok(path)
+        .map(|home| home.join(".stashbase/remote-broker"))
+        .context("could not determine the Stashbase remote broker CA path")
+}
+
+fn write_remote_broker_ca_file(path: &Path, contents: &[u8]) -> Result<()> {
+    let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    fs::write(&temporary, contents).with_context(|| {
+        format!(
+            "could not write remote broker CA cache at {}",
+            temporary.display()
+        )
+    })?;
+    #[cfg(unix)]
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+    fs::rename(&temporary, path).with_context(|| {
+        format!(
+            "could not update remote broker CA cache at {}",
+            path.display()
+        )
+    })
 }
 
 fn validate_remote_broker_ca_file(path: &Path) -> Result<()> {
@@ -2060,6 +2156,7 @@ mod tests {
             placeholders: HashMap::new(),
             child_env: HashMap::new(),
             protocol: RemoteBrokerProtocol::ForwardProxyTlsIntercept,
+            ca_file: None,
         };
 
         assert!(!format!("{config:?}").contains("do-not-log"));
@@ -2117,6 +2214,34 @@ mod tests {
     }
 
     #[test]
+    fn remote_broker_ca_cache_verifies_and_writes_the_session_certificate() {
+        let directory =
+            std::env::temp_dir().join(format!("stashbase-remote-ca-{}", Uuid::new_v4()));
+        let (_, generated_path, _) = create_certificate_authority().unwrap();
+        let pem = fs::read_to_string(&generated_path).unwrap();
+        let certificate = crate::api::remote_broker::RemoteBrokerCa {
+            key_id: "test-ca".to_owned(),
+            sha256: format!("{:x}", Sha256::digest(pem.as_bytes())),
+            pem: pem.clone(),
+        };
+
+        let path = provision_remote_broker_ca_at(&directory, &certificate).unwrap();
+
+        assert_eq!(path.file_name().unwrap(), "test-ca.pem");
+        assert_eq!(fs::read_to_string(&path).unwrap(), pem);
+        assert!(!directory.join("broker-ca.json").exists());
+
+        let invalid = crate::api::remote_broker::RemoteBrokerCa {
+            sha256: "0".repeat(64),
+            ..certificate
+        };
+        assert!(provision_remote_broker_ca_at(&directory, &invalid).is_err());
+        assert!(remote_broker_ca_path(&directory, "../unsafe").is_err());
+        fs::remove_file(generated_path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn authority_parser_handles_bracketed_ipv6() {
         assert_eq!(host_from_authority("[::1]:443"), "::1");
         assert_eq!(
@@ -2138,6 +2263,7 @@ mod tests {
             placeholders: HashMap::new(),
             child_env: HashMap::new(),
             protocol: RemoteBrokerProtocol::Custom,
+            ca_file: None,
         };
         let broker = Broker::start_remote_with_port(remote, BrokerPolicy::permissive(), None, None)
             .await
@@ -2172,6 +2298,7 @@ mod tests {
             )]),
             child_env: HashMap::new(),
             protocol: RemoteBrokerProtocol::Custom,
+            ca_file: None,
         };
         let policy = BrokerPolicy {
             allowed_hosts_by_secret: HashMap::from([(
@@ -2262,6 +2389,7 @@ mod tests {
             placeholders: HashMap::new(),
             child_env: HashMap::new(),
             protocol: RemoteBrokerProtocol::ForwardProxyTlsIntercept,
+            ca_file: None,
         };
 
         let error = match establish_remote_connect("api.example.com:443", &remote).await {

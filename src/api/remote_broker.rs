@@ -98,6 +98,16 @@ pub struct RemoteBrokerSession {
     pub expires_at: String,
     pub proxy_url: String,
     pub protocol: String,
+    pub broker_ca: Option<RemoteBrokerCa>,
+}
+
+/// Public trust material for the remote TLS-intercepting forward proxy. This
+/// never contains a private key or any credential.
+#[derive(Debug, Deserialize)]
+pub struct RemoteBrokerCa {
+    pub key_id: String,
+    pub sha256: String,
+    pub pem: String,
 }
 
 #[derive(Serialize)]

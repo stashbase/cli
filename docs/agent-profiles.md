@@ -49,9 +49,12 @@ child environment-variable names, host rules, custom header names, and value
 templates. `egress_hosts = ["*"]` is valid but reported as a warning.
 
 Add `--remote` before a remote run to also verify that the profile is compatible
-with a project/environment-backed remote session and that the public remote
-broker CA exists and is valid PEM at `~/.stashbase/remote-broker/broker-ca.pem`.
-This preflight does not authenticate, fetch secrets, or create a remote session.
+with a project/environment-backed remote session and inspect cached public
+remote broker CAs at `~/.stashbase/remote-broker/<key_id>.pem`. On first use,
+the CLI provisions that public CA from the authenticated session response,
+verifies its SHA-256 digest, and caches it atomically. A missing cache is a
+warning, not a validation failure. This preflight does not authenticate, fetch
+secrets, or create a remote session.
 
 By default, the broker exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
