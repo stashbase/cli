@@ -511,6 +511,14 @@ pub async fn handle_cli(args: Cli) {
                             previous_session_token: None,
                         };
                         let session = crate::api::remote_broker::create_session(&session_request).await?;
+                        // Show the control-plane response for remote-proxy diagnostics,
+                        // but never expose its opaque bearer token.
+                        let session_output = serde_json::to_string_pretty(&session.safe_debug_json())?;
+                        if raw_output {
+                            println!("{session_output}");
+                        } else if !silent {
+                            eprintln!("Remote agent proxy session:\n{session_output}");
+                        }
                         let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
@@ -548,7 +556,7 @@ pub async fn handle_cli(args: Cli) {
                             "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::broker::RemoteBrokerProtocol::ForwardProxyTlsIntercept,
                             value => {
                                 crate::api::remote_broker::revoke_session(api_key.clone(), &token).await;
-                                anyhow::bail!("Remote broker returned an unsupported protocol: {value}");
+                                anyhow::bail!("Agent Proxy returned an unsupported protocol: {value}");
                             }
                         };
                         let remote_ca_file = match provision_remote_session_ca(&session) {
@@ -930,7 +938,7 @@ fn remote_session_state(
 ) -> anyhow::Result<crate::handlers::run::broker::RemoteBrokerSessionState> {
     let expires_at = DateTime::parse_from_rfc3339(&session.expires_at)
         .map_err(|error| {
-            anyhow::anyhow!("remote broker returned an invalid session expiry: {error}")
+            anyhow::anyhow!("Agent Proxy returned an invalid session expiry: {error}")
         })?
         .with_timezone(&Utc);
     Ok(crate::handlers::run::broker::RemoteBrokerSessionState {
@@ -949,7 +957,7 @@ fn provision_remote_session_ca(
         let certificate = session
             .broker_ca
             .as_ref()
-            .context("remote broker session did not include its TLS interception CA")?;
+            .context("Agent Proxy session did not include its TLS interception CA")?;
         return crate::handlers::run::broker::provision_remote_broker_ca(certificate).map(Some);
     }
     Ok(None)

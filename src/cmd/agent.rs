@@ -64,7 +64,7 @@ pub struct AgentRunCommand {
 #[derive(Debug, Args)]
 #[command(override_usage = "agent doctor [--remote] <TOOL>")]
 pub struct AgentDoctorCommand {
-    /// Also verify the remote broker CA required by --remote sessions
+    /// Also verify the remote Agent Proxy CA required by --remote sessions
     #[arg(long)]
     pub remote: bool,
 

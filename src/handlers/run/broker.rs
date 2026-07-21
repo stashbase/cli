@@ -339,16 +339,14 @@ impl RemoteBrokerConfig {
         let session = self
             .session
             .read()
-            .map_err(|_| anyhow::anyhow!("remote broker session state is unavailable"))?;
+            .map_err(|_| anyhow::anyhow!("Agent Proxy session state is unavailable"))?;
         if Utc::now() >= session.expires_at {
             let suffix = session
                 .last_rotation_error
                 .as_deref()
                 .map(|error| format!(" (last rotation attempt failed: {error})"))
                 .unwrap_or_default();
-            anyhow::bail!(
-                "remote broker session expired; a new connection cannot be opened{suffix}"
-            );
+            anyhow::bail!("Agent Proxy session expired; a new connection cannot be opened{suffix}");
         }
         Ok(session.token.clone())
     }
@@ -753,14 +751,14 @@ fn provision_remote_broker_ca_at(
 ) -> Result<PathBuf> {
     let actual_sha256 = format!("{:x}", Sha256::digest(certificate.pem.as_bytes()));
     if actual_sha256 != certificate.sha256 {
-        anyhow::bail!("remote broker CA digest did not match the session response");
+        anyhow::bail!("Agent Proxy CA digest did not match the session response");
     }
     reqwest::Certificate::from_pem(certificate.pem.as_bytes())
-        .context("remote broker session returned an invalid CA PEM")?;
+        .context("Agent Proxy session returned an invalid CA PEM")?;
 
     fs::create_dir_all(&directory).with_context(|| {
         format!(
-            "could not create remote broker CA directory at {}",
+            "could not create Agent Proxy CA directory at {}",
             directory.display()
         )
     })?;
@@ -787,7 +785,7 @@ fn remote_broker_ca_path(directory: &Path, key_id: &str) -> Result<PathBuf> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
     {
-        anyhow::bail!("remote broker session returned an unsafe CA key ID");
+        anyhow::bail!("Agent Proxy session returned an unsafe CA key ID");
     }
     Ok(directory.join(format!("{key_id}.pem")))
 }
@@ -796,14 +794,14 @@ fn remote_broker_ca_directory() -> Result<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .map(|home| home.join(".stashbase/remote-broker"))
-        .context("could not determine the Stashbase remote broker CA path")
+        .context("could not determine the Stashbase Agent Proxy CA path")
 }
 
 fn write_remote_broker_ca_file(path: &Path, contents: &[u8]) -> Result<()> {
     let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
     fs::write(&temporary, contents).with_context(|| {
         format!(
-            "could not write remote broker CA cache at {}",
+            "could not write Agent Proxy CA cache at {}",
             temporary.display()
         )
     })?;
@@ -811,7 +809,7 @@ fn write_remote_broker_ca_file(path: &Path, contents: &[u8]) -> Result<()> {
     fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
     fs::rename(&temporary, path).with_context(|| {
         format!(
-            "could not update remote broker CA cache at {}",
+            "could not update Agent Proxy CA cache at {}",
             path.display()
         )
     })
@@ -820,19 +818,19 @@ fn write_remote_broker_ca_file(path: &Path, contents: &[u8]) -> Result<()> {
 fn validate_remote_broker_ca_file(path: &Path) -> Result<()> {
     if !path.is_file() {
         anyhow::bail!(
-            "Remote broker CA certificate was not found at {}",
+            "Agent Proxy CA certificate was not found at {}",
             path.display()
         );
     }
     reqwest::Certificate::from_pem(&fs::read(path).with_context(|| {
         format!(
-            "could not read remote broker CA certificate at {}",
+            "could not read Agent Proxy CA certificate at {}",
             path.display()
         )
     })?)
     .with_context(|| {
         format!(
-            "remote broker CA certificate at {} is not valid PEM",
+            "Agent Proxy CA certificate at {} is not valid PEM",
             path.display()
         )
     })?;
@@ -940,7 +938,7 @@ fn proxy_request(
                             return Ok(broker_error_response(
                                 StatusCode::BAD_GATEWAY,
                                 "broker.remote_connect_failed",
-                                "Unable to establish remote broker tunnel",
+                                "Unable to establish Agent Proxy tunnel",
                             ));
                         }
                     },
@@ -1144,7 +1142,7 @@ fn proxy_request(
                     return Ok(broker_error_response(
                         StatusCode::BAD_GATEWAY,
                         "broker.session_invalid",
-                        "Remote broker returned an invalid session token",
+                        "Agent Proxy returned an invalid session token",
                     ))
                 }
             };
@@ -1155,7 +1153,7 @@ fn proxy_request(
                     return Ok(broker_error_response(
                         StatusCode::BAD_GATEWAY,
                         "broker.session_invalid",
-                        "Remote broker returned an invalid proxy URL",
+                        "Agent Proxy returned an invalid proxy URL",
                     ))
                 }
             };
@@ -1168,7 +1166,7 @@ fn proxy_request(
                     return Ok(broker_error_response(
                         StatusCode::BAD_GATEWAY,
                         "broker.session_invalid",
-                        "Remote broker returned an invalid proxy URL",
+                        "Agent Proxy returned an invalid proxy URL",
                     ))
                 }
             };
@@ -1292,7 +1290,7 @@ async fn establish_remote_connect(
     let timeout = Duration::from_secs(REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30));
     let mut upstream = tokio::time::timeout(timeout, connect_remote_proxy(&proxy))
         .await
-        .context("remote broker CONNECT setup timed out")??;
+        .context("Agent Proxy CONNECT setup timed out")??;
     tokio::time::timeout(timeout, async {
         upstream
             .write_all(
@@ -1306,7 +1304,7 @@ async fn establish_remote_connect(
         read_connect_response(&mut upstream).await
     })
     .await
-    .context("remote broker CONNECT handshake timed out")??;
+    .context("Agent Proxy CONNECT handshake timed out")??;
     Ok(upstream)
 }
 
@@ -1321,7 +1319,7 @@ async fn read_connect_response(upstream: &mut (dyn AsyncStream + 'static)) -> Re
         }
     }
     if !response.starts_with(b"HTTP/1.1 200") && !response.starts_with(b"HTTP/1.0 200") {
-        anyhow::bail!("remote broker rejected CONNECT");
+        anyhow::bail!("Agent Proxy rejected CONNECT");
     }
     Ok(())
 }
@@ -1419,7 +1417,14 @@ async fn forward_remote_upgrade(
             started,
         ));
     };
-    let port = proxy.port_or_known_default().unwrap_or(443);
+    let Some(port) = proxy.port_or_known_default() else {
+        return Ok(upgrade_error_response(
+            &state,
+            host.as_deref(),
+            secret_name.as_deref(),
+            started,
+        ));
+    };
     let stream = match TcpStream::connect(format!("{proxy_host}:{port}")).await {
         Ok(stream) => stream,
         Err(_) => {
