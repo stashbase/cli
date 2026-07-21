@@ -106,32 +106,6 @@ pub struct RemoteBrokerSession {
     pub broker_ca: Option<RemoteBrokerCa>,
 }
 
-impl RemoteBrokerSession {
-    /// Returns the session-creation response in a form that is safe to show to
-    /// the user for diagnostics. The opaque session token is intentionally
-    /// redacted: it is authentication material and must remain memory-only.
-    pub fn safe_debug_json(&self) -> serde_json::Value {
-        let broker_ca = self.broker_ca.as_ref().map(|certificate| {
-            serde_json::json!({
-                "key_id": certificate.key_id,
-                "sha256": certificate.sha256,
-                // This is public CA material (never a private key). Showing it
-                // makes it possible to verify the control-plane response while
-                // diagnosing first-run CA provisioning.
-                "pem": certificate.pem,
-            })
-        });
-        serde_json::json!({
-            "session_id": self.session_id,
-            "session_token": "[REDACTED]",
-            "expires_at": self.expires_at,
-            "proxy_url": self.proxy_url,
-            "protocol": self.protocol,
-            "broker_ca": broker_ca,
-        })
-    }
-}
-
 /// Public trust material for the remote TLS-intercepting forward proxy. This
 /// never contains a private key or any credential.
 #[derive(Debug, Deserialize)]
@@ -397,26 +371,5 @@ mod tests {
             request.headers().get("X-Stashbase-End-Agent-Run").unwrap(),
             "true"
         );
-    }
-
-    #[test]
-    fn safe_session_debug_json_redacts_the_session_token() {
-        let session = RemoteBrokerSession {
-            session_id: "session-id".to_owned(),
-            session_token: "opaque-session-token".to_owned(),
-            expires_at: "2026-07-20T12:00:00Z".to_owned(),
-            proxy_url: "https://api.stashbase.dev/v1/agent-proxy/proxy".to_owned(),
-            protocol: "http/1.1-forward-proxy-tls-intercept".to_owned(),
-            broker_ca: Some(RemoteBrokerCa {
-                key_id: "test-ca".to_owned(),
-                sha256: "abc123".to_owned(),
-                pem: "-----BEGIN CERTIFICATE-----\\n...".to_owned(),
-            }),
-        };
-
-        let output = session.safe_debug_json();
-        assert_eq!(output["session_token"], "[REDACTED]");
-        assert!(!output.to_string().contains("opaque-session-token"));
-        assert_eq!(output["broker_ca"]["key_id"], "test-ca");
     }
 }

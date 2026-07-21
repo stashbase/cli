@@ -511,14 +511,6 @@ pub async fn handle_cli(args: Cli) {
                             previous_session_token: None,
                         };
                         let session = crate::api::remote_broker::create_session(&session_request).await?;
-                        // Show the control-plane response for remote-proxy diagnostics,
-                        // but never expose its opaque bearer token.
-                        let session_output = serde_json::to_string_pretty(&session.safe_debug_json())?;
-                        if raw_output {
-                            println!("{session_output}");
-                        } else if !silent {
-                            eprintln!("Remote agent proxy session:\n{session_output}");
-                        }
                         let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
