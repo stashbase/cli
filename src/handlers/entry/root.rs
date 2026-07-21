@@ -510,7 +510,12 @@ pub async fn handle_cli(args: Cli) {
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
                             previous_session_token: None,
                         };
-                        let session = crate::api::remote_broker::create_session(&session_request, raw_output).await?;
+                        let session = crate::api::remote_broker::create_session(&session_request, raw_output)
+                            .await
+                            // The Agent Proxy setup follows startup warnings. Keep its
+                            // formatted API error visually distinct without changing
+                            // output spacing for every other CLI command.
+                            .map_err(|error| anyhow::anyhow!("\n{error}"))?;
                         let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
@@ -759,9 +764,6 @@ pub async fn handle_cli(args: Cli) {
             if REQUEST_ABORTED.load(Ordering::SeqCst) {
                 eprintln!("{}", "Request aborted".red_if_tty_stderr());
                 return;
-            }
-            if !silent {
-                eprintln!();
             }
             eprintln!("{:?}", err);
             if let Some(command_failed) = err.downcast_ref::<CommandFailed>() {
