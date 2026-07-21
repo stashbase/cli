@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::{sync::Mutex, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use once_cell::sync::Lazy;
@@ -17,6 +17,11 @@ struct ActiveAgentRunCleanup {
 // putting an API key or session token in the child environment.
 static ACTIVE_AGENT_RUN_CLEANUP: Lazy<Mutex<Option<ActiveAgentRunCleanup>>> =
     Lazy::new(|| Mutex::new(None));
+
+// Cleanup is best-effort because server-side expiry remains the safe fallback.
+// Do not make an interactive agent wait for Reqwest's default timeout when the
+// control plane is unavailable during shutdown or session rotation.
+const CLEANUP_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn register_agent_run_cleanup(api_key: String, session_token: String) {
     if let Ok(mut active) = ACTIVE_AGENT_RUN_CLEANUP.lock() {
@@ -216,10 +221,13 @@ pub async fn end_agent_run(api_key: String, session_token: &str) {
 }
 
 async fn delete_session(api_key: String, session_token: &str, end_agent_run: bool) {
-    let client = reqwest::Client::builder()
+    let Ok(client) = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
+        .timeout(CLEANUP_REQUEST_TIMEOUT)
         .build()
-        .expect("remote broker revoke client configuration is valid");
+    else {
+        return;
+    };
     let _ = delete_session_http_request(&client, api_key, session_token, end_agent_run)
         .send()
         .await;
@@ -247,10 +255,14 @@ fn delete_session_http_request(
 /// Marks a replaced session for the server-side grace period. The raw token is
 /// supplied only as a request header and is never persisted by the CLI.
 pub async fn retire_session(api_key: String, session_token: &str) {
-    let _ = reqwest::Client::builder()
+    let Ok(client) = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
+        .timeout(CLEANUP_REQUEST_TIMEOUT)
         .build()
-        .expect("remote broker retire client configuration is valid")
+    else {
+        return;
+    };
+    let _ = client
         .post(format!(
             "{}/v1/agent-proxy/sessions/current/retire",
             client::get_api_url()

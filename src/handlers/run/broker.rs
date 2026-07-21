@@ -880,7 +880,11 @@ fn proxy_request(
                     "CONNECT requires an authority",
                 ));
             };
-            if !state.host_allowed(Some(host_from_authority(&authority))) {
+            // CONNECT happens before the TLS request headers are available. A
+            // secret-only host may therefore open a provisional tunnel, but the
+            // intercepted HTTP request still must carry an allowed placeholder
+            // unless the host is also ordinary egress.
+            if !state.host_allowed_for_connect(Some(host_from_authority(&authority))) {
                 debug!(
                     "broker denied destination: {}",
                     host_from_authority(&authority)
@@ -991,7 +995,7 @@ fn proxy_request(
         }
 
         let host = request_host(&request, connect_authority.as_deref());
-        if !state.host_allowed(host.as_deref()) {
+        if state.host_is_denied(host.as_deref()) {
             debug!(
                 "broker denied destination: {}",
                 host.as_deref().unwrap_or("unknown")
@@ -1025,23 +1029,6 @@ fn proxy_request(
                 "Broker received an unknown credential placeholder",
             ));
         }
-        if let Some(remote) = &state.remote {
-            if let Err(error) = remote.token_for_new_connection() {
-                state.record_audit(
-                    "session_expired",
-                    host.as_deref(),
-                    Some(request.method()),
-                    None,
-                    Some(StatusCode::SERVICE_UNAVAILABLE),
-                    Some(started.elapsed()),
-                );
-                return Ok(broker_error_response(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "broker.session_expired",
-                    &error.to_string(),
-                ));
-            }
-        }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
             Ok(secret_name) => secret_name,
             Err(secret_name) => {
@@ -1064,6 +1051,41 @@ fn proxy_request(
                 ));
             }
         };
+        // A per-secret host is not general egress. It is permitted only when
+        // this request carries that secret's configured placeholder; all other
+        // traffic must be explicitly listed in `egress_hosts`.
+        if secret_name.is_none() && !state.host_allowed_for_ordinary_request(host.as_deref()) {
+            state.record_audit(
+                "host_denied",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(broker_error_response(
+                StatusCode::FORBIDDEN,
+                "broker.host_denied",
+                "Broker policy denied destination",
+            ));
+        }
+        if let Some(remote) = &state.remote {
+            if let Err(error) = remote.token_for_new_connection() {
+                state.record_audit(
+                    "session_expired",
+                    host.as_deref(),
+                    Some(request.method()),
+                    secret_name.as_deref(),
+                    Some(StatusCode::SERVICE_UNAVAILABLE),
+                    Some(started.elapsed()),
+                );
+                return Ok(broker_error_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "broker.session_expired",
+                    &error.to_string(),
+                ));
+            }
+        }
         // Reqwest deliberately does not support HTTP upgrade responses. Coding agents
         // such as Codex use a WSS connection for streaming, so tunnel an upgraded
         // connection after applying the same destination and placeholder checks.
@@ -1861,12 +1883,24 @@ async fn serve_tls_connection(
 }
 
 impl BrokerState {
-    fn host_allowed(&self, host: Option<&str>) -> bool {
+    fn host_is_denied(&self, host: Option<&str>) -> bool {
+        host.is_some_and(|host| policy_denies_host(&self.policy, host))
+    }
+
+    fn host_allowed_for_connect(&self, host: Option<&str>) -> bool {
         let Some(host) = host else {
             return !self.policy.strict_deny;
         };
         !policy_denies_host(&self.policy, host)
-            && (!self.policy.strict_deny || policy_allows_host(&self.policy, host))
+            && (!self.policy.strict_deny || policy_allows_connect(&self.policy, host))
+    }
+
+    fn host_allowed_for_ordinary_request(&self, host: Option<&str>) -> bool {
+        let Some(host) = host else {
+            return !self.policy.strict_deny;
+        };
+        !policy_denies_host(&self.policy, host)
+            && (!self.policy.strict_deny || policy_allows_egress(&self.policy, host))
     }
 
     fn record_audit(
@@ -1884,15 +1918,19 @@ impl BrokerState {
     }
 }
 
-fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
+fn policy_allows_connect(policy: &BrokerPolicy, host: &str) -> bool {
     policy
         .allowed_hosts_by_secret
         .values()
         .any(|hosts| hosts.iter().any(|allowed| host_matches(allowed, host)))
-        || policy
-            .allowed_egress_hosts
-            .iter()
-            .any(|allowed| allowed == "*" || host_matches(allowed, host))
+        || policy_allows_egress(policy, host)
+}
+
+fn policy_allows_egress(policy: &BrokerPolicy, host: &str) -> bool {
+    policy
+        .allowed_egress_hosts
+        .iter()
+        .any(|allowed| allowed == "*" || host_matches(allowed, host))
 }
 
 fn policy_denies_host(policy: &BrokerPolicy, host: &str) -> bool {
@@ -2565,7 +2603,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_policy_allows_only_configured_hosts() {
+    fn strict_policy_only_allows_secret_hosts_during_connect() {
         let policy = BrokerPolicy {
             allowed_hosts_by_secret: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
@@ -2577,8 +2615,9 @@ mod tests {
             strict_deny: true,
         };
 
-        assert!(policy_allows_host(&policy, "api.github.com"));
-        assert!(!policy_allows_host(&policy, "example.com"));
+        assert!(policy_allows_connect(&policy, "api.github.com"));
+        assert!(!policy_allows_egress(&policy, "api.github.com"));
+        assert!(!policy_allows_connect(&policy, "example.com"));
     }
 
     #[test]
@@ -2604,7 +2643,7 @@ mod tests {
             strict_deny: true,
         };
 
-        assert!(policy_allows_host(&policy, "example.com"));
+        assert!(policy_allows_egress(&policy, "example.com"));
         assert!(!policy.allowed_hosts_by_secret["**STASHBASE_GH_TOKEN**"]
             .iter()
             .any(|allowed| host_matches(allowed, "example.com")));
@@ -2635,8 +2674,8 @@ mod tests {
             remote: None,
         };
 
-        assert!(state.host_allowed(Some("chatgpt.com")));
-        assert!(!state.host_allowed(Some("api.stashbase.dev")));
+        assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
+        assert!(!state.host_allowed_for_connect(Some("api.stashbase.dev")));
     }
 
     #[tokio::test]
@@ -2662,6 +2701,40 @@ mod tests {
             authorization.await.unwrap().as_deref(),
             Some("Bearer real-token")
         );
+        broker.stop().await;
+    }
+
+    #[tokio::test]
+    async fn secret_hosts_do_not_grant_ordinary_egress() {
+        let (address, authorization) = start_backend().await;
+        let policy = BrokerPolicy {
+            allowed_hosts_by_secret: HashMap::from([(
+                "GH_TOKEN".to_owned(),
+                HashSet::from(["127.0.0.1".to_owned()]),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            strict_deny: true,
+        };
+        let broker = Broker::start(
+            HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&broker)
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(timeout(Duration::from_millis(100), authorization)
+            .await
+            .is_err());
+
         broker.stop().await;
     }
 
