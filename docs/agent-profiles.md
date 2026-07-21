@@ -1,8 +1,8 @@
-# Agent broker profile cookbook
+# Agent Proxy profile cookbook
 
 > **Early access — local exposure reduction, not hostile-agent isolation.**
 > Agent profiles keep their granted secrets out of a child environment and
-> inject them only through the supported HTTP(S) broker. They do not prevent a
+> inject them only through the supported HTTP(S) proxy. They do not prevent a
 > malicious process running as the same user from accessing broader Stashbase
 > credentials or bypassing this workflow.
 
@@ -13,7 +13,7 @@ directory. Run one with:
 stashbase agent run --profile <name> -- <command>
 ```
 
-## Remote broker sessions
+## Remote Agent Proxy sessions
 
 For a project/environment-backed profile whose secrets are stored in Stashbase,
 add `--remote` to resolve and retain credentials only in the control plane:
@@ -22,13 +22,21 @@ add `--remote` to resolve and retain credentials only in the control plane:
 stashbase agent run --remote --profile coding -- codex
 ```
 
-The CLI authenticates normally, creates one 10-minute scoped session, and
+The CLI authenticates normally, creates one short-lived scoped session, and
 passes only `${STASHBASE_SECRET_NAME}` placeholders to the child. The opaque
-token is memory-only and revoked when the child exits. **Remote Broker Beta is
-not a generic proxy:** it is only for integrations that explicitly use the
-Stashbase custom request transport. HTTP/1 WebSocket upgrades are relayed for
-agent streaming connections; HTTP/2, generic MCP proxying, browsers, and
-ordinary SDK proxy configuration are outside the Beta transport scope.
+session token is memory-only and revoked when the child exits.
+
+The child uses a temporary localhost proxy through its normal `HTTP_PROXY` and
+`HTTPS_PROXY` settings. That relay attaches the session token to the remote
+Agent Proxy and keeps both the token and resolved secret values out of the
+child environment. Forward-proxy TLS-intercept sessions also provision the
+remote public CA for the child, enabling supported existing coding agents such
+as Codex, Copilot, and Claude Code to use their ordinary HTTP(S) transports.
+
+Remote Agent Proxy is not a general network sandbox: SSH, databases, raw TCP,
+browsers, and a tool that deliberately bypasses proxy settings are outside its
+scope. HTTP/1 WebSocket upgrades used by supported coding agents are relayed;
+HTTP/2 proxying and arbitrary third-party proxy integrations remain unsupported.
 
 The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
 present and otherwise falls back to the user-level config. Use
@@ -50,18 +58,19 @@ templates. `egress_hosts = ["*"]` is valid but reported as a warning.
 
 Add `--remote` before a remote run to also verify that the profile is compatible
 with a project/environment-backed remote session and inspect cached public
-remote broker CAs at `~/.stashbase/remote-broker/<key_id>.pem`. On first use,
+Agent Proxy CAs at `~/.stashbase/remote-broker/<key_id>.pem`. On first use,
 the CLI provisions that public CA from the authenticated session response,
 verifies its SHA-256 digest, and caches it atomically. A missing cache is a
 warning, not a validation failure. This preflight does not authenticate, fetch
 secrets, or create a remote session.
 
-By default, the broker exchanges placeholders in an exact
+By default, the proxy exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
 another HTTP header; the default value template is `{secret}` for a custom
 header. A profile's `hosts` controls where that secret may be injected;
-`egress_hosts` permits ordinary traffic without injecting a credential. Keep
-the two lists separate.
+`egress_hosts` permits ordinary traffic without injecting a credential. A
+secret's `hosts` list does not itself grant ordinary egress; it authorizes only
+an exchange of that secret's matching placeholder. Keep the two lists separate.
 
 `deny_hosts` is an optional final override. It uses the same exact-host and
 `*.subdomain.example` syntax as `egress_hosts`; a matching deny blocks the
@@ -419,21 +428,21 @@ stashbase agent doctor --remote codex
 ```
 
 It never loads a profile or secret. It verifies that the executable is present,
-starts a temporary no-secret broker, confirms the proxy and temporary CA
+starts a temporary no-secret proxy, confirms the proxy and temporary CA
 environment it would pass to a child, and reports known compatibility guidance.
-With `--remote`, it also verifies the remote broker CA required for standard
+With `--remote`, it also verifies the remote Agent Proxy CA required for standard
 forward-proxy TLS interception.
 It cannot prove that every release or plugin inside a third-party tool will
 honor proxy settings, so also perform an allowed-host end-to-end test.
 
 ## Current boundary
 
-This remains an HTTP(S) broker. It cannot inject credentials into local-only
+This remains an HTTP(S) proxy. It cannot inject credentials into local-only
 commands, SSH, databases, raw TCP, or tools that bypass proxy environment
 variables. Do not work around that boundary by exposing a real secret to the
 child process.
 
-In broker mode, Stashbase clears inherited `NO_PROXY` / `no_proxy`,
+In proxy mode, Stashbase clears inherited `NO_PROXY` / `no_proxy`,
 `ALL_PROXY` / `all_proxy`, and npm proxy override variables before starting the
 child, then supplies its own `HTTP_PROXY` and `HTTPS_PROXY`. This prevents the
 most common accidental bypasses. A tool can still intentionally use its own
