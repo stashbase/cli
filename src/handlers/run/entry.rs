@@ -1095,7 +1095,7 @@ async fn handle_run(
         if !silent {
             let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
             eprintln!(
-                "Credential proxy started on localhost:{}",
+                "Agent proxy started on localhost:{}",
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
@@ -1110,7 +1110,7 @@ async fn handle_run(
         .await;
         broker.stop().await;
         if !silent {
-            eprintln!("Credential proxy stopped");
+            eprintln!("Agent proxy stopped");
         }
         result
     } else {

@@ -8,11 +8,11 @@ pub struct AgentCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentSubcommand {
-    /// Run an agent through a Stashbase credential proxy
+    /// Run an agent through the Stashbase Agent Proxy
     Run(AgentRunCommand),
     /// Validate an agent profile without loading secrets or starting a proxy
     Validate(AgentValidateCommand),
-    /// Check a tool's compatibility with the temporary credential proxy
+    /// Check a tool's compatibility with the temporary Agent Proxy
     Doctor(AgentDoctorCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
