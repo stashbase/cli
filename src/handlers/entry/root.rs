@@ -510,7 +510,7 @@ pub async fn handle_cli(args: Cli) {
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
                             previous_session_token: None,
                         };
-                        let session = crate::api::remote_broker::create_session(&session_request).await?;
+                        let session = crate::api::remote_broker::create_session(&session_request, raw_output).await?;
                         let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
@@ -759,6 +759,9 @@ pub async fn handle_cli(args: Cli) {
             if REQUEST_ABORTED.load(Ordering::SeqCst) {
                 eprintln!("{}", "Request aborted".red_if_tty_stderr());
                 return;
+            }
+            if !silent {
+                eprintln!();
             }
             eprintln!("{:?}", err);
             if let Some(command_failed) = err.downcast_ref::<CommandFailed>() {
@@ -1009,7 +1012,7 @@ fn spawn_remote_session_rotation(
                 Err(_) => return,
             };
             let replacement_request = request.replacement(previous_session_token);
-            match crate::api::remote_broker::create_session(&replacement_request).await {
+            match crate::api::remote_broker::create_session(&replacement_request, false).await {
                 Ok(next_session) => {
                     let next_state = match provision_remote_session_ca(&next_session)
                         .and_then(|_| remote_session_state(&next_session))

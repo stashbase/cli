@@ -4,7 +4,10 @@ use anyhow::{bail, Context, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-use crate::api::client;
+use crate::{
+    api::client,
+    models::api_client::{ApiErrorResponse, GenericOutputError, OutputError},
+};
 
 #[derive(Clone)]
 struct ActiveAgentRunCleanup {
@@ -126,7 +129,10 @@ struct CreateSession<'a> {
     agent_type: Option<&'a str>,
 }
 
-pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<RemoteBrokerSession> {
+pub async fn create_session(
+    request: &RemoteBrokerSessionRequest,
+    json_format: bool,
+) -> Result<RemoteBrokerSession> {
     let client = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
         .build()?;
@@ -136,20 +142,8 @@ pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<Remo
         .context("failed to create remote Agent Proxy session")?;
     if !response.status().is_success() {
         let status = response.status();
-        let message = response
-            .json::<serde_json::Value>()
-            .await
-            .ok()
-            .and_then(|body| {
-                body.get("error")?
-                    .get("message")?
-                    .as_str()
-                    .map(str::to_owned)
-            });
-        if let Some(message) = message {
-            bail!("Agent Proxy session request failed with HTTP {status}: {message}");
-        }
-        bail!("Agent Proxy session request failed with HTTP {status}.");
+        let error_response = response.json::<ApiErrorResponse>().await.ok();
+        bail!(format_session_error(status, error_response, json_format)?);
     }
     let mut session: RemoteBrokerSession = response
         .json()
@@ -159,6 +153,28 @@ pub async fn create_session(request: &RemoteBrokerSessionRequest) -> Result<Remo
         session.proxy_url = format!("{}{}", client::get_api_url(), session.proxy_url);
     }
     Ok(session)
+}
+
+/// Formats HTTP responses from the Agent Proxy control plane with the same
+/// stable envelope used by the rest of the CLI. Session tokens and bindings are
+/// never included in this error path.
+fn format_session_error(
+    status: reqwest::StatusCode,
+    response: Option<ApiErrorResponse>,
+    json_format: bool,
+) -> Result<String> {
+    let error = match response {
+        Some(response) => OutputError::from(response.error),
+        None => OutputError::Generic(GenericOutputError {
+            code: None,
+            message: "Agent Proxy session request failed.".to_owned(),
+            status: None,
+            hint: None,
+            details: None,
+        }),
+    }
+    .with_status(Some(status.as_u16()));
+    Ok(error.format_error_output(json_format)?)
 }
 
 fn create_session_http_request(
@@ -371,5 +387,30 @@ mod tests {
             request.headers().get("X-Stashbase-End-Agent-Run").unwrap(),
             "true"
         );
+    }
+
+    #[test]
+    fn session_errors_use_the_standard_api_error_format() {
+        let error = format_session_error(
+            reqwest::StatusCode::FORBIDDEN,
+            Some(ApiErrorResponse {
+                error: crate::models::api_client::ApiError {
+                    code: "agent_proxy.subscription_required".to_owned(),
+                    message: Some(
+                        "An active paid workspace subscription is required to use the Agent Proxy."
+                            .to_owned(),
+                    ),
+                    hint: None,
+                    details: None,
+                },
+            }),
+            false,
+        )
+        .unwrap();
+
+        assert!(error.contains("API Error (403)"));
+        assert!(error.contains("Code: agent_proxy.subscription_required"));
+        assert!(error.contains("Message: An active paid workspace subscription"));
+        assert!(!error.contains("Hint:"));
     }
 }
