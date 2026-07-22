@@ -1,6 +1,6 @@
 //! Static validation for agent profiles.
 //!
-//! This is deliberately local-only: no secret source is read and no broker is
+//! This is deliberately local-only: no secret source is read and no proxy is
 //! started. It lets a repository check its profile in CI before an agent gets
 //! access to any credential source.
 
@@ -121,7 +121,7 @@ fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
         ));
     }
 
-    match crate::handlers::run::broker::cached_remote_broker_ca_files() {
+    match crate::handlers::run::proxy::cached_remote_proxy_ca_files() {
         Ok(paths) if !paths.is_empty() => checks.push(ok(
             "Remote agent proxy CA",
             format!("Found {} valid cached CA file(s).", paths.len()),
@@ -313,7 +313,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         {
             checks.push(fail(
                 format!("Secret '{target}' value_template"),
-                "Must contain '{secret}' so the broker can inject the credential.".to_owned(),
+                "Must contain '{secret}' so the proxy can inject the credential.".to_owned(),
             ));
         }
     }

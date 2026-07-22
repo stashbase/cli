@@ -1,4 +1,4 @@
-//! Temporary OS trust-store integration for the broker's per-session CA.
+//! Temporary OS trust-store integration for the proxy's per-session CA.
 //!
 //! This is deliberately opt-in: changing the host trust store is observable state.
 
@@ -73,7 +73,7 @@ fn install_platform(certificate: &Path, subject: &str) -> Result<TemporaryCaTrus
         Command::new("security")
             .args(["add-trusted-cert", "-d", "-r", "trustRoot", "-k", &keychain])
             .arg(certificate),
-        "failed to trust the temporary broker CA in the login Keychain",
+        "failed to trust the temporary proxy CA in the login Keychain",
     )?;
     Ok(TemporaryCaTrust {
         cleanup: Cleanup::Macos {
@@ -89,7 +89,7 @@ fn install_platform(certificate: &Path, subject: &str) -> Result<TemporaryCaTrus
         Command::new("certutil")
             .args(["-user", "-addstore", "Root"])
             .arg(certificate),
-        "failed to trust the temporary broker CA in the current-user Root store",
+        "failed to trust the temporary proxy CA in the current-user Root store",
     )?;
     Ok(TemporaryCaTrust {
         cleanup: Cleanup::Windows {
@@ -111,13 +111,13 @@ fn install_platform(certificate: &Path, _subject: &str) -> Result<TemporaryCaTru
     } else {
         bail!("unsupported Linux trust store; install update-ca-certificates or update-ca-trust, or run without --trust-proxy-ca")
     };
-    let target = Path::new(directory).join(format!("stashbase-broker-{}.crt", std::process::id()));
+    let target = Path::new(directory).join(format!("stashbase-proxy-{}.crt", std::process::id()));
     run(
         Command::new("sudo")
             .args(["install", "-m", "0644"])
             .arg(certificate)
             .arg(&target),
-        "failed to install the temporary broker CA (sudo is required)",
+        "failed to install the temporary proxy CA (sudo is required)",
     )?;
     if let Err(error) = run(
         Command::new("sudo").arg(update_command),

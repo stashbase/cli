@@ -1,7 +1,7 @@
 //! Read-only diagnostics for tools launched by `stashbase agent run`.
 //!
 //! This intentionally does not load a profile or secret. It verifies the local
-//! broker setup and reports the proxy/TLS behavior Stashbase can reasonably
+//! proxy setup and reports the proxy/TLS behavior Stashbase can reasonably
 //! expect from a known executable. A third-party tool's actual network request
 //! remains its responsibility, so users should still run an end-to-end profile
 //! test before relying on a new tool.
@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use crate::{
     cmd::agent::AgentDoctorCommand,
-    handlers::run::broker::{Broker, BrokerPolicy},
+    handlers::run::proxy::{Proxy, ProxyPolicy},
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
 
@@ -61,9 +61,9 @@ pub async fn handle_agent_doctor_command(
         )),
     }
 
-    match Broker::start_with_port(HashMap::new(), BrokerPolicy::permissive(), None, None).await {
-        Ok(broker) => {
-            let child_env = broker.child_env();
+    match Proxy::start_with_port(HashMap::new(), ProxyPolicy::permissive(), None, None).await {
+        Ok(proxy) => {
+            let child_env = proxy.child_env();
             let proxy_ready = child_env.contains_key("HTTP_PROXY")
                 && child_env.contains_key("HTTPS_PROXY")
                 && child_env.get("NO_PROXY").is_some_and(String::is_empty)
@@ -86,7 +86,7 @@ pub async fn handle_agent_doctor_command(
             } else {
                 checks.push(fail(
                     "Proxy environment",
-                    "The temporary broker did not provide a complete proxy environment.".to_owned(),
+                    "The temporary proxy did not provide a complete proxy environment.".to_owned(),
                 ));
             }
 
@@ -99,25 +99,25 @@ pub async fn handle_agent_doctor_command(
             } else {
                 checks.push(fail(
                     "HTTPS trust configuration",
-                    "The temporary broker did not provide all expected CA environment variables."
+                    "The temporary proxy did not provide all expected CA environment variables."
                         .to_owned(),
                 ));
             }
 
             checks.push(ok(
-                "Temporary broker",
+                "Temporary proxy",
                 "Started and accepted its localhost proxy configuration.".to_owned(),
             ));
-            broker.stop().await;
+            proxy.stop().await;
         }
         Err(error) => checks.push(fail(
-            "Temporary broker",
-            format!("Could not start a localhost broker: {error}"),
+            "Temporary proxy",
+            format!("Could not start a localhost proxy: {error}"),
         )),
     }
 
     if command.remote {
-        match crate::handlers::run::broker::cached_remote_broker_ca_files() {
+        match crate::handlers::run::proxy::cached_remote_proxy_ca_files() {
             Ok(paths) if !paths.is_empty() => checks.push(ok(
                 "Remote agent proxy CA",
                 format!("Found {} valid cached CA file(s).", paths.len()),
@@ -142,7 +142,7 @@ pub async fn handle_agent_doctor_command(
     checks.push(tool_compatibility(&normalized_tool));
     checks.push(ok(
         "Scope of this check",
-        "This verifies Stashbase's local broker setup and known tool support; run a real request with an allowed profile host to verify a tool's own network behavior."
+        "This verifies Stashbase's local proxy setup and known tool support; run a real request with an allowed profile host to verify a tool's own network behavior."
             .to_owned(),
     ));
 
@@ -183,7 +183,7 @@ fn tool_compatibility(tool: &str) -> Check {
     match tool {
         "curl" => ok(
             "Tool compatibility",
-            "curl supports HTTP(S) proxy variables and HTTPS CONNECT; the supplied CA bundle enables broker TLS interception."
+            "curl supports HTTP(S) proxy variables and HTTPS CONNECT; the supplied CA bundle enables proxy TLS interception."
                 .to_owned(),
         ),
         "gh" => ok(

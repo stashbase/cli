@@ -74,7 +74,7 @@ pub struct RemoteBinding {
 /// Everything needed to issue a replacement session. This remains in memory for
 /// the duration of one agent command only.
 #[derive(Clone)]
-pub struct RemoteBrokerSessionRequest {
+pub struct RemoteProxySessionRequest {
     pub api_key: String,
     pub project_identifier: String,
     pub environment_identifier: String,
@@ -90,7 +90,7 @@ pub struct RemoteBrokerSessionRequest {
     pub previous_session_token: Option<String>,
 }
 
-impl RemoteBrokerSessionRequest {
+impl RemoteProxySessionRequest {
     pub fn replacement(&self, previous_session_token: String) -> Self {
         let mut request = self.clone();
         request.agent_type = None;
@@ -100,19 +100,20 @@ impl RemoteBrokerSessionRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct RemoteBrokerSession {
+pub struct RemoteProxySession {
     pub session_id: String,
     pub session_token: String,
     pub expires_at: String,
     pub proxy_url: String,
     pub protocol: String,
-    pub broker_ca: Option<RemoteBrokerCa>,
+    #[serde(rename = "broker_ca")]
+    pub proxy_ca: Option<RemoteProxyCa>,
 }
 
 /// Public trust material for the remote TLS-intercepting forward proxy. This
 /// never contains a private key or any credential.
 #[derive(Debug, Deserialize)]
-pub struct RemoteBrokerCa {
+pub struct RemoteProxyCa {
     pub key_id: String,
     pub sha256: String,
     pub pem: String,
@@ -130,9 +131,9 @@ struct CreateSession<'a> {
 }
 
 pub async fn create_session(
-    request: &RemoteBrokerSessionRequest,
+    request: &RemoteProxySessionRequest,
     json_format: bool,
-) -> Result<RemoteBrokerSession> {
+) -> Result<RemoteProxySession> {
     let client = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
         .build()?;
@@ -145,7 +146,7 @@ pub async fn create_session(
         let error_response = response.json::<ApiErrorResponse>().await.ok();
         bail!(format_session_error(status, error_response, json_format)?);
     }
-    let mut session: RemoteBrokerSession = response
+    let mut session: RemoteProxySession = response
         .json()
         .await
         .context("invalid remote Agent Proxy session response")?;
@@ -179,7 +180,7 @@ fn format_session_error(
 
 fn create_session_http_request(
     client: &reqwest::Client,
-    request: &RemoteBrokerSessionRequest,
+    request: &RemoteProxySessionRequest,
 ) -> reqwest::RequestBuilder {
     let mut session_request = client
         .post(format!("{}/v1/agent-proxy/sessions", client::get_api_url()))
@@ -267,8 +268,8 @@ pub async fn retire_session(api_key: String, session_token: &str) {
 mod tests {
     use super::*;
 
-    fn session_request(previous_session_token: Option<&str>) -> RemoteBrokerSessionRequest {
-        RemoteBrokerSessionRequest {
+    fn session_request(previous_session_token: Option<&str>) -> RemoteProxySessionRequest {
+        RemoteProxySessionRequest {
             api_key: "test-api-key".to_owned(),
             project_identifier: "project".to_owned(),
             environment_identifier: "environment".to_owned(),

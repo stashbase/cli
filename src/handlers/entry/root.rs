@@ -35,11 +35,11 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
         run::{
-            broker::{
-                read_local_audit_logs, AuditLog, AuditLogEvent, AuditLogFilter, BrokerPolicy,
+            entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
+            proxy::{
+                read_local_audit_logs, AuditLog, AuditLogEvent, AuditLogFilter, ProxyPolicy,
                 SecretInjection,
             },
-            entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
             subprocess::CommandFailed,
         },
         setup::setup,
@@ -68,7 +68,7 @@ fn install_remote_agent_shutdown_handler() {
             _ = hangup.recv() => 129,
             _ = interrupt.recv() => 130,
         };
-        crate::api::remote_broker::end_registered_agent_run().await;
+        crate::api::remote_proxy::end_registered_agent_run().await;
         std::process::exit(exit_code);
     });
 }
@@ -79,7 +79,7 @@ fn install_remote_agent_shutdown_handler() {
     // normal interactive termination path. End the remote session before exit.
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
-            crate::api::remote_broker::end_registered_agent_run().await;
+            crate::api::remote_proxy::end_registered_agent_run().await;
             std::process::exit(130);
         }
     });
@@ -401,7 +401,7 @@ pub async fn handle_cli(args: Cli) {
                         return Ok(());
                     }
 
-                    let policy = BrokerPolicy {
+                    let policy = ProxyPolicy {
                         allowed_hosts_by_secret: profile
                             .secrets
                             .iter()
@@ -488,7 +488,7 @@ pub async fn handle_cli(args: Cli) {
                             let value_template = secret.value_template.clone().unwrap_or_else(|| {
                                 if header.eq_ignore_ascii_case("authorization") { "Bearer {secret}".to_owned() } else { "{secret}".to_owned() }
                             });
-                            crate::api::remote_broker::RemoteBinding {
+                            crate::api::remote_proxy::RemoteBinding {
                                 name: name.clone(),
                                 from: secret.from.clone().unwrap_or_else(|| name.clone()),
                                 hosts: secret.hosts.clone(),
@@ -500,7 +500,7 @@ pub async fn handle_cli(args: Cli) {
                                 value_template,
                             }
                         }).collect::<Vec<_>>();
-                        let session_request = crate::api::remote_broker::RemoteBrokerSessionRequest {
+                        let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {
                             api_key: api_key.clone(),
                             project_identifier: project,
                             environment_identifier: environment,
@@ -510,7 +510,7 @@ pub async fn handle_cli(args: Cli) {
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
                             previous_session_token: None,
                         };
-                        let session = crate::api::remote_broker::create_session(&session_request, raw_output)
+                        let session = crate::api::remote_proxy::create_session(&session_request, raw_output)
                             .await
                             // The Agent Proxy setup follows startup warnings. Keep its
                             // formatted API error visually distinct without changing
@@ -524,7 +524,7 @@ pub async fn handle_cli(args: Cli) {
                         {
                             Ok(audit_log) => audit_log,
                             Err(error) => {
-                                crate::api::remote_broker::revoke_session(api_key.clone(), &token).await;
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
                                 return Err(error);
                             }
                         };
@@ -549,17 +549,17 @@ pub async fn handle_cli(args: Cli) {
                             })
                             .collect();
                         let protocol = match session.protocol.as_str() {
-                            "http/1.1-custom" => crate::handlers::run::broker::RemoteBrokerProtocol::Custom,
-                            "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::broker::RemoteBrokerProtocol::ForwardProxyTlsIntercept,
+                            "http/1.1-custom" => crate::handlers::run::proxy::RemoteProxyProtocol::Custom,
+                            "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::proxy::RemoteProxyProtocol::ForwardProxyTlsIntercept,
                             value => {
-                                crate::api::remote_broker::revoke_session(api_key.clone(), &token).await;
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
                                 anyhow::bail!("Agent Proxy returned an unsupported protocol: {value}");
                             }
                         };
                         let remote_ca_file = match provision_remote_session_ca(&session) {
                             Ok(path) => path,
                             Err(error) => {
-                                crate::api::remote_broker::revoke_session(api_key.clone(), &token).await;
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
                                 return Err(error);
                             }
                         };
@@ -567,13 +567,13 @@ pub async fn handle_cli(args: Cli) {
                         let initial_state = match remote_session_state(&session) {
                             Ok(state) => state,
                             Err(error) => {
-                                crate::api::remote_broker::revoke_session(api_key.clone(), &token)
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token)
                                     .await;
                                 return Err(error);
                             }
                         };
                         let remote_session = Arc::new(RwLock::new(initial_state));
-                        crate::api::remote_broker::register_agent_run_cleanup(
+                        crate::api::remote_proxy::register_agent_run_cleanup(
                             api_key.clone(),
                             token.clone(),
                         );
@@ -589,7 +589,7 @@ pub async fn handle_cli(args: Cli) {
                         let result = handle_remote_agent_run(
                             agent_run.command,
                             policy,
-                            crate::handlers::run::broker::RemoteBrokerConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
+                            crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
                             agent_run.proxy_port,
                             agent_run.sandbox,
                             agent_run.trust_proxy_ca,
@@ -602,8 +602,8 @@ pub async fn handle_cli(args: Cli) {
                             .read()
                             .map(|session| session.token.clone())
                             .unwrap_or(token);
-                        crate::api::remote_broker::end_agent_run(api_key, &current_token).await;
-                        crate::api::remote_broker::clear_agent_run_cleanup();
+                        crate::api::remote_proxy::end_agent_run(api_key, &current_token).await;
+                        crate::api::remote_proxy::clear_agent_run_cleanup();
                         return result;
                     }
                     let args = HandleRunArgs {
@@ -611,10 +611,10 @@ pub async fn handle_cli(args: Cli) {
                         project: profile.project,
                         environment: profile.environment,
                         command: agent_run.command,
-                        broker: true,
-                        broker_port: agent_run.proxy_port,
-                        broker_policy: Some(policy),
-                        trust_broker_ca: agent_run.trust_proxy_ca,
+                        proxy: true,
+                        proxy_port: agent_run.proxy_port,
+                        proxy_policy: Some(policy),
+                        trust_proxy_ca: agent_run.trust_proxy_ca,
                         sandbox: agent_run.sandbox,
                         audit_log,
                         secret_bindings: secret_bindings.clone(),
@@ -660,10 +660,10 @@ pub async fn handle_cli(args: Cli) {
                     project: run_cmd.project,
                     environment: run_cmd.environment,
                     command: run_cmd.command,
-                    broker: run_cmd.broker,
-                    broker_port: run_cmd.broker_port,
-                    broker_policy: None,
-                    trust_broker_ca: false,
+                    proxy: run_cmd.proxy,
+                    proxy_port: run_cmd.proxy_port,
+                    proxy_policy: None,
+                    trust_proxy_ca: false,
                     sandbox: false,
                     audit_log: None,
                     secret_bindings: HashMap::new(),
@@ -834,7 +834,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     }
 }
 
-/// Makes the active risk visible at launch time. The broker remains host-based:
+/// Makes the active risk visible at launch time. The proxy remains host-based:
 /// allowing the Stashbase API host lets a child use any API route its normal
 /// local credential is authorized for.
 fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
@@ -931,14 +931,14 @@ const REMOTE_SESSION_ROTATE_EARLY: Duration = Duration::from_secs(120);
 const REMOTE_SESSION_ROTATION_RETRY: Duration = Duration::from_secs(15);
 
 fn remote_session_state(
-    session: &crate::api::remote_broker::RemoteBrokerSession,
-) -> anyhow::Result<crate::handlers::run::broker::RemoteBrokerSessionState> {
+    session: &crate::api::remote_proxy::RemoteProxySession,
+) -> anyhow::Result<crate::handlers::run::proxy::RemoteProxySessionState> {
     let expires_at = DateTime::parse_from_rfc3339(&session.expires_at)
         .map_err(|error| {
             anyhow::anyhow!("Agent Proxy returned an invalid session expiry: {error}")
         })?
         .with_timezone(&Utc);
-    Ok(crate::handlers::run::broker::RemoteBrokerSessionState {
+    Ok(crate::handlers::run::proxy::RemoteProxySessionState {
         token: session.session_token.clone(),
         expires_at,
         last_rotation_error: None,
@@ -948,14 +948,14 @@ fn remote_session_state(
 /// Forward-proxy sessions need the public interception CA before the child is
 /// spawned. Custom-header sessions do not use a TLS-intercepting proxy.
 fn provision_remote_session_ca(
-    session: &crate::api::remote_broker::RemoteBrokerSession,
+    session: &crate::api::remote_proxy::RemoteProxySession,
 ) -> anyhow::Result<Option<std::path::PathBuf>> {
     if session.protocol == "http/1.1-forward-proxy-tls-intercept" {
         let certificate = session
-            .broker_ca
+            .proxy_ca
             .as_ref()
             .context("Agent Proxy session did not include its TLS interception CA")?;
-        return crate::handlers::run::broker::provision_remote_broker_ca(certificate).map(Some);
+        return crate::handlers::run::proxy::provision_remote_proxy_ca(certificate).map(Some);
     }
     Ok(None)
 }
@@ -980,9 +980,9 @@ fn remote_session_rotation_delay_for(remaining: Duration) -> Duration {
 /// Rotates the control-plane session before it expires. It deliberately never
 /// retries child requests: only future connections see the replacement token.
 fn spawn_remote_session_rotation(
-    request: crate::api::remote_broker::RemoteBrokerSessionRequest,
-    initial_session: crate::api::remote_broker::RemoteBrokerSession,
-    state: Arc<RwLock<crate::handlers::run::broker::RemoteBrokerSessionState>>,
+    request: crate::api::remote_proxy::RemoteProxySessionRequest,
+    initial_session: crate::api::remote_proxy::RemoteProxySession,
+    state: Arc<RwLock<crate::handlers::run::proxy::RemoteProxySessionState>>,
 ) -> (watch::Sender<bool>, JoinHandle<()>) {
     let (stop, mut stop_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
@@ -1014,14 +1014,14 @@ fn spawn_remote_session_rotation(
                 Err(_) => return,
             };
             let replacement_request = request.replacement(previous_session_token);
-            match crate::api::remote_broker::create_session(&replacement_request, false).await {
+            match crate::api::remote_proxy::create_session(&replacement_request, false).await {
                 Ok(next_session) => {
                     let next_state = match provision_remote_session_ca(&next_session)
                         .and_then(|_| remote_session_state(&next_session))
                     {
                         Ok(next_state) => next_state,
                         Err(error) => {
-                            crate::api::remote_broker::revoke_session(
+                            crate::api::remote_proxy::revoke_session(
                                 request.api_key.clone(),
                                 &next_session.session_token,
                             )
@@ -1057,7 +1057,7 @@ fn spawn_remote_session_rotation(
                         // signal arriving between the state write and a separate
                         // cleanup update would send DELETE with the replaced
                         // (old) token instead of the newly issued one.
-                        crate::api::remote_broker::update_agent_run_cleanup_token(
+                        crate::api::remote_proxy::update_agent_run_cleanup_token(
                             next_session.session_token.clone(),
                         );
                         old_token
@@ -1065,7 +1065,7 @@ fn spawn_remote_session_rotation(
 
                     // The control plane retains the replaced token for its
                     // server-side grace window, then rejects new handshakes.
-                    crate::api::remote_broker::retire_session(request.api_key.clone(), &old_token)
+                    crate::api::remote_proxy::retire_session(request.api_key.clone(), &old_token)
                         .await;
                     session = next_session;
                 }

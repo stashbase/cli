@@ -11,9 +11,9 @@ use std::io::prelude::*;
 use std::io::BufReader;
 
 const RESTRICTED_CHILD_ENV_REMOVALS: &[&str] = &["STASHBASE_API_KEY"];
-// These settings can make a child select another proxy or skip the broker for
-// selected hosts. The broker re-adds its own HTTP(S)_PROXY values afterwards.
-const BROKER_CHILD_ENV_REMOVALS: &[&str] = &[
+// These settings can make a child select another proxy or skip the proxy for
+// selected hosts. The proxy re-adds its own HTTP(S)_PROXY values afterwards.
+const PROXY_CHILD_ENV_REMOVALS: &[&str] = &[
     "NO_PROXY",
     "no_proxy",
     "ALL_PROXY",
@@ -44,7 +44,7 @@ pub async fn run_command(
     args: Vec<String>,
     env_vars: HashMap<String, String>,
     sandbox: bool,
-    broker_mode: bool,
+    proxy_mode: bool,
     restrict_stashbase_credentials: bool,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
@@ -59,11 +59,11 @@ pub async fn run_command(
                     cmd.env_remove(name);
                 }
             }
-            if broker_mode {
+            if proxy_mode {
                 // Clear parent and tool-specific proxy overrides before applying
-                // the broker's explicit proxy environment below. `NO_PROXY` is
-                // then set to an empty value by Broker::child_env().
-                for name in BROKER_CHILD_ENV_REMOVALS {
+                // the proxy's explicit proxy environment below. `NO_PROXY` is
+                // then set to an empty value by Proxy::child_env().
+                for name in PROXY_CHILD_ENV_REMOVALS {
                     cmd.env_remove(name);
                 }
                 // Claude Code gives ANTHROPIC_AUTH_TOKEN higher precedence than
@@ -115,22 +115,22 @@ fn sandbox_command(
 
     #[cfg(target_os = "macos")]
     {
-        let broker_port = env_vars
+        let proxy_port = env_vars
             .get("HTTPS_PROXY")
             .and_then(|url| url.rsplit_once(':').map(|(_, port)| port))
             .filter(|port| port.parse::<u16>().is_ok())
             .ok_or_else(|| anyhow::anyhow!("--sandbox requires a localhost HTTPS_PROXY"))?;
 
-        // The agent can only make network connections to this command's loopback broker.
+        // The agent can only make network connections to this command's loopback proxy.
         // `allow default` keeps language runtimes usable; direct outbound and inbound
-        // sockets are then denied, with the broker's exact port restored as the exception.
+        // sockets are then denied, with the proxy's exact port restored as the exception.
         let profile = format!(
             r#"
             (version 1)
             (allow default)
             (deny network-inbound)
             (deny network-outbound)
-            (allow network-outbound (remote ip "localhost:{broker_port}"))
+            (allow network-outbound (remote ip "localhost:{proxy_port}"))
         "#
         );
         return Ok((
@@ -147,7 +147,7 @@ fn sandbox_command(
             )
         }
         // systemd applies these cgroup IP rules only to the child command. The
-        // parent-owned broker remains outside the scope and can forward approved
+        // parent-owned proxy remains outside the scope and can forward approved
         // requests to the internet, while the child can reach only 127.0.0.1.
         return Ok((
             "systemd-run".to_owned(),
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn broker_child_clears_proxy_bypass_overrides() {
+    async fn proxy_child_clears_proxy_bypass_overrides() {
         let _guard = environment_lock().lock().unwrap();
         let saved = [
             ("NO_PROXY", std::env::var_os("NO_PROXY")),
@@ -291,11 +291,11 @@ mod tests {
             "sh",
             vec![
                 "-c".to_owned(),
-                "test \"$ANTHROPIC_API_KEY\" = \"broker-placeholder\" && test -z \"$ANTHROPIC_AUTH_TOKEN\" && test -z \"$CLAUDE_CODE_OAUTH_TOKEN\"".to_owned(),
+                "test \"$ANTHROPIC_API_KEY\" = \"proxy-placeholder\" && test -z \"$ANTHROPIC_AUTH_TOKEN\" && test -z \"$CLAUDE_CODE_OAUTH_TOKEN\"".to_owned(),
             ],
             HashMap::from([(
                 "ANTHROPIC_API_KEY".to_owned(),
-                "broker-placeholder".to_owned(),
+                "proxy-placeholder".to_owned(),
             )]),
             false,
             true,
@@ -315,7 +315,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_sandbox_allows_only_the_configured_broker_port() {
+    fn macos_sandbox_allows_only_the_configured_proxy_port() {
         use std::{net::TcpListener, process::Command, thread};
 
         let allowed_listener = TcpListener::bind("127.0.0.1:0").unwrap();

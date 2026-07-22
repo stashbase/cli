@@ -2,7 +2,7 @@ pub mod auth;
 pub mod client;
 pub mod environments;
 pub mod projects;
-pub mod remote_broker;
+pub mod remote_proxy;
 pub mod scans;
 pub mod secrets;
 pub mod webhooks;

@@ -32,7 +32,7 @@ pub struct AgentRunCommand {
     pub profile_source: AgentProfileSource,
 
     /// Temporarily trust the proxy CA in the operating system trust store
-    #[arg(long, visible_alias = "trust-broker-ca")]
+    #[arg(long)]
     pub trust_proxy_ca: bool,
 
     /// Experimental network sandbox: only allows loopback access to the proxy
@@ -40,7 +40,7 @@ pub struct AgentRunCommand {
     pub sandbox: bool,
 
     /// Bind the temporary proxy to this localhost port instead of a random port
-    #[arg(long, visible_alias = "broker-port")]
+    #[arg(long)]
     pub proxy_port: Option<u16>,
 
     /// Resolve Stashbase secrets in a short-lived remote agent proxy session
@@ -104,7 +104,7 @@ pub struct AgentLogsCommand {
     #[arg(long)]
     pub profile: Option<String>,
 
-    /// Only show events with this broker action (for example: injected)
+    /// Only show events with this proxy action (for example: injected)
     #[arg(long)]
     pub action: Option<String>,
 
@@ -112,7 +112,7 @@ pub struct AgentLogsCommand {
     #[arg(long)]
     pub host: Option<String>,
 
-    /// Only show events for this broker session ID
+    /// Only show events for this proxy session ID
     #[arg(long)]
     pub session: Option<String>,
 
