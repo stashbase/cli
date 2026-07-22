@@ -787,7 +787,7 @@ fn remote_proxy_ca_path(directory: &Path, key_id: &str) -> Result<PathBuf> {
     {
         anyhow::bail!("Agent Proxy session returned an unsafe CA key ID");
     }
-    Ok(directory.join(format!("{key_id}.pem")))
+    Ok(directory.join(format!("remote-proxy-{key_id}.pem")))
 }
 
 fn remote_proxy_ca_directory() -> Result<PathBuf> {
@@ -2319,7 +2319,7 @@ mod tests {
 
         let path = provision_remote_proxy_ca_at(&directory, &certificate).unwrap();
 
-        assert_eq!(path.file_name().unwrap(), "test-ca.pem");
+        assert_eq!(path.file_name().unwrap(), "remote-proxy-test-ca.pem");
         assert_eq!(fs::read_to_string(&path).unwrap(), pem);
         assert!(!directory.join("proxy-ca.json").exists());
 

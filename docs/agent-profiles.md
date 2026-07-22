@@ -58,7 +58,7 @@ templates. `egress_hosts = ["*"]` is valid but reported as a warning.
 
 Add `--remote` before a remote run to also verify that the profile is compatible
 with a project/environment-backed remote session and inspect cached public
-Agent Proxy CAs at `~/.stashbase/remote-proxy/<key_id>.pem`. On first use,
+Agent Proxy CAs at `~/.stashbase/remote-proxy/remote-proxy-<key_id>.pem`. On first use,
 the CLI provisions that public CA from the authenticated session response,
 verifies its SHA-256 digest, and caches it atomically. A missing cache is a
 warning, not a validation failure. This preflight does not authenticate, fetch

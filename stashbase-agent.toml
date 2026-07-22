@@ -1,6 +1,6 @@
 [agent_profiles.codex-mcp]
-project = "booking-app"
-environment = "agents-dev"
+project = "project"
+environment = "prod"
 
 egress_hosts = ["api.openai.com", "mcp.linear.app"]
 
