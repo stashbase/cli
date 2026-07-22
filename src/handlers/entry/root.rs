@@ -1052,11 +1052,16 @@ fn spawn_remote_session_rotation(
                         };
                         let old_token = current.token.clone();
                         *current = next_state;
+                        // Update the signal-handler cleanup token while holding
+                        // the write lock. This closes the TOCTOU window where a
+                        // signal arriving between the state write and a separate
+                        // cleanup update would send DELETE with the replaced
+                        // (old) token instead of the newly issued one.
+                        crate::api::remote_broker::update_agent_run_cleanup_token(
+                            next_session.session_token.clone(),
+                        );
                         old_token
                     };
-                    crate::api::remote_broker::update_agent_run_cleanup_token(
-                        next_session.session_token.clone(),
-                    );
 
                     // The control plane retains the replaced token for its
                     // server-side grace window, then rejects new handshakes.
