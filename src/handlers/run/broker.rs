@@ -1408,6 +1408,37 @@ async fn forward_remote_upgrade(
     secret_name: Option<String>,
     started: Instant,
 ) -> Result<Response<ProxyBody>, Infallible> {
+    // ForwardProxyTlsIntercept: the remote proxy handles TLS interception for
+    // HTTPS. For plain-HTTP upgrades (ws://) the correct path is also a CONNECT
+    // tunnel so the remote proxy can apply its own policy. Sending the upgrade
+    // handshake directly to the proxy URL would bypass the CONNECT protocol and
+    // be rejected by a standard forward proxy.
+    if remote.protocol == RemoteBrokerProtocol::ForwardProxyTlsIntercept {
+        let authority = match upstream_authority(&request, connect_authority.as_deref()) {
+            Ok(authority) => authority,
+            Err(_) => {
+                return Ok(broker_error_response(
+                    StatusCode::BAD_REQUEST,
+                    "broker.request_invalid",
+                    "Unable to determine request URL",
+                ));
+            }
+        };
+        let upstream = match establish_remote_connect(&authority, &remote).await {
+            Ok(upstream) => upstream,
+            Err(error) => {
+                debug!("remote broker upgrade CONNECT setup failed: {error:#}");
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ));
+            }
+        };
+        return tunnel_upgrade(request, upstream, state, host, secret_name, started).await;
+    }
+
     let target = match request_url(&request, connect_authority.as_deref()) {
         Ok(target) => target
             .replacen("https://", "wss://", 1)
@@ -2013,7 +2044,12 @@ fn contains_unknown_placeholder(request: &Request<Incoming>, state: &BrokerState
             for candidate in value.match_indices("${") {
                 let suffix = &value[candidate.0..];
                 let Some(end) = suffix.find('}') else {
-                    return true;
+                    // An unclosed "${" is not a well-formed placeholder; skip it
+                    // rather than treating it as an unknown credential. Headers
+                    // can legitimately contain shell templates, JS interpolation
+                    // strings, or other "${"-prefixed content without a closing
+                    // brace, and rejecting them would produce a false-positive 403.
+                    continue;
                 };
                 if !state.secrets.contains_key(&suffix[..=end]) {
                     return true;
@@ -2445,6 +2481,45 @@ mod tests {
     #[test]
     fn creates_expected_placeholders() {
         assert_eq!(placeholder_for("GH_TOKEN"), "**STASHBASE_GH_TOKEN**");
+    }
+
+    #[tokio::test]
+    async fn unclosed_dollar_brace_in_header_is_not_treated_as_unknown_placeholder() {
+        // An unclosed "${" (shell template, JS interpolation, etc.) must not
+        // produce a false-positive 403 broker.unknown_placeholder response.
+        // Use a real backend listener as the remote proxy so a 502 connection
+        // error cannot mask a 403 that slips through the placeholder check.
+        let (proxy_address, _) = start_backend().await;
+        let remote = RemoteBrokerConfig {
+            proxy_url: format!("http://{proxy_address}"),
+            session: Arc::new(RwLock::new(RemoteBrokerSessionState {
+                token: "token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                "${STASHBASE_ANTHROPIC_API_KEY}".to_owned(),
+            )]),
+            child_env: HashMap::new(),
+            protocol: RemoteBrokerProtocol::Custom,
+            ca_file: None,
+        };
+        let broker =
+            Broker::start_remote_with_port(remote, BrokerPolicy::permissive(), None, None)
+                .await
+                .unwrap();
+
+        // Header contains "${" with no closing "}" — must pass through, not 403.
+        let response = proxy_client(&broker)
+            .get("http://original.example/")
+            .header("x-template", "Hello ${name")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        broker.stop().await;
     }
 
     #[tokio::test]
