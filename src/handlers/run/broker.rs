@@ -1436,6 +1436,9 @@ async fn forward_remote_upgrade(
                 ));
             }
         };
+        // A child speaks absolute-form to this local proxy, but after CONNECT
+        // the remote side is an origin connection and requires origin-form.
+        *request.uri_mut() = upgrade_origin_form_uri(&request);
         return tunnel_upgrade(request, upstream, state, host, secret_name, started).await;
     }
 
@@ -1803,6 +1806,16 @@ fn upstream_authority(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
         .context("HTTP proxy request is missing a Host header")
+}
+
+fn upgrade_origin_form_uri<B>(request: &Request<B>) -> hyper::Uri {
+    request
+        .uri()
+        .path_and_query()
+        .map(|path_and_query| path_and_query.as_str())
+        .unwrap_or("/")
+        .parse()
+        .expect("a request URI path and query are always valid URI references")
 }
 
 /// Returns the authority understood by the remote broker's HTTP listener.
@@ -2329,6 +2342,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn remote_upgrade_uses_origin_form_after_connect() {
+        let request = Request::builder()
+            .uri("http://api.example.com/ws?stream=true")
+            .body(())
+            .unwrap();
+
+        assert_eq!(
+            upgrade_origin_form_uri(&request),
+            "/ws?stream=true".parse::<hyper::Uri>().unwrap()
+        );
+    }
+
     #[tokio::test]
     async fn custom_remote_forward_uses_the_remote_broker_host_header() {
         let (address, host) = start_backend_capturing(HOST).await;
@@ -2505,10 +2531,9 @@ mod tests {
             protocol: RemoteBrokerProtocol::Custom,
             ca_file: None,
         };
-        let broker =
-            Broker::start_remote_with_port(remote, BrokerPolicy::permissive(), None, None)
-                .await
-                .unwrap();
+        let broker = Broker::start_remote_with_port(remote, BrokerPolicy::permissive(), None, None)
+            .await
+            .unwrap();
 
         // Header contains "${" with no closing "}" — must pass through, not 403.
         let response = proxy_client(&broker)
