@@ -245,8 +245,11 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     }
 
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut child_envs: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut placeholders: HashMap<&str, Vec<&str>> = HashMap::new();
     for (target, secret) in &profile.secrets {
         let env = secret.env.as_deref().unwrap_or(target);
+        child_envs.entry(env).or_default().push(target);
         if !valid_environment_name(env) {
             checks.push(fail(
                 format!("Secret binding '{target}'"),
@@ -271,6 +274,9 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 format!("Secret binding '{target}' placeholder"),
                 "'placeholder' must not be empty or contain a line break.".to_owned(),
             ));
+        }
+        if let Some(placeholder) = secret.placeholder.as_deref() {
+            placeholders.entry(placeholder).or_default().push(target);
         }
         let source = secret.from.as_deref().unwrap_or(target);
         if source.trim().is_empty() {
@@ -323,6 +329,28 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 "Secret bindings",
                 format!(
                     "Source secret '{source}' is bound to more than one child variable: {}.",
+                    targets.join(", ")
+                ),
+            ));
+        }
+    }
+    for (env, targets) in child_envs {
+        if targets.len() > 1 {
+            checks.push(fail(
+                "Secret bindings",
+                format!(
+                    "Child environment variable '{env}' is used by more than one binding: {}.",
+                    targets.join(", ")
+                ),
+            ));
+        }
+    }
+    for (placeholder, targets) in placeholders {
+        if targets.len() > 1 {
+            checks.push(fail(
+                "Secret bindings",
+                format!(
+                    "Placeholder '{placeholder}' is used by more than one binding: {}.",
                     targets.join(", ")
                 ),
             ));
