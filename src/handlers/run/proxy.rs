@@ -876,7 +876,7 @@ fn proxy_request(
             let Some(authority) = authority else {
                 return Ok(proxy_error_response(
                     StatusCode::BAD_REQUEST,
-                    "broker.invalid_connect",
+                    "proxy.invalid_connect",
                     "CONNECT requires an authority",
                 ));
             };
@@ -899,8 +899,8 @@ fn proxy_request(
                 );
                 return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
-                    "broker.host_denied",
-                    "Proxy policy denied destination",
+                    "proxy.host_denied",
+                    "Agent Proxy policy denied destination",
                 ));
             }
             if let Some(remote) = &state.remote {
@@ -915,7 +915,7 @@ fn proxy_request(
                     );
                     return Ok(proxy_error_response(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        "broker.session_expired",
+                        "proxy.session_expired",
                         &error.to_string(),
                     ));
                 }
@@ -941,7 +941,7 @@ fn proxy_request(
                             );
                             return Ok(proxy_error_response(
                                 StatusCode::BAD_GATEWAY,
-                                "broker.remote_connect_failed",
+                                "proxy.remote_connect_failed",
                                 "Unable to establish Agent Proxy tunnel",
                             ));
                         }
@@ -1010,8 +1010,8 @@ fn proxy_request(
             );
             return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "broker.host_denied",
-                "Proxy policy denied destination",
+                "proxy.host_denied",
+                "Agent Proxy policy denied destination",
             ));
         }
         if contains_unknown_placeholder(&request, &state) {
@@ -1025,8 +1025,8 @@ fn proxy_request(
             );
             return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "broker.unknown_placeholder",
-                "Proxy received an unknown credential placeholder",
+                "proxy.unknown_placeholder",
+                "Agent Proxy received an unknown credential placeholder",
             ));
         }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
@@ -1046,8 +1046,8 @@ fn proxy_request(
                 );
                 return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
-                    "broker.credential_host_denied",
-                    "Proxy policy denied credential",
+                    "proxy.credential_host_denied",
+                    "Agent Proxy policy denied credential",
                 ));
             }
         };
@@ -1065,8 +1065,8 @@ fn proxy_request(
             );
             return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "broker.host_denied",
-                "Proxy policy denied destination",
+                "proxy.host_denied",
+                "Agent Proxy policy denied destination",
             ));
         }
         if let Some(remote) = &state.remote {
@@ -1081,7 +1081,7 @@ fn proxy_request(
                 );
                 return Ok(proxy_error_response(
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "broker.session_expired",
+                    "proxy.session_expired",
                     &error.to_string(),
                 ));
             }
@@ -1125,7 +1125,7 @@ fn proxy_request(
                 );
                 return Ok(proxy_error_response(
                     StatusCode::BAD_REQUEST,
-                    "broker.request_invalid",
+                    "proxy.request_invalid",
                     "Unable to determine request URL",
                 ));
             }
@@ -1149,7 +1149,7 @@ fn proxy_request(
                 Err(error) => {
                     return Ok(proxy_error_response(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        "broker.session_expired",
+                        "proxy.session_expired",
                         &error.to_string(),
                     ))
                 }
@@ -1163,7 +1163,7 @@ fn proxy_request(
                 Err(_) => {
                     return Ok(proxy_error_response(
                         StatusCode::BAD_GATEWAY,
-                        "broker.session_invalid",
+                        "proxy.session_invalid",
                         "Agent Proxy returned an invalid session token",
                     ))
                 }
@@ -1174,7 +1174,7 @@ fn proxy_request(
                 Err(_) => {
                     return Ok(proxy_error_response(
                         StatusCode::BAD_GATEWAY,
-                        "broker.session_invalid",
+                        "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
                     ))
                 }
@@ -1187,7 +1187,7 @@ fn proxy_request(
                 Err(_) => {
                     return Ok(proxy_error_response(
                         StatusCode::BAD_GATEWAY,
-                        "broker.session_invalid",
+                        "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
                     ))
                 }
@@ -1207,7 +1207,7 @@ fn proxy_request(
                 Err(error) => {
                     return Ok(proxy_error_response(
                         StatusCode::SERVICE_UNAVAILABLE,
-                        "broker.session_unavailable",
+                        "proxy.session_unavailable",
                         &error.to_string(),
                     ))
                 }
@@ -1263,8 +1263,8 @@ fn proxy_request(
                 );
                 Ok(proxy_error_response(
                     StatusCode::BAD_GATEWAY,
-                    &format!("broker.{}", upstream_error_action(&error)),
-                    "Unable to forward proxy request",
+                    &format!("proxy.{}", upstream_error_action(&error)),
+                    "Unable to forward Agent Proxy request",
                 ))
             }
         }
@@ -1419,7 +1419,7 @@ async fn forward_remote_upgrade(
             Err(_) => {
                 return Ok(proxy_error_response(
                     StatusCode::BAD_REQUEST,
-                    "broker.request_invalid",
+                    "proxy.request_invalid",
                     "Unable to determine request URL",
                 ));
             }
@@ -1449,7 +1449,7 @@ async fn forward_remote_upgrade(
         Err(_) => {
             return Ok(proxy_error_response(
                 StatusCode::BAD_REQUEST,
-                "broker.request_invalid",
+                "proxy.request_invalid",
                 "Unable to determine request URL",
             ))
         }
@@ -1602,7 +1602,7 @@ async fn forward_upgrade(
         Err(_) => {
             return Ok(proxy_error_response(
                 StatusCode::BAD_REQUEST,
-                "broker.request_invalid",
+                "proxy.request_invalid",
                 "Unable to determine request URL",
             ));
         }
@@ -1612,7 +1612,7 @@ async fn forward_upgrade(
         None => {
             return Ok(proxy_error_response(
                 StatusCode::BAD_REQUEST,
-                "broker.request_invalid",
+                "proxy.request_invalid",
                 "Unable to determine request URL",
             ));
         }
@@ -1635,7 +1635,7 @@ async fn forward_upgrade(
             Err(_) => {
                 return Ok(proxy_error_response(
                     StatusCode::BAD_REQUEST,
-                    "broker.request_invalid",
+                    "proxy.request_invalid",
                     "Unable to determine request URL",
                 ));
             }
@@ -1785,8 +1785,8 @@ fn upgrade_error_response(
     );
     proxy_error_response(
         StatusCode::BAD_GATEWAY,
-        "broker.upgrade_failed",
-        "Unable to establish upgraded proxy connection",
+        "proxy.upgrade_failed",
+        "Unable to establish upgraded Agent Proxy connection",
     )
 }
 
@@ -2436,7 +2436,7 @@ mod tests {
         let body = response.bytes().await.unwrap();
         let error: crate::models::api_client::ApiErrorResponse =
             serde_json::from_slice(&body).unwrap();
-        assert_eq!(error.error.code, "broker.credential_host_denied");
+        assert_eq!(error.error.code, "proxy.credential_host_denied");
         assert!(
             timeout(Duration::from_millis(100), remote_listener.accept())
                 .await
@@ -2551,17 +2551,17 @@ mod tests {
     async fn proxy_errors_use_the_api_error_envelope() {
         let response = proxy_error_response(
             StatusCode::FORBIDDEN,
-            "broker.host_denied",
-            "Proxy policy denied destination",
+            "proxy.host_denied",
+            "Agent Proxy policy denied destination",
         );
         assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let error: crate::models::api_client::ApiErrorResponse =
             serde_json::from_slice(&body).unwrap();
-        assert_eq!(error.error.code, "broker.host_denied");
+        assert_eq!(error.error.code, "proxy.host_denied");
         assert_eq!(
             error.error.message.as_deref(),
-            Some("Proxy policy denied destination")
+            Some("Agent Proxy policy denied destination")
         );
     }
 
