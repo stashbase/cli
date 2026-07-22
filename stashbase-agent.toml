@@ -1,23 +1,8 @@
 [agent_profiles.codex-mcp]
 project = "booking-app"
 environment = "agents-dev"
-# project = "project"
-# environment = "prod"
 
-egress_hosts = [
-    "api.openai.com",
-    "auth.openai.com",
-    "chatgpt.com",
-    "mcp.stripe.com",
-    "api.githubcopilot.com",
-    "mcp.linear.app",
-]
-
-
-# Codex needs several dynamic service and MCP destinations. Permit ordinary
-# egress, but keep the Stashbase API unavailable to the agent itself.
-# egress_hosts = ["*"]
-# deny_hosts = ["api.stashbase.dev"]
+egress_hosts = ["api.openai.com", "mcp.linear.app"]
 
 
 [agent_profiles.codex-mcp.secrets.GH_TOKEN]
@@ -32,39 +17,25 @@ environment = "github-copilot"
 
 deny_hosts = ["*.stashbase.dev"]
 
-
 [agent_profiles.copilot.secrets.GH_TOKEN]
-hosts = [
-    "api.github.com",
-    "github.com",
-    "copilot-proxy.githubusercontent.com",
-    "origin-tracker.githubusercontent.com",
-    "*.githubcopilot.com",
-]
+hosts = ["api.github.com"]
 
 
-# Claude Code: the API key is injected only for Anthropic's public API.
 [agent_profiles.claude]
 project = "booking-app"
 environment = "agents-dev"
-egress_hosts = ["api.anthropic.com", "stashbase.dev"]
+egress_hosts = ["api.anthropic.com"]
 
 [agent_profiles.claude.secrets.GH_TOKEN]
-hosts = [
-    "api.github.com",
-    "github.com",
-    "copilot-proxy.githubusercontent.com",
-    "origin-tracker.githubusercontent.com",
-    "*.githubcopilot.com",
-]
+hosts = ["api.github.com"]
+
 
 # Cursor Agent CLI uses CURSOR_API_KEY. This deliberately binds GH_TOKEN for a
 # transport-only test; replace `from` with CURSOR_API_KEY for real use.
 [agent_profiles.cursor]
-# project = "booking-app"
-# environment = "agents-dev"
-project = "project"
-environment = "prod"
+project = "booking-app"
+environment = "agents-dev"
+
 egress_hosts = ["api.cursor.com", "*.cursor.sh"]
 deny_hosts = ["api.stashbase.dev"]
 
@@ -72,8 +43,6 @@ deny_hosts = ["api.stashbase.dev"]
 from = "GH_TOKEN"
 hosts = ["api.github.com"]
 
-# OpenCode using its OpenAI-compatible provider. Add separate bindings for
-# other providers instead of widening this key's host allowlist.
 [agent_profiles.opencode]
 project = "booking-app"
 environment = "agents-dev"
@@ -85,12 +54,3 @@ deny_hosts = ["api.stashbase.dev"]
 [agent_profiles.opencode.secrets.GH_TOKEN]
 from = "GH_TOKEN"
 hosts = ["api.github.com"]
-
-# [agent_profiles.claude.secrets.GH_TOKEN]
-# hosts = [
-#     "api.github.com",
-#     "github.com",
-#     "copilot-proxy.githubusercontent.com",
-#     "origin-tracker.githubusercontent.com",
-#     "*.githubcopilot.com",
-# ]
