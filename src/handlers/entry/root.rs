@@ -37,8 +37,8 @@ use crate::{
         run::{
             entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
             proxy::{
-                read_local_audit_logs, AuditLog, AuditLogEvent, AuditLogFilter, ProxyPolicy,
-                SecretInjection,
+                read_local_proxy_audit_logs, ProxyAuditLog, ProxyAuditLogEvent,
+                ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
             },
             subprocess::CommandFailed,
         },
@@ -455,7 +455,7 @@ pub async fn handle_cli(args: Cli) {
                         strict_deny: true,
                     };
                     let audit_log = (!agent_run.remote)
-                        .then(|| agent_run.audit_log.then(|| AuditLog::local(&agent_run.profile)))
+                        .then(|| agent_run.audit_log.then(|| ProxyAuditLog::local(&agent_run.profile)))
                         .flatten()
                         .transpose()?;
                     if let Some(audit_log) = &audit_log {
@@ -519,7 +519,7 @@ pub async fn handle_cli(args: Cli) {
                         let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
-                            .then(|| AuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
+                            .then(|| ProxyAuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
                             .transpose()
                         {
                             Ok(audit_log) => audit_log,
@@ -799,14 +799,14 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         .as_deref()
         .map(parse_audit_duration)
         .transpose()?;
-    let filter = AuditLogFilter {
+    let filter = ProxyAuditLogFilter {
         profile: command.profile,
         action: command.action,
         host: command.host,
         session: command.session,
     };
     if !command.follow {
-        let events = read_local_audit_logs(command.limit, since, &filter)?;
+        let events = read_local_proxy_audit_logs(command.limit, since, &filter)?;
         if json {
             println!("{}", serde_json::to_string_pretty(&events)?);
         } else {
@@ -823,7 +823,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         if REQUEST_ABORTED.load(Ordering::SeqCst) {
             return Ok(());
         }
-        for event in read_local_audit_logs(command.limit, since, &filter)? {
+        for event in read_local_proxy_audit_logs(command.limit, since, &filter)? {
             if !displayed.insert(event.clone()) {
                 continue;
             }
@@ -904,7 +904,7 @@ fn parse_audit_duration(value: &str) -> anyhow::Result<Duration> {
     Ok(Duration::from_secs(seconds))
 }
 
-fn print_audit_event(event: &AuditLogEvent, json: bool) -> anyhow::Result<()> {
+fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<()> {
     if json {
         println!("{}", serde_json::to_string(event)?);
         return Ok(());

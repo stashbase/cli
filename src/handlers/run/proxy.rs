@@ -67,7 +67,7 @@ const AUDIT_LOG_MAX_FILES: usize = 1_000;
 
 /// One metadata-only event emitted by the local proxy audit log.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
-pub struct AuditLogEvent {
+pub struct ProxyAuditLogEvent {
     pub timestamp: String,
     pub session_id: String,
     pub profile: String,
@@ -81,15 +81,15 @@ pub struct AuditLogEvent {
 
 /// Exact-match filters for the local audit-log viewer.
 #[derive(Debug, Clone, Default)]
-pub struct AuditLogFilter {
+pub struct ProxyAuditLogFilter {
     pub profile: Option<String>,
     pub action: Option<String>,
     pub host: Option<String>,
     pub session: Option<String>,
 }
 
-impl AuditLogFilter {
-    fn matches(&self, event: &AuditLogEvent) -> bool {
+impl ProxyAuditLogFilter {
+    fn matches(&self, event: &ProxyAuditLogEvent) -> bool {
         self.profile
             .as_ref()
             .is_none_or(|value| value == &event.profile)
@@ -112,14 +112,14 @@ impl AuditLogFilter {
 
 /// Private, metadata-only audit log for one proxy session.
 #[derive(Debug, Clone)]
-pub struct AuditLog {
+pub struct ProxyAuditLog {
     session_id: String,
     profile: String,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
 
-impl AuditLog {
+impl ProxyAuditLog {
     pub fn local(profile: &str) -> Result<Self> {
         Self::local_with_session_id(profile, Uuid::new_v4().to_string())
     }
@@ -127,11 +127,11 @@ impl AuditLog {
     /// Uses the control-plane session identifier so local metadata can be
     /// correlated with future server-side remote-proxy audit events.
     pub fn local_with_session_id(profile: &str, session_id: String) -> Result<Self> {
-        let directory = audit_directory()?;
+        let directory = local_proxy_audit_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
-        prune_audit_logs(&directory)?;
+        prune_proxy_audit_logs(&directory)?;
 
         let path = directory.join(format!("agent-{}.jsonl", session_id));
         let file = OpenOptions::new()
@@ -166,7 +166,7 @@ impl AuditLog {
         status: Option<StatusCode>,
         duration: Option<Duration>,
     ) {
-        let event = AuditLogEvent {
+        let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
             profile: self.profile.clone(),
@@ -188,12 +188,12 @@ impl AuditLog {
 }
 
 /// Returns the most recent local audit events, ordered oldest to newest.
-pub fn read_local_audit_logs(
+pub fn read_local_proxy_audit_logs(
     limit: usize,
     since: Option<Duration>,
-    filter: &AuditLogFilter,
-) -> Result<Vec<AuditLogEvent>> {
-    let directory = audit_directory()?;
+    filter: &ProxyAuditLogFilter,
+) -> Result<Vec<ProxyAuditLogEvent>> {
+    let directory = local_proxy_audit_directory()?;
     if !directory.exists() {
         return Ok(Vec::new());
     }
@@ -213,7 +213,7 @@ pub fn read_local_audit_logs(
 
         let contents = fs::read_to_string(entry.path())?;
         for line in contents.lines() {
-            let Ok(event) = serde_json::from_str::<AuditLogEvent>(line) else {
+            let Ok(event) = serde_json::from_str::<ProxyAuditLogEvent>(line) else {
                 continue;
             };
             let timestamp = DateTime::parse_from_rfc3339(&event.timestamp)
@@ -235,7 +235,7 @@ pub fn read_local_audit_logs(
     Ok(events)
 }
 
-fn audit_directory() -> Result<PathBuf> {
+fn local_proxy_audit_directory() -> Result<PathBuf> {
     let config_path = crate::config::config::get_config_path()?;
     Ok(config_path
         .parent()
@@ -244,7 +244,7 @@ fn audit_directory() -> Result<PathBuf> {
 }
 
 /// Keeps local audit storage bounded without touching files outside our session naming scheme.
-fn prune_audit_logs(directory: &Path) -> Result<()> {
+fn prune_proxy_audit_logs(directory: &Path) -> Result<()> {
     let now = SystemTime::now();
     let mut logs = Vec::new();
 
@@ -400,7 +400,7 @@ struct ProxyState {
     client: reqwest::Client,
     remote_ca: Option<reqwest::Certificate>,
     certificate_authority: Arc<Certificate>,
-    audit_log: Option<AuditLog>,
+    audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
     remote: Option<RemoteProxyConfig>,
 }
@@ -446,7 +446,7 @@ pub struct Proxy {
     ca_file: PathBuf,
     remove_ca_file: bool,
     ca_subject: String,
-    audit_log: Option<AuditLog>,
+    audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
 }
 
@@ -455,7 +455,7 @@ impl Proxy {
     pub async fn start(
         secrets: HashMap<String, String>,
         policy: ProxyPolicy,
-        audit_log: Option<AuditLog>,
+        audit_log: Option<ProxyAuditLog>,
     ) -> Result<Self> {
         Self::start_with_port(secrets, policy, audit_log, None).await
     }
@@ -463,7 +463,7 @@ impl Proxy {
     pub async fn start_with_port(
         secrets: HashMap<String, String>,
         policy: ProxyPolicy,
-        audit_log: Option<AuditLog>,
+        audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
     ) -> Result<Self> {
         Self::start_inner(secrets, policy, audit_log, proxy_port, None).await
@@ -472,7 +472,7 @@ impl Proxy {
     pub async fn start_remote_with_port(
         remote: RemoteProxyConfig,
         policy: ProxyPolicy,
-        audit_log: Option<AuditLog>,
+        audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
     ) -> Result<Self> {
         let placeholders = remote.placeholders.clone();
@@ -482,7 +482,7 @@ impl Proxy {
     async fn start_inner(
         secrets: HashMap<String, String>,
         mut policy: ProxyPolicy,
-        audit_log: Option<AuditLog>,
+        audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
         remote: Option<RemoteProxyConfig>,
     ) -> Result<Self> {
@@ -2622,7 +2622,7 @@ mod tests {
     fn audit_log_records_metadata_without_credential_values() {
         let path =
             std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
-        let audit_log = AuditLog {
+        let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
             path: Arc::new(path.clone()),
@@ -2661,7 +2661,7 @@ mod tests {
             fs::write(directory.join(format!("agent-{index}.jsonl")), "{}").unwrap();
         }
 
-        prune_audit_logs(&directory).unwrap();
+        prune_proxy_audit_logs(&directory).unwrap();
 
         let retained = fs::read_dir(&directory)
             .unwrap()
@@ -2675,7 +2675,7 @@ mod tests {
 
     #[test]
     fn audit_log_filters_match_only_the_requested_metadata() {
-        let event = AuditLogEvent {
+        let event = ProxyAuditLogEvent {
             timestamp: "2026-01-01T00:00:00Z".to_owned(),
             session_id: "session-1".to_owned(),
             profile: "coding".to_owned(),
@@ -2687,14 +2687,14 @@ mod tests {
             duration_ms: Some(42),
         };
 
-        assert!(AuditLogFilter {
+        assert!(ProxyAuditLogFilter {
             profile: Some("coding".to_owned()),
             action: Some("injected".to_owned()),
             host: Some("api.github.com".to_owned()),
             session: Some("session-1".to_owned()),
         }
         .matches(&event));
-        assert!(!AuditLogFilter {
+        assert!(!ProxyAuditLogFilter {
             host: Some("example.com".to_owned()),
             ..Default::default()
         }
@@ -3112,7 +3112,7 @@ mod tests {
     async fn rejects_and_audits_an_unknown_placeholder_without_recording_it() {
         let path =
             std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
-        let audit_log = AuditLog {
+        let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
             path: Arc::new(path.clone()),

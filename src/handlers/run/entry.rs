@@ -47,7 +47,7 @@ pub async fn handle_remote_agent_run(
     proxy_port: Option<u16>,
     sandbox: bool,
     trust_proxy_ca: bool,
-    audit_log: Option<super::proxy::AuditLog>,
+    audit_log: Option<super::proxy::ProxyAuditLog>,
     silent: bool,
 ) -> anyhow::Result<()> {
     let cmd = command.first().context("no command provided")?.clone();
@@ -87,7 +87,7 @@ pub struct HandleRunArgs {
     pub proxy_policy: Option<super::proxy::ProxyPolicy>,
     pub trust_proxy_ca: bool,
     pub sandbox: bool,
-    pub audit_log: Option<super::proxy::AuditLog>,
+    pub audit_log: Option<super::proxy::ProxyAuditLog>,
     /// Maps fetched source secret names to the names exposed to the child.
     pub secret_bindings: HashMap<String, String>,
     /// Allows a profile file to override values fetched from project/environment.
@@ -961,7 +961,7 @@ async fn handle_run(
     proxy_policy: Option<super::proxy::ProxyPolicy>,
     trust_proxy_ca: bool,
     sandbox: bool,
-    audit_log: Option<super::proxy::AuditLog>,
+    audit_log: Option<super::proxy::ProxyAuditLog>,
     secret_bindings: &HashMap<String, String>,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
