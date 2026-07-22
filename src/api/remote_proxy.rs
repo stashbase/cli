@@ -106,7 +106,6 @@ pub struct RemoteProxySession {
     pub expires_at: String,
     pub proxy_url: String,
     pub protocol: String,
-    #[serde(rename = "broker_ca")]
     pub proxy_ca: Option<RemoteProxyCa>,
 }
 
