@@ -2,7 +2,7 @@
 project = "project"
 environment = "prod"
 
-egress_hosts = ["api.openai.com", "mcp.linear.app"]
+egress_hosts = ["api.openai.com", "chatgpt.com"]
 
 
 [agent_profiles.codex-mcp.secrets.GH_TOKEN]
