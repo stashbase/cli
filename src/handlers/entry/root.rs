@@ -565,6 +565,8 @@ pub async fn handle_cli(args: Cli) {
                                 return Err(error);
                             }
                         };
+                        let remote_transport_identity =
+                            remote_session_transport_identity(&session)?;
                         let proxy_url = session.proxy_url.clone();
                         let initial_state = match remote_session_state(&session) {
                             Ok(state) => state,
@@ -587,6 +589,7 @@ pub async fn handle_cli(args: Cli) {
                             session_request,
                             session,
                             remote_session.clone(),
+                            remote_transport_identity,
                         );
                         let result = handle_remote_agent_run(
                             agent_run.command,
@@ -962,6 +965,43 @@ fn provision_remote_session_ca(
     Ok(None)
 }
 
+/// Child processes commonly load their TLS trust roots once at startup. A
+/// replacement session must therefore keep the same transport and interception
+/// CA as the initial session; accepting a different CA would leave the child
+/// and local relay trusting the stale file.
+fn remote_session_transport_identity(
+    session: &crate::api::remote_proxy::RemoteProxySession,
+) -> anyhow::Result<(String, Option<(String, String)>)> {
+    let ca = if session.protocol == "http/1.1-forward-proxy-tls-intercept" {
+        let certificate = session
+            .proxy_ca
+            .as_ref()
+            .context("Agent Proxy session did not include its TLS interception CA")?;
+        Some((certificate.key_id.clone(), certificate.sha256.clone()))
+    } else {
+        None
+    };
+    Ok((session.protocol.clone(), ca))
+}
+
+fn ensure_replacement_session_is_compatible(
+    initial_transport: &(String, Option<(String, String)>),
+    replacement: &crate::api::remote_proxy::RemoteProxySession,
+) -> anyhow::Result<()> {
+    let replacement_transport = remote_session_transport_identity(replacement)?;
+    if initial_transport.0 != replacement_transport.0 {
+        anyhow::bail!(
+            "Agent Proxy changed protocols while rotating a session; restart the agent run"
+        );
+    }
+    if initial_transport.1 != replacement_transport.1 {
+        anyhow::bail!(
+            "Agent Proxy changed its TLS interception CA while rotating a session; restart the agent run"
+        );
+    }
+    Ok(())
+}
+
 fn remote_session_rotation_delay(expires_at: DateTime<Utc>) -> Duration {
     let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
     remote_session_rotation_delay_for(remaining)
@@ -985,6 +1025,7 @@ fn spawn_remote_session_rotation(
     request: crate::api::remote_proxy::RemoteProxySessionRequest,
     initial_session: crate::api::remote_proxy::RemoteProxySession,
     state: Arc<RwLock<crate::handlers::run::proxy::RemoteProxySessionState>>,
+    initial_transport: (String, Option<(String, String)>),
 ) -> (watch::Sender<bool>, JoinHandle<()>) {
     let (stop, mut stop_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
@@ -1018,8 +1059,12 @@ fn spawn_remote_session_rotation(
             let replacement_request = request.replacement(previous_session_token);
             match crate::api::remote_proxy::create_session(&replacement_request, false).await {
                 Ok(next_session) => {
-                    let next_state = match provision_remote_session_ca(&next_session)
-                        .and_then(|_| remote_session_state(&next_session))
+                    let next_state = match ensure_replacement_session_is_compatible(
+                        &initial_transport,
+                        &next_session,
+                    )
+                    .and_then(|_| provision_remote_session_ca(&next_session))
+                    .and_then(|_| remote_session_state(&next_session))
                     {
                         Ok(next_state) => next_state,
                         Err(error) => {
@@ -1097,7 +1142,8 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        configured_host_matches, infer_remote_agent_type, remote_session_rotation_delay_for,
+        configured_host_matches, ensure_replacement_session_is_compatible, infer_remote_agent_type,
+        remote_session_rotation_delay_for, remote_session_transport_identity,
     };
     use std::time::Duration;
 
@@ -1142,5 +1188,37 @@ mod tests {
         assert_eq!(classify("opencode"), "opencode");
         assert_eq!(classify("my-wrapper"), "custom");
         assert_eq!(infer_remote_agent_type(&[]), "custom");
+    }
+
+    #[test]
+    fn replacement_session_rejects_a_changed_interception_ca() {
+        let initial = crate::api::remote_proxy::RemoteProxySession {
+            session_id: "session-1".to_owned(),
+            session_token: "token-1".to_owned(),
+            expires_at: "2026-01-01T00:00:00Z".to_owned(),
+            proxy_url: "https://proxy.example".to_owned(),
+            protocol: "http/1.1-forward-proxy-tls-intercept".to_owned(),
+            proxy_ca: Some(crate::api::remote_proxy::RemoteProxyCa {
+                key_id: "ca-1".to_owned(),
+                sha256: "first".to_owned(),
+                pem: "unused".to_owned(),
+            }),
+        };
+        let replacement = crate::api::remote_proxy::RemoteProxySession {
+            session_id: "session-2".to_owned(),
+            session_token: "token-2".to_owned(),
+            expires_at: "2026-01-01T00:10:00Z".to_owned(),
+            proxy_url: "https://proxy.example".to_owned(),
+            protocol: "http/1.1-forward-proxy-tls-intercept".to_owned(),
+            proxy_ca: Some(crate::api::remote_proxy::RemoteProxyCa {
+                key_id: "ca-2".to_owned(),
+                sha256: "second".to_owned(),
+                pem: "unused".to_owned(),
+            }),
+        };
+
+        let identity = remote_session_transport_identity(&initial).unwrap();
+        let error = ensure_replacement_session_is_compatible(&identity, &replacement).unwrap_err();
+        assert!(error.to_string().contains("TLS interception CA"));
     }
 }
