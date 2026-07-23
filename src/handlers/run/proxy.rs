@@ -445,7 +445,6 @@ pub struct Proxy {
     // Keeping this file alive makes the CA available to the child. Drop removes it.
     ca_file: PathBuf,
     remove_ca_file: bool,
-    ca_subject: String,
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
 }
@@ -489,7 +488,7 @@ impl Proxy {
         if proxy_port == Some(0) {
             anyhow::bail!("--proxy-port must be between 1 and 65535");
         }
-        let (certificate_authority, mut ca_file, ca_subject) = create_certificate_authority()?;
+        let (certificate_authority, mut ca_file) = create_certificate_authority()?;
         let mut remove_ca_file = true;
         if remote
             .as_ref()
@@ -622,7 +621,6 @@ impl Proxy {
             task: Some(task),
             ca_file,
             remove_ca_file,
-            ca_subject,
             audit_log,
             connections,
         })
@@ -646,7 +644,7 @@ impl Proxy {
     }
 
     pub fn trust_ca(&self) -> Result<super::trust::TemporaryCaTrust> {
-        super::trust::install(&self.ca_file, &self.ca_subject)
+        super::trust::install(&self.ca_file)
     }
 }
 
@@ -698,7 +696,7 @@ fn child_env_name_for_placeholder(
         .unwrap_or(binding_name)
 }
 
-fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
+fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
     let subject = format!("Stashbase Proxy {}", Uuid::new_v4());
     let mut params = CertificateParams::new(vec!["stashbase-proxy.local".to_owned()]);
     params
@@ -713,7 +711,7 @@ fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
     let ca = Certificate::from_params(params)?;
     let path = std::env::temp_dir().join(format!("stashbase-proxy-ca-{}.pem", Uuid::new_v4()));
     std::fs::write(&path, ca.serialize_pem()?).context("failed to write temporary proxy CA")?;
-    Ok((ca, path, subject))
+    Ok((ca, path))
 }
 
 /// Returns the control-plane CA used by the standard remote forward proxy.
@@ -2309,7 +2307,7 @@ mod tests {
     fn remote_proxy_ca_cache_verifies_and_writes_the_session_certificate() {
         let directory =
             std::env::temp_dir().join(format!("stashbase-remote-ca-{}", Uuid::new_v4()));
-        let (_, generated_path, _) = create_certificate_authority().unwrap();
+        let (_, generated_path) = create_certificate_authority().unwrap();
         let pem = fs::read_to_string(&generated_path).unwrap();
         let certificate = crate::api::remote_proxy::RemoteProxyCa {
             key_id: "test-ca".to_owned(),
