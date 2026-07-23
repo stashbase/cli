@@ -42,7 +42,7 @@ hosts = ["api.github.com"]
 project = "booking-app"
 environment = "agents-dev"
 
-egress_hosts = ["api.cursor.com", "*.cursor.sh"]
+egress_hosts = ["api.cursor.com", "*.cursor.sh", "api2.cursor.sh"]
 deny_hosts = ["api.stashbase.dev"]
 
 [agent_profiles.cursor.secrets.GH_TOKEN]
