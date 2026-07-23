@@ -102,6 +102,29 @@ pub async fn handle_agent_validate_command(
     print_report(command.profile, checks, json_format)
 }
 
+/// Enforces the static profile checks before an agent is started. Keeping this
+/// alongside `agent validate` ensures a user cannot accidentally bypass its
+/// safety and determinism checks by invoking `agent run` directly.
+pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
+    let failures = validate_profile(profile)
+        .into_iter()
+        .filter(|check| check.status == Status::Fail)
+        .map(|check| format!("{}: {}", check.name, check.message))
+        .collect::<Vec<_>>();
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Agent profile is invalid:\n{}",
+        failures
+            .into_iter()
+            .map(|failure| format!("- {failure}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
 fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
     if profile.file.is_some()
@@ -546,5 +569,45 @@ mod tests {
         assert!(validate_profile(&profile).iter().any(|check| {
             check.status == Status::Fail && check.message.contains("egress-only profile")
         }));
+    }
+
+    #[test]
+    fn run_validation_rejects_duplicate_remote_placeholders() {
+        let profile = AgentProfile {
+            project: Some("project".to_owned()),
+            environment: Some("development".to_owned()),
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            secrets: HashMap::from([
+                (
+                    "FIRST_KEY".to_owned(),
+                    crate::models::agent::AgentSecretProfile {
+                        hosts: vec!["first.example.com".to_owned()],
+                        from: None,
+                        env: None,
+                        placeholder: Some("shared-placeholder".to_owned()),
+                        header: None,
+                        value_template: None,
+                    },
+                ),
+                (
+                    "SECOND_KEY".to_owned(),
+                    crate::models::agent::AgentSecretProfile {
+                        hosts: vec!["second.example.com".to_owned()],
+                        from: None,
+                        env: None,
+                        placeholder: Some("shared-placeholder".to_owned()),
+                        header: None,
+                        value_template: None,
+                    },
+                ),
+            ]),
+        };
+
+        let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Placeholder 'shared-placeholder'"));
     }
 }

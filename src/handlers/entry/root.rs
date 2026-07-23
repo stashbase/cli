@@ -338,6 +338,8 @@ pub async fn handle_cli(args: Cli) {
                         return Ok(());
                     };
 
+                    crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
+
                     if loaded_from_directory
                         && matches!(agent_run.profile_source, AgentProfileSource::Auto)
                         && !silent
