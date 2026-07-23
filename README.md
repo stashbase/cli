@@ -210,6 +210,8 @@ Then start the agent through the restricted command:
 stashbase agent run --profile coding -- codex
 ```
 
+
+
 Validate a profile without loading any secret before using it:
 
 ```bash
@@ -373,6 +375,21 @@ connection. macOS uses the deprecated `sandbox-exec` utility. Linux uses
 `systemd-run` and an active systemd user session. Windows is not implemented.
 This is network containment only, not filesystem or same-user process-memory
 isolation.
+
+#### Remote Agent Proxy sessions
+
+For a Stashbase-backed profile with both `project` and `environment`, add
+`--remote` to keep resolved credentials in the control plane:
+
+```bash
+stashbase agent run --remote --profile coding -- codex
+```
+
+The child receives only configured opaque placeholders and uses a temporary
+localhost relay through `HTTP_PROXY` and `HTTPS_PROXY`. The session token and
+resolved secret values remain out of the child environment, and the short-lived
+session is ended when the child exits. Remote sessions do not support local-file
+or egress-only profiles.
 
 ### Threat model and security boundary
 
