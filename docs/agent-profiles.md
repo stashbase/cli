@@ -1,8 +1,8 @@
-# Agent broker profile cookbook
+# Agent Proxy profile cookbook
 
 > **Early access — local exposure reduction, not hostile-agent isolation.**
 > Agent profiles keep their granted secrets out of a child environment and
-> inject them only through the supported HTTP(S) broker. They do not prevent a
+> inject them only through the supported HTTP(S) proxy. They do not prevent a
 > malicious process running as the same user from accessing broader Stashbase
 > credentials or bypassing this workflow.
 
@@ -12,6 +12,31 @@ directory. Run one with:
 ```bash
 stashbase agent run --profile <name> -- <command>
 ```
+
+## Remote Agent Proxy sessions
+
+For a project/environment-backed profile whose secrets are stored in Stashbase,
+add `--remote` to resolve and retain credentials only in the control plane:
+
+```bash
+stashbase agent run --remote --profile coding -- codex
+```
+
+The CLI authenticates normally, creates one short-lived scoped session, and
+passes only `${STASHBASE_SECRET_NAME}` placeholders to the child. The opaque
+session token is memory-only and revoked when the child exits.
+
+The child uses a temporary localhost proxy through its normal `HTTP_PROXY` and
+`HTTPS_PROXY` settings. That relay attaches the session token to the remote
+Agent Proxy and keeps both the token and resolved secret values out of the
+child environment. Forward-proxy TLS-intercept sessions also provision the
+remote public CA for the child, enabling supported existing coding agents such
+as Codex, Copilot, and Claude Code to use their ordinary HTTP(S) transports.
+
+Remote Agent Proxy is not a general network sandbox: SSH, databases, raw TCP,
+browsers, and a tool that deliberately bypasses proxy settings are outside its
+scope. HTTP/1 WebSocket upgrades used by supported coding agents are relayed;
+HTTP/2 proxying and arbitrary third-party proxy integrations remain unsupported.
 
 The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
 present and otherwise falls back to the user-level config. Use
@@ -23,19 +48,29 @@ Validate a profile before granting it secrets—locally or in CI:
 stashbase agent validate --profile coding
 stashbase agent validate --profile coding --profile-source directory
 stashbase agent validate --profile coding --json
+stashbase agent validate --remote --profile coding
 ```
 
-Validation does not fetch or read secret values and does not start a broker. It
+Validation does not fetch or read secret values and does not start a proxy. It
 checks the selected source, local-file availability, duplicate `from` bindings,
 child environment-variable names, host rules, custom header names, and value
 templates. `egress_hosts = ["*"]` is valid but reported as a warning.
 
-By default, the broker exchanges placeholders in an exact
+Add `--remote` before a remote run to also verify that the profile is compatible
+with a project/environment-backed remote session and inspect cached public
+Agent Proxy CAs at `~/.stashbase/remote-proxy/remote-proxy-<key_id>.pem`. On first use,
+the CLI provisions that public CA from the authenticated session response,
+verifies its SHA-256 digest, and caches it atomically. A missing cache is a
+warning, not a validation failure. This preflight does not authenticate, fetch
+secrets, or create a remote session.
+
+By default, the proxy exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
 another HTTP header; the default value template is `{secret}` for a custom
 header. A profile's `hosts` controls where that secret may be injected;
-`egress_hosts` permits ordinary traffic without injecting a credential. Keep
-the two lists separate.
+`egress_hosts` permits ordinary traffic without injecting a credential. A
+secret's `hosts` list does not itself grant ordinary egress; it authorizes only
+an exchange of that secret's matching placeholder. Keep the two lists separate.
 
 `deny_hosts` is an optional final override. It uses the same exact-host and
 `*.subdomain.example` syntax as `egress_hosts`; a matching deny blocks the
@@ -53,7 +88,7 @@ For a custom deployment, deny the hostname from `STASHBASE_API_URL` instead.
 ## Egress-only profiles
 
 An agent profile may omit `file`, `project`, `environment`, and `secrets`
-entirely. It starts the broker solely to enforce egress policy and grants no
+entirely. It starts the proxy solely to enforce egress policy and grants no
 Stashbase-managed credentials—useful for Codex with an existing local login or
 for MCP-only workflows:
 
@@ -93,6 +128,38 @@ as a placeholder:
 from = "GITHUB_TOKEN"
 hosts = ["api.github.com"]
 ```
+
+### Explicit child variables and format-aware placeholders
+
+`env` optionally names the environment variable given to the agent. It is
+useful when the Stashbase source name or profile binding name differs from the
+variable a tool expects. The child still receives an opaque placeholder, never
+the secret value:
+
+```toml
+[agent_profiles.example.secrets.TOOL_TOKEN]
+from = "PLATFORM_TOKEN"
+env = "TOOL_API_KEY"
+hosts = ["api.example.com"]
+header = "x-api-key"
+```
+
+In remote mode, that produces `TOOL_API_KEY=${STASHBASE_TOOL_TOKEN}` in the
+child environment. The remote proxy exchanges the placeholder only in the
+configured `x-api-key` header for `api.example.com`.
+
+Some clients validate an API-key shape before they send any request. For those
+clients, `placeholder` can provide an opaque, syntactically compatible value:
+
+```toml
+placeholder = "provider-shaped-but-non-secret-placeholder"
+```
+
+This is a compatibility value, not a credential source. `from` still selects
+the real secret from Stashbase, and the child never receives that real value.
+The remote proxy exact-matches the configured safe placeholder before it
+injects the mapped credential. The default
+`${STASHBASE_BINDING_NAME}` remains available when `placeholder` is omitted.
 
 You can combine a remote source with a local override file. The file is read
 first; for every configured source it supplies, no remote request is made. Any
@@ -146,7 +213,7 @@ from = "GITHUB_TOKEN"
 hosts = [
   "api.github.com",
   "github.com",
-  "copilot-proxy.githubusercontent.com",
+  "copilot-broker.githubusercontent.com",
   "*.githubcopilot.com",
 ]
 
@@ -197,7 +264,7 @@ egress_hosts = [
 hosts = [
   "api.github.com",
   "github.com",
-  "copilot-proxy.githubusercontent.com",
+  "copilot-broker.githubusercontent.com",
   "origin-tracker.githubusercontent.com",
   "*.githubcopilot.com",
 ]
@@ -243,16 +310,33 @@ hosts = ["llm.example.com"]
 
 Anthropic's API uses `x-api-key`, so configure that header explicitly. The
 [Anthropic API overview](https://platform.claude.com/docs/en/api/overview)
-documents this authentication format.
+documents this authentication format. `env` ensures Claude Code receives its
+credential in the variable it recognizes, while the proxy retains control of
+the real key.
 
 ```toml
 [agent_profiles.claude]
-file = "./.env.agent"
+project = "platform"
+environment = "development"
+egress_hosts = ["api.anthropic.com"]
 
 [agent_profiles.claude.secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
 header = "x-api-key"
+env = "ANTHROPIC_API_KEY"
+# Opaque format-compatible value; never a real Anthropic key.
+placeholder = "sk-ant-api03-stashbase-placeholder-000000000000000000000000000000000000"
 ```
+
+The child process sees only
+`ANTHROPIC_API_KEY=${STASHBASE_ANTHROPIC_API_KEY}`. When Claude Code sends an
+`x-api-key` request to `api.anthropic.com`, the proxy injects the real
+Stashbase-managed key. A local API key or `ANTHROPIC_AUTH_TOKEN` should not be
+relied upon for this profile-managed path.
+
+The placeholder above lets Claude Code pass its local API-key format check; the
+proxy still exchanges it only at `api.anthropic.com`. This preserves the same
+proxy boundary; it merely lets the client begin the proxied request.
 
 ## Gemini API clients
 
@@ -284,7 +368,7 @@ egress_hosts = ["*"]
 `egress_hosts` is host-based. If it includes your Stashbase API host—or uses
 the `"*"` wildcard without a matching `deny_hosts` entry—the child may be able to use ordinary Stashbase CLI commands
 such as project/environment discovery or `stashbase secrets list` through the
-broker. With a normal personal or service API key available in the
+proxy. With a normal personal or service API key available in the
 operating-system credential store, those commands may authenticate as the
 developer and retrieve secrets the developer is authorized to access.
 
@@ -303,7 +387,7 @@ deny_hosts = ["api.stashbase.dev"]
 ```
 
 Then a child request to an unlisted Stashbase API host is denied and recorded
-as `host_denied` in the broker audit log. Some HTTPS clients surface that
+as `host_denied` in the proxy audit log. Some HTTPS clients surface that
 CONNECT-level denial as a generic connection error. Use `--sandbox` on supported platforms as well when direct network
 bypass must be blocked. Allowing broad egress is an explicit developer trust
 decision; the CLI does not implement fragile path-by-path rules for Stashbase
@@ -312,25 +396,25 @@ permissions server-side.
 
 ## Compatibility and proxy limits
 
-The broker is intentionally focused on common developer-tool HTTP(S) traffic.
+The proxy is intentionally focused on common developer-tool HTTP(S) traffic.
 Use this matrix when deciding whether a workflow belongs in an agent profile.
 
-| Workflow or protocol | Broker support | Notes |
+| Workflow or protocol | Proxy support | Notes |
 | --- | --- | --- |
 | `curl` and ordinary HTTP clients | Yes | The client must honor `HTTP_PROXY` / `HTTPS_PROXY` and place the placeholder in a configured header. |
-| HTTPS APIs | Yes, with temporary CA trust | Most clients use the CA-file variables supplied by the CLI. Use `--trust-broker-ca` only when a client requires operating-system trust-store integration. |
+| HTTPS APIs | Yes, with temporary CA trust | Most clients use the CA-file variables supplied by the CLI. Use `--trust-proxy-ca` only when a client requires operating-system trust-store integration. |
 | Node.js / `fetch` | Usually | The CLI enables `NODE_USE_ENV_PROXY`; use a Node runtime that supports environment proxy settings. |
-| `gh` and GitHub Copilot CLI | Usually | Configure every required GitHub/Copilot host. Some builds need `--trust-broker-ca`. |
-| Agent-spawned HTTP tools | Yes | They inherit the placeholders and proxy variables from the agent process. The same broker handles every descendant; no nested broker is needed. |
+| `gh` and GitHub Copilot CLI | Usually | Configure every required GitHub/Copilot host. Some builds need `--trust-proxy-ca`. |
+| Agent-spawned HTTP tools | Yes | They inherit the placeholders and proxy variables from the agent process. The same proxy handles every descendant; no nested proxy is needed. |
 | Custom API-key headers | Yes | Configure `header` and, when needed, `value_template`. |
 | Streaming uploads, downloads, and SSE | Yes over HTTP/1 | Bodies are forwarded incrementally and unchanged; credential replacement remains header-only. |
 | Request bodies, query parameters, cookies, or arbitrary CLI arguments | No | Injection is header-only. Do not put real credentials in another channel to work around this. |
-| SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets | No | These protocols do not use the HTTP(S) broker. |
-| Proxy-bypassing tools | No containment by default | They can connect directly unless they honor the proxy settings. `--sandbox` limits direct network access to the broker loopback port on macOS and systemd-based Linux; Windows is not implemented. |
-| WebSockets over HTTP/1 (`wss://`) | Yes | The broker tunnels the upgraded connection after applying host policy and header placeholder rewriting. This supports Codex streaming connections. |
+| SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets | No | These protocols do not use the HTTP(S) proxy. |
+| Proxy-bypassing tools | No containment by default | They can connect directly unless they honor the proxy settings. `--sandbox` limits direct network access to the proxy loopback port on macOS and systemd-based Linux; Windows is not implemented. |
+| WebSockets over HTTP/1 (`wss://`) | Yes | The proxy tunnels the upgraded connection after applying host policy and header placeholder rewriting. This supports Codex streaming connections. |
 | HTTP/2 proxy clients | Not a supported target | This proof-of-concept proxy accepts HTTP/1 proxy traffic only. |
 
-The broker is not a general-purpose proxy, policy engine, or network firewall.
+The proxy is not a general-purpose proxy, policy engine, or network firewall.
 It is a short-lived credential-injection boundary for supported HTTP(S) tools.
 
 Before adding a new tool to a workflow, run the local compatibility report:
@@ -340,22 +424,25 @@ stashbase agent doctor curl
 stashbase agent doctor gh
 stashbase agent doctor copilot
 stashbase agent doctor codex
+stashbase agent doctor --remote codex
 ```
 
 It never loads a profile or secret. It verifies that the executable is present,
-starts a temporary no-secret broker, confirms the proxy and temporary CA
+starts a temporary no-secret proxy, confirms the proxy and temporary CA
 environment it would pass to a child, and reports known compatibility guidance.
+With `--remote`, it also verifies the remote Agent Proxy CA required for standard
+forward-proxy TLS interception.
 It cannot prove that every release or plugin inside a third-party tool will
 honor proxy settings, so also perform an allowed-host end-to-end test.
 
 ## Current boundary
 
-This remains an HTTP(S) broker. It cannot inject credentials into local-only
+This remains an HTTP(S) proxy. It cannot inject credentials into local-only
 commands, SSH, databases, raw TCP, or tools that bypass proxy environment
 variables. Do not work around that boundary by exposing a real secret to the
 child process.
 
-In broker mode, Stashbase clears inherited `NO_PROXY` / `no_proxy`,
+In proxy mode, Stashbase clears inherited `NO_PROXY` / `no_proxy`,
 `ALL_PROXY` / `all_proxy`, and npm proxy override variables before starting the
 child, then supplies its own `HTTP_PROXY` and `HTTPS_PROXY`. This prevents the
 most common accidental bypasses. A tool can still intentionally use its own
@@ -377,7 +464,7 @@ secrets.
 
 `agent run` writes a local, metadata-only JSONL audit log by default. Startup
 prints an audit session ID and the local log path. Events include the profile,
-broker action, destination host, secret name, response status, and duration.
+proxy action, destination host, secret name, response status, and duration.
 They never include secret values, placeholders, headers, bodies, URLs, or
 command arguments.
 
@@ -392,9 +479,9 @@ stashbase agent logs --action tls_trust_failed --since 1h
 
 `unknown_placeholder` means a placeholder from another or stale session was
 blocked before it could be forwarded. `tls_trust_failed` means the HTTPS
-handshake ended while the broker's temporary certificate was being presented;
+handshake ended while the proxy's temporary certificate was being presented;
 the protocol cannot reveal the exact client-side trust error. A direct proxy
-bypass cannot be logged because no request reaches the broker—use the macOS
+bypass cannot be logged because no request reaches the proxy—use the macOS
 `--sandbox` option when that containment matters.
 
 ```text
@@ -423,7 +510,7 @@ stashbase agent run --profile coding --audit-log false -- codex
 
 ## Troubleshooting
 
-When a tool reports a proxy 403, run once with `RUST_LOG=debug`. The broker
+When a tool reports a proxy 403, run once with `RUST_LOG=debug`. The proxy
 prints only the denied destination host, never the secret or request headers.
 Add that host either to the relevant secret's `hosts` (if it must receive the
 credential) or to `egress_hosts` (if it must not).

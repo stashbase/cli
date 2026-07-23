@@ -1,22 +1,23 @@
-# Repository-local agent policy. Keep the Stashbase API host out of egress.
-# Local testing and development agent policy for this CLI repository.
-# Do not store real production secrets in this file.
+[agent_profiles.codex-mcp]
+project = "project"
+environment = "prod"
 
-[agent_profiles.coding]
-# Practical local-agent mode: let Codex and configured MCP tools use the
-# internet, but prevent a nested Stashbase CLI from reaching this API.
-egress_hosts = ["*"]
-deny_hosts = ["api.stashbase.dev"]
-
-file = "./.env.agent-test"
-# project = "booking-app"
-# environment = "development"
+egress_hosts = ["api.openai.com", "chatgpt.com"]
 
 
-[agent_profiles.coding.secrets.GH_TOKEN]
-from = "GITHUB_TOKEN"
-# Copilot authenticates across these GitHub-owned endpoints. The token still
-# cannot be injected into arbitrary hosts allowed by `egress_hosts`.
+[agent_profiles.codex-mcp.secrets.GH_TOKEN]
+from = "GH_TOKEN"
+hosts = ["api.github.com"]
+
+
+# Copilot
+[agent_profiles.copilot]
+project = "projects"
+environment = "github-copilot"
+
+# deny_hosts = ["*.stashbase.dev"]
+
+[agent_profiles.copilot.secrets.GH_TOKEN]
 hosts = [
     "api.github.com",
     "github.com",
@@ -25,10 +26,37 @@ hosts = [
     "*.githubcopilot.com",
 ]
 
-[agent_profiles.third-party-test]
-file = "./.env.third-party-test"
-egress_hosts = ["*"]
 
-[agent_profiles.third-party-test.secrets.DEMO_PARTNER_API_KEY]
-hosts = ["postman-echo.com"]
-header = "x-api-key"
+[agent_profiles.claude]
+project = "booking-app"
+environment = "agents-dev"
+egress_hosts = ["api.anthropic.com"]
+
+[agent_profiles.claude.secrets.GH_TOKEN]
+hosts = ["api.github.com"]
+
+
+# Cursor Agent CLI uses CURSOR_API_KEY. This deliberately binds GH_TOKEN for a
+# transport-only test; replace `from` with CURSOR_API_KEY for real use.
+[agent_profiles.cursor]
+project = "booking-app"
+environment = "agents-dev"
+
+egress_hosts = ["api.cursor.com", "*.cursor.sh", "api2.cursor.sh"]
+deny_hosts = ["api.stashbase.dev"]
+
+[agent_profiles.cursor.secrets.GH_TOKEN]
+from = "GH_TOKEN"
+hosts = ["api.github.com"]
+
+[agent_profiles.opencode]
+project = "booking-app"
+environment = "agents-dev"
+egress_hosts = ["api.openai.com"]
+deny_hosts = ["api.stashbase.dev"]
+
+# [agent_profiles.opencode.secrets.OPENAI_API_KEY]
+# hosts = ["api.openai.com"]
+[agent_profiles.opencode.secrets.GH_TOKEN]
+from = "GH_TOKEN"
+hosts = ["api.github.com"]

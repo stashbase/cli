@@ -1,7 +1,7 @@
-//! Embedded, per-command credential broker for `stashbase run --broker` and
+//! Embedded, per-command credential proxy for `stashbase run --proxy` and
 //! `stashbase agent run`.
 //!
-//! The broker binds only to localhost and lives for the child process lifetime.
+//! The proxy binds only to localhost and lives for the child process lifetime.
 //! HTTPS traffic is intercepted with a temporary locally-trusted CA so it can
 //! replace Stashbase placeholders in approved request headers before forwarding
 //! them to policy-approved destinations. It also enforces ordinary egress rules
@@ -18,7 +18,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -43,8 +43,9 @@ use rustls::{
 };
 use rustls_platform_verifier::BuilderVerifierExt;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::{
-    io::copy_bidirectional,
+    io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::oneshot,
     task::JoinHandle,
@@ -64,9 +65,9 @@ type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infal
 const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const AUDIT_LOG_MAX_FILES: usize = 1_000;
 
-/// One metadata-only event emitted by the local broker audit log.
+/// One metadata-only event emitted by the local proxy audit log.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
-pub struct AuditLogEvent {
+pub struct ProxyAuditLogEvent {
     pub timestamp: String,
     pub session_id: String,
     pub profile: String,
@@ -80,15 +81,15 @@ pub struct AuditLogEvent {
 
 /// Exact-match filters for the local audit-log viewer.
 #[derive(Debug, Clone, Default)]
-pub struct AuditLogFilter {
+pub struct ProxyAuditLogFilter {
     pub profile: Option<String>,
     pub action: Option<String>,
     pub host: Option<String>,
     pub session: Option<String>,
 }
 
-impl AuditLogFilter {
-    fn matches(&self, event: &AuditLogEvent) -> bool {
+impl ProxyAuditLogFilter {
+    fn matches(&self, event: &ProxyAuditLogEvent) -> bool {
         self.profile
             .as_ref()
             .is_none_or(|value| value == &event.profile)
@@ -109,24 +110,29 @@ impl AuditLogFilter {
     }
 }
 
-/// Private, metadata-only audit log for one broker session.
+/// Private, metadata-only audit log for one proxy session.
 #[derive(Debug, Clone)]
-pub struct AuditLog {
+pub struct ProxyAuditLog {
     session_id: String,
     profile: String,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
 
-impl AuditLog {
+impl ProxyAuditLog {
     pub fn local(profile: &str) -> Result<Self> {
-        let directory = audit_directory()?;
+        Self::local_with_session_id(profile, Uuid::new_v4().to_string())
+    }
+
+    /// Uses the control-plane session identifier so local metadata can be
+    /// correlated with future server-side remote-proxy audit events.
+    pub fn local_with_session_id(profile: &str, session_id: String) -> Result<Self> {
+        let directory = local_proxy_audit_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
-        prune_audit_logs(&directory)?;
+        prune_proxy_audit_logs(&directory)?;
 
-        let session_id = Uuid::new_v4().to_string();
         let path = directory.join(format!("agent-{}.jsonl", session_id));
         let file = OpenOptions::new()
             .create_new(true)
@@ -160,7 +166,7 @@ impl AuditLog {
         status: Option<StatusCode>,
         duration: Option<Duration>,
     ) {
-        let event = AuditLogEvent {
+        let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
             profile: self.profile.clone(),
@@ -182,12 +188,12 @@ impl AuditLog {
 }
 
 /// Returns the most recent local audit events, ordered oldest to newest.
-pub fn read_local_audit_logs(
+pub fn read_local_proxy_audit_logs(
     limit: usize,
     since: Option<Duration>,
-    filter: &AuditLogFilter,
-) -> Result<Vec<AuditLogEvent>> {
-    let directory = audit_directory()?;
+    filter: &ProxyAuditLogFilter,
+) -> Result<Vec<ProxyAuditLogEvent>> {
+    let directory = local_proxy_audit_directory()?;
     if !directory.exists() {
         return Ok(Vec::new());
     }
@@ -207,7 +213,7 @@ pub fn read_local_audit_logs(
 
         let contents = fs::read_to_string(entry.path())?;
         for line in contents.lines() {
-            let Ok(event) = serde_json::from_str::<AuditLogEvent>(line) else {
+            let Ok(event) = serde_json::from_str::<ProxyAuditLogEvent>(line) else {
                 continue;
             };
             let timestamp = DateTime::parse_from_rfc3339(&event.timestamp)
@@ -229,7 +235,7 @@ pub fn read_local_audit_logs(
     Ok(events)
 }
 
-fn audit_directory() -> Result<PathBuf> {
+fn local_proxy_audit_directory() -> Result<PathBuf> {
     let config_path = crate::config::config::get_config_path()?;
     Ok(config_path
         .parent()
@@ -238,7 +244,7 @@ fn audit_directory() -> Result<PathBuf> {
 }
 
 /// Keeps local audit storage bounded without touching files outside our session naming scheme.
-fn prune_audit_logs(directory: &Path) -> Result<()> {
+fn prune_proxy_audit_logs(directory: &Path) -> Result<()> {
     let now = SystemTime::now();
     let mut logs = Vec::new();
 
@@ -274,9 +280,9 @@ fn prune_audit_logs(directory: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Destination policy for credentials brokered into an agent process.
+/// Destination policy for credentials proxied into an agent process.
 #[derive(Debug, Clone)]
-pub struct BrokerPolicy {
+pub struct ProxyPolicy {
     pub allowed_hosts_by_secret: HashMap<String, HashSet<String>>,
     pub secret_injections: HashMap<String, SecretInjection>,
     pub allowed_egress_hosts: HashSet<String>,
@@ -284,11 +290,86 @@ pub struct BrokerPolicy {
     pub strict_deny: bool,
 }
 
-/// How a placeholder is represented in a child request and rewritten by the broker.
+/// How a placeholder is represented in a child request and rewritten by the proxy.
 #[derive(Debug, Clone)]
 pub struct SecretInjection {
     pub header: String,
     pub value_template: String,
+}
+
+/// Opaque, control-plane-issued credentials used by the local relay.
+/// The token is never placed in the child environment.
+#[derive(Clone)]
+pub struct RemoteProxyConfig {
+    pub proxy_url: String,
+    pub session: Arc<RwLock<RemoteProxySessionState>>,
+    pub placeholders: HashMap<String, String>,
+    /// Maps a profile binding name to the child environment variable name.
+    pub child_env: HashMap<String, String>,
+    pub protocol: RemoteProxyProtocol,
+    /// Key-ID-specific public CA cached from the session response. It is pinned
+    /// for this child run so a later CA rotation cannot overwrite its trust file.
+    pub ca_file: Option<PathBuf>,
+}
+
+/// The currently usable remote session. The rotation task replaces this atomically
+/// before a new connection is opened; existing tunnels keep their old session.
+#[derive(Clone)]
+pub struct RemoteProxySessionState {
+    pub token: String,
+    pub expires_at: DateTime<Utc>,
+    pub last_rotation_error: Option<String>,
+}
+
+impl std::fmt::Debug for RemoteProxySessionState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RemoteProxySessionState")
+            .field("token", &"[REDACTED]")
+            .field("expires_at", &self.expires_at)
+            .field("last_rotation_error", &self.last_rotation_error)
+            .finish()
+    }
+}
+
+impl RemoteProxyConfig {
+    /// Never call this for an already-open stream: session rotation only applies
+    /// to new HTTP requests and CONNECT handshakes.
+    fn token_for_new_connection(&self) -> Result<String> {
+        let session = self
+            .session
+            .read()
+            .map_err(|_| anyhow::anyhow!("Agent Proxy session state is unavailable"))?;
+        if Utc::now() >= session.expires_at {
+            let suffix = session
+                .last_rotation_error
+                .as_deref()
+                .map(|error| format!(" (last rotation attempt failed: {error})"))
+                .unwrap_or_default();
+            anyhow::bail!("Agent Proxy session expired; a new connection cannot be opened{suffix}");
+        }
+        Ok(session.token.clone())
+    }
+}
+
+impl std::fmt::Debug for RemoteProxyConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RemoteProxyConfig")
+            .field("proxy_url", &self.proxy_url)
+            .field("session", &"[REDACTED]")
+            .field("placeholders", &self.placeholders)
+            .field("child_env", &self.child_env)
+            .field("protocol", &self.protocol)
+            .field("ca_file", &self.ca_file)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteProxyProtocol {
+    Custom,
+    ForwardProxyTlsIntercept,
 }
 
 impl SecretInjection {
@@ -300,7 +381,7 @@ impl SecretInjection {
     }
 }
 
-impl BrokerPolicy {
+impl ProxyPolicy {
     pub fn permissive() -> Self {
         Self {
             allowed_hosts_by_secret: HashMap::new(),
@@ -313,16 +394,18 @@ impl BrokerPolicy {
 }
 
 #[derive(Clone)]
-struct BrokerState {
+struct ProxyState {
     secrets: Arc<HashMap<String, String>>,
-    policy: BrokerPolicy,
+    policy: ProxyPolicy,
     client: reqwest::Client,
+    remote_ca: Option<reqwest::Certificate>,
     certificate_authority: Arc<Certificate>,
-    audit_log: Option<AuditLog>,
+    audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
+    remote: Option<RemoteProxyConfig>,
 }
 
-/// Tracks every accepted proxy and TLS-upgrade task so broker shutdown closes
+/// Tracks every accepted proxy and TLS-upgrade task so proxy shutdown closes
 /// existing sockets as well as the listening socket.
 #[derive(Default)]
 struct ActiveConnections {
@@ -337,7 +420,7 @@ struct ActiveConnectionState {
 
 impl ActiveConnections {
     fn track(&self, task: JoinHandle<()>) {
-        let mut state = self.inner.lock().expect("broker connection lock poisoned");
+        let mut state = self.inner.lock().expect("proxy connection lock poisoned");
         if state.stopped {
             task.abort();
         } else {
@@ -346,7 +429,7 @@ impl ActiveConnections {
     }
 
     fn stop(&self) {
-        let mut state = self.inner.lock().expect("broker connection lock poisoned");
+        let mut state = self.inner.lock().expect("proxy connection lock poisoned");
         state.stopped = true;
         for task in state.tasks.drain(..) {
             task.abort();
@@ -355,77 +438,144 @@ impl ActiveConnections {
 }
 
 /// Owns the listener and the temporary trust anchor for exactly one child process.
-pub struct Broker {
+pub struct Proxy {
     child_env: HashMap<String, String>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
     // Keeping this file alive makes the CA available to the child. Drop removes it.
     ca_file: PathBuf,
-    ca_subject: String,
-    audit_log: Option<AuditLog>,
+    remove_ca_file: bool,
+    audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
 }
 
-impl Broker {
+impl Proxy {
     #[cfg(test)]
     pub async fn start(
         secrets: HashMap<String, String>,
-        policy: BrokerPolicy,
-        audit_log: Option<AuditLog>,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
     ) -> Result<Self> {
         Self::start_with_port(secrets, policy, audit_log, None).await
     }
 
     pub async fn start_with_port(
         secrets: HashMap<String, String>,
-        mut policy: BrokerPolicy,
-        audit_log: Option<AuditLog>,
-        broker_port: Option<u16>,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
     ) -> Result<Self> {
-        if broker_port == Some(0) {
-            anyhow::bail!("--broker-port must be between 1 and 65535");
+        Self::start_inner(secrets, policy, audit_log, proxy_port, None).await
+    }
+
+    pub async fn start_remote_with_port(
+        remote: RemoteProxyConfig,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+    ) -> Result<Self> {
+        let placeholders = remote.placeholders.clone();
+        Self::start_inner(placeholders, policy, audit_log, proxy_port, Some(remote)).await
+    }
+
+    async fn start_inner(
+        secrets: HashMap<String, String>,
+        mut policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+        remote: Option<RemoteProxyConfig>,
+    ) -> Result<Self> {
+        if proxy_port == Some(0) {
+            anyhow::bail!("--proxy-port must be between 1 and 65535");
         }
-        let (certificate_authority, ca_file, ca_subject) = create_certificate_authority()?;
-        let bind_address = format!("127.0.0.1:{}", broker_port.unwrap_or(0));
+        let (certificate_authority, mut ca_file) = create_certificate_authority()?;
+        let mut remove_ca_file = true;
+        if remote
+            .as_ref()
+            .is_some_and(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
+        {
+            let remote_ca = remote
+                .as_ref()
+                .and_then(|remote| remote.ca_file.clone())
+                .context("remote forward-proxy session did not provide a cached CA file")?;
+            // The remote listener, not this local relay, presents certificates in
+            // forward-proxy mode. Pass its public CA to the child.
+            ca_file = remote_ca;
+            remove_ca_file = false;
+        }
+        let bind_address = format!("127.0.0.1:{}", proxy_port.unwrap_or(0));
         let listener = TcpListener::bind(&bind_address)
             .await
-            .with_context(|| format!("failed to bind credential broker to {bind_address}"))?;
+            .with_context(|| format!("failed to bind credential proxy to {bind_address}"))?;
         let address = listener.local_addr()?;
-        let placeholders = secrets
-            .into_iter()
-            .map(|(name, value)| (placeholder_for(&name), value))
-            .collect::<HashMap<_, _>>();
+        let placeholders = if remote.is_some() {
+            secrets
+                .into_iter()
+                .map(|(_name, placeholder)| (placeholder, String::new()))
+                .collect()
+        } else {
+            secrets
+                .into_iter()
+                .map(|(name, value)| (placeholder_for(&name), value))
+                .collect()
+        };
+        let remote_placeholders = remote.as_ref().map(|remote| remote.placeholders.clone());
+        let remote_child_env = remote.as_ref().map(|remote| remote.child_env.clone());
+        let remote_binding_names = remote_placeholders.as_ref().map(|placeholders| {
+            placeholders
+                .iter()
+                .map(|(name, placeholder)| (placeholder.clone(), name.clone()))
+                .collect::<HashMap<_, _>>()
+        });
         policy.allowed_hosts_by_secret = policy
             .allowed_hosts_by_secret
             .into_iter()
-            .map(|(name, hosts)| (placeholder_for(&name), normalize_hosts(hosts)))
+            .map(|(name, hosts)| {
+                let placeholder = remote_placeholders
+                    .as_ref()
+                    .and_then(|placeholders| placeholders.get(&name))
+                    .cloned()
+                    .unwrap_or_else(|| placeholder_for(&name));
+                (placeholder, normalize_hosts(hosts))
+            })
             .collect();
-        policy.secret_injections = normalize_injections(policy.secret_injections)?;
+        policy.secret_injections =
+            normalize_injections(policy.secret_injections, remote_placeholders.as_ref())?;
         policy.allowed_egress_hosts = normalize_hosts(policy.allowed_egress_hosts);
         policy.denied_hosts = normalize_hosts(policy.denied_hosts);
         let connections = Arc::new(ActiveConnections::default());
-        let state = BrokerState {
+        let mut client_builder = reqwest::Client::builder()
+            .no_proxy()
+            // A total request timeout would terminate healthy long-lived streams.
+            // Keep the existing timeout budget for connecting and for each stalled
+            // read instead, so active uploads, downloads, and SSE can continue.
+            .connect_timeout(Duration::from_secs(
+                REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+            ))
+            .read_timeout(Duration::from_secs(
+                REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+            ))
+            .redirect(reqwest::redirect::Policy::none());
+        let remote_ca = if remote
+            .as_ref()
+            .is_some_and(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
+        {
+            let remote_ca = reqwest::Certificate::from_pem(&fs::read(&ca_file)?)?;
+            client_builder = client_builder.add_root_certificate(remote_ca.clone());
+            Some(remote_ca)
+        } else {
+            None
+        };
+        let state = ProxyState {
             secrets: Arc::new(placeholders),
             policy,
             // Forwarding must never use proxy variables inherited by Stashbase itself.
-            client: reqwest::Client::builder()
-                .no_proxy()
-                // A total request timeout would terminate healthy long-lived streams.
-                // Keep the existing timeout budget for connecting and for each stalled
-                // read instead, so active uploads, downloads, and SSE can continue.
-                .connect_timeout(Duration::from_secs(
-                    REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
-                ))
-                .read_timeout(Duration::from_secs(
-                    REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
-                ))
-                // Return redirects to the child, which will make its next request through
-                // this proxy and therefore re-run destination policy checks.
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?,
+            client: client_builder.build()?,
+            remote_ca,
             certificate_authority: Arc::new(certificate_authority),
             audit_log: audit_log.clone(),
             connections: connections.clone(),
+            remote,
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -443,16 +593,22 @@ impl Broker {
             ("CURL_CA_BUNDLE".to_owned(), ca_path.clone()),
             ("GIT_SSL_CAINFO".to_owned(), ca_path.clone()),
             ("NODE_EXTRA_CA_CERTS".to_owned(), ca_path),
+            (
+                "CODEX_CA_CERTIFICATE".to_owned(),
+                ca_file.to_string_lossy().into_owned(),
+            ),
             // Node's built-in fetch requires this opt-in before it reads proxy variables.
             ("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()),
             ("NO_PROXY".to_owned(), String::new()),
             ("no_proxy".to_owned(), String::new()),
         ]);
         for placeholder in state.secrets.keys() {
-            child_env.insert(
-                secret_name_from_placeholder(placeholder),
-                placeholder.clone(),
+            let env_name = child_env_name_for_placeholder(
+                placeholder,
+                remote_binding_names.as_ref(),
+                remote_child_env.as_ref(),
             );
+            child_env.insert(env_name, placeholder.clone());
         }
 
         if let Some(audit_log) = &audit_log {
@@ -464,7 +620,7 @@ impl Broker {
             shutdown: Some(shutdown),
             task: Some(task),
             ca_file,
-            ca_subject,
+            remove_ca_file,
             audit_log,
             connections,
         })
@@ -488,11 +644,11 @@ impl Broker {
     }
 
     pub fn trust_ca(&self) -> Result<super::trust::TemporaryCaTrust> {
-        super::trust::install(&self.ca_file, &self.ca_subject)
+        super::trust::install(&self.ca_file)
     }
 }
 
-impl Drop for Broker {
+impl Drop for Proxy {
     fn drop(&mut self) {
         self.connections.stop();
         if let Some(shutdown) = self.shutdown.take() {
@@ -501,7 +657,9 @@ impl Drop for Broker {
         if let Some(task) = self.task.take() {
             task.abort();
         }
-        let _ = std::fs::remove_file(&self.ca_file);
+        if self.remove_ca_file {
+            let _ = std::fs::remove_file(&self.ca_file);
+        }
     }
 }
 
@@ -510,15 +668,37 @@ fn placeholder_for(name: &str) -> String {
 }
 
 fn secret_name_from_placeholder(placeholder: &str) -> String {
+    if let Some(value) = placeholder
+        .strip_prefix("**STASHBASE_")
+        .and_then(|value| value.strip_suffix("**"))
+    {
+        return value.to_owned();
+    }
     placeholder
-        .trim_start_matches("**STASHBASE_")
-        .trim_end_matches("**")
+        .strip_prefix("${")
+        .and_then(|value| value.strip_suffix('}'))
+        .unwrap_or(placeholder)
         .to_owned()
 }
 
-fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
-    let subject = format!("Stashbase Broker {}", Uuid::new_v4());
-    let mut params = CertificateParams::new(vec!["stashbase-broker.local".to_owned()]);
+fn child_env_name_for_placeholder(
+    placeholder: &str,
+    remote_binding_names: Option<&HashMap<String, String>>,
+    remote_child_env: Option<&HashMap<String, String>>,
+) -> String {
+    let binding_name = remote_binding_names
+        .and_then(|names| names.get(placeholder))
+        .cloned()
+        .unwrap_or_else(|| secret_name_from_placeholder(placeholder));
+    remote_child_env
+        .and_then(|child_env| child_env.get(&binding_name))
+        .cloned()
+        .unwrap_or(binding_name)
+}
+
+fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
+    let subject = format!("Stashbase Proxy {}", Uuid::new_v4());
+    let mut params = CertificateParams::new(vec!["stashbase-proxy.local".to_owned()]);
     params
         .distinguished_name
         .push(DnType::CommonName, subject.clone());
@@ -529,14 +709,135 @@ fn create_certificate_authority() -> Result<(Certificate, PathBuf, String)> {
         KeyUsagePurpose::KeyEncipherment,
     ];
     let ca = Certificate::from_params(params)?;
-    let path = std::env::temp_dir().join(format!("stashbase-broker-ca-{}.pem", Uuid::new_v4()));
-    std::fs::write(&path, ca.serialize_pem()?).context("failed to write temporary broker CA")?;
-    Ok((ca, path, subject))
+    let path = std::env::temp_dir().join(format!("stashbase-proxy-ca-{}.pem", Uuid::new_v4()));
+    std::fs::write(&path, ca.serialize_pem()?).context("failed to write temporary proxy CA")?;
+    Ok((ca, path))
+}
+
+/// Returns the control-plane CA used by the standard remote forward proxy.
+/// This is public trust material only; no session token or secret is read.
+/// Returns valid key-ID-specific CA files already cached locally. A missing
+/// cache is expected before the first remote run.
+pub fn cached_remote_proxy_ca_files() -> Result<Vec<PathBuf>> {
+    let directory = remote_proxy_ca_directory()?;
+    if !directory.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files = fs::read_dir(&directory)?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "pem"))
+        .collect::<Vec<_>>();
+    for path in &files {
+        validate_remote_proxy_ca_file(path)?;
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Caches the public CA delivered with a remote forward-proxy session. The
+/// backend digest is verified before any file is trusted by a child process.
+pub fn provision_remote_proxy_ca(
+    certificate: &crate::api::remote_proxy::RemoteProxyCa,
+) -> Result<PathBuf> {
+    provision_remote_proxy_ca_at(&remote_proxy_ca_directory()?, certificate)
+}
+
+fn provision_remote_proxy_ca_at(
+    directory: &Path,
+    certificate: &crate::api::remote_proxy::RemoteProxyCa,
+) -> Result<PathBuf> {
+    let actual_sha256 = format!("{:x}", Sha256::digest(certificate.pem.as_bytes()));
+    if actual_sha256 != certificate.sha256 {
+        anyhow::bail!("Agent Proxy CA digest did not match the session response");
+    }
+    reqwest::Certificate::from_pem(certificate.pem.as_bytes())
+        .context("Agent Proxy session returned an invalid CA PEM")?;
+
+    fs::create_dir_all(&directory).with_context(|| {
+        format!(
+            "could not create Agent Proxy CA directory at {}",
+            directory.display()
+        )
+    })?;
+    #[cfg(unix)]
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+
+    let certificate_path = remote_proxy_ca_path(directory, &certificate.key_id)?;
+    if validate_remote_proxy_ca_file(&certificate_path).is_ok()
+        && fs::read_to_string(&certificate_path)
+            .map(|pem| format!("{:x}", Sha256::digest(pem.as_bytes())) == certificate.sha256)
+            .unwrap_or(false)
+    {
+        return Ok(certificate_path);
+    }
+
+    write_remote_proxy_ca_file(&certificate_path, certificate.pem.as_bytes())?;
+    Ok(certificate_path)
+}
+
+fn remote_proxy_ca_path(directory: &Path, key_id: &str) -> Result<PathBuf> {
+    if key_id.is_empty()
+        || matches!(key_id, "." | "..")
+        || !key_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    {
+        anyhow::bail!("Agent Proxy session returned an unsafe CA key ID");
+    }
+    Ok(directory.join(format!("remote-proxy-{key_id}.pem")))
+}
+
+fn remote_proxy_ca_directory() -> Result<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join(".stashbase/remote-proxy"))
+        .context("could not determine the Stashbase Agent Proxy CA path")
+}
+
+fn write_remote_proxy_ca_file(path: &Path, contents: &[u8]) -> Result<()> {
+    let temporary = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    fs::write(&temporary, contents).with_context(|| {
+        format!(
+            "could not write Agent Proxy CA cache at {}",
+            temporary.display()
+        )
+    })?;
+    #[cfg(unix)]
+    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+    fs::rename(&temporary, path).with_context(|| {
+        format!(
+            "could not update Agent Proxy CA cache at {}",
+            path.display()
+        )
+    })
+}
+
+fn validate_remote_proxy_ca_file(path: &Path) -> Result<()> {
+    if !path.is_file() {
+        anyhow::bail!(
+            "Agent Proxy CA certificate was not found at {}",
+            path.display()
+        );
+    }
+    reqwest::Certificate::from_pem(&fs::read(path).with_context(|| {
+        format!(
+            "could not read Agent Proxy CA certificate at {}",
+            path.display()
+        )
+    })?)
+    .with_context(|| {
+        format!(
+            "Agent Proxy CA certificate at {} is not valid PEM",
+            path.display()
+        )
+    })?;
+    Ok(())
 }
 
 async fn run_listener(
     listener: TcpListener,
-    state: BrokerState,
+    state: ProxyState,
     mut shutdown: oneshot::Receiver<()>,
 ) {
     loop {
@@ -563,7 +864,7 @@ async fn run_listener(
 
 fn proxy_request(
     mut request: Request<Incoming>,
-    state: BrokerState,
+    state: ProxyState,
     connect_authority: Option<String>,
 ) -> ProxyFuture {
     Box::pin(async move {
@@ -571,15 +872,19 @@ fn proxy_request(
         if request.method() == Method::CONNECT {
             let authority = request.uri().authority().map(|value| value.to_string());
             let Some(authority) = authority else {
-                return Ok(broker_error_response(
+                return Ok(proxy_error_response(
                     StatusCode::BAD_REQUEST,
-                    "broker.invalid_connect",
+                    "proxy.invalid_connect",
                     "CONNECT requires an authority",
                 ));
             };
-            if !state.host_allowed(Some(host_from_authority(&authority))) {
+            // CONNECT happens before the TLS request headers are available. A
+            // secret-only host may therefore open a provisional tunnel, but the
+            // intercepted HTTP request still must carry an allowed placeholder
+            // unless the host is also ordinary egress.
+            if !state.host_allowed_for_connect(Some(host_from_authority(&authority))) {
                 debug!(
-                    "broker denied destination: {}",
+                    "proxy denied destination: {}",
                     host_from_authority(&authority)
                 );
                 state.record_audit(
@@ -590,12 +895,57 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(broker_error_response(
+                return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
-                    "broker.host_denied",
-                    "Broker policy denied destination",
+                    "proxy.host_denied",
+                    "Agent Proxy policy denied destination",
                 ));
             }
+            if let Some(remote) = &state.remote {
+                if let Err(error) = remote.token_for_new_connection() {
+                    state.record_audit(
+                        "session_expired",
+                        Some(host_from_authority(&authority)),
+                        Some(&Method::CONNECT),
+                        None,
+                        Some(StatusCode::SERVICE_UNAVAILABLE),
+                        Some(started.elapsed()),
+                    );
+                    return Ok(proxy_error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "proxy.session_expired",
+                        &error.to_string(),
+                    ));
+                }
+            }
+            // Establish the remote CONNECT before acknowledging the child's CONNECT.
+            // Otherwise a rejected or stalled remote proxy produces a misleading local
+            // 200 response followed by an unexplained dead tunnel.
+            let remote_tunnel =
+                match state.remote.clone().filter(|remote| {
+                    remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept
+                }) {
+                    Some(remote) => match establish_remote_connect(&authority, &remote).await {
+                        Ok(upstream) => Some(upstream),
+                        Err(error) => {
+                            debug!("remote proxy CONNECT setup failed: {error:#}");
+                            state.record_audit(
+                                "remote_connect_failed",
+                                Some(host_from_authority(&authority)),
+                                Some(&Method::CONNECT),
+                                None,
+                                Some(StatusCode::BAD_GATEWAY),
+                                Some(started.elapsed()),
+                            );
+                            return Ok(proxy_error_response(
+                                StatusCode::BAD_GATEWAY,
+                                "proxy.remote_connect_failed",
+                                "Unable to establish Agent Proxy tunnel",
+                            ));
+                        }
+                    },
+                    None => None,
+                };
             state.record_audit(
                 "connect_allowed",
                 Some(host_from_authority(&authority)),
@@ -609,7 +959,21 @@ fn proxy_request(
             let task = tokio::spawn(async move {
                 match hyper::upgrade::on(&mut request).await {
                     Ok(upgraded) => {
-                        let _ = serve_tls_connection(upgraded, authority, connection_state).await;
+                        if let Some(upstream) = remote_tunnel {
+                            if let Err(error) = tunnel_remote_connect(
+                                upgraded,
+                                authority,
+                                upstream,
+                                connection_state,
+                            )
+                            .await
+                            {
+                                debug!("remote proxy CONNECT tunnel failed: {error:#}");
+                            }
+                        } else {
+                            let _ =
+                                serve_tls_connection(upgraded, authority, connection_state).await;
+                        }
                     }
                     Err(_) => connection_state.record_audit(
                         "connect_upgrade_failed",
@@ -629,9 +993,9 @@ fn proxy_request(
         }
 
         let host = request_host(&request, connect_authority.as_deref());
-        if !state.host_allowed(host.as_deref()) {
+        if state.host_is_denied(host.as_deref()) {
             debug!(
-                "broker denied destination: {}",
+                "proxy denied destination: {}",
                 host.as_deref().unwrap_or("unknown")
             );
             state.record_audit(
@@ -642,10 +1006,10 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(broker_error_response(
+            return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "broker.host_denied",
-                "Broker policy denied destination",
+                "proxy.host_denied",
+                "Agent Proxy policy denied destination",
             ));
         }
         if contains_unknown_placeholder(&request, &state) {
@@ -657,17 +1021,17 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(broker_error_response(
+            return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "broker.unknown_placeholder",
-                "Broker received an unknown credential placeholder",
+                "proxy.unknown_placeholder",
+                "Agent Proxy received an unknown credential placeholder",
             ));
         }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
             Ok(secret_name) => secret_name,
             Err(secret_name) => {
                 debug!(
-                    "broker denied credential injection for destination: {}",
+                    "proxy denied credential injection for destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
                 state.record_audit(
@@ -678,17 +1042,64 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(broker_error_response(
+                return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
-                    "broker.credential_host_denied",
-                    "Broker policy denied credential",
+                    "proxy.credential_host_denied",
+                    "Agent Proxy policy denied credential",
                 ));
             }
         };
+        // A per-secret host is not general egress. It is permitted only when
+        // this request carries that secret's configured placeholder; all other
+        // traffic must be explicitly listed in `egress_hosts`.
+        if secret_name.is_none() && !state.host_allowed_for_ordinary_request(host.as_deref()) {
+            state.record_audit(
+                "host_denied",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response(
+                StatusCode::FORBIDDEN,
+                "proxy.host_denied",
+                "Agent Proxy policy denied destination",
+            ));
+        }
+        if let Some(remote) = &state.remote {
+            if let Err(error) = remote.token_for_new_connection() {
+                state.record_audit(
+                    "session_expired",
+                    host.as_deref(),
+                    Some(request.method()),
+                    secret_name.as_deref(),
+                    Some(StatusCode::SERVICE_UNAVAILABLE),
+                    Some(started.elapsed()),
+                );
+                return Ok(proxy_error_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "proxy.session_expired",
+                    &error.to_string(),
+                ));
+            }
+        }
         // Reqwest deliberately does not support HTTP upgrade responses. Coding agents
         // such as Codex use a WSS connection for streaming, so tunnel an upgraded
         // connection after applying the same destination and placeholder checks.
         if is_upgrade_request(&request) {
+            if let Some(remote) = state.remote.clone() {
+                return forward_remote_upgrade(
+                    request,
+                    state,
+                    remote,
+                    connect_authority,
+                    host,
+                    secret_name,
+                    started,
+                )
+                .await;
+            }
             return forward_upgrade(
                 request,
                 state,
@@ -710,23 +1121,99 @@ fn proxy_request(
                     Some(StatusCode::BAD_REQUEST),
                     Some(started.elapsed()),
                 );
-                return Ok(broker_error_response(
+                return Ok(proxy_error_response(
                     StatusCode::BAD_REQUEST,
-                    "broker.request_invalid",
+                    "proxy.request_invalid",
                     "Unable to determine request URL",
                 ));
             }
         };
         let method = request.method().clone();
-        let headers = request.headers().clone();
+        let mut headers = request.headers().clone();
         // `Incoming` is converted into a data stream without collecting it. Reqwest
         // applies chunked transfer encoding when no content length is available, so
         // streaming uploads retain their incremental delivery to the upstream.
         let body = reqwest::Body::wrap_stream(request.into_body().into_data_stream());
 
-        match state
-            .client
-            .request(method.clone(), url)
+        let destination_url = if let Some(remote) = state
+            .remote
+            .as_ref()
+            .filter(|remote| remote.protocol == RemoteProxyProtocol::Custom)
+        {
+            headers.remove("x-stashbase-target");
+            headers.remove("x-stashbase-session");
+            let token = match remote.token_for_new_connection() {
+                Ok(token) => token,
+                Err(error) => {
+                    return Ok(proxy_error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "proxy.session_expired",
+                        &error.to_string(),
+                    ))
+                }
+            };
+            headers.insert(
+                "x-stashbase-target",
+                HeaderValue::from_str(url.as_str()).unwrap(),
+            );
+            let token = match HeaderValue::from_str(&token) {
+                Ok(token) => token,
+                Err(_) => {
+                    return Ok(proxy_error_response(
+                        StatusCode::BAD_GATEWAY,
+                        "proxy.session_invalid",
+                        "Agent Proxy returned an invalid session token",
+                    ))
+                }
+            };
+            headers.insert("x-stashbase-session", token);
+            let proxy = match reqwest::Url::parse(&remote.proxy_url) {
+                Ok(proxy) => proxy,
+                Err(_) => {
+                    return Ok(proxy_error_response(
+                        StatusCode::BAD_GATEWAY,
+                        "proxy.session_invalid",
+                        "Agent Proxy returned an invalid proxy URL",
+                    ))
+                }
+            };
+            // This is a forward request to the remote proxy, not the original
+            // destination. Keeping the child's Host header sends the wrong virtual
+            // host for ordinary (non-upgrade) requests.
+            let proxy_host = match proxy_host_header(&proxy) {
+                Ok(value) => value,
+                Err(_) => {
+                    return Ok(proxy_error_response(
+                        StatusCode::BAD_GATEWAY,
+                        "proxy.session_invalid",
+                        "Agent Proxy returned an invalid proxy URL",
+                    ))
+                }
+            };
+            headers.insert(hyper::header::HOST, proxy_host);
+            remote.proxy_url.clone()
+        } else {
+            url.to_string()
+        };
+        let client = match state
+            .remote
+            .as_ref()
+            .filter(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
+        {
+            Some(remote) => match remote_forward_client(remote, state.remote_ca.as_ref()) {
+                Ok(client) => client,
+                Err(error) => {
+                    return Ok(proxy_error_response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "proxy.session_unavailable",
+                        &error.to_string(),
+                    ))
+                }
+            },
+            None => state.client.clone(),
+        };
+        match client
+            .request(method.clone(), destination_url)
             .headers(headers)
             .body(body)
             .send()
@@ -761,7 +1248,7 @@ fn proxy_request(
             }
             Err(error) => {
                 debug!(
-                    "broker could not forward request to destination: {}",
+                    "proxy could not forward request to destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
                 state.record_audit(
@@ -772,14 +1259,325 @@ fn proxy_request(
                     Some(StatusCode::BAD_GATEWAY),
                     Some(started.elapsed()),
                 );
-                Ok(broker_error_response(
+                Ok(proxy_error_response(
                     StatusCode::BAD_GATEWAY,
-                    &format!("broker.{}", upstream_error_action(&error)),
-                    "Unable to forward broker request",
+                    &format!("proxy.{}", upstream_error_action(&error)),
+                    "Unable to forward Agent Proxy request",
                 ))
             }
         }
     })
+}
+
+/// Standard remote-proxy requests are built per request so a new connection
+/// always observes the latest rotated token. Existing response streams retain
+/// the client and session that opened them.
+fn remote_forward_client(
+    remote: &RemoteProxyConfig,
+    remote_ca: Option<&reqwest::Certificate>,
+) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(
+            REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+        ))
+        .read_timeout(Duration::from_secs(
+            REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
+        ))
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(certificate) = remote_ca {
+        builder = builder.add_root_certificate(certificate.clone());
+    }
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::PROXY_AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", remote.token_for_new_connection()?))?,
+    );
+    Ok(builder
+        .proxy(reqwest::Proxy::all(&remote.proxy_url)?.headers(headers))
+        .build()?)
+}
+
+/// Establishes the remote side of a CONNECT tunnel before the child is told
+/// that its local CONNECT succeeded. The session token stays in this handshake
+/// and is never placed in the child environment.
+async fn establish_remote_connect(
+    authority: &str,
+    remote: &RemoteProxyConfig,
+) -> Result<Box<dyn AsyncStream>> {
+    let token = remote.token_for_new_connection()?;
+    let proxy = reqwest::Url::parse(&remote.proxy_url).context("invalid remote proxy URL")?;
+    let timeout = Duration::from_secs(REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30));
+    let mut upstream = tokio::time::timeout(timeout, connect_remote_proxy(&proxy))
+        .await
+        .context("Agent Proxy CONNECT setup timed out")??;
+    tokio::time::timeout(timeout, async {
+        upstream
+            .write_all(
+            format!(
+                "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Authorization: Bearer {}\r\n\r\n",
+                token
+            )
+            .as_bytes(),
+            )
+            .await?;
+        read_connect_response(&mut upstream).await
+    })
+    .await
+    .context("Agent Proxy CONNECT handshake timed out")??;
+    Ok(upstream)
+}
+
+async fn read_connect_response(upstream: &mut (dyn AsyncStream + 'static)) -> Result<()> {
+    let mut response = Vec::new();
+    let mut byte = [0u8; 1];
+    while response.len() < 16 * 1024 {
+        upstream.read_exact(&mut byte).await?;
+        response.push(byte[0]);
+        if response.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    if !response.starts_with(b"HTTP/1.1 200") && !response.starts_with(b"HTTP/1.0 200") {
+        anyhow::bail!("Agent Proxy rejected CONNECT");
+    }
+    Ok(())
+}
+
+/// Bridges the already-established remote tunnel to the local child tunnel.
+async fn tunnel_remote_connect(
+    upgraded: hyper::upgrade::Upgraded,
+    authority: String,
+    mut upstream: Box<dyn AsyncStream>,
+    state: ProxyState,
+) -> Result<()> {
+    let mut child = TokioIo::new(upgraded);
+    let _ = copy_bidirectional(&mut child, &mut upstream).await;
+    state.record_audit(
+        "remote_connect_closed",
+        Some(host_from_authority(&authority)),
+        Some(&Method::CONNECT),
+        None,
+        None,
+        None,
+    );
+    Ok(())
+}
+
+trait AsyncStream: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T> AsyncStream for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+
+/// Opens the connection to the remote proxy itself. Standard forward proxies
+/// can be served over either HTTP or HTTPS; CONNECT must use TLS for the latter
+/// before its plaintext HTTP handshake is written.
+async fn connect_remote_proxy(proxy: &reqwest::Url) -> Result<Box<dyn AsyncStream>> {
+    let host = proxy.host_str().context("remote proxy URL has no host")?;
+    let port = proxy
+        .port_or_known_default()
+        .context("remote proxy URL has no known port")?;
+    let stream = TcpStream::connect(format!("{host}:{port}")).await?;
+    match proxy.scheme() {
+        "http" => Ok(Box::new(stream)),
+        "https" => {
+            let server_name = ServerName::try_from(host.to_owned())
+                .context("remote proxy URL has an invalid TLS host")?;
+            let config = ClientConfig::builder()
+                .with_platform_verifier()?
+                .with_no_client_auth();
+            Ok(Box::new(
+                TlsConnector::from(Arc::new(config))
+                    .connect(server_name, stream)
+                    .await?,
+            ))
+        }
+        scheme => anyhow::bail!("remote proxy URL uses unsupported scheme: {scheme}"),
+    }
+}
+
+/// Sends an intercepted WebSocket opening handshake to the remote proxy. The
+/// remote service owns placeholder resolution; this relay retains only the
+/// opaque session token and streams frames after the HTTP/1 upgrade.
+async fn forward_remote_upgrade(
+    mut request: Request<Incoming>,
+    state: ProxyState,
+    remote: RemoteProxyConfig,
+    connect_authority: Option<String>,
+    host: Option<String>,
+    secret_name: Option<String>,
+    started: Instant,
+) -> Result<Response<ProxyBody>, Infallible> {
+    // ForwardProxyTlsIntercept: the remote proxy handles TLS interception for
+    // HTTPS. For plain-HTTP upgrades (ws://) the correct path is also a CONNECT
+    // tunnel so the remote proxy can apply its own policy. Sending the upgrade
+    // handshake directly to the proxy URL would bypass the CONNECT protocol and
+    // be rejected by a standard forward proxy.
+    if remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept {
+        let authority = match upstream_authority(&request, connect_authority.as_deref()) {
+            Ok(authority) => authority,
+            Err(_) => {
+                return Ok(proxy_error_response(
+                    StatusCode::BAD_REQUEST,
+                    "proxy.request_invalid",
+                    "Unable to determine request URL",
+                ));
+            }
+        };
+        let upstream = match establish_remote_connect(&authority, &remote).await {
+            Ok(upstream) => upstream,
+            Err(error) => {
+                debug!("remote proxy upgrade CONNECT setup failed: {error:#}");
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ));
+            }
+        };
+        // A child speaks absolute-form to this local proxy, but after CONNECT
+        // the remote side is an origin connection and requires origin-form.
+        *request.uri_mut() = upgrade_origin_form_uri(&request);
+        return tunnel_upgrade(request, upstream, state, host, secret_name, started).await;
+    }
+
+    let target = match request_url(&request, connect_authority.as_deref()) {
+        Ok(target) => target
+            .replacen("https://", "wss://", 1)
+            .replacen("http://", "ws://", 1),
+        Err(_) => {
+            return Ok(proxy_error_response(
+                StatusCode::BAD_REQUEST,
+                "proxy.request_invalid",
+                "Unable to determine request URL",
+            ))
+        }
+    };
+    let proxy = match reqwest::Url::parse(&remote.proxy_url) {
+        Ok(proxy) => proxy,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    let Some(proxy_host) = proxy.host_str().map(str::to_owned) else {
+        return Ok(upgrade_error_response(
+            &state,
+            host.as_deref(),
+            secret_name.as_deref(),
+            started,
+        ));
+    };
+    let Some(port) = proxy.port_or_known_default() else {
+        return Ok(upgrade_error_response(
+            &state,
+            host.as_deref(),
+            secret_name.as_deref(),
+            started,
+        ));
+    };
+    let stream = match TcpStream::connect(format!("{proxy_host}:{port}")).await {
+        Ok(stream) => stream,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    request.headers_mut().remove("x-stashbase-target");
+    request.headers_mut().remove("x-stashbase-session");
+    request.headers_mut().insert(
+        "x-stashbase-target",
+        HeaderValue::from_str(&target).unwrap(),
+    );
+    let token = match remote.token_for_new_connection() {
+        Ok(token) => token,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    let token = match HeaderValue::from_str(&token) {
+        Ok(token) => token,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    request.headers_mut().insert("x-stashbase-session", token);
+    let proxy_host_header = match proxy_host_header(&proxy) {
+        Ok(value) => value,
+        Err(_) => {
+            return Ok(upgrade_error_response(
+                &state,
+                host.as_deref(),
+                secret_name.as_deref(),
+                started,
+            ))
+        }
+    };
+    request
+        .headers_mut()
+        .insert(hyper::header::HOST, proxy_host_header);
+    let proxy_path = match proxy.query() {
+        Some(query) => format!("{}?{query}", proxy.path()),
+        None => proxy.path().to_owned(),
+    };
+    *request.uri_mut() = proxy_path.parse().unwrap();
+    if proxy.scheme() == "https" {
+        let server_name = match ServerName::try_from(proxy_host.clone()) {
+            Ok(value) => value,
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ))
+            }
+        };
+        let config = match ClientConfig::builder().with_platform_verifier() {
+            Ok(value) => value.with_no_client_auth(),
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ))
+            }
+        };
+        let stream = match TlsConnector::from(Arc::new(config))
+            .connect(server_name, stream)
+            .await
+        {
+            Ok(value) => value,
+            Err(_) => {
+                return Ok(upgrade_error_response(
+                    &state,
+                    host.as_deref(),
+                    secret_name.as_deref(),
+                    started,
+                ))
+            }
+        };
+        return tunnel_upgrade(request, stream, state, host, secret_name, started).await;
+    }
+    tunnel_upgrade(request, stream, state, host, secret_name, started).await
 }
 
 fn is_upgrade_request(request: &Request<Incoming>) -> bool {
@@ -791,7 +1589,7 @@ fn is_upgrade_request(request: &Request<Incoming>) -> bool {
 /// request has already passed policy checks and placeholder replacement.
 async fn forward_upgrade(
     request: Request<Incoming>,
-    state: BrokerState,
+    state: ProxyState,
     connect_authority: Option<String>,
     host: Option<String>,
     secret_name: Option<String>,
@@ -800,9 +1598,9 @@ async fn forward_upgrade(
     let authority = match upstream_authority(&request, connect_authority.as_deref()) {
         Ok(authority) => authority,
         Err(_) => {
-            return Ok(broker_error_response(
+            return Ok(proxy_error_response(
                 StatusCode::BAD_REQUEST,
-                "broker.request_invalid",
+                "proxy.request_invalid",
                 "Unable to determine request URL",
             ));
         }
@@ -810,9 +1608,9 @@ async fn forward_upgrade(
     let (hostname, port) = match split_authority(&authority, connect_authority.is_some()) {
         Some(parts) => parts,
         None => {
-            return Ok(broker_error_response(
+            return Ok(proxy_error_response(
                 StatusCode::BAD_REQUEST,
-                "broker.request_invalid",
+                "proxy.request_invalid",
                 "Unable to determine request URL",
             ));
         }
@@ -833,9 +1631,9 @@ async fn forward_upgrade(
         let server_name = match ServerName::try_from(hostname.clone()) {
             Ok(name) => name,
             Err(_) => {
-                return Ok(broker_error_response(
+                return Ok(proxy_error_response(
                     StatusCode::BAD_REQUEST,
-                    "broker.request_invalid",
+                    "proxy.request_invalid",
                     "Unable to determine request URL",
                 ));
             }
@@ -874,7 +1672,7 @@ async fn forward_upgrade(
 async fn tunnel_upgrade<S>(
     mut request: Request<Incoming>,
     stream: S,
-    state: BrokerState,
+    state: ProxyState,
     host: Option<String>,
     secret_name: Option<String>,
     started: Instant,
@@ -970,7 +1768,7 @@ where
 }
 
 fn upgrade_error_response(
-    state: &BrokerState,
+    state: &ProxyState,
     host: Option<&str>,
     secret_name: Option<&str>,
     started: Instant,
@@ -983,10 +1781,10 @@ fn upgrade_error_response(
         Some(StatusCode::BAD_GATEWAY),
         Some(started.elapsed()),
     );
-    broker_error_response(
+    proxy_error_response(
         StatusCode::BAD_GATEWAY,
-        "broker.upgrade_failed",
-        "Unable to establish upgraded broker connection",
+        "proxy.upgrade_failed",
+        "Unable to establish upgraded Agent Proxy connection",
     )
 }
 
@@ -1006,6 +1804,30 @@ fn upstream_authority(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
         .context("HTTP proxy request is missing a Host header")
+}
+
+fn upgrade_origin_form_uri<B>(request: &Request<B>) -> hyper::Uri {
+    request
+        .uri()
+        .path_and_query()
+        .map(|path_and_query| path_and_query.as_str())
+        .unwrap_or("/")
+        .parse()
+        .expect("a request URI path and query are always valid URI references")
+}
+
+/// Returns the authority understood by the remote proxy's HTTP listener.
+/// Explicit non-default ports are part of the Host header's authority.
+fn proxy_host_header(proxy: &reqwest::Url) -> Result<HeaderValue> {
+    let host = proxy.host_str().context("remote proxy URL has no host")?;
+    let authority = match proxy.port() {
+        Some(port) if host.contains(':') && !host.starts_with('[') => {
+            format!("[{host}]:{port}")
+        }
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_owned(),
+    };
+    HeaderValue::from_str(&authority).context("remote proxy URL has an invalid Host header")
 }
 
 fn split_authority(authority: &str, tls: bool) -> Option<(String, u16)> {
@@ -1052,7 +1874,7 @@ fn request_url(request: &Request<Incoming>, connect_authority: Option<&str>) -> 
 async fn serve_tls_connection(
     upgraded: hyper::upgrade::Upgraded,
     authority: String,
-    state: BrokerState,
+    state: ProxyState,
 ) -> Result<()> {
     let host = authority.split(':').next().unwrap_or(&authority);
     let mut params = CertificateParams::new(vec![host.to_owned()]);
@@ -1102,13 +1924,25 @@ async fn serve_tls_connection(
     Ok(())
 }
 
-impl BrokerState {
-    fn host_allowed(&self, host: Option<&str>) -> bool {
+impl ProxyState {
+    fn host_is_denied(&self, host: Option<&str>) -> bool {
+        host.is_some_and(|host| policy_denies_host(&self.policy, host))
+    }
+
+    fn host_allowed_for_connect(&self, host: Option<&str>) -> bool {
         let Some(host) = host else {
             return !self.policy.strict_deny;
         };
         !policy_denies_host(&self.policy, host)
-            && (!self.policy.strict_deny || policy_allows_host(&self.policy, host))
+            && (!self.policy.strict_deny || policy_allows_connect(&self.policy, host))
+    }
+
+    fn host_allowed_for_ordinary_request(&self, host: Option<&str>) -> bool {
+        let Some(host) = host else {
+            return !self.policy.strict_deny;
+        };
+        !policy_denies_host(&self.policy, host)
+            && (!self.policy.strict_deny || policy_allows_egress(&self.policy, host))
     }
 
     fn record_audit(
@@ -1126,18 +1960,22 @@ impl BrokerState {
     }
 }
 
-fn policy_allows_host(policy: &BrokerPolicy, host: &str) -> bool {
+fn policy_allows_connect(policy: &ProxyPolicy, host: &str) -> bool {
     policy
         .allowed_hosts_by_secret
         .values()
         .any(|hosts| hosts.iter().any(|allowed| host_matches(allowed, host)))
-        || policy
-            .allowed_egress_hosts
-            .iter()
-            .any(|allowed| allowed == "*" || host_matches(allowed, host))
+        || policy_allows_egress(policy, host)
 }
 
-fn policy_denies_host(policy: &BrokerPolicy, host: &str) -> bool {
+fn policy_allows_egress(policy: &ProxyPolicy, host: &str) -> bool {
+    policy
+        .allowed_egress_hosts
+        .iter()
+        .any(|allowed| allowed == "*" || host_matches(allowed, host))
+}
+
+fn policy_denies_host(policy: &ProxyPolicy, host: &str) -> bool {
     policy
         .denied_hosts
         .iter()
@@ -1146,7 +1984,7 @@ fn policy_denies_host(policy: &BrokerPolicy, host: &str) -> bool {
 
 fn replace_placeholder(
     request: &mut Request<Incoming>,
-    state: &BrokerState,
+    state: &ProxyState,
     host: Option<&str>,
 ) -> std::result::Result<Option<String>, String> {
     for (placeholder, secret) in state.secrets.iter() {
@@ -1180,6 +2018,9 @@ fn replace_placeholder(
         {
             return Err(secret_name_from_placeholder(placeholder));
         }
+        if state.remote.is_some() {
+            return Ok(Some(secret_name_from_placeholder(placeholder)));
+        }
         let value = injection.value_template.replace("{secret}", secret);
         if let Ok(value) = HeaderValue::from_str(&value) {
             request.headers_mut().insert(header_name, value);
@@ -1193,7 +2034,7 @@ fn replace_placeholder(
 /// Reject placeholder-shaped values that do not belong to this session instead
 /// of forwarding them to an upstream service. This avoids accidental leakage of
 /// a placeholder and makes stale profile bindings diagnosable from audit logs.
-fn contains_unknown_placeholder(request: &Request<Incoming>, state: &BrokerState) -> bool {
+fn contains_unknown_placeholder(request: &Request<Incoming>, state: &ProxyState) -> bool {
     request.headers().values().any(|value| {
         let Ok(value) = value.to_str() else {
             return false;
@@ -1209,6 +2050,22 @@ fn contains_unknown_placeholder(request: &Request<Incoming>, state: &BrokerState
                 return true;
             }
             remaining = &candidate[end + 4..];
+        }
+        if state.remote.is_some() {
+            for candidate in value.match_indices("${") {
+                let suffix = &value[candidate.0..];
+                let Some(end) = suffix.find('}') else {
+                    // An unclosed "${" is not a well-formed placeholder; skip it
+                    // rather than treating it as an unknown credential. Headers
+                    // can legitimately contain shell templates, JS interpolation
+                    // strings, or other "${"-prefixed content without a closing
+                    // brace, and rejecting them would produce a false-positive 403.
+                    continue;
+                };
+                if !state.secrets.contains_key(&suffix[..=end]) {
+                    return true;
+                }
+            }
         }
         false
     })
@@ -1240,6 +2097,11 @@ fn request_host(request: &Request<Incoming>, connect_authority: Option<&str>) ->
 }
 
 fn host_from_authority(authority: &str) -> &str {
+    if let Some(bracketed) = authority.strip_prefix('[') {
+        if let Some((host, _)) = bracketed.split_once(']') {
+            return host;
+        }
+    }
     authority
         .rsplit_once(':')
         .map(|(host, _)| host)
@@ -1255,6 +2117,7 @@ fn normalize_hosts(hosts: HashSet<String>) -> HashSet<String> {
 
 fn normalize_injections(
     injections: HashMap<String, SecretInjection>,
+    remote_placeholders: Option<&HashMap<String, String>>,
 ) -> Result<HashMap<String, SecretInjection>> {
     injections
         .into_iter()
@@ -1266,8 +2129,12 @@ fn normalize_injections(
                     "credential value template for secret '{name}' must contain '{{secret}}'"
                 );
             }
+            let placeholder = remote_placeholders
+                .and_then(|placeholders| placeholders.get(&name))
+                .cloned()
+                .unwrap_or_else(|| placeholder_for(&name));
             Ok((
-                placeholder_for(&name),
+                placeholder,
                 SecretInjection {
                     header: header.as_str().to_owned(),
                     value_template: injection.value_template,
@@ -1285,9 +2152,9 @@ fn host_matches(allowed: &str, host: &str) -> bool {
     }
 }
 
-/// Broker failures use the public API error envelope so a nested `stashbase`
+/// Proxy failures use the public API error envelope so a nested `stashbase`
 /// command can report policy denials clearly instead of failing JSON parsing.
-fn broker_error_response(status: StatusCode, code: &str, message: &str) -> Response<ProxyBody> {
+fn proxy_error_response(status: StatusCode, code: &str, message: &str) -> Response<ProxyBody> {
     let body = serde_json::json!({
         "error": {
             "code": code,
@@ -1312,7 +2179,7 @@ fn full_body(body: Bytes) -> ProxyBody {
 mod tests {
     use super::*;
     use futures_util::{stream, StreamExt};
-    use hyper::header::{AUTHORIZATION, TRANSFER_ENCODING};
+    use hyper::header::{AUTHORIZATION, HOST, TRANSFER_ENCODING};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         sync::oneshot,
@@ -1360,11 +2227,279 @@ mod tests {
         (address, receiver)
     }
 
-    fn proxy_client(broker: &Broker) -> reqwest::Client {
+    fn proxy_client(proxy: &Proxy) -> reqwest::Client {
         reqwest::Client::builder()
-            .proxy(reqwest::Proxy::all(&broker.child_env()["HTTP_PROXY"]).unwrap())
+            .proxy(reqwest::Proxy::all(&proxy.child_env()["HTTP_PROXY"]).unwrap())
             .build()
             .unwrap()
+    }
+
+    #[test]
+    fn remote_session_token_is_redacted_and_expires_for_new_connections() {
+        let config = RemoteProxyConfig {
+            proxy_url: "https://proxy.example".to_owned(),
+            session: Arc::new(RwLock::new(RemoteProxySessionState {
+                token: "do-not-log".to_owned(),
+                expires_at: Utc::now() - chrono::Duration::seconds(1),
+                last_rotation_error: Some("temporary control-plane failure".to_owned()),
+            })),
+            placeholders: HashMap::new(),
+            child_env: HashMap::new(),
+            protocol: RemoteProxyProtocol::ForwardProxyTlsIntercept,
+            ca_file: None,
+        };
+
+        assert!(!format!("{config:?}").contains("do-not-log"));
+        assert!(config
+            .token_for_new_connection()
+            .unwrap_err()
+            .to_string()
+            .contains("temporary control-plane failure"));
+    }
+
+    #[test]
+    fn custom_remote_placeholder_uses_the_configured_child_environment_name() {
+        let placeholder = "sk-ant-api03-stashbase-placeholder";
+        let binding_names =
+            HashMap::from([(placeholder.to_owned(), "ANTHROPIC_API_KEY".to_owned())]);
+        let child_env = HashMap::from([(
+            "ANTHROPIC_API_KEY".to_owned(),
+            "ANTHROPIC_API_KEY".to_owned(),
+        )]);
+
+        assert_eq!(
+            child_env_name_for_placeholder(placeholder, Some(&binding_names), Some(&child_env)),
+            "ANTHROPIC_API_KEY"
+        );
+    }
+
+    #[test]
+    fn remote_proxy_host_header_uses_the_proxy_authority() {
+        let proxy = reqwest::Url::parse("https://proxy.example:8443/v1/proxy").unwrap();
+
+        assert_eq!(
+            proxy_host_header(&proxy).unwrap(),
+            HeaderValue::from_static("proxy.example:8443")
+        );
+    }
+
+    #[test]
+    fn remote_custom_header_injection_uses_its_remote_placeholder() {
+        let injections = HashMap::from([(
+            "ANTHROPIC_API_KEY".to_owned(),
+            SecretInjection {
+                header: "x-api-key".to_owned(),
+                value_template: "{secret}".to_owned(),
+            },
+        )]);
+        let placeholders = HashMap::from([(
+            "ANTHROPIC_API_KEY".to_owned(),
+            "sk-ant-api03-stashbase-placeholder".to_owned(),
+        )]);
+
+        let normalized = normalize_injections(injections, Some(&placeholders)).unwrap();
+
+        assert!(normalized.contains_key("sk-ant-api03-stashbase-placeholder"));
+        assert!(!normalized.contains_key("**STASHBASE_ANTHROPIC_API_KEY**"));
+    }
+
+    #[test]
+    fn remote_proxy_ca_cache_verifies_and_writes_the_session_certificate() {
+        let directory =
+            std::env::temp_dir().join(format!("stashbase-remote-ca-{}", Uuid::new_v4()));
+        let (_, generated_path) = create_certificate_authority().unwrap();
+        let pem = fs::read_to_string(&generated_path).unwrap();
+        let certificate = crate::api::remote_proxy::RemoteProxyCa {
+            key_id: "test-ca".to_owned(),
+            sha256: format!("{:x}", Sha256::digest(pem.as_bytes())),
+            pem: pem.clone(),
+        };
+
+        let path = provision_remote_proxy_ca_at(&directory, &certificate).unwrap();
+
+        assert_eq!(path.file_name().unwrap(), "remote-proxy-test-ca.pem");
+        assert_eq!(fs::read_to_string(&path).unwrap(), pem);
+        assert!(!directory.join("proxy-ca.json").exists());
+
+        let invalid = crate::api::remote_proxy::RemoteProxyCa {
+            sha256: "0".repeat(64),
+            ..certificate
+        };
+        assert!(provision_remote_proxy_ca_at(&directory, &invalid).is_err());
+        assert!(remote_proxy_ca_path(&directory, "../unsafe").is_err());
+        fs::remove_file(generated_path).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn authority_parser_handles_bracketed_ipv6() {
+        assert_eq!(host_from_authority("[::1]:443"), "::1");
+        assert_eq!(
+            host_from_authority("api.example.com:443"),
+            "api.example.com"
+        );
+    }
+
+    #[test]
+    fn remote_upgrade_uses_origin_form_after_connect() {
+        let request = Request::builder()
+            .uri("http://api.example.com/ws?stream=true")
+            .body(())
+            .unwrap();
+
+        assert_eq!(
+            upgrade_origin_form_uri(&request),
+            "/ws?stream=true".parse::<hyper::Uri>().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_remote_forward_uses_the_remote_proxy_host_header() {
+        let (address, host) = start_backend_capturing(HOST).await;
+        let remote = RemoteProxyConfig {
+            proxy_url: format!("http://{address}/v1/agent-proxy/proxy"),
+            session: Arc::new(RwLock::new(RemoteProxySessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::new(),
+            child_env: HashMap::new(),
+            protocol: RemoteProxyProtocol::Custom,
+            ca_file: None,
+        };
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get("http://original.example/path")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let expected_host = address.to_string();
+        assert_eq!(host.await.unwrap().as_deref(), Some(expected_host.as_str()));
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn remote_custom_header_is_denied_before_reaching_the_remote_proxy() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let remote_address = remote_listener.local_addr().unwrap();
+        let remote = RemoteProxyConfig {
+            proxy_url: format!("http://{remote_address}/v1/agent-proxy/proxy"),
+            session: Arc::new(RwLock::new(RemoteProxySessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                "sk-ant-api03-stashbase-placeholder".to_owned(),
+            )]),
+            child_env: HashMap::new(),
+            protocol: RemoteProxyProtocol::Custom,
+            ca_file: None,
+        };
+        let policy = ProxyPolicy {
+            allowed_hosts_by_secret: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                HashSet::from(["api.anthropic.com".to_owned()]),
+            )]),
+            secret_injections: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                SecretInjection {
+                    header: "x-api-key".to_owned(),
+                    value_template: "{secret}".to_owned(),
+                },
+            )]),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::new(),
+            strict_deny: true,
+        };
+        let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get("http://unapproved.example/test")
+            .header("x-api-key", "sk-ant-api03-stashbase-placeholder")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.bytes().await.unwrap();
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(error.error.code, "proxy.credential_host_denied");
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err()
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn https_remote_proxy_connection_starts_with_tls() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (hello_sender, hello) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 3];
+            stream.read_exact(&mut bytes).await.unwrap();
+            let _ = hello_sender.send(bytes);
+        });
+
+        let proxy =
+            reqwest::Url::parse(&format!("https://127.0.0.1:{}/proxy", address.port())).unwrap();
+        let connect = tokio::spawn(async move { connect_remote_proxy(&proxy).await });
+
+        assert_eq!(
+            timeout(Duration::from_secs(1), hello)
+                .await
+                .unwrap()
+                .unwrap()[0],
+            0x16
+        );
+        assert!(connect.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn remote_connect_rejection_is_reported_before_a_child_tunnel_opens() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 512];
+            let _ = stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let remote = RemoteProxyConfig {
+            proxy_url: format!("http://{address}"),
+            session: Arc::new(RwLock::new(RemoteProxySessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::new(),
+            child_env: HashMap::new(),
+            protocol: RemoteProxyProtocol::ForwardProxyTlsIntercept,
+            ca_file: None,
+        };
+
+        let error = match establish_remote_connect("api.example.com:443", &remote).await {
+            Ok(_) => panic!("rejected remote CONNECT should not open a tunnel"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("rejected CONNECT"));
     }
 
     #[test]
@@ -1373,35 +2508,73 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn broker_errors_use_the_api_error_envelope() {
-        let response = broker_error_response(
+    async fn unclosed_dollar_brace_in_header_is_not_treated_as_unknown_placeholder() {
+        // An unclosed "${" (shell template, JS interpolation, etc.) must not
+        // produce a false-positive 403 proxy.unknown_placeholder response.
+        // Use a real backend listener as the remote proxy so a 502 connection
+        // error cannot mask a 403 that slips through the placeholder check.
+        let (proxy_address, _) = start_backend().await;
+        let remote = RemoteProxyConfig {
+            proxy_url: format!("http://{proxy_address}"),
+            session: Arc::new(RwLock::new(RemoteProxySessionState {
+                token: "token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::from([(
+                "ANTHROPIC_API_KEY".to_owned(),
+                "${STASHBASE_ANTHROPIC_API_KEY}".to_owned(),
+            )]),
+            child_env: HashMap::new(),
+            protocol: RemoteProxyProtocol::Custom,
+            ca_file: None,
+        };
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        // Header contains "${" with no closing "}" — must pass through, not 403.
+        let response = proxy_client(&proxy)
+            .get("http://original.example/")
+            .header("x-template", "Hello ${name")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn proxy_errors_use_the_api_error_envelope() {
+        let response = proxy_error_response(
             StatusCode::FORBIDDEN,
-            "broker.host_denied",
-            "Broker policy denied destination",
+            "proxy.host_denied",
+            "Agent Proxy policy denied destination",
         );
         assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let error: crate::models::api_client::ApiErrorResponse =
             serde_json::from_slice(&body).unwrap();
-        assert_eq!(error.error.code, "broker.host_denied");
+        assert_eq!(error.error.code, "proxy.host_denied");
         assert_eq!(
             error.error.message.as_deref(),
-            Some("Broker policy denied destination")
+            Some("Agent Proxy policy denied destination")
         );
     }
 
     #[tokio::test]
-    async fn broker_stop_closes_the_listener() {
-        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+    async fn proxy_stop_closes_the_listener() {
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
-        let address: std::net::SocketAddr = broker.child_env()["HTTP_PROXY"]
+        let address: std::net::SocketAddr = proxy.child_env()["HTTP_PROXY"]
             .trim_start_matches("http://")
             .parse()
             .unwrap();
 
         assert!(tokio::net::TcpStream::connect(address).await.is_ok());
-        broker.stop().await;
+        proxy.stop().await;
         let mut closed = false;
         for _ in 0..10 {
             if tokio::net::TcpStream::connect(address).await.is_err() {
@@ -1410,32 +2583,31 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert!(closed, "broker listener remained reachable after stop");
+        assert!(closed, "proxy listener remained reachable after stop");
     }
 
     #[tokio::test]
-    async fn broker_uses_an_explicit_local_port() {
+    async fn proxy_uses_an_explicit_local_port() {
         let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = reservation.local_addr().unwrap().port();
         drop(reservation);
 
-        let broker =
-            Broker::start_with_port(HashMap::new(), BrokerPolicy::permissive(), None, Some(port))
+        let proxy =
+            Proxy::start_with_port(HashMap::new(), ProxyPolicy::permissive(), None, Some(port))
                 .await
                 .unwrap();
 
         assert_eq!(
-            broker.child_env()["HTTP_PROXY"],
+            proxy.child_env()["HTTP_PROXY"],
             format!("http://127.0.0.1:{port}")
         );
-        broker.stop().await;
+        proxy.stop().await;
     }
 
     #[tokio::test]
-    async fn broker_rejects_port_zero_override() {
+    async fn proxy_rejects_port_zero_override() {
         let result =
-            Broker::start_with_port(HashMap::new(), BrokerPolicy::permissive(), None, Some(0))
-                .await;
+            Proxy::start_with_port(HashMap::new(), ProxyPolicy::permissive(), None, Some(0)).await;
         let error = match result {
             Ok(_) => panic!("port zero should be rejected"),
             Err(error) => error,
@@ -1448,7 +2620,7 @@ mod tests {
     fn audit_log_records_metadata_without_credential_values() {
         let path =
             std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
-        let audit_log = AuditLog {
+        let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
             path: Arc::new(path.clone()),
@@ -1487,7 +2659,7 @@ mod tests {
             fs::write(directory.join(format!("agent-{index}.jsonl")), "{}").unwrap();
         }
 
-        prune_audit_logs(&directory).unwrap();
+        prune_proxy_audit_logs(&directory).unwrap();
 
         let retained = fs::read_dir(&directory)
             .unwrap()
@@ -1501,7 +2673,7 @@ mod tests {
 
     #[test]
     fn audit_log_filters_match_only_the_requested_metadata() {
-        let event = AuditLogEvent {
+        let event = ProxyAuditLogEvent {
             timestamp: "2026-01-01T00:00:00Z".to_owned(),
             session_id: "session-1".to_owned(),
             profile: "coding".to_owned(),
@@ -1513,14 +2685,14 @@ mod tests {
             duration_ms: Some(42),
         };
 
-        assert!(AuditLogFilter {
+        assert!(ProxyAuditLogFilter {
             profile: Some("coding".to_owned()),
             action: Some("injected".to_owned()),
             host: Some("api.github.com".to_owned()),
             session: Some("session-1".to_owned()),
         }
         .matches(&event));
-        assert!(!AuditLogFilter {
+        assert!(!ProxyAuditLogFilter {
             host: Some("example.com".to_owned()),
             ..Default::default()
         }
@@ -1528,8 +2700,8 @@ mod tests {
     }
 
     #[test]
-    fn strict_policy_allows_only_configured_hosts() {
-        let policy = BrokerPolicy {
+    fn strict_policy_only_allows_secret_hosts_during_connect() {
+        let policy = ProxyPolicy {
             allowed_hosts_by_secret: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
                 normalize_hosts(HashSet::from(["API.GITHUB.COM.".to_owned()])),
@@ -1540,8 +2712,9 @@ mod tests {
             strict_deny: true,
         };
 
-        assert!(policy_allows_host(&policy, "api.github.com"));
-        assert!(!policy_allows_host(&policy, "example.com"));
+        assert!(policy_allows_connect(&policy, "api.github.com"));
+        assert!(!policy_allows_egress(&policy, "api.github.com"));
+        assert!(!policy_allows_connect(&policy, "example.com"));
     }
 
     #[test]
@@ -1556,7 +2729,7 @@ mod tests {
 
     #[test]
     fn egress_wildcard_allows_any_destination_without_widening_secret_hosts() {
-        let policy = BrokerPolicy {
+        let policy = ProxyPolicy {
             allowed_hosts_by_secret: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
                 HashSet::from(["api.github.com".to_owned()]),
@@ -1567,7 +2740,7 @@ mod tests {
             strict_deny: true,
         };
 
-        assert!(policy_allows_host(&policy, "example.com"));
+        assert!(policy_allows_egress(&policy, "example.com"));
         assert!(!policy.allowed_hosts_by_secret["**STASHBASE_GH_TOKEN**"]
             .iter()
             .any(|allowed| host_matches(allowed, "example.com")));
@@ -1575,7 +2748,7 @@ mod tests {
 
     #[test]
     fn denied_hosts_override_wildcard_egress_and_secret_destinations() {
-        let policy = BrokerPolicy {
+        let policy = ProxyPolicy {
             allowed_hosts_by_secret: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
                 HashSet::from(["api.stashbase.dev".to_owned()]),
@@ -1585,33 +2758,35 @@ mod tests {
             denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
             strict_deny: true,
         };
-        let state = BrokerState {
+        let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
             policy,
             client: reqwest::Client::new(),
+            remote_ca: None,
             certificate_authority: Arc::new(
                 Certificate::from_params(CertificateParams::default()).unwrap(),
             ),
             audit_log: None,
             connections: Arc::new(ActiveConnections::default()),
+            remote: None,
         };
 
-        assert!(state.host_allowed(Some("chatgpt.com")));
-        assert!(!state.host_allowed(Some("api.stashbase.dev")));
+        assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
+        assert!(!state.host_allowed_for_connect(Some("api.stashbase.dev")));
     }
 
     #[tokio::test]
     async fn rewrites_a_placeholder_before_forwarding_a_http_request() {
         let (address, authorization) = start_backend().await;
-        let broker = Broker::start(
+        let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
-            BrokerPolicy::permissive(),
+            ProxyPolicy::permissive(),
             None,
         )
         .await
         .unwrap();
 
-        let response = proxy_client(&broker)
+        let response = proxy_client(&proxy)
             .get(format!("http://{address}/"))
             .header(AUTHORIZATION, "Bearer **STASHBASE_GH_TOKEN**")
             .send()
@@ -1623,7 +2798,41 @@ mod tests {
             authorization.await.unwrap().as_deref(),
             Some("Bearer real-token")
         );
-        broker.stop().await;
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn secret_hosts_do_not_grant_ordinary_egress() {
+        let (address, authorization) = start_backend().await;
+        let policy = ProxyPolicy {
+            allowed_hosts_by_secret: HashMap::from([(
+                "GH_TOKEN".to_owned(),
+                HashSet::from(["127.0.0.1".to_owned()]),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            strict_deny: true,
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(timeout(Duration::from_millis(100), authorization)
+            .await
+            .is_err());
+
+        proxy.stop().await;
     }
 
     #[tokio::test]
@@ -1658,11 +2867,11 @@ mod tests {
                 .unwrap();
         });
 
-        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
-        let proxy = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
-        let stream = TcpStream::connect(proxy).await.unwrap();
+        let proxy_address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+        let stream = TcpStream::connect(proxy_address).await.unwrap();
         let (mut sender, connection) = client_http1::handshake(TokioIo::new(stream)).await.unwrap();
         tokio::spawn(async move {
             let _ = connection.with_upgrades().await;
@@ -1681,7 +2890,7 @@ mod tests {
         let mut response = [0; 4];
         stream.read_exact(&mut response).await.unwrap();
         assert_eq!(&response, b"pong");
-        broker.stop().await;
+        proxy.stop().await;
     }
 
     #[tokio::test]
@@ -1707,12 +2916,12 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
 
         let payload = r#"{"model":"example","stream":true}"#;
-        let response = proxy_client(&broker)
+        let response = proxy_client(&proxy)
             .post(format!("http://{address}/v1/chat"))
             .header(CONTENT_TYPE, "application/json")
             .body(payload)
@@ -1722,7 +2931,7 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(body.await.unwrap(), Bytes::from(payload));
-        broker.stop().await;
+        proxy.stop().await;
     }
 
     #[tokio::test]
@@ -1756,10 +2965,10 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
-        let client = proxy_client(&broker);
+        let client = proxy_client(&proxy);
         let body = stream::iter([Ok::<Bytes, std::io::Error>(Bytes::from_static(b"first"))]).chain(
             stream::once(async {
                 sleep(Duration::from_millis(200)).await;
@@ -1777,12 +2986,12 @@ mod tests {
 
         let (transfer_encoding, first_chunk) = timeout(Duration::from_millis(100), first_chunk)
             .await
-            .expect("the first chunk was buffered by the broker")
+            .expect("the first chunk was buffered by the proxy")
             .unwrap();
         assert_eq!(transfer_encoding.as_deref(), Some("chunked"));
         assert_eq!(first_chunk, Bytes::from_static(b"first"));
         assert_eq!(request.await.unwrap().status(), StatusCode::OK);
-        broker.stop().await;
+        proxy.stop().await;
     }
 
     #[tokio::test]
@@ -1812,11 +3021,11 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
 
-        let response = proxy_client(&broker)
+        let response = proxy_client(&proxy)
             .get(format!("http://{address}/events"))
             .send()
             .await
@@ -1827,7 +3036,7 @@ mod tests {
         assert_eq!(
             timeout(Duration::from_millis(100), events.next())
                 .await
-                .expect("the first SSE event was buffered by the broker")
+                .expect("the first SSE event was buffered by the proxy")
                 .unwrap()
                 .unwrap(),
             Bytes::from_static(b"data: first\n\n")
@@ -1836,7 +3045,7 @@ mod tests {
             events.next().await.unwrap().unwrap(),
             Bytes::from_static(b"data: second\n\n")
         );
-        broker.stop().await;
+        proxy.stop().await;
     }
 
     #[tokio::test]
@@ -1870,7 +3079,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let broker = Broker::start(HashMap::new(), BrokerPolicy::permissive(), None)
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
         let request = stream::unfold(0, |index| async move {
@@ -1882,7 +3091,7 @@ mod tests {
             })
         });
 
-        let mut response = proxy_client(&broker)
+        let mut response = proxy_client(&proxy)
             .post(format!("http://{address}/large"))
             .body(reqwest::Body::wrap_stream(request))
             .send()
@@ -1894,14 +3103,14 @@ mod tests {
             response_size += chunk.unwrap().len();
         }
         assert_eq!(response_size, CHUNK_SIZE * CHUNKS);
-        broker.stop().await;
+        proxy.stop().await;
     }
 
     #[tokio::test]
     async fn rejects_and_audits_an_unknown_placeholder_without_recording_it() {
         let path =
             std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
-        let audit_log = AuditLog {
+        let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
             path: Arc::new(path.clone()),
@@ -1913,15 +3122,15 @@ mod tests {
                     .unwrap(),
             )),
         };
-        let broker = Broker::start(
+        let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
-            BrokerPolicy::permissive(),
+            ProxyPolicy::permissive(),
             Some(audit_log),
         )
         .await
         .unwrap();
 
-        let response = proxy_client(&broker)
+        let response = proxy_client(&proxy)
             .get("http://127.0.0.1:1/")
             .header(AUTHORIZATION, "Bearer **STASHBASE_STALE_TOKEN**")
             .send()
@@ -1929,7 +3138,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        broker.stop().await;
+        proxy.stop().await;
 
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("unknown_placeholder"));
@@ -1941,9 +3150,9 @@ mod tests {
     async fn rewrites_a_placeholder_in_a_configured_api_key_header() {
         let header_name = HeaderName::from_static("x-api-key");
         let (address, api_key) = start_backend_capturing(header_name.clone()).await;
-        let broker = Broker::start(
+        let proxy = Proxy::start(
             HashMap::from([("ANTHROPIC_API_KEY".to_owned(), "real-token".to_owned())]),
-            BrokerPolicy {
+            ProxyPolicy {
                 allowed_hosts_by_secret: HashMap::from([(
                     "ANTHROPIC_API_KEY".to_owned(),
                     HashSet::from(["127.0.0.1".to_owned()]),
@@ -1964,7 +3173,7 @@ mod tests {
         .await
         .unwrap();
 
-        let response = proxy_client(&broker)
+        let response = proxy_client(&proxy)
             .get(format!("http://{address}/"))
             .header("x-api-key", "**STASHBASE_ANTHROPIC_API_KEY**")
             .send()
@@ -1973,15 +3182,15 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert_eq!(api_key.await.unwrap().as_deref(), Some("real-token"));
-        broker.stop().await;
+        proxy.stop().await;
     }
 
     #[tokio::test]
     async fn strict_policy_denies_unapproved_destinations_and_sets_node_environment() {
         let (address, _authorization) = start_backend().await;
-        let broker = Broker::start(
+        let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
-            BrokerPolicy {
+            ProxyPolicy {
                 allowed_hosts_by_secret: HashMap::from([(
                     "GH_TOKEN".to_owned(),
                     HashSet::from(["api.github.com".to_owned()]),
@@ -1996,7 +3205,7 @@ mod tests {
         .await
         .unwrap();
 
-        let response = proxy_client(&broker)
+        let response = proxy_client(&proxy)
             .get(format!("http://{address}/"))
             .header(AUTHORIZATION, "Bearer **STASHBASE_GH_TOKEN**")
             .send()
@@ -2004,17 +3213,17 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert_eq!(broker.child_env()["NODE_USE_ENV_PROXY"], "1");
-        assert!(std::path::Path::new(&broker.child_env()["NODE_EXTRA_CA_CERTS"]).exists());
-        broker.stop().await;
+        assert_eq!(proxy.child_env()["NODE_USE_ENV_PROXY"], "1");
+        assert!(std::path::Path::new(&proxy.child_env()["NODE_EXTRA_CA_CERTS"]).exists());
+        proxy.stop().await;
     }
 
     #[tokio::test]
     async fn egress_only_host_is_forwarded_without_credential_injection() {
         let (address, authorization) = start_backend().await;
-        let broker = Broker::start(
+        let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
-            BrokerPolicy {
+            ProxyPolicy {
                 allowed_hosts_by_secret: HashMap::from([(
                     "GH_TOKEN".to_owned(),
                     HashSet::from(["api.github.com".to_owned()]),
@@ -2029,7 +3238,7 @@ mod tests {
         .await
         .unwrap();
 
-        let response = proxy_client(&broker)
+        let response = proxy_client(&proxy)
             .get(format!("http://{address}/"))
             .send()
             .await
@@ -2037,6 +3246,6 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert_eq!(authorization.await.unwrap(), None);
-        broker.stop().await;
+        proxy.stop().await;
     }
 }

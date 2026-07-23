@@ -1,6 +1,6 @@
 //! Static validation for agent profiles.
 //!
-//! This is deliberately local-only: no secret source is read and no broker is
+//! This is deliberately local-only: no secret source is read and no proxy is
 //! started. It lets a repository check its profile in CI before an agent gets
 //! access to any credential source.
 
@@ -96,7 +96,70 @@ pub async fn handle_agent_validate_command(
     }
 
     checks.extend(validate_profile(&profile));
+    if command.remote {
+        checks.extend(validate_remote_profile(&profile));
+    }
     print_report(command.profile, checks, json_format)
+}
+
+/// Enforces the static profile checks before an agent is started. Keeping this
+/// alongside `agent validate` ensures a user cannot accidentally bypass its
+/// safety and determinism checks by invoking `agent run` directly.
+pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
+    let failures = validate_profile(profile)
+        .into_iter()
+        .filter(|check| check.status == Status::Fail)
+        .map(|check| format!("{}: {}", check.name, check.message))
+        .collect::<Vec<_>>();
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Agent profile is invalid:\n{}",
+        failures
+            .into_iter()
+            .map(|failure| format!("- {failure}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
+    let mut checks = Vec::new();
+    if profile.file.is_some()
+        || profile.secrets.is_empty()
+        || profile.project.is_none()
+        || profile.environment.is_none()
+    {
+        checks.push(fail(
+            "Remote session profile",
+            "--remote requires project/environment-backed secret bindings and does not support local-file or egress-only profiles."
+                .to_owned(),
+        ));
+    } else {
+        checks.push(ok(
+            "Remote session profile",
+            "Project/environment-backed secret bindings are compatible with --remote.".to_owned(),
+        ));
+    }
+
+    match crate::handlers::run::proxy::cached_remote_proxy_ca_files() {
+        Ok(paths) if !paths.is_empty() => checks.push(ok(
+            "Remote agent proxy CA",
+            format!("Found {} valid cached CA file(s).", paths.len()),
+        )),
+        Ok(_) => checks.push(warn(
+            "Remote agent proxy CA",
+            "Not cached yet; Stashbase will provision it from the authenticated remote session on first run."
+                .to_owned(),
+        )),
+        Err(error) => checks.push(warn(
+            "Remote agent proxy CA",
+            format!("Cached CA is invalid and will be refreshed on the next remote run: {error}"),
+        )),
+    }
+    checks
 }
 
 fn print_report(profile: String, checks: Vec<Check>, json_format: bool) -> Result<bool> {
@@ -205,13 +268,38 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     }
 
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut child_envs: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut placeholders: HashMap<&str, Vec<&str>> = HashMap::new();
     for (target, secret) in &profile.secrets {
-        if !valid_environment_name(target) {
+        let env = secret.env.as_deref().unwrap_or(target);
+        child_envs.entry(env).or_default().push(target);
+        if !valid_environment_name(env) {
             checks.push(fail(
                 format!("Secret binding '{target}'"),
                 "The child environment variable name must use letters, digits, and underscores and cannot start with a digit."
                     .to_owned(),
             ));
+        }
+        if secret
+            .env
+            .as_deref()
+            .is_some_and(|env| env.trim().is_empty())
+        {
+            checks.push(fail(
+                format!("Secret binding '{target}' env"),
+                "'env' must not be empty when set.".to_owned(),
+            ));
+        }
+        if secret.placeholder.as_deref().is_some_and(|placeholder| {
+            placeholder.trim().is_empty() || placeholder.contains(['\r', '\n'])
+        }) {
+            checks.push(fail(
+                format!("Secret binding '{target}' placeholder"),
+                "'placeholder' must not be empty or contain a line break.".to_owned(),
+            ));
+        }
+        if let Some(placeholder) = secret.placeholder.as_deref() {
+            placeholders.entry(placeholder).or_default().push(target);
         }
         let source = secret.from.as_deref().unwrap_or(target);
         if source.trim().is_empty() {
@@ -254,7 +342,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         {
             checks.push(fail(
                 format!("Secret '{target}' value_template"),
-                "Must contain '{secret}' so the broker can inject the credential.".to_owned(),
+                "Must contain '{secret}' so the proxy can inject the credential.".to_owned(),
             ));
         }
     }
@@ -264,6 +352,28 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 "Secret bindings",
                 format!(
                     "Source secret '{source}' is bound to more than one child variable: {}.",
+                    targets.join(", ")
+                ),
+            ));
+        }
+    }
+    for (env, targets) in child_envs {
+        if targets.len() > 1 {
+            checks.push(fail(
+                "Secret bindings",
+                format!(
+                    "Child environment variable '{env}' is used by more than one binding: {}.",
+                    targets.join(", ")
+                ),
+            ));
+        }
+    }
+    for (placeholder, targets) in placeholders {
+        if targets.len() > 1 {
+            checks.push(fail(
+                "Secret bindings",
+                format!(
+                    "Placeholder '{placeholder}' is used by more than one binding: {}.",
                     targets.join(", ")
                 ),
             ));
@@ -433,6 +543,8 @@ mod tests {
                 crate::models::agent::AgentSecretProfile {
                     hosts: vec!["api.example.com".to_owned()],
                     from: None,
+                    env: None,
+                    placeholder: None,
                     header: Some("x-api-key".to_owned()),
                     value_template: Some("static-value".to_owned()),
                 },
@@ -457,5 +569,45 @@ mod tests {
         assert!(validate_profile(&profile).iter().any(|check| {
             check.status == Status::Fail && check.message.contains("egress-only profile")
         }));
+    }
+
+    #[test]
+    fn run_validation_rejects_duplicate_remote_placeholders() {
+        let profile = AgentProfile {
+            project: Some("project".to_owned()),
+            environment: Some("development".to_owned()),
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            secrets: HashMap::from([
+                (
+                    "FIRST_KEY".to_owned(),
+                    crate::models::agent::AgentSecretProfile {
+                        hosts: vec!["first.example.com".to_owned()],
+                        from: None,
+                        env: None,
+                        placeholder: Some("shared-placeholder".to_owned()),
+                        header: None,
+                        value_template: None,
+                    },
+                ),
+                (
+                    "SECOND_KEY".to_owned(),
+                    crate::models::agent::AgentSecretProfile {
+                        hosts: vec!["second.example.com".to_owned()],
+                        from: None,
+                        env: None,
+                        placeholder: Some("shared-placeholder".to_owned()),
+                        header: None,
+                        value_template: None,
+                    },
+                ),
+            ]),
+        };
+
+        let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Placeholder 'shared-placeholder'"));
     }
 }

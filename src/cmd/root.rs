@@ -59,7 +59,7 @@ pub enum ColorChoice {
 
 #[derive(Debug, Subcommand)]
 pub enum EntityType {
-    /// Run an agent with brokered, profile-scoped credentials
+    /// Run an agent with proxied, profile-scoped credentials
     Agent(AgentCommand),
 
     /// Load environment and run command

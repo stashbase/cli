@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use log::debug;
 use spinoff::{Spinner, Streams};
 use tabled::Tabled;
@@ -38,18 +38,56 @@ use crate::{
 
 use super::format::format_env_variable_value;
 
+/// Runs an agent through the localhost relay while credentials stay in the
+/// control-plane's short-lived remote agent-proxy session.
+pub async fn handle_remote_agent_run(
+    command: Vec<String>,
+    policy: super::proxy::ProxyPolicy,
+    remote: super::proxy::RemoteProxyConfig,
+    proxy_port: Option<u16>,
+    sandbox: bool,
+    trust_proxy_ca: bool,
+    audit_log: Option<super::proxy::ProxyAuditLog>,
+    silent: bool,
+) -> anyhow::Result<()> {
+    let cmd = command.first().context("no command provided")?.clone();
+    let args = command.into_iter().skip(1).collect();
+    let proxy =
+        super::proxy::Proxy::start_remote_with_port(remote, policy, audit_log, proxy_port).await?;
+    let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
+    if !silent {
+        let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+        eprintln!(
+            "Remote agent proxy relay started on localhost:{}",
+            address.rsplit(':').next().unwrap_or_default()
+        );
+        eprintln!("Remote agent proxy session active");
+    }
+    let result =
+        subprocess::run_command(&cmd, args, proxy.child_env().clone(), sandbox, true, true).await;
+    proxy.stop().await;
+    if !silent {
+        eprintln!("Remote agent proxy relay stopped");
+    }
+    let status = result?;
+    if !status.success() {
+        return Err(subprocess::CommandFailed { status }.into());
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct HandleRunArgs {
     pub api_key: String,
     pub project: Option<String>,
     pub environment: Option<String>,
     pub command: Vec<String>,
-    pub broker: bool,
-    pub broker_port: Option<u16>,
-    pub broker_policy: Option<super::broker::BrokerPolicy>,
-    pub trust_broker_ca: bool,
+    pub proxy: bool,
+    pub proxy_port: Option<u16>,
+    pub proxy_policy: Option<super::proxy::ProxyPolicy>,
+    pub trust_proxy_ca: bool,
     pub sandbox: bool,
-    pub audit_log: Option<super::broker::AuditLog>,
+    pub audit_log: Option<super::proxy::ProxyAuditLog>,
     /// Maps fetched source secret names to the names exposed to the child.
     pub secret_bindings: HashMap<String, String>,
     /// Allows a profile file to override values fetched from project/environment.
@@ -72,10 +110,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
         command,
-        broker,
-        broker_port,
-        broker_policy,
-        trust_broker_ca,
+        proxy,
+        proxy_port,
+        proxy_policy,
+        trust_proxy_ca,
         sandbox,
         audit_log,
         secret_bindings,
@@ -128,7 +166,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     // An agent profile with no source and no secret bindings is intentionally
     // egress-only. Do not fall through to normal `run` config discovery: that
     // could load unrelated repository secrets into a no-secret agent session.
-    let egress_only = broker_policy
+    let egress_only = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.strict_deny)
         && secret_bindings.is_empty()
@@ -140,10 +178,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         return handle_run(
             &mut spinner,
             command,
-            broker,
-            broker_port,
-            broker_policy,
-            trust_broker_ca,
+            proxy,
+            proxy_port,
+            proxy_policy,
+            trust_proxy_ca,
             sandbox,
             audit_log,
             &secret_bindings,
@@ -585,10 +623,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         handle_run(
             &mut spinner,
             command,
-            broker,
-            broker_port,
-            broker_policy.clone(),
-            trust_broker_ca,
+            proxy,
+            proxy_port,
+            proxy_policy.clone(),
+            trust_proxy_ca,
             sandbox,
             audit_log.clone(),
             &secret_bindings,
@@ -625,10 +663,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         handle_run(
             &mut spinner,
             command,
-            broker,
-            broker_port,
-            broker_policy.clone(),
-            trust_broker_ca,
+            proxy,
+            proxy_port,
+            proxy_policy.clone(),
+            trust_proxy_ca,
             sandbox,
             audit_log.clone(),
             &secret_bindings,
@@ -776,10 +814,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         handle_run(
                             &mut spinner,
                             command,
-                            broker,
-                            broker_port,
-                            broker_policy.clone(),
-                            trust_broker_ca,
+                            proxy,
+                            proxy_port,
+                            proxy_policy.clone(),
+                            trust_proxy_ca,
                             sandbox,
                             audit_log.clone(),
                             &secret_bindings,
@@ -808,10 +846,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                     handle_run(
                         &mut spinner,
                         command,
-                        broker,
-                        broker_port,
-                        broker_policy.clone(),
-                        trust_broker_ca,
+                        proxy,
+                        proxy_port,
+                        proxy_policy.clone(),
+                        trust_proxy_ca,
                         sandbox,
                         audit_log.clone(),
                         &secret_bindings,
@@ -918,12 +956,12 @@ fn load_run_secrets_from_file(
 async fn handle_run(
     spinner: &mut Option<Spinner>,
     command: Vec<String>,
-    broker: bool,
-    broker_port: Option<u16>,
-    broker_policy: Option<super::broker::BrokerPolicy>,
-    trust_broker_ca: bool,
+    proxy: bool,
+    proxy_port: Option<u16>,
+    proxy_policy: Option<super::proxy::ProxyPolicy>,
+    trust_proxy_ca: bool,
     sandbox: bool,
-    audit_log: Option<super::broker::AuditLog>,
+    audit_log: Option<super::proxy::ProxyAuditLog>,
     secret_bindings: &HashMap<String, String>,
     print_secrets: Option<PrintSecrets>,
     mut secrets: Vec<SecretWithoutComment>,
@@ -1038,40 +1076,40 @@ async fn handle_run(
         .skip(1)
         .map(|s| s)
         .collect::<Vec<String>>();
-    let restrict_stashbase_credentials = broker_policy
+    let restrict_stashbase_credentials = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.strict_deny);
 
-    // Broker mode gives the child placeholders, never the loaded secret values.
+    // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
-    let command_result = if broker {
-        let broker = super::broker::Broker::start_with_port(
+    let command_result = if proxy {
+        let proxy = super::proxy::Proxy::start_with_port(
             secrets_hash_map,
-            broker_policy.unwrap_or_else(super::broker::BrokerPolicy::permissive),
+            proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
             audit_log,
-            broker_port,
+            proxy_port,
         )
         .await?;
-        let _trusted_ca = trust_broker_ca.then(|| broker.trust_ca()).transpose()?;
+        let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
         if !silent {
-            let address = broker.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+            let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
             eprintln!(
-                "Broker started on localhost:{}",
+                "Agent proxy started on localhost:{}",
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
         let result = subprocess::run_command(
             &cmd,
             args,
-            broker.child_env().clone(),
+            proxy.child_env().clone(),
             sandbox,
             true,
             restrict_stashbase_credentials,
         )
         .await;
-        broker.stop().await;
+        proxy.stop().await;
         if !silent {
-            eprintln!("Broker stopped");
+            eprintln!("Agent proxy stopped");
         }
         result
     } else {
@@ -1101,7 +1139,7 @@ fn apply_secret_bindings(
         return;
     }
 
-    // A brokered profile should never expose an API response that was not one of
+    // A proxied profile should never expose an API response that was not one of
     // its explicitly requested source names.
     secrets.retain(|secret| bindings.contains_key(&secret.name));
     for secret in secrets {

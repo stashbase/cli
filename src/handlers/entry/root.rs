@@ -1,8 +1,14 @@
 use std::{
     collections::{HashMap, HashSet},
+    path::Path,
     sync::atomic::Ordering,
+    sync::{Arc, RwLock},
     time::Duration,
 };
+
+use anyhow::Context;
+use chrono::{DateTime, Utc};
+use tokio::{sync::watch, task::JoinHandle};
 
 use crate::{
     cmd::{
@@ -29,11 +35,11 @@ use crate::{
         pull::entry::{handle_pull, HandlePullArgs},
         push::entry::{handle_push, HandlePushArgs},
         run::{
-            broker::{
-                read_local_audit_logs, AuditLog, AuditLogEvent, AuditLogFilter, BrokerPolicy,
-                SecretInjection,
+            entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
+            proxy::{
+                read_local_proxy_audit_logs, ProxyAuditLog, ProxyAuditLogEvent,
+                ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
             },
-            entry::{handle_load_env_run, HandleRunArgs},
             subprocess::CommandFailed,
         },
         setup::setup,
@@ -42,6 +48,61 @@ use crate::{
     utils::{env::get_stashbase_api_key, output::ColorizeIfColoredOutput},
     REQUEST_ABORTED,
 };
+
+#[cfg(unix)]
+fn install_remote_agent_shutdown_handler() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let Ok(mut terminate) = signal(SignalKind::terminate()) else {
+        return;
+    };
+    let Ok(mut hangup) = signal(SignalKind::hangup()) else {
+        return;
+    };
+    let Ok(mut interrupt) = signal(SignalKind::interrupt()) else {
+        return;
+    };
+    tokio::spawn(async move {
+        let exit_code = tokio::select! {
+            _ = terminate.recv() => 143,
+            _ = hangup.recv() => 129,
+            _ = interrupt.recv() => 130,
+        };
+        crate::api::remote_proxy::end_registered_agent_run().await;
+        std::process::exit(exit_code);
+    });
+}
+
+#[cfg(not(unix))]
+fn install_remote_agent_shutdown_handler() {
+    // Windows has no Unix-style SIGTERM/SIGHUP handling here, but Ctrl+C is the
+    // normal interactive termination path. End the remote session before exit.
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            crate::api::remote_proxy::end_registered_agent_run().await;
+            std::process::exit(130);
+        }
+    });
+}
+
+/// Classifies only the executable basename for remote-session metadata. Never
+/// forward the command path, prompt, or arguments to the control plane.
+fn infer_remote_agent_type(command: &[String]) -> &'static str {
+    let executable = command.first().map(String::as_str).unwrap_or_default();
+    let basename = Path::new(executable)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(executable)
+        .to_ascii_lowercase();
+    match basename.as_str() {
+        "codex" => "codex",
+        "claude" | "claude-code" => "claude-code",
+        "copilot" | "github-copilot" => "copilot",
+        "cursor" | "cursor-agent" => "cursor",
+        "opencode" => "opencode",
+        _ => "custom",
+    }
+}
 
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
@@ -277,6 +338,8 @@ pub async fn handle_cli(args: Cli) {
                         return Ok(());
                     };
 
+                    crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
+
                     if loaded_from_directory
                         && matches!(agent_run.profile_source, AgentProfileSource::Auto)
                         && !silent
@@ -340,7 +403,7 @@ pub async fn handle_cli(args: Cli) {
                         return Ok(());
                     }
 
-                    let policy = BrokerPolicy {
+                    let policy = ProxyPolicy {
                         allowed_hosts_by_secret: profile
                             .secrets
                             .iter()
@@ -393,9 +456,9 @@ pub async fn handle_cli(args: Cli) {
                             .collect(),
                         strict_deny: true,
                     };
-                    let audit_log = agent_run
-                        .audit_log
-                        .then(|| AuditLog::local(&agent_run.profile))
+                    let audit_log = (!agent_run.remote)
+                        .then(|| agent_run.audit_log.then(|| ProxyAuditLog::local(&agent_run.profile)))
+                        .flatten()
                         .transpose()?;
                     if let Some(audit_log) = &audit_log {
                         if !silent {
@@ -403,15 +466,160 @@ pub async fn handle_cli(args: Cli) {
                             eprintln!("Audit log: {}", audit_log.path().display());
                         }
                     }
+                    if agent_run.remote {
+                        let (Some(project), Some(environment)) =
+                            (profile.project.clone(), profile.environment.clone())
+                        else {
+                            anyhow::bail!("--remote requires a project/environment-backed agent profile.");
+                        };
+                        if profile.file.is_some() || profile.secrets.is_empty() {
+                            anyhow::bail!("--remote currently supports Stashbase-managed secret bindings, not local-file or egress-only profiles.");
+                        }
+                        // Keep ordinary egress separate from per-secret destinations. The
+                        // control plane applies `egress_hosts` to uncredentialed requests and
+                        // each binding's `hosts` only when it injects that secret.
+                        let egress_hosts = profile
+                            .egress_hosts
+                            .clone()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect::<Vec<_>>();
+                        let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
+                        let bindings = profile.secrets.iter().map(|(name, secret)| {
+                            let header = secret.header.clone().unwrap_or_else(|| "authorization".to_owned());
+                            let value_template = secret.value_template.clone().unwrap_or_else(|| {
+                                if header.eq_ignore_ascii_case("authorization") { "Bearer {secret}".to_owned() } else { "{secret}".to_owned() }
+                            });
+                            crate::api::remote_proxy::RemoteBinding {
+                                name: name.clone(),
+                                from: secret.from.clone().unwrap_or_else(|| name.clone()),
+                                hosts: secret.hosts.clone(),
+                                header,
+                                placeholder: secret
+                                    .placeholder
+                                    .clone()
+                                    .unwrap_or_else(|| format!("${{STASHBASE_{name}}}")),
+                                value_template,
+                            }
+                        }).collect::<Vec<_>>();
+                        let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {
+                            api_key: api_key.clone(),
+                            project_identifier: project,
+                            environment_identifier: environment,
+                            egress_hosts,
+                            deny_hosts,
+                            bindings: bindings.clone(),
+                            agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
+                            previous_session_token: None,
+                        };
+                        let session = crate::api::remote_proxy::create_session(&session_request, raw_output)
+                            .await
+                            // The Agent Proxy setup follows startup warnings. Keep its
+                            // formatted API error visually distinct without changing
+                            // output spacing for every other CLI command.
+                            .map_err(|error| anyhow::anyhow!("\n{error}"))?;
+                        let token = session.session_token.clone();
+                        let remote_audit_log = match agent_run
+                            .audit_log
+                            .then(|| ProxyAuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
+                            .transpose()
+                        {
+                            Ok(audit_log) => audit_log,
+                            Err(error) => {
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
+                                return Err(error);
+                            }
+                        };
+                        if let Some(audit_log) = &remote_audit_log {
+                            if !silent {
+                                eprintln!("Audit session: {}", audit_log.session_id());
+                                eprintln!("Audit log: {}", audit_log.path().display());
+                            }
+                        }
+                        let placeholders = bindings
+                            .into_iter()
+                            .map(|binding| (binding.name, binding.placeholder))
+                            .collect();
+                        let child_env = profile
+                            .secrets
+                            .iter()
+                            .map(|(name, secret)| {
+                                (
+                                    name.clone(),
+                                    secret.env.clone().unwrap_or_else(|| name.clone()),
+                                )
+                            })
+                            .collect();
+                        let protocol = match session.protocol.as_str() {
+                            "http/1.1-custom" => crate::handlers::run::proxy::RemoteProxyProtocol::Custom,
+                            "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::proxy::RemoteProxyProtocol::ForwardProxyTlsIntercept,
+                            value => {
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
+                                anyhow::bail!("Agent Proxy returned an unsupported protocol: {value}");
+                            }
+                        };
+                        let remote_ca_file = match provision_remote_session_ca(&session) {
+                            Ok(path) => path,
+                            Err(error) => {
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
+                                return Err(error);
+                            }
+                        };
+                        let remote_transport_identity =
+                            remote_session_transport_identity(&session)?;
+                        let proxy_url = session.proxy_url.clone();
+                        let initial_state = match remote_session_state(&session) {
+                            Ok(state) => state,
+                            Err(error) => {
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token)
+                                    .await;
+                                return Err(error);
+                            }
+                        };
+                        let remote_session = Arc::new(RwLock::new(initial_state));
+                        crate::api::remote_proxy::register_agent_run_cleanup(
+                            api_key.clone(),
+                            token.clone(),
+                        );
+                        // Install signal interception only for a run that has a remote
+                        // session to end. Installing it at CLI startup would replace the
+                        // normal SIGINT/SIGTERM behavior for every Stashbase command.
+                        install_remote_agent_shutdown_handler();
+                        let (rotation_stop, rotation_task) = spawn_remote_session_rotation(
+                            session_request,
+                            session,
+                            remote_session.clone(),
+                            remote_transport_identity,
+                        );
+                        let result = handle_remote_agent_run(
+                            agent_run.command,
+                            policy,
+                            crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
+                            agent_run.proxy_port,
+                            agent_run.sandbox,
+                            agent_run.trust_proxy_ca,
+                            remote_audit_log,
+                            silent,
+                        ).await;
+                        let _ = rotation_stop.send(true);
+                        let _ = rotation_task.await;
+                        let current_token = remote_session
+                            .read()
+                            .map(|session| session.token.clone())
+                            .unwrap_or(token);
+                        crate::api::remote_proxy::end_agent_run(api_key, &current_token).await;
+                        crate::api::remote_proxy::clear_agent_run_cleanup();
+                        return result;
+                    }
                     let args = HandleRunArgs {
                         api_key,
                         project: profile.project,
                         environment: profile.environment,
                         command: agent_run.command,
-                        broker: true,
-                        broker_port: agent_run.broker_port,
-                        broker_policy: Some(policy),
-                        trust_broker_ca: agent_run.trust_broker_ca,
+                        proxy: true,
+                        proxy_port: agent_run.proxy_port,
+                        proxy_policy: Some(policy),
+                        trust_proxy_ca: agent_run.trust_proxy_ca,
                         sandbox: agent_run.sandbox,
                         audit_log,
                         secret_bindings: secret_bindings.clone(),
@@ -457,10 +665,10 @@ pub async fn handle_cli(args: Cli) {
                     project: run_cmd.project,
                     environment: run_cmd.environment,
                     command: run_cmd.command,
-                    broker: run_cmd.broker,
-                    broker_port: run_cmd.broker_port,
-                    broker_policy: None,
-                    trust_broker_ca: false,
+                    proxy: run_cmd.proxy,
+                    proxy_port: run_cmd.proxy_port,
+                    proxy_policy: None,
+                    trust_proxy_ca: false,
                     sandbox: false,
                     audit_log: None,
                     secret_bindings: HashMap::new(),
@@ -596,14 +804,14 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         .as_deref()
         .map(parse_audit_duration)
         .transpose()?;
-    let filter = AuditLogFilter {
+    let filter = ProxyAuditLogFilter {
         profile: command.profile,
         action: command.action,
         host: command.host,
         session: command.session,
     };
     if !command.follow {
-        let events = read_local_audit_logs(command.limit, since, &filter)?;
+        let events = read_local_proxy_audit_logs(command.limit, since, &filter)?;
         if json {
             println!("{}", serde_json::to_string_pretty(&events)?);
         } else {
@@ -620,7 +828,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         if REQUEST_ABORTED.load(Ordering::SeqCst) {
             return Ok(());
         }
-        for event in read_local_audit_logs(command.limit, since, &filter)? {
+        for event in read_local_proxy_audit_logs(command.limit, since, &filter)? {
             if !displayed.insert(event.clone()) {
                 continue;
             }
@@ -631,7 +839,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     }
 }
 
-/// Makes the active risk visible at launch time. The broker remains host-based:
+/// Makes the active risk visible at launch time. The proxy remains host-based:
 /// allowing the Stashbase API host lets a child use any API route its normal
 /// local credential is authorized for.
 fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
@@ -701,7 +909,7 @@ fn parse_audit_duration(value: &str) -> anyhow::Result<Duration> {
     Ok(Duration::from_secs(seconds))
 }
 
-fn print_audit_event(event: &AuditLogEvent, json: bool) -> anyhow::Result<()> {
+fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<()> {
     if json {
         println!("{}", serde_json::to_string(event)?);
         return Ok(());
@@ -724,9 +932,220 @@ fn print_audit_event(event: &AuditLogEvent, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+const REMOTE_SESSION_ROTATE_EARLY: Duration = Duration::from_secs(120);
+const REMOTE_SESSION_ROTATION_RETRY: Duration = Duration::from_secs(15);
+
+fn remote_session_state(
+    session: &crate::api::remote_proxy::RemoteProxySession,
+) -> anyhow::Result<crate::handlers::run::proxy::RemoteProxySessionState> {
+    let expires_at = DateTime::parse_from_rfc3339(&session.expires_at)
+        .map_err(|error| {
+            anyhow::anyhow!("Agent Proxy returned an invalid session expiry: {error}")
+        })?
+        .with_timezone(&Utc);
+    Ok(crate::handlers::run::proxy::RemoteProxySessionState {
+        token: session.session_token.clone(),
+        expires_at,
+        last_rotation_error: None,
+    })
+}
+
+/// Forward-proxy sessions need the public interception CA before the child is
+/// spawned. Custom-header sessions do not use a TLS-intercepting proxy.
+fn provision_remote_session_ca(
+    session: &crate::api::remote_proxy::RemoteProxySession,
+) -> anyhow::Result<Option<std::path::PathBuf>> {
+    if session.protocol == "http/1.1-forward-proxy-tls-intercept" {
+        let certificate = session
+            .proxy_ca
+            .as_ref()
+            .context("Agent Proxy session did not include its TLS interception CA")?;
+        return crate::handlers::run::proxy::provision_remote_proxy_ca(certificate).map(Some);
+    }
+    Ok(None)
+}
+
+/// Child processes commonly load their TLS trust roots once at startup. A
+/// replacement session must therefore keep the same transport and interception
+/// CA as the initial session; accepting a different CA would leave the child
+/// and local relay trusting the stale file.
+fn remote_session_transport_identity(
+    session: &crate::api::remote_proxy::RemoteProxySession,
+) -> anyhow::Result<(String, Option<(String, String)>)> {
+    let ca = if session.protocol == "http/1.1-forward-proxy-tls-intercept" {
+        let certificate = session
+            .proxy_ca
+            .as_ref()
+            .context("Agent Proxy session did not include its TLS interception CA")?;
+        Some((certificate.key_id.clone(), certificate.sha256.clone()))
+    } else {
+        None
+    };
+    Ok((session.protocol.clone(), ca))
+}
+
+fn ensure_replacement_session_is_compatible(
+    initial_transport: &(String, Option<(String, String)>),
+    replacement: &crate::api::remote_proxy::RemoteProxySession,
+) -> anyhow::Result<()> {
+    let replacement_transport = remote_session_transport_identity(replacement)?;
+    if initial_transport.0 != replacement_transport.0 {
+        anyhow::bail!(
+            "Agent Proxy changed protocols while rotating a session; restart the agent run"
+        );
+    }
+    if initial_transport.1 != replacement_transport.1 {
+        anyhow::bail!(
+            "Agent Proxy changed its TLS interception CA while rotating a session; restart the agent run"
+        );
+    }
+    Ok(())
+}
+
+fn remote_session_rotation_delay(expires_at: DateTime<Utc>) -> Duration {
+    let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
+    remote_session_rotation_delay_for(remaining)
+}
+
+fn remote_session_rotation_delay_for(remaining: Duration) -> Duration {
+    // A normal ten-minute session rotates two minutes early. For deliberately
+    // short test sessions, keep a proportional grace period instead of issuing
+    // a replacement every second.
+    let lead_time = REMOTE_SESSION_ROTATE_EARLY
+        .min(remaining / 5)
+        .max(Duration::from_secs(1));
+    remaining
+        .saturating_sub(lead_time)
+        .max(Duration::from_secs(1))
+}
+
+/// Rotates the control-plane session before it expires. It deliberately never
+/// retries child requests: only future connections see the replacement token.
+fn spawn_remote_session_rotation(
+    request: crate::api::remote_proxy::RemoteProxySessionRequest,
+    initial_session: crate::api::remote_proxy::RemoteProxySession,
+    state: Arc<RwLock<crate::handlers::run::proxy::RemoteProxySessionState>>,
+    initial_transport: (String, Option<(String, String)>),
+) -> (watch::Sender<bool>, JoinHandle<()>) {
+    let (stop, mut stop_rx) = watch::channel(false);
+    let task = tokio::spawn(async move {
+        let mut session = initial_session;
+        let mut retry_pending = false;
+        loop {
+            let expires_at = match remote_session_state(&session) {
+                Ok(state) => state.expires_at,
+                Err(error) => {
+                    if let Ok(mut current) = state.write() {
+                        current.last_rotation_error = Some(error.to_string());
+                    }
+                    return;
+                }
+            };
+            if !retry_pending {
+                tokio::select! {
+                    _ = tokio::time::sleep(remote_session_rotation_delay(expires_at)) => {}
+                    result = stop_rx.changed() => {
+                        if result.is_ok() && *stop_rx.borrow() { return; }
+                        return;
+                    }
+                }
+            }
+            retry_pending = false;
+
+            let previous_session_token = match state.read() {
+                Ok(current) => current.token.clone(),
+                Err(_) => return,
+            };
+            let replacement_request = request.replacement(previous_session_token);
+            match crate::api::remote_proxy::create_session(&replacement_request, false).await {
+                Ok(next_session) => {
+                    let next_state = match ensure_replacement_session_is_compatible(
+                        &initial_transport,
+                        &next_session,
+                    )
+                    .and_then(|_| provision_remote_session_ca(&next_session))
+                    .and_then(|_| remote_session_state(&next_session))
+                    {
+                        Ok(next_state) => next_state,
+                        Err(error) => {
+                            crate::api::remote_proxy::revoke_session(
+                                request.api_key.clone(),
+                                &next_session.session_token,
+                            )
+                            .await;
+                            if let Ok(mut current) = state.write() {
+                                current.last_rotation_error = Some(error.to_string());
+                            }
+                            // Keep the current session active until its stated expiry.
+                            // A malformed replacement response is recoverable; retrying
+                            // later avoids permanently disabling rotation for this run.
+                            let retry = REMOTE_SESSION_ROTATION_RETRY
+                                .min((expires_at - Utc::now()).to_std().unwrap_or_default());
+                            if retry.is_zero() {
+                                return;
+                            }
+                            tokio::select! {
+                                _ = tokio::time::sleep(retry) => {}
+                                _ = stop_rx.changed() => return,
+                            }
+                            retry_pending = true;
+                            continue;
+                        }
+                    };
+                    let old_token = {
+                        let mut current = match state.write() {
+                            Ok(current) => current,
+                            Err(_) => return,
+                        };
+                        let old_token = current.token.clone();
+                        *current = next_state;
+                        // Update the signal-handler cleanup token while holding
+                        // the write lock. This closes the TOCTOU window where a
+                        // signal arriving between the state write and a separate
+                        // cleanup update would send DELETE with the replaced
+                        // (old) token instead of the newly issued one.
+                        crate::api::remote_proxy::update_agent_run_cleanup_token(
+                            next_session.session_token.clone(),
+                        );
+                        old_token
+                    };
+
+                    // The control plane retains the replaced token for its
+                    // server-side grace window, then rejects new handshakes.
+                    crate::api::remote_proxy::retire_session(request.api_key.clone(), &old_token)
+                        .await;
+                    session = next_session;
+                }
+                Err(error) => {
+                    if let Ok(mut current) = state.write() {
+                        current.last_rotation_error = Some(error.to_string());
+                    }
+                    // Keep the active session usable until its stated expiry. A
+                    // later retry may succeed without disrupting open streams.
+                    let retry = REMOTE_SESSION_ROTATION_RETRY
+                        .min((expires_at - Utc::now()).to_std().unwrap_or_default());
+                    if retry.is_zero() {
+                        return;
+                    }
+                    tokio::select! {
+                        _ = tokio::time::sleep(retry) => {}
+                        _ = stop_rx.changed() => return,
+                    }
+                    retry_pending = true;
+                }
+            }
+        }
+    });
+    (stop, task)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::configured_host_matches;
+    use super::{
+        configured_host_matches, ensure_replacement_session_is_compatible, infer_remote_agent_type,
+        remote_session_rotation_delay_for, remote_session_transport_identity,
+    };
+    use std::time::Duration;
 
     #[test]
     fn configured_host_matching_supports_exact_and_subdomain_wildcards() {
@@ -743,5 +1162,63 @@ mod tests {
             "api.stashbase.dev",
             "other.example"
         ));
+    }
+
+    #[test]
+    fn short_remote_sessions_rotate_proportionally_instead_of_every_second() {
+        assert_eq!(
+            remote_session_rotation_delay_for(Duration::from_secs(10)),
+            Duration::from_secs(8)
+        );
+        assert_eq!(
+            remote_session_rotation_delay_for(Duration::from_secs(600)),
+            Duration::from_secs(480)
+        );
+    }
+
+    #[test]
+    fn remote_agent_type_uses_only_the_executable_basename() {
+        let classify = |value: &str| infer_remote_agent_type(&[value.to_owned()]);
+
+        assert_eq!(classify("/usr/local/bin/codex"), "codex");
+        assert_eq!(classify("codex.exe"), "codex");
+        assert_eq!(classify("claude-code"), "claude-code");
+        assert_eq!(classify("github-copilot"), "copilot");
+        assert_eq!(classify("cursor-agent"), "cursor");
+        assert_eq!(classify("opencode"), "opencode");
+        assert_eq!(classify("my-wrapper"), "custom");
+        assert_eq!(infer_remote_agent_type(&[]), "custom");
+    }
+
+    #[test]
+    fn replacement_session_rejects_a_changed_interception_ca() {
+        let initial = crate::api::remote_proxy::RemoteProxySession {
+            session_id: "session-1".to_owned(),
+            session_token: "token-1".to_owned(),
+            expires_at: "2026-01-01T00:00:00Z".to_owned(),
+            proxy_url: "https://proxy.example".to_owned(),
+            protocol: "http/1.1-forward-proxy-tls-intercept".to_owned(),
+            proxy_ca: Some(crate::api::remote_proxy::RemoteProxyCa {
+                key_id: "ca-1".to_owned(),
+                sha256: "first".to_owned(),
+                pem: "unused".to_owned(),
+            }),
+        };
+        let replacement = crate::api::remote_proxy::RemoteProxySession {
+            session_id: "session-2".to_owned(),
+            session_token: "token-2".to_owned(),
+            expires_at: "2026-01-01T00:10:00Z".to_owned(),
+            proxy_url: "https://proxy.example".to_owned(),
+            protocol: "http/1.1-forward-proxy-tls-intercept".to_owned(),
+            proxy_ca: Some(crate::api::remote_proxy::RemoteProxyCa {
+                key_id: "ca-2".to_owned(),
+                sha256: "second".to_owned(),
+                pem: "unused".to_owned(),
+            }),
+        };
+
+        let identity = remote_session_transport_identity(&initial).unwrap();
+        let error = ensure_replacement_session_is_compatible(&identity, &replacement).unwrap_err();
+        assert!(error.to_string().contains("TLS interception CA"));
     }
 }
