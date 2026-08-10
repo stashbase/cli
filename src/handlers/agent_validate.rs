@@ -18,7 +18,10 @@ use serde::Serialize;
 use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
-    models::{agent::AgentProfile, config::Config},
+    models::{
+        agent::{AgentHttpRule, AgentProfile},
+        config::Config,
+    },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
 
@@ -310,7 +313,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
         bindings.entry(source).or_default().push(target);
 
-        if secret.hosts.is_empty() {
+        if secret.hosts.is_empty() && secret.rules.is_empty() {
             checks.push(fail(
                 format!("Secret '{target}' hosts"),
                 "At least one destination host is required for credential injection.".to_owned(),
@@ -326,6 +329,9 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                     format!("Duplicate destination host '{host}'."),
                 ));
             }
+        }
+        for (index, rule) in secret.rules.iter().enumerate() {
+            validate_http_rule(target, index, rule, &mut checks);
         }
         if let Some(header) = &secret.header {
             if HeaderName::from_bytes(header.as_bytes()).is_err() {
@@ -426,6 +432,90 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         ));
     }
     checks
+}
+
+fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: &mut Vec<Check>) {
+    let label = format!("Secret '{target}' rule {}", index + 1);
+    if rule.hosts.is_empty() {
+        checks.push(fail(
+            format!("{label} hosts"),
+            "At least one host is required.".to_owned(),
+        ));
+    }
+    if rule.methods.is_empty() {
+        checks.push(fail(
+            format!("{label} methods"),
+            "At least one HTTP method is required.".to_owned(),
+        ));
+    }
+    if rule.paths.is_empty() {
+        checks.push(fail(
+            format!("{label} paths"),
+            "At least one path pattern is required.".to_owned(),
+        ));
+    }
+    for host in &rule.hosts {
+        if let Err(reason) = validate_host(host, false) {
+            checks.push(fail(format!("{label} host"), reason));
+        }
+    }
+    for method in &rule.methods {
+        if !valid_http_method(method) {
+            checks.push(fail(
+                format!("{label} method"),
+                format!("'{method}' is not a supported HTTP method."),
+            ));
+        }
+    }
+    for path in &rule.paths {
+        if let Err(reason) = validate_path_pattern(path) {
+            checks.push(fail(format!("{label} path"), reason));
+        }
+    }
+}
+
+fn valid_http_method(method: &str) -> bool {
+    !method.is_empty() && hyper::Method::from_bytes(method.as_bytes()).is_ok()
+}
+
+fn validate_path_pattern(path: &str) -> std::result::Result<(), String> {
+    if path.is_empty()
+        || path.trim() != path
+        || path.chars().any(char::is_whitespace)
+        || path.contains(['?', '#', '\r', '\n'])
+    {
+        return Err(
+            "Use a non-empty URL path pattern without whitespace, query, or fragment.".to_owned(),
+        );
+    }
+    if path != "*" && !path.starts_with('/') {
+        return Err("Use '*' or a path pattern beginning with '/'.".to_owned());
+    }
+    if path.contains('\\') || !has_valid_percent_encoding(path) {
+        return Err(
+            "Path patterns cannot contain backslashes or malformed percent escapes.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+fn has_valid_percent_encoding(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit()
+            {
+                return false;
+            }
+            index += 3;
+        } else {
+            index += 1;
+        }
+    }
+    true
 }
 
 fn validate_host(host: &str, allow_all: bool) -> std::result::Result<(), String> {
@@ -531,6 +621,32 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_http_action_rules() {
+        let rule = AgentHttpRule {
+            effect: crate::models::agent::AgentHttpRuleEffect::Allow,
+            hosts: Vec::new(),
+            methods: vec!["GET /".to_owned()],
+            paths: vec!["repos?private=true".to_owned()],
+        };
+        let mut checks = Vec::new();
+        validate_http_rule("TOKEN", 0, &rule, &mut checks);
+        assert_eq!(
+            checks
+                .iter()
+                .filter(|check| check.status == Status::Fail)
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn accepts_extension_http_methods() {
+        assert!(valid_http_method("PROPFIND"));
+        assert!(valid_http_method("custom-method"));
+        assert!(!valid_http_method("GET /"));
+    }
+
+    #[test]
     fn requires_templates_to_contain_the_secret_marker() {
         let profile = AgentProfile {
             project: Some("project".to_owned()),
@@ -542,6 +658,7 @@ mod tests {
                 "API_KEY".to_owned(),
                 crate::models::agent::AgentSecretProfile {
                     hosts: vec!["api.example.com".to_owned()],
+                    rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -584,6 +701,7 @@ mod tests {
                     "FIRST_KEY".to_owned(),
                     crate::models::agent::AgentSecretProfile {
                         hosts: vec!["first.example.com".to_owned()],
+                        rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: Some("shared-placeholder".to_owned()),
@@ -595,6 +713,7 @@ mod tests {
                     "SECOND_KEY".to_owned(),
                     crate::models::agent::AgentSecretProfile {
                         hosts: vec!["second.example.com".to_owned()],
+                        rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: Some("shared-placeholder".to_owned()),
