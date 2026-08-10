@@ -1070,16 +1070,16 @@ fn proxy_request(
         }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
             Ok(secret_name) => secret_name,
-            Err(secret_name) => {
+            Err(denial) => {
                 debug!(
                     "proxy denied credential injection for destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
                 state.record_audit(
-                    "host_denied",
+                    denial.audit_action,
                     host.as_deref(),
                     Some(request.method()),
-                    Some(&secret_name),
+                    Some(&denial.secret_name),
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
@@ -2035,7 +2035,7 @@ fn replace_placeholder(
     request: &mut Request<Incoming>,
     state: &ProxyState,
     host: Option<&str>,
-) -> std::result::Result<Option<String>, String> {
+) -> std::result::Result<Option<String>, CredentialDenial> {
     for (placeholder, secret) in state.secrets.iter() {
         let injection = state
             .policy
@@ -2065,7 +2065,10 @@ fn replace_placeholder(
                 request.uri().path(),
             )
         {
-            return Err(secret_name_from_placeholder(placeholder));
+            return Err(CredentialDenial {
+                secret_name: secret_name_from_placeholder(placeholder),
+                audit_action: credential_denial_action(&state.policy, placeholder),
+            });
         }
         if state.remote.is_some() {
             return Ok(Some(secret_name_from_placeholder(placeholder)));
@@ -2078,6 +2081,20 @@ fn replace_placeholder(
     }
 
     Ok(None)
+}
+
+/// Internal-only detail for audit classification. The agent receives the same
+/// generic credential-denied response for every variant.
+struct CredentialDenial {
+    secret_name: String,
+    audit_action: &'static str,
+}
+
+fn credential_denial_action(policy: &ProxyPolicy, placeholder: &str) -> &'static str {
+    match policy.secret_policies.get(placeholder) {
+        Some(SecretHttpPolicy::Rules(_)) => "credential_rule_denied",
+        Some(SecretHttpPolicy::LegacyHosts(_)) | None => "host_denied",
+    }
 }
 
 fn secret_allows_request(
@@ -2969,6 +2986,19 @@ mod tests {
             &Method::GET,
             "/repos/public/../private/repo"
         ));
+    }
+
+    #[test]
+    fn audits_rule_denials_without_exposing_rule_details() {
+        let policy = rule_policy(vec![rule(
+            AgentHttpRuleEffect::Allow,
+            &["GET"],
+            &["/repos/*"],
+        )]);
+        assert_eq!(
+            credential_denial_action(&policy, "**STASHBASE_GH_TOKEN**"),
+            "credential_rule_denied"
+        );
     }
 
     #[test]
