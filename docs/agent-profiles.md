@@ -54,7 +54,10 @@ stashbase agent validate --remote --profile coding
 Validation does not fetch or read secret values and does not start a proxy. It
 checks the selected source, local-file availability, duplicate `from` bindings,
 child environment-variable names, host rules, custom header names, and value
-templates. `egress_hosts = ["*"]` is valid but reported as a warning.
+templates. It also warns about duplicate HTTP rules, all-path `"*"` rules, and
+allows that a deny rule fully shadows. These warnings do not reject an
+intentional policy. `egress_hosts = ["*"]` is also valid but reported as a
+warning.
 
 Add `--remote` before a remote run to also verify that the profile is compatible
 with a project/environment-backed remote session and inspect cached public
