@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use crate::{
     cmd::{
         config::SecretsOutputFormat,
-        secrets::{MetadataSecretSubcommand, SecretArgs, SecretSubcommand},
+        secrets::{MetadataSecretSubcommand, SchemaSecretSubcommand, SecretArgs, SecretSubcommand},
     },
     handlers::secrets::{
         create::{handle_create_secrets, HandleCreateSecretsArgs},
@@ -15,6 +15,7 @@ use crate::{
             handle_get_secret_metadata, handle_list_secret_metadata, HandleGetSecretMetadataArgs,
             HandleListSecretMetadataArgs,
         },
+        schema::{handle_pull_secret_schema, HandlePullSecretSchemaArgs},
         search::{handle_search_secrets, HandleSearchSecretsArgs},
         update::{handle_update_secrets, HandleUpdateSecretsArgs},
         upload::{handle_upload_secrets, HandleUploadSecretsArgs},
@@ -303,6 +304,19 @@ pub async fn handle_secrets_commands(
                 };
 
                 handle_get_secret_metadata(args).await?;
+            }
+        },
+        SecretSubcommand::Schema(args) => match args.subcommand {
+            SchemaSecretSubcommand::Pull(args) => {
+                handle_pull_secret_schema(HandlePullSecretSchemaArgs {
+                    api_key,
+                    project: project.expect("schema pull requires a project"),
+                    environment: environment.expect("schema pull requires an environment"),
+                    output: args.output,
+                    force: args.force,
+                    silent,
+                })
+                .await?;
             }
         },
         _ => unreachable!(),

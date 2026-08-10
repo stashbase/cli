@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, path::PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
 
@@ -114,6 +114,12 @@ impl SecretSubcommand {
                     g.shared_args.environment.as_deref(),
                 ),
             },
+            SecretSubcommand::Schema(s) => match &s.subcommand {
+                SchemaSecretSubcommand::Pull(p) => (
+                    p.shared_args.project.as_deref(),
+                    p.shared_args.environment.as_deref(),
+                ),
+            },
         }
     }
     pub fn get_scope(&self) -> Option<&Scope> {
@@ -132,6 +138,7 @@ impl SecretSubcommand {
                 MetadataSecretSubcommand::List(l) => l.scope_args.scope.as_ref(),
                 MetadataSecretSubcommand::Get(g) => g.scope_args.scope.as_ref(),
             },
+            SecretSubcommand::Schema(_) => None,
         }
     }
 }
@@ -170,6 +177,38 @@ pub enum SecretSubcommand {
 
     /// Read operational metadata for secrets
     Metadata(MetadataSecrets),
+
+    /// Manage safe, redacted environment schema for coding agents
+    Schema(SchemaSecrets),
+}
+
+#[derive(Debug, Args)]
+pub struct SchemaSecrets {
+    #[clap(subcommand)]
+    pub subcommand: SchemaSecretSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SchemaSecretSubcommand {
+    /// Export project, environment, and secret metadata as YAML
+    Pull(PullSecretSchema),
+}
+
+#[derive(Debug, Args)]
+#[command(
+    override_usage = "secrets schema pull --project <PROJECT> --environment <ENVIRONMENT> [--output <OUTPUT>] [OPTIONS]"
+)]
+pub struct PullSecretSchema {
+    #[clap(flatten)]
+    pub shared_args: SharedProjectEnvArgs,
+
+    /// YAML file to write
+    #[arg(long = "output", default_value = "env.schema.yaml")]
+    pub output: PathBuf,
+
+    /// Overwrite an existing output file
+    #[arg(long = "force")]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

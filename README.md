@@ -106,6 +106,14 @@ stashbase environments list -p <PROJECT>
 stashbase secrets list -p <PROJECT> -e <ENVIRONMENT>
 ```
 
+### Export a safe agent environment schema
+
+```bash
+stashbase secrets schema pull --project api --environment production
+```
+
+This writes `env.schema.yaml` with the selected project and environment metadata (including their IDs), plus secret names and comments; it never writes secret values or secret IDs. Pass `--output <PATH>` to choose another location.
+
 ### Run commands with injected secrets
 
 ```bash

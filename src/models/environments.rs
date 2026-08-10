@@ -22,7 +22,8 @@ pub struct Environment {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    pub is_production: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_production: Option<bool>,
     pub secret_count: usize,
 
     // only for personal auth (api key)
@@ -176,7 +177,7 @@ impl From<Environment> for TableEnvironment {
             name: env.name,
             description: env.description,
             user_role,
-            is_production: env.is_production,
+            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
         }
     }
@@ -198,7 +199,7 @@ impl From<Environment> for TableEnvironmentWithoutDescription {
             updated_at: formatted_updated,
             name: env.name,
             user_role,
-            is_production: env.is_production,
+            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
         }
     }
@@ -228,7 +229,7 @@ impl From<Environment> for TableEnvironmentWithProject {
             name: env.name,
             description: env.description,
             user_role,
-            is_production: env.is_production,
+            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
             project,
         }
@@ -258,7 +259,7 @@ impl From<Environment> for TableEnvironmentWithProjectWithoutDescription {
             updated_at: formatted_updated,
             name: env.name,
             user_role,
-            is_production: env.is_production,
+            is_production: env.is_production.unwrap_or(false),
             secret_count: env.secret_count,
             project,
         }
@@ -280,7 +281,7 @@ impl Display for Environment {
             f,
             "{} {}",
             "Production:".blue_bold_if_tty(),
-            self.is_production
+            self.is_production.unwrap_or(false)
         )?;
 
         if let Some(user_role) = &self.user_role {
