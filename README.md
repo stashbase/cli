@@ -227,6 +227,14 @@ stashbase agent validate --profile coding
 stashbase agent validate --remote --profile coding
 ```
 
+To inspect a proposed request against a profile without loading secrets or
+making a network request:
+
+```bash
+stashbase agent explain --profile coding \
+  --host api.github.com --method GET --path /user
+```
+
 `agent run` always uses proxy mode, exposes only placeholders to the child,
 suppresses secret printing, and strictly denies HTTP(S) destinations outside the
 profile. A placeholder can only be exchanged for its mapped secret at one of

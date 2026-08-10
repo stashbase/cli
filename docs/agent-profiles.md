@@ -51,6 +51,18 @@ stashbase agent validate --profile coding --json
 stashbase agent validate --remote --profile coding
 ```
 
+Explain a prospective request without loading a secret, starting a proxy, or
+opening a network connection:
+
+```bash
+stashbase agent explain --profile coding \
+  --host api.github.com --method GET --path /user
+```
+
+The explanation reports the global connection decision and whether each
+configured credential would be eligible for injection. It never prints a
+secret value or placeholder.
+
 Validation does not fetch or read secret values and does not start a proxy. It
 checks the selected source, local-file availability, duplicate `from` bindings,
 child environment-variable names, host rules, custom header names, and value
