@@ -53,7 +53,10 @@ use tokio::{
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use uuid::Uuid;
 
-use crate::REQUEST_TIMEOUT_SECS;
+use crate::{
+    models::agent::{AgentHttpRule, AgentHttpRuleEffect},
+    REQUEST_TIMEOUT_SECS,
+};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -283,11 +286,21 @@ fn prune_proxy_audit_logs(directory: &Path) -> Result<()> {
 /// Destination policy for credentials proxied into an agent process.
 #[derive(Debug, Clone)]
 pub struct ProxyPolicy {
-    pub allowed_hosts_by_secret: HashMap<String, HashSet<String>>,
+    pub secret_policies: HashMap<String, SecretHttpPolicy>,
     pub secret_injections: HashMap<String, SecretInjection>,
     pub allowed_egress_hosts: HashSet<String>,
     pub denied_hosts: HashSet<String>,
+    /// Whether credential-bearing requests must also satisfy egress policy.
+    pub egress_hosts_configured: bool,
     pub strict_deny: bool,
+}
+
+/// Authorization for one credential. A binding is deliberately either legacy
+/// host-only policy or HTTP rules, never both.
+#[derive(Debug, Clone)]
+pub enum SecretHttpPolicy {
+    LegacyHosts(HashSet<String>),
+    Rules(Vec<AgentHttpRule>),
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -384,10 +397,11 @@ impl SecretInjection {
 impl ProxyPolicy {
     pub fn permissive() -> Self {
         Self {
-            allowed_hosts_by_secret: HashMap::new(),
+            secret_policies: HashMap::new(),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
             strict_deny: false,
         }
     }
@@ -527,16 +541,24 @@ impl Proxy {
                 .map(|(name, placeholder)| (placeholder.clone(), name.clone()))
                 .collect::<HashMap<_, _>>()
         });
-        policy.allowed_hosts_by_secret = policy
-            .allowed_hosts_by_secret
+        policy.secret_policies = policy
+            .secret_policies
             .into_iter()
-            .map(|(name, hosts)| {
+            .map(|(name, secret_policy)| {
                 let placeholder = remote_placeholders
                     .as_ref()
                     .and_then(|placeholders| placeholders.get(&name))
                     .cloned()
                     .unwrap_or_else(|| placeholder_for(&name));
-                (placeholder, normalize_hosts(hosts))
+                let secret_policy = match secret_policy {
+                    SecretHttpPolicy::LegacyHosts(hosts) => {
+                        SecretHttpPolicy::LegacyHosts(normalize_hosts(hosts))
+                    }
+                    SecretHttpPolicy::Rules(rules) => {
+                        SecretHttpPolicy::Rules(normalize_http_rules(rules))
+                    }
+                };
+                (placeholder, secret_policy)
             })
             .collect();
         policy.secret_injections =
@@ -998,6 +1020,25 @@ fn proxy_request(
                 "proxy denied destination: {}",
                 host.as_deref().unwrap_or("unknown")
             );
+            state.record_audit(
+                "host_denied",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response(
+                StatusCode::FORBIDDEN,
+                "proxy.host_denied",
+                "Agent Proxy policy denied destination",
+            ));
+        }
+        if state.policy.egress_hosts_configured
+            && !host
+                .as_deref()
+                .is_some_and(|host| policy_allows_egress(&state.policy, host))
+        {
             state.record_audit(
                 "host_denied",
                 host.as_deref(),
@@ -1934,6 +1975,7 @@ impl ProxyState {
             return !self.policy.strict_deny;
         };
         !policy_denies_host(&self.policy, host)
+            && (!self.policy.egress_hosts_configured || policy_allows_egress(&self.policy, host))
             && (!self.policy.strict_deny || policy_allows_connect(&self.policy, host))
     }
 
@@ -1962,9 +2004,16 @@ impl ProxyState {
 
 fn policy_allows_connect(policy: &ProxyPolicy, host: &str) -> bool {
     policy
-        .allowed_hosts_by_secret
+        .secret_policies
         .values()
-        .any(|hosts| hosts.iter().any(|allowed| host_matches(allowed, host)))
+        .any(|secret_policy| match secret_policy {
+            SecretHttpPolicy::LegacyHosts(hosts) => {
+                hosts.iter().any(|allowed| host_matches(allowed, host))
+            }
+            SecretHttpPolicy::Rules(rules) => rules
+                .iter()
+                .any(|rule| rule.hosts.iter().any(|allowed| host_matches(allowed, host))),
+        })
         || policy_allows_egress(policy, host)
 }
 
@@ -2008,13 +2057,13 @@ fn replace_placeholder(
         }
 
         if state.policy.strict_deny
-            && !state
-                .policy
-                .allowed_hosts_by_secret
-                .get(placeholder)
-                .is_some_and(|hosts| {
-                    host.is_some_and(|host| hosts.iter().any(|allowed| host_matches(allowed, host)))
-                })
+            && !secret_allows_request(
+                &state.policy,
+                placeholder,
+                host,
+                request.method(),
+                request.uri().path(),
+            )
         {
             return Err(secret_name_from_placeholder(placeholder));
         }
@@ -2029,6 +2078,120 @@ fn replace_placeholder(
     }
 
     Ok(None)
+}
+
+fn secret_allows_request(
+    policy: &ProxyPolicy,
+    placeholder: &str,
+    host: Option<&str>,
+    method: &Method,
+    path: &str,
+) -> bool {
+    let Some(host) = host else { return false };
+    match policy.secret_policies.get(placeholder) {
+        Some(SecretHttpPolicy::LegacyHosts(hosts)) => {
+            hosts.iter().any(|allowed| host_matches(allowed, host))
+        }
+        Some(SecretHttpPolicy::Rules(rules)) => {
+            let path = normalize_request_path(path);
+            let matches = |rule: &AgentHttpRule| {
+                rule.hosts.iter().any(|allowed| host_matches(allowed, host))
+                    && rule
+                        .methods
+                        .iter()
+                        .any(|allowed| allowed.eq_ignore_ascii_case(method.as_str()))
+                    && rule
+                        .paths
+                        .iter()
+                        .any(|pattern| path_matches(pattern, &path))
+            };
+            !rules
+                .iter()
+                .any(|rule| rule.effect == AgentHttpRuleEffect::Deny && matches(rule))
+                && rules
+                    .iter()
+                    .any(|rule| rule.effect == AgentHttpRuleEffect::Allow && matches(rule))
+        }
+        None => false,
+    }
+}
+
+fn normalize_http_rules(rules: Vec<AgentHttpRule>) -> Vec<AgentHttpRule> {
+    rules
+        .into_iter()
+        .map(|mut rule| {
+            rule.hosts = rule
+                .hosts
+                .into_iter()
+                .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
+                .collect();
+            rule.methods = rule
+                .methods
+                .into_iter()
+                .map(|method| method.trim().to_ascii_uppercase())
+                .collect();
+            rule.paths = rule
+                .paths
+                .into_iter()
+                .map(|path| normalize_path_pattern(&path))
+                .collect();
+            rule
+        })
+        .collect()
+}
+
+fn normalize_path_pattern(pattern: &str) -> String {
+    if pattern == "*" {
+        return "*".to_owned();
+    }
+    normalize_path_segments(pattern)
+}
+
+fn normalize_request_path(path: &str) -> String {
+    normalize_path_segments(path)
+}
+
+fn normalize_path_segments(path: &str) -> String {
+    let mut segments = Vec::new();
+    let path = path
+        .replace("%2f", "/")
+        .replace("%2F", "/")
+        .replace("%5c", "/")
+        .replace("%5C", "/")
+        .replace('\\', "/");
+    for segment in path.split('/') {
+        let segment = segment.replace("%2e", ".").replace("%2E", ".");
+        match segment.as_str() {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            _ => segments.push(segment),
+        }
+    }
+    format!("/{}", segments.join("/"))
+}
+
+fn path_matches(pattern: &str, path: &str) -> bool {
+    let mut remainder = path;
+    let mut first = true;
+    for part in pattern.split('*') {
+        if part.is_empty() {
+            continue;
+        }
+        if first {
+            if !remainder.starts_with(part) {
+                return false;
+            }
+            remainder = &remainder[part.len()..];
+            first = false;
+        } else if let Some(index) = remainder.find(part) {
+            remainder = &remainder[index + part.len()..];
+        } else {
+            return false;
+        }
+    }
+    pattern.ends_with('*') || remainder.is_empty()
 }
 
 /// Reject placeholder-shaped values that do not belong to this session instead
@@ -2404,9 +2567,9 @@ mod tests {
             ca_file: None,
         };
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "ANTHROPIC_API_KEY".to_owned(),
-                HashSet::from(["api.anthropic.com".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.anthropic.com".to_owned()])),
             )]),
             secret_injections: HashMap::from([(
                 "ANTHROPIC_API_KEY".to_owned(),
@@ -2417,6 +2580,7 @@ mod tests {
             )]),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: true,
             strict_deny: true,
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
@@ -2702,13 +2866,16 @@ mod tests {
     #[test]
     fn strict_policy_only_allows_secret_hosts_during_connect() {
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
-                normalize_hosts(HashSet::from(["API.GITHUB.COM.".to_owned()])),
+                SecretHttpPolicy::LegacyHosts(normalize_hosts(HashSet::from([
+                    "API.GITHUB.COM.".to_owned()
+                ]))),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
             strict_deny: true,
         };
 
@@ -2727,35 +2894,138 @@ mod tests {
         ));
     }
 
+    fn rule(effect: AgentHttpRuleEffect, methods: &[&str], paths: &[&str]) -> AgentHttpRule {
+        AgentHttpRule {
+            effect,
+            hosts: vec!["api.github.com".to_owned()],
+            methods: methods.iter().map(|method| (*method).to_owned()).collect(),
+            paths: paths.iter().map(|path| (*path).to_owned()).collect(),
+        }
+    }
+
+    fn rule_policy(rules: Vec<AgentHttpRule>) -> ProxyPolicy {
+        ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "**STASHBASE_GH_TOKEN**".to_owned(),
+                SecretHttpPolicy::Rules(rules),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+        }
+    }
+
+    #[test]
+    fn http_rules_allow_a_matching_request() {
+        let policy = rule_policy(normalize_http_rules(vec![rule(
+            AgentHttpRuleEffect::Allow,
+            &["get"],
+            &["/repos/*"],
+        )]));
+        assert!(secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::GET,
+            "/repos/acme/cli"
+        ));
+    }
+
+    #[test]
+    fn http_rules_default_deny_unmatched_routes_and_methods() {
+        let policy = rule_policy(normalize_http_rules(vec![rule(
+            AgentHttpRuleEffect::Allow,
+            &["GET"],
+            &["/repos/*"],
+        )]));
+        assert!(!secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::GET,
+            "/user"
+        ));
+        assert!(!secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::POST,
+            "/repos/acme/cli"
+        ));
+    }
+
+    #[test]
+    fn http_rule_deny_overrides_allow_and_normalizes_dot_segments() {
+        let policy = rule_policy(normalize_http_rules(vec![
+            rule(AgentHttpRuleEffect::Allow, &["GET"], &["/repos/*"]),
+            rule(AgentHttpRuleEffect::Deny, &["GET"], &["/repos/private/*"]),
+        ]));
+        assert!(!secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::GET,
+            "/repos/public/../private/repo"
+        ));
+    }
+
+    #[test]
+    fn legacy_hosts_are_used_when_no_http_rules_exist() {
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "**STASHBASE_GH_TOKEN**".to_owned(),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+        };
+        assert!(secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::DELETE,
+            "/anything"
+        ));
+    }
+
     #[test]
     fn egress_wildcard_allows_any_destination_without_widening_secret_hosts() {
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
-                HashSet::from(["api.github.com".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: true,
             strict_deny: true,
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
-        assert!(!policy.allowed_hosts_by_secret["**STASHBASE_GH_TOKEN**"]
-            .iter()
-            .any(|allowed| host_matches(allowed, "example.com")));
+        assert!(matches!(
+            &policy.secret_policies["**STASHBASE_GH_TOKEN**"],
+            SecretHttpPolicy::LegacyHosts(hosts)
+                if !hosts.iter().any(|allowed| host_matches(allowed, "example.com"))
+        ));
     }
 
     #[test]
     fn denied_hosts_override_wildcard_egress_and_secret_destinations() {
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
-                HashSet::from(["api.stashbase.dev".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.stashbase.dev".to_owned()])),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
+            egress_hosts_configured: true,
             strict_deny: true,
         };
         let state = ProxyState {
@@ -2805,13 +3075,14 @@ mod tests {
     async fn secret_hosts_do_not_grant_ordinary_egress() {
         let (address, authorization) = start_backend().await;
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "GH_TOKEN".to_owned(),
-                HashSet::from(["127.0.0.1".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["127.0.0.1".to_owned()])),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
             strict_deny: true,
         };
         let proxy = Proxy::start(
@@ -3153,9 +3424,9 @@ mod tests {
         let proxy = Proxy::start(
             HashMap::from([("ANTHROPIC_API_KEY".to_owned(), "real-token".to_owned())]),
             ProxyPolicy {
-                allowed_hosts_by_secret: HashMap::from([(
+                secret_policies: HashMap::from([(
                     "ANTHROPIC_API_KEY".to_owned(),
-                    HashSet::from(["127.0.0.1".to_owned()]),
+                    SecretHttpPolicy::LegacyHosts(HashSet::from(["127.0.0.1".to_owned()])),
                 )]),
                 secret_injections: HashMap::from([(
                     "ANTHROPIC_API_KEY".to_owned(),
@@ -3166,6 +3437,7 @@ mod tests {
                 )]),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
+                egress_hosts_configured: false,
                 strict_deny: true,
             },
             None,
@@ -3191,13 +3463,14 @@ mod tests {
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
             ProxyPolicy {
-                allowed_hosts_by_secret: HashMap::from([(
+                secret_policies: HashMap::from([(
                     "GH_TOKEN".to_owned(),
-                    HashSet::from(["api.github.com".to_owned()]),
+                    SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
                 )]),
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
+                egress_hosts_configured: false,
                 strict_deny: true,
             },
             None,
@@ -3224,13 +3497,14 @@ mod tests {
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
             ProxyPolicy {
-                allowed_hosts_by_secret: HashMap::from([(
+                secret_policies: HashMap::from([(
                     "GH_TOKEN".to_owned(),
-                    HashSet::from(["api.github.com".to_owned()]),
+                    SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
                 )]),
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 denied_hosts: HashSet::new(),
+                egress_hosts_configured: true,
                 strict_deny: true,
             },
             None,

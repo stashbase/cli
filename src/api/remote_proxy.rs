@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::client,
+    models::agent::AgentHttpRule,
     models::api_client::{ApiErrorResponse, GenericOutputError, OutputError},
 };
 
@@ -66,6 +67,7 @@ pub struct RemoteBinding {
     pub name: String,
     pub from: String,
     pub hosts: Vec<String>,
+    pub rules: Vec<AgentHttpRule>,
     pub header: String,
     pub placeholder: String,
     pub value_template: String,
@@ -79,7 +81,8 @@ pub struct RemoteProxySessionRequest {
     pub project_identifier: String,
     pub environment_identifier: String,
     /// Ordinary destinations the agent may reach without secret injection.
-    /// Per-secret destinations remain in each binding's `hosts` field.
+    /// Per-secret credential policy remains in each binding's legacy `hosts`
+    /// field or its HTTP `rules`.
     pub egress_hosts: Vec<String>,
     pub deny_hosts: Vec<String>,
     pub bindings: Vec<RemoteBinding>,
@@ -314,6 +317,7 @@ mod tests {
             name: "GH_TOKEN".to_owned(),
             from: "GH_TOKEN".to_owned(),
             hosts: vec!["api.github.com".to_owned(), "github.com".to_owned()],
+            rules: Vec::new(),
             header: "authorization".to_owned(),
             placeholder: "${STASHBASE_GH_TOKEN}".to_owned(),
             value_template: "Bearer {secret}".to_owned(),

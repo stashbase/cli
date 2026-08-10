@@ -38,7 +38,7 @@ use crate::{
             entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
             proxy::{
                 read_local_proxy_audit_logs, ProxyAuditLog, ProxyAuditLogEvent,
-                ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
+                ProxyAuditLogFilter, ProxyPolicy, SecretHttpPolicy, SecretInjection,
             },
             subprocess::CommandFailed,
         },
@@ -404,14 +404,20 @@ pub async fn handle_cli(args: Cli) {
                     }
 
                     let policy = ProxyPolicy {
-                        allowed_hosts_by_secret: profile
+                        secret_policies: profile
                             .secrets
                             .iter()
                             .map(|(name, secret)| {
-                                (
-                                    name.clone(),
-                                    secret.hosts.iter().cloned().collect::<HashSet<_>>(),
-                                )
+                                let policy = if secret.rules.is_empty() {
+                                    SecretHttpPolicy::LegacyHosts(
+                                        secret.hosts.iter().cloned().collect::<HashSet<_>>(),
+                                    )
+                                } else {
+                                    SecretHttpPolicy::Rules(
+                                        secret.rules.clone(),
+                                    )
+                                };
+                                (name.clone(), policy)
                             })
                             .collect::<HashMap<_, _>>(),
                         secret_injections: profile
@@ -454,6 +460,7 @@ pub async fn handle_cli(args: Cli) {
                             .unwrap_or_default()
                             .into_iter()
                             .collect(),
+                        egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                     };
                     let audit_log = (!agent_run.remote)
@@ -494,6 +501,19 @@ pub async fn handle_cli(args: Cli) {
                                 name: name.clone(),
                                 from: secret.from.clone().unwrap_or_else(|| name.clone()),
                                 hosts: secret.hosts.clone(),
+                                rules: secret
+                                    .rules
+                                    .iter()
+                                    .cloned()
+                                    .map(|mut rule| {
+                                        rule.methods = rule
+                                            .methods
+                                            .into_iter()
+                                            .map(|method| method.trim().to_ascii_uppercase())
+                                            .collect();
+                                        rule
+                                    })
+                                    .collect(),
                                 header,
                                 placeholder: secret
                                     .placeholder
