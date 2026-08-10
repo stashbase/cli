@@ -12,6 +12,8 @@ pub enum AgentSubcommand {
     Run(AgentRunCommand),
     /// Validate an agent profile without loading secrets or starting a proxy
     Validate(AgentValidateCommand),
+    /// Explain how an agent profile would handle an HTTP request without loading secrets
+    Explain(AgentExplainCommand),
     /// Check a tool's compatibility with the temporary Agent Proxy
     Doctor(AgentDoctorCommand),
     /// View local metadata-only proxy audit logs
@@ -88,6 +90,32 @@ pub struct AgentValidateCommand {
     /// Also verify requirements for a --remote agent session
     #[arg(long)]
     pub remote: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    override_usage = "agent explain --profile <PROFILE> --host <HOST> --method <METHOD> --path <PATH> [--profile-source <auto|global|directory>]"
+)]
+pub struct AgentExplainCommand {
+    /// Agent profile to evaluate
+    #[arg(long)]
+    pub profile: String,
+
+    /// Where to load the agent profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
+
+    /// Destination hostname to evaluate
+    #[arg(long)]
+    pub host: String,
+
+    /// HTTP method to evaluate
+    #[arg(long)]
+    pub method: String,
+
+    /// URL path to evaluate; query strings are ignored
+    #[arg(long)]
+    pub path: String,
 }
 
 #[derive(Debug, Args)]

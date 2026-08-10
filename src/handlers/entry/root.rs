@@ -19,6 +19,7 @@ use crate::{
     config::{config, secure_store},
     handlers::{
         agent_doctor::handle_agent_doctor_command,
+        agent_explain::handle_agent_explain_command,
         agent_validate::handle_agent_validate_command,
         doctor::handle_doctor_command,
         entry::{
@@ -304,6 +305,9 @@ pub async fn handle_cli(args: Cli) {
                         Ok(false) => Ok(()),
                         Err(error) => Err(error),
                     }
+                }
+                AgentSubcommand::Explain(agent_explain) => {
+                    handle_agent_explain_command(agent_explain, &config)
                 }
                 AgentSubcommand::Run(agent_run) => async {
                     let global_profile = config

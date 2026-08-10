@@ -303,6 +303,17 @@ pub enum SecretHttpPolicy {
     Rules(Vec<AgentHttpRule>),
 }
 
+/// The credential decision for one request, without reading or exposing a
+/// secret value. Used by both the proxy and `agent explain`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretAuthorizationDecision {
+    AllowedLegacyHost,
+    AllowedRule,
+    DeniedLegacyHost,
+    DeniedRule,
+    NoMatchingAllowRule,
+}
+
 /// How a placeholder is represented in a child request and rewritten by the proxy.
 #[derive(Debug, Clone)]
 pub struct SecretInjection {
@@ -2105,31 +2116,64 @@ fn secret_allows_request(
     path: &str,
 ) -> bool {
     let Some(host) = host else { return false };
-    match policy.secret_policies.get(placeholder) {
-        Some(SecretHttpPolicy::LegacyHosts(hosts)) => {
-            hosts.iter().any(|allowed| host_matches(allowed, host))
+    policy
+        .secret_policies
+        .get(placeholder)
+        .is_some_and(|secret_policy| {
+            matches!(
+                evaluate_secret_authorization(secret_policy, host, method.as_str(), path),
+                SecretAuthorizationDecision::AllowedLegacyHost
+                    | SecretAuthorizationDecision::AllowedRule
+            )
+        })
+}
+
+pub fn evaluate_secret_authorization(
+    policy: &SecretHttpPolicy,
+    host: &str,
+    method: &str,
+    path: &str,
+) -> SecretAuthorizationDecision {
+    match policy {
+        SecretHttpPolicy::LegacyHosts(hosts) => {
+            if hosts
+                .iter()
+                .any(|allowed| configured_host_matches(allowed, host))
+            {
+                SecretAuthorizationDecision::AllowedLegacyHost
+            } else {
+                SecretAuthorizationDecision::DeniedLegacyHost
+            }
         }
-        Some(SecretHttpPolicy::Rules(rules)) => {
+        SecretHttpPolicy::Rules(rules) => {
             let path = normalize_request_path(path);
             let matches = |rule: &AgentHttpRule| {
-                rule.hosts.iter().any(|allowed| host_matches(allowed, host))
+                rule.hosts
+                    .iter()
+                    .any(|allowed| configured_host_matches(allowed, host))
                     && rule
                         .methods
                         .iter()
-                        .any(|allowed| allowed.eq_ignore_ascii_case(method.as_str()))
+                        .any(|allowed| allowed.eq_ignore_ascii_case(method))
                     && rule
                         .paths
                         .iter()
-                        .any(|pattern| path_matches(pattern, &path))
+                        .any(|pattern| path_matches(&normalize_path_pattern(pattern), &path))
             };
-            !rules
+            if rules
                 .iter()
                 .any(|rule| rule.effect == AgentHttpRuleEffect::Deny && matches(rule))
-                && rules
-                    .iter()
-                    .any(|rule| rule.effect == AgentHttpRuleEffect::Allow && matches(rule))
+            {
+                SecretAuthorizationDecision::DeniedRule
+            } else if rules
+                .iter()
+                .any(|rule| rule.effect == AgentHttpRuleEffect::Allow && matches(rule))
+            {
+                SecretAuthorizationDecision::AllowedRule
+            } else {
+                SecretAuthorizationDecision::NoMatchingAllowRule
+            }
         }
-        None => false,
     }
 }
 
@@ -2330,6 +2374,13 @@ fn host_matches(allowed: &str, host: &str) -> bool {
         Some(suffix) => host != suffix && host.ends_with(&format!(".{suffix}")),
         None => allowed == host,
     }
+}
+
+pub fn configured_host_matches(allowed: &str, host: &str) -> bool {
+    host_matches(
+        &allowed.trim().trim_end_matches('.').to_ascii_lowercase(),
+        host,
+    )
 }
 
 /// Proxy failures use the public API error envelope so a nested `stashbase`
