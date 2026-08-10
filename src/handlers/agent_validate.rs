@@ -19,7 +19,7 @@ use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
     models::{
-        agent::{AgentHttpRule, AgentProfile},
+        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentProfile},
         config::Config,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -333,6 +333,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         for (index, rule) in secret.rules.iter().enumerate() {
             validate_http_rule(target, index, rule, &mut checks);
         }
+        lint_http_rules(target, &secret.rules, &mut checks);
         if let Some(header) = &secret.header {
             if HeaderName::from_bytes(header.as_bytes()).is_err() {
                 checks.push(fail(
@@ -471,6 +472,96 @@ fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: 
         if let Err(reason) = validate_path_pattern(path) {
             checks.push(fail(format!("{label} path"), reason));
         }
+    }
+}
+
+/// Emits only conservative warnings: every reported rule relationship is
+/// statically certain, while more complex wildcard overlap is left to review.
+fn lint_http_rules(target: &str, rules: &[AgentHttpRule], checks: &mut Vec<Check>) {
+    let mut seen = HashSet::new();
+    for (index, rule) in rules.iter().enumerate() {
+        let label = format!("Secret '{target}' rule {}", index + 1);
+        if !seen.insert(rule_fingerprint(rule)) {
+            checks.push(warn(
+                label.clone(),
+                "Duplicates an earlier HTTP action rule.".to_owned(),
+            ));
+        }
+        if rule.paths.iter().any(|path| path == "*") {
+            checks.push(warn(
+                format!("{label} path"),
+                "'*' matches every URL path; review this broad rule carefully.".to_owned(),
+            ));
+        }
+        if rule.effect == AgentHttpRuleEffect::Allow
+            && rules.iter().any(|deny| rule_is_fully_denied(rule, deny))
+        {
+            checks.push(warn(
+                label,
+                "Is fully shadowed by a deny rule and can never inject a credential.".to_owned(),
+            ));
+        }
+    }
+}
+
+fn rule_fingerprint(rule: &AgentHttpRule) -> String {
+    let mut hosts = rule
+        .hosts
+        .iter()
+        .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let mut methods = rule
+        .methods
+        .iter()
+        .map(|method| method.trim().to_ascii_uppercase())
+        .collect::<Vec<_>>();
+    let mut paths = rule.paths.clone();
+    hosts.sort();
+    methods.sort();
+    paths.sort();
+    format!(
+        "{:?}|{}|{}|{}",
+        rule.effect,
+        hosts.join(","),
+        methods.join(","),
+        paths.join(",")
+    )
+}
+
+fn rule_is_fully_denied(allow: &AgentHttpRule, deny: &AgentHttpRule) -> bool {
+    deny.effect == AgentHttpRuleEffect::Deny
+        && allow.hosts.iter().all(|host| {
+            deny.hosts
+                .iter()
+                .any(|denied| host_pattern_covers(denied, host))
+        })
+        && allow.methods.iter().all(|method| {
+            deny.methods
+                .iter()
+                .any(|denied| denied.eq_ignore_ascii_case(method))
+        })
+        && allow.paths.iter().all(|path| {
+            deny.paths
+                .iter()
+                .any(|denied| denied == "*" || denied == path)
+        })
+}
+
+fn host_pattern_covers(denied: &str, allowed: &str) -> bool {
+    let denied = denied.trim().trim_end_matches('.').to_ascii_lowercase();
+    let allowed = allowed.trim().trim_end_matches('.').to_ascii_lowercase();
+    if denied == allowed {
+        return true;
+    }
+    let Some(denied_suffix) = denied.strip_prefix("*.") else {
+        return false;
+    };
+    match allowed.strip_prefix("*.") {
+        Some(allowed_suffix) => {
+            allowed_suffix != denied_suffix
+                && allowed_suffix.ends_with(&format!(".{denied_suffix}"))
+        }
+        None => allowed != denied_suffix && allowed.ends_with(&format!(".{denied_suffix}")),
     }
 }
 
@@ -644,6 +735,35 @@ mod tests {
         assert!(valid_http_method("PROPFIND"));
         assert!(valid_http_method("custom-method"));
         assert!(!valid_http_method("GET /"));
+    }
+
+    #[test]
+    fn lints_duplicate_broad_and_shadowed_http_rules() {
+        let allow = AgentHttpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["api.example.com".to_owned()],
+            methods: vec!["GET".to_owned()],
+            paths: vec!["/repos/*".to_owned()],
+        };
+        let deny = AgentHttpRule {
+            effect: AgentHttpRuleEffect::Deny,
+            hosts: vec!["api.example.com".to_owned()],
+            methods: vec!["GET".to_owned()],
+            paths: vec!["*".to_owned()],
+        };
+        let mut checks = Vec::new();
+        lint_http_rules("TOKEN", &[allow, deny.clone(), deny], &mut checks);
+        let messages = checks
+            .iter()
+            .map(|check| check.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(messages.iter().any(|message| message.contains("shadowed")));
+        assert!(messages
+            .iter()
+            .any(|message| message.contains("Duplicates")));
+        assert!(messages
+            .iter()
+            .any(|message| message.contains("every URL path")));
     }
 
     #[test]
