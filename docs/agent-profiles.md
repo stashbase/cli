@@ -67,10 +67,84 @@ secrets, or create a remote session.
 By default, the proxy exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
 another HTTP header; the default value template is `{secret}` for a custom
-header. A profile's `hosts` controls where that secret may be injected;
-`egress_hosts` permits ordinary traffic without injecting a credential. A
-secret's `hosts` list does not itself grant ordinary egress; it authorizes only
-an exchange of that secret's matching placeholder. Keep the two lists separate.
+header. The three destination controls are intentionally separate:
+
+- When configured, `egress_hosts` controls where the agent may connect,
+  including requests that carry no Stashbase credential.
+- `secrets.<name>.hosts` is the legacy credential host allowlist. It remains in
+  effect when that secret has no `rules`.
+- `secrets.<name>.rules` controls which HTTP methods and URL paths may receive
+  that particular credential. Rules do not widen ordinary egress.
+
+### Credential rule evaluation
+
+Rules are an unordered set: their order in TOML does not change the result.
+Multiple `allow` rules are additive—a request may match any one of them. A
+matching `deny` always wins, even when the same request also matches an
+`allow`. If a secret has any rules, no matching `allow` means that secret is
+not injected. This is the complete decision order for a request carrying a
+secret placeholder:
+
+1. A matching global `deny_hosts` entry denies the request.
+2. When `egress_hosts` is configured, the destination must match it.
+3. With no secret `rules`, the legacy `secrets.<name>.hosts` list must match.
+4. With rules, any matching `deny` rejects the credential; otherwise at least
+   one matching `allow` is required.
+5. Only then does the proxy inject the credential.
+
+Rules match host, HTTP method, and URL path. Methods are normalized to
+uppercase. Query strings are ignored; paths are normalized before matching;
+and `*` matches any sequence of path characters. Redirects are evaluated as
+independent requests, so a credential is never forwarded to a redirected
+destination without a fresh policy check.
+
+For example, the two allows below form a union. A `GET /user` request, a
+`PATCH` request, or any other unmatched route is denied for this credential:
+
+```toml
+egress_hosts = ["api.github.com"]
+
+[secrets.github]
+from = "GITHUB_TOKEN"
+env = "GITHUB_TOKEN"
+header = "Authorization"
+value_template = "Bearer {secret}"
+
+[[secrets.github.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*/*", "/repos/*/*/issues*"]
+
+[[secrets.github.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["POST", "PATCH"]
+paths = ["/repos/*/*/issues", "/repos/*/*/issues/*/comments"]
+
+[[secrets.github.rules]]
+effect = "deny"
+hosts = ["api.github.com"]
+methods = ["DELETE"]
+paths = ["*"]
+```
+
+You can put a narrow safety exception inside a broad allow. The deny is still
+effective regardless of rule order:
+
+```toml
+[[secrets.github.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*"]
+
+[[secrets.github.rules]]
+effect = "deny"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*/actions/secrets/*"]
+```
 
 `deny_hosts` is an optional final override. It uses the same exact-host and
 `*.subdomain.example` syntax as `egress_hosts`; a matching deny blocks the
@@ -191,8 +265,8 @@ values or API keys in an untrusted file.
 
 One profile can grant several independent capabilities to one coding-agent
 session and any HTTP(S)-aware tools it launches. Each secret has its own source
-binding, destination allowlist, and header representation; `egress_hosts` is
-for ordinary traffic that must never receive a credential.
+binding, legacy host allowlist or HTTP action rules, and header representation;
+`egress_hosts` controls connectivity and never causes credential injection.
 
 ```toml
 # stashbase-agent.toml
