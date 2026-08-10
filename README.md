@@ -254,11 +254,34 @@ placeholder = "sk-ant-api03-stashbase-placeholder-000000000000000000000000000000
 Hosts may use a leading subdomain wildcard such as `*.githubcopilot.com`; it
 matches subdomains only, never the apex domain itself.
 
-`egress_hosts` permits ordinary traffic without injecting a Stashbase
-credential. Keep a secret's `hosts` list limited to destinations that should
-receive that specific credential.
+When configured, `egress_hosts` controls where the agent may connect,
+including ordinary traffic without a Stashbase credential. A secret's `hosts`
+list is its legacy credential host allowlist; it remains active when that
+secret has no `rules`. For method-and-path restrictions, add
+credential-specific `rules`: rules are unordered, multiple allows are
+additive, any matching deny wins, and a secret with rules is default-deny when
+no allow matches. Rules never widen ordinary egress.
 Use `egress_hosts = ["*"]` only when the agent needs unrestricted HTTP(S)
 egress; it does not widen a secret's configured injection hosts.
+
+```toml
+egress_hosts = ["api.github.com"]
+
+[agent_profiles.coding.secrets.GH_TOKEN]
+from = "GITHUB_TOKEN"
+
+[[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*/*", "/repos/*/*/issues*"]
+
+[[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+effect = "deny"
+hosts = ["api.github.com"]
+methods = ["DELETE"]
+paths = ["*"]
+```
 
 Egress is a developer policy choice in this local mode. If a profile allows
 your Stashbase API host (including through `egress_hosts = ["*"]`), a child may
