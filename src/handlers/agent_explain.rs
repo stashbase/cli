@@ -22,6 +22,7 @@ use crate::{
 pub fn handle_agent_explain_command(
     command: AgentExplainCommand,
     profile_config: &Config,
+    silent: bool,
 ) -> Result<()> {
     if command.host.trim().is_empty() || command.host.trim() != command.host {
         bail!("--host must be a non-empty hostname without surrounding whitespace");
@@ -66,6 +67,9 @@ pub fn handle_agent_explain_command(
     let method = command.method.to_ascii_uppercase();
     let path = command.path.split('?').next().unwrap_or(&command.path);
 
+    if !silent {
+        println!();
+    }
     println!("Agent policy explanation: `{}`", command.profile);
     println!("Profile source: {source}");
     println!("Request: {method} https://{host}{path}");
