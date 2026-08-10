@@ -84,6 +84,29 @@ mod tests {
     }
 
     #[test]
+    fn parses_agent_profile_with_http_action_rules() {
+        let config: Config = toml::from_str(
+            r#"
+                [agent_profiles.coding]
+                project = "project"
+                environment = "development"
+
+                [agent_profiles.coding.secrets.GH_TOKEN]
+                [[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+                effect = "allow"
+                hosts = ["api.github.com"]
+                methods = ["get"]
+                paths = ["/repos/*"]
+            "#,
+        )
+        .unwrap();
+
+        let rule = &config.agent_profiles.unwrap()["coding"].secrets["GH_TOKEN"].rules[0];
+        assert_eq!(rule.methods, ["get"]);
+        assert_eq!(rule.paths, ["/repos/*"]);
+    }
+
+    #[test]
     fn parses_agent_profile_with_local_file_source() {
         let config: Config = toml::from_str(
             r#"
