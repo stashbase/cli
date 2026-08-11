@@ -1096,8 +1096,8 @@ fn proxy_request(
                 );
                 return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
-                    "proxy.credential_host_denied",
-                    "Agent Proxy policy denied credential",
+                    "proxy.credential_not_allowed",
+                    "The supplied credential is not authorized for this request.",
                 ));
             }
         };
@@ -2666,7 +2666,7 @@ mod tests {
         let body = response.bytes().await.unwrap();
         let error: crate::models::api_client::ApiErrorResponse =
             serde_json::from_slice(&body).unwrap();
-        assert_eq!(error.error.code, "proxy.credential_host_denied");
+        assert_eq!(error.error.code, "proxy.credential_not_allowed");
         assert!(
             timeout(Duration::from_millis(100), remote_listener.accept())
                 .await
