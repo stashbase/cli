@@ -930,7 +930,7 @@ fn proxy_request(
                 );
                 return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
-                    "proxy.host_denied",
+                    "proxy.host_not_allowed",
                     "Agent Proxy policy denied destination",
                 ));
             }
@@ -1041,7 +1041,7 @@ fn proxy_request(
             );
             return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "proxy.host_denied",
+                "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
             ));
         }
@@ -1060,7 +1060,7 @@ fn proxy_request(
             );
             return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "proxy.host_denied",
+                "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
             ));
         }
@@ -1075,7 +1075,7 @@ fn proxy_request(
             );
             return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "proxy.unknown_placeholder",
+                "proxy.placeholder_not_allowed",
                 "Agent Proxy received an unknown credential placeholder",
             ));
         }
@@ -1115,7 +1115,7 @@ fn proxy_request(
             );
             return Ok(proxy_error_response(
                 StatusCode::FORBIDDEN,
-                "proxy.host_denied",
+                "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
             ));
         }
@@ -2742,7 +2742,7 @@ mod tests {
     #[tokio::test]
     async fn unclosed_dollar_brace_in_header_is_not_treated_as_unknown_placeholder() {
         // An unclosed "${" (shell template, JS interpolation, etc.) must not
-        // produce a false-positive 403 proxy.unknown_placeholder response.
+        // produce a false-positive 403 proxy.placeholder_not_allowed response.
         // Use a real backend listener as the remote proxy so a 502 connection
         // error cannot mask a 403 that slips through the placeholder check.
         let (proxy_address, _) = start_backend().await;
@@ -2781,14 +2781,14 @@ mod tests {
     async fn proxy_errors_use_the_api_error_envelope() {
         let response = proxy_error_response(
             StatusCode::FORBIDDEN,
-            "proxy.host_denied",
+            "proxy.host_not_allowed",
             "Agent Proxy policy denied destination",
         );
         assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let error: crate::models::api_client::ApiErrorResponse =
             serde_json::from_slice(&body).unwrap();
-        assert_eq!(error.error.code, "proxy.host_denied");
+        assert_eq!(error.error.code, "proxy.host_not_allowed");
         assert_eq!(
             error.error.message.as_deref(),
             Some("Agent Proxy policy denied destination")
