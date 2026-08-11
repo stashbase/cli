@@ -2676,6 +2676,106 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn remote_relay_decision_matches_agent_explain_evaluator() {
+        let rules = vec![
+            AgentHttpRule {
+                effect: AgentHttpRuleEffect::Allow,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["GET".to_owned()],
+                paths: vec!["/user".to_owned()],
+            },
+            AgentHttpRule {
+                effect: AgentHttpRuleEffect::Deny,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["DELETE".to_owned()],
+                paths: vec!["*".to_owned()],
+            },
+        ];
+        let explain_policy = SecretHttpPolicy::Rules(rules.clone());
+        assert_eq!(
+            evaluate_secret_authorization(&explain_policy, "api.github.com", "GET", "/user"),
+            SecretAuthorizationDecision::AllowedRule
+        );
+        assert_eq!(
+            evaluate_secret_authorization(&explain_policy, "api.github.com", "DELETE", "/user"),
+            SecretAuthorizationDecision::DeniedRule
+        );
+
+        let (allowed_address, _authorization) = start_backend().await;
+        let allowed_proxy = Proxy::start_remote_with_port(
+            remote_test_config(allowed_address),
+            remote_rule_policy(rules.clone()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let allowed_response = proxy_client(&allowed_proxy)
+            .get("http://api.github.com/user")
+            .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(allowed_response.status(), StatusCode::NO_CONTENT);
+        allowed_proxy.stop().await;
+
+        let denied_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let denied_proxy = Proxy::start_remote_with_port(
+            remote_test_config(denied_listener.local_addr().unwrap()),
+            remote_rule_policy(rules),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let denied_response = proxy_client(&denied_proxy)
+            .delete("http://api.github.com/user")
+            .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied_response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            timeout(Duration::from_millis(100), denied_listener.accept())
+                .await
+                .is_err()
+        );
+        denied_proxy.stop().await;
+    }
+
+    fn remote_test_config(address: std::net::SocketAddr) -> RemoteProxyConfig {
+        RemoteProxyConfig {
+            proxy_url: format!("http://{address}/v1/agent-proxy/proxy"),
+            session: Arc::new(RwLock::new(RemoteProxySessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                "${STASHBASE_GITHUB_TOKEN}".to_owned(),
+            )]),
+            child_env: HashMap::new(),
+            protocol: RemoteProxyProtocol::Custom,
+            ca_file: None,
+        }
+    }
+
+    fn remote_rule_policy(rules: Vec<AgentHttpRule>) -> ProxyPolicy {
+        ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                SecretHttpPolicy::Rules(rules),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: true,
+            strict_deny: true,
+        }
+    }
+
+    #[tokio::test]
     async fn https_remote_proxy_connection_starts_with_tls() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
