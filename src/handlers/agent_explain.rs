@@ -24,7 +24,7 @@ use crate::{
 pub fn handle_agent_explain_command(
     command: AgentExplainCommand,
     profile_config: &Config,
-    silent: bool,
+    _silent: bool,
     json: bool,
 ) -> Result<()> {
     if command.host.trim().is_empty() || command.host.trim() != command.host {
@@ -124,7 +124,7 @@ pub fn handle_agent_explain_command(
     if json {
         println!("{}", get_formatted_json_string(&report, true)?);
     } else {
-        print_human_report(&report, silent);
+        print_human_report(&report);
     }
     Ok(())
 }
@@ -182,10 +182,7 @@ impl From<SecretAuthorizationDecision> for ExplainCredentialDecision {
     }
 }
 
-fn print_human_report(report: &ExplainReport, silent: bool) {
-    if !silent {
-        println!();
-    }
+fn print_human_report(report: &ExplainReport) {
     println!("Agent policy explanation: `{}`", report.profile);
     println!("Profile source: {}", report.source);
     println!(
