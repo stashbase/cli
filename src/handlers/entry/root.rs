@@ -308,7 +308,7 @@ pub async fn handle_cli(args: Cli) {
                     }
                 }
                 AgentSubcommand::Explain(agent_explain) => {
-                    handle_agent_explain_command(agent_explain, &config, silent)
+                    handle_agent_explain_command(agent_explain, &config, silent, raw_output)
                 }
                 AgentSubcommand::Run(agent_run) => async {
                     let global_profile = config
