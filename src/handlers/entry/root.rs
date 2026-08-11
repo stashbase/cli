@@ -20,6 +20,7 @@ use crate::{
     handlers::{
         agent_doctor::handle_agent_doctor_command,
         agent_explain::handle_agent_explain_command,
+        agent_policy::SecretHttpPolicy,
         agent_validate::handle_agent_validate_command,
         doctor::handle_doctor_command,
         entry::{
@@ -39,7 +40,7 @@ use crate::{
             entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
             proxy::{
                 read_local_proxy_audit_logs, ProxyAuditLog, ProxyAuditLogEvent,
-                ProxyAuditLogFilter, ProxyPolicy, SecretHttpPolicy, SecretInjection,
+                ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
             },
             subprocess::CommandFailed,
         },

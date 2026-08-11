@@ -8,11 +8,11 @@ use crate::{
     cmd::agent::{AgentExplainCommand, AgentProfileSource},
     config::config,
     handlers::{
-        agent_validate::ensure_profile_is_valid_for_run,
-        run::proxy::{
+        agent_policy::{
             configured_host_matches, evaluate_secret_authorization, SecretAuthorizationDecision,
             SecretHttpPolicy,
         },
+        agent_validate::ensure_profile_is_valid_for_run,
     },
     models::config::Config,
 };
