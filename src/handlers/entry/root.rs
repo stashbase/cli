@@ -1002,7 +1002,10 @@ fn handle_agent_logs_summary(
     }
 
     println!("Agent proxy audit summary");
-    println!("Events: {}", report.events);
+    println!(
+        "Events: {} (newest matching events; limit {})",
+        report.events, command.limit
+    );
     println!("Requests: {}", report.requests);
     println!("Injected: {}", report.injected);
     println!("Forwarded without credential: {}", report.forwarded);
