@@ -1177,7 +1177,7 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response_with_action(
+            return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
@@ -1198,7 +1198,7 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response_with_action(
+            return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
@@ -1215,7 +1215,7 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response_with_action(
+            return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
                 "proxy.placeholder_not_allowed",
                 "Agent Proxy received an unknown credential placeholder",
@@ -1238,7 +1238,7 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response_with_action(
+                return Ok(proxy_error_response_with_id(
                     StatusCode::FORBIDDEN,
                     "proxy.credential_not_allowed",
                     "The supplied credential is not allowed for this request.",
@@ -1259,7 +1259,7 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response_with_action(
+            return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
@@ -1277,7 +1277,7 @@ fn proxy_request(
                     Some(StatusCode::SERVICE_UNAVAILABLE),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response_with_action(
+                return Ok(proxy_error_response_with_id(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "proxy.session_expired",
                     &error.to_string(),
@@ -1323,7 +1323,7 @@ fn proxy_request(
                     Some(StatusCode::BAD_REQUEST),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response_with_action(
+                return Ok(proxy_error_response_with_id(
                     StatusCode::BAD_REQUEST,
                     "proxy.request_invalid",
                     "Unable to determine request URL",
@@ -1348,7 +1348,7 @@ fn proxy_request(
             let token = match remote.token_for_new_connection() {
                 Ok(token) => token,
                 Err(error) => {
-                    return Ok(proxy_error_response_with_action(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "proxy.session_expired",
                         &error.to_string(),
@@ -1363,7 +1363,7 @@ fn proxy_request(
             let token = match HeaderValue::from_str(&token) {
                 Ok(token) => token,
                 Err(_) => {
-                    return Ok(proxy_error_response_with_action(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid session token",
@@ -1375,7 +1375,7 @@ fn proxy_request(
             let proxy = match reqwest::Url::parse(&remote.proxy_url) {
                 Ok(proxy) => proxy,
                 Err(_) => {
-                    return Ok(proxy_error_response_with_action(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
@@ -1389,7 +1389,7 @@ fn proxy_request(
             let proxy_host = match proxy_host_header(&proxy) {
                 Ok(value) => value,
                 Err(_) => {
-                    return Ok(proxy_error_response_with_action(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
@@ -1410,7 +1410,7 @@ fn proxy_request(
             Some(remote) => match remote_forward_client(remote, state.remote_ca.as_ref()) {
                 Ok(client) => client,
                 Err(error) => {
-                    return Ok(proxy_error_response_with_action(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "proxy.session_unavailable",
                         &error.to_string(),
@@ -1469,7 +1469,7 @@ fn proxy_request(
                     Some(StatusCode::BAD_GATEWAY),
                     Some(started.elapsed()),
                 );
-                Ok(proxy_error_response_with_action(
+                Ok(proxy_error_response_with_id(
                     StatusCode::BAD_GATEWAY,
                     &format!("proxy.{}", upstream_error_action(&error)),
                     "Unable to forward Agent Proxy request",
@@ -2426,7 +2426,7 @@ fn normalize_injections(
 /// Proxy failures use the public API error envelope so a nested `stashbase`
 /// command can report policy denials clearly instead of failing JSON parsing.
 fn proxy_error_response(status: StatusCode, code: &str, message: &str) -> Response<ProxyBody> {
-    proxy_error_response_with_action(status, code, message, None)
+    proxy_error_response_with_id(status, code, message, None)
 }
 
 fn new_local_request_id() -> String {
@@ -2437,7 +2437,7 @@ fn new_local_audit_event_id() -> String {
     format!("evt_{}", ShortUuid::generate())
 }
 
-fn proxy_error_response_with_action(
+fn proxy_error_response_with_id(
     status: StatusCode,
     code: &str,
     message: &str,
@@ -2955,7 +2955,7 @@ mod tests {
 
     #[tokio::test]
     async fn proxy_errors_can_include_a_local_id() {
-        let response = proxy_error_response_with_action(
+        let response = proxy_error_response_with_id(
             StatusCode::FORBIDDEN,
             "proxy.credential_not_allowed",
             "Credential is not authorized for this request.",
