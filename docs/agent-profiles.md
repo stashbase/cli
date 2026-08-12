@@ -6,8 +6,8 @@
 > malicious process running as the same user from accessing broader Stashbase
 > credentials or bypassing this workflow.
 
-These are copy-paste starting points for `stashbase-agent.toml` in a trusted working
-directory. Run one with:
+For a repository with several agents, put each direct profile in a trusted
+working directory at `.stashbase/agents/<name>.toml`. Run one with:
 
 ```bash
 stashbase agent run --profile <name> -- <command>
@@ -38,9 +38,26 @@ browsers, and a tool that deliberately bypasses proxy settings are outside its
 scope. HTTP/1 WebSocket upgrades used by supported coding agents are relayed;
 HTTP/2 proxying and arbitrary third-party proxy integrations remain unsupported.
 
-The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
-present and otherwise falls back to the user-level config. Use
-`--profile-source directory` to require the current directory's profile.
+The default profile source is `auto`: Stashbase uses
+`./.stashbase/agents/<profile>.toml` when present, then the legacy
+`./stashbase-agent.toml` format, and otherwise falls back to user-level config.
+Use `--profile-source directory` to require a repository-local profile. A
+profile defined in both layouts is rejected instead of silently overriding one.
+
+Each file in `.stashbase/agents` contains the profile directly—there is no
+`[agent_profiles.<name>]` wrapper:
+
+```toml
+# .stashbase/agents/codex.toml
+project = "local-agents"
+environment = "local-creds"
+egress_hosts = ["api.github.com"]
+
+[secrets.GITHUB_TOKEN]
+from = "GITHUB_TOKEN"
+header = "Authorization"
+value_template = "Bearer {secret}"
+```
 
 Validate a profile before granting it secrets—locally or in CI:
 
@@ -546,8 +563,8 @@ proxy-bypassing tools can make direct network connections. The sandbox limits
 that network bypass but is not filesystem or process-memory isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
 variable as defense in depth, but this does not protect credentials stored in
 CLI configuration or the operating-system credential store. Directory profiles
-are trusted policy: review a repository's `stashbase-agent.toml` before granting it
-secrets.
+are trusted policy: review a repository's `.stashbase/agents/*.toml` (or legacy
+`stashbase-agent.toml`) before granting it secrets.
 
 ## Audit logs
 
