@@ -35,17 +35,7 @@ pub fn handle_agent_policy_test_command(
     let (profile, source) = load_profile(&command, profile_config)?;
     ensure_profile_is_valid_for_run(&profile)?;
 
-    let (tests, test_source) = if let Some(test_path) = command.test_file {
-        (load_test_file(&test_path)?, test_path.display().to_string())
-    } else if !profile.policy_tests.is_empty() {
-        (
-            profile.policy_tests.clone(),
-            "embedded profile cases".to_owned(),
-        )
-    } else {
-        let test_path = default_test_file();
-        (load_test_file(&test_path)?, test_path.display().to_string())
-    };
+    let (tests, test_source) = test_cases_for_profile(&profile, command.test_file.as_deref())?;
     let results = tests
         .iter()
         .enumerate()
@@ -80,6 +70,23 @@ pub fn handle_agent_policy_test_command(
         println!("{} passed, {} failed", report.passed, report.failed);
     }
     Ok(failed)
+}
+
+fn test_cases_for_profile(
+    profile: &AgentProfile,
+    test_file: Option<&std::path::Path>,
+) -> Result<(Vec<AgentPolicyTestCase>, String)> {
+    if let Some(test_path) = test_file {
+        return Ok((load_test_file(test_path)?, test_path.display().to_string()));
+    }
+    if !profile.policy_tests.is_empty() {
+        return Ok((
+            profile.policy_tests.clone(),
+            "embedded profile cases".to_owned(),
+        ));
+    }
+    let test_path = default_test_file();
+    Ok((load_test_file(&test_path)?, test_path.display().to_string()))
 }
 
 fn load_test_file(test_path: &std::path::Path) -> Result<Vec<AgentPolicyTestCase>> {
@@ -306,6 +313,7 @@ mod tests {
     use crate::models::agent::{
         AgentHttpRule, AgentHttpRuleEffect, AgentPolicyTestExpectation, AgentSecretProfile,
     };
+    use uuid::Uuid;
 
     use super::*;
 
@@ -390,5 +398,128 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(result.reason, PolicyTestReason::DeniedByDenyHosts));
+    }
+
+    #[test]
+    fn reports_egress_legacy_and_explicit_rule_decisions() {
+        let mut egress_denied = profile();
+        egress_denied.egress_hosts = Some(vec!["registry.npmjs.org".to_owned()]);
+        let result = evaluate_case(
+            &egress_denied,
+            &AgentPolicyTestCase {
+                name: None,
+                secret: "GITHUB_TOKEN".to_owned(),
+                method: "GET".to_owned(),
+                host: "api.github.com".to_owned(),
+                path: "/user".to_owned(),
+                expect: AgentPolicyTestExpectation::Deny,
+            },
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            result.reason,
+            PolicyTestReason::DeniedByEgressHosts
+        ));
+
+        let mut legacy = profile();
+        legacy
+            .secrets
+            .get_mut("GITHUB_TOKEN")
+            .unwrap()
+            .rules
+            .clear();
+        legacy.secrets.get_mut("GITHUB_TOKEN").unwrap().hosts = vec!["api.github.com".to_owned()];
+        let result = evaluate_case(
+            &legacy,
+            &AgentPolicyTestCase {
+                name: None,
+                secret: "GITHUB_TOKEN".to_owned(),
+                method: "DELETE".to_owned(),
+                host: "api.github.com".to_owned(),
+                path: "/anything".to_owned(),
+                expect: AgentPolicyTestExpectation::Allow,
+            },
+            2,
+        )
+        .unwrap();
+        assert!(matches!(result.reason, PolicyTestReason::AllowedLegacyHost));
+
+        let mut explicit_deny = profile();
+        explicit_deny
+            .secrets
+            .get_mut("GITHUB_TOKEN")
+            .unwrap()
+            .rules
+            .push(AgentHttpRule {
+                effect: AgentHttpRuleEffect::Deny,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["GET".to_owned()],
+                paths: vec!["/user".to_owned()],
+            });
+        let result = evaluate_case(
+            &explicit_deny,
+            &AgentPolicyTestCase {
+                name: None,
+                secret: "GITHUB_TOKEN".to_owned(),
+                method: "GET".to_owned(),
+                host: "api.github.com".to_owned(),
+                path: "/user".to_owned(),
+                expect: AgentPolicyTestExpectation::Deny,
+            },
+            3,
+        )
+        .unwrap();
+        assert!(matches!(result.reason, PolicyTestReason::DeniedRule));
+    }
+
+    #[test]
+    fn explicit_test_file_overrides_embedded_policy_tests() {
+        let mut profile = profile();
+        profile.policy_tests = vec![AgentPolicyTestCase {
+            name: Some("embedded".to_owned()),
+            secret: "GITHUB_TOKEN".to_owned(),
+            method: "GET".to_owned(),
+            host: "api.github.com".to_owned(),
+            path: "/user".to_owned(),
+            expect: AgentPolicyTestExpectation::Allow,
+        }];
+        let path =
+            std::env::temp_dir().join(format!("stashbase-policy-test-{}.toml", Uuid::new_v4()));
+        fs::write(
+            &path,
+            r#"
+                [[tests]]
+                name = "explicit file"
+                secret = "GITHUB_TOKEN"
+                method = "POST"
+                host = "api.github.com"
+                path = "/user"
+                expect = "deny"
+            "#,
+        )
+        .unwrap();
+
+        let (tests, source) = test_cases_for_profile(&profile, Some(&path)).unwrap();
+        assert_eq!(tests[0].name.as_deref(), Some("explicit file"));
+        assert_eq!(source, path.display().to_string());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn embedded_policy_tests_are_used_without_an_explicit_file() {
+        let mut profile = profile();
+        profile.policy_tests = vec![AgentPolicyTestCase {
+            name: Some("embedded".to_owned()),
+            secret: "GITHUB_TOKEN".to_owned(),
+            method: "GET".to_owned(),
+            host: "api.github.com".to_owned(),
+            path: "/user".to_owned(),
+            expect: AgentPolicyTestExpectation::Allow,
+        }];
+
+        let (tests, source) = test_cases_for_profile(&profile, None).unwrap();
+        assert_eq!(tests[0].name.as_deref(), Some("embedded"));
+        assert_eq!(source, "embedded profile cases");
     }
 }

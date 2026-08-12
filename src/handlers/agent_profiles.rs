@@ -300,4 +300,32 @@ mod tests {
         assert_eq!(secret.rules[0].methods, ["GET"]);
         assert_eq!(secret.rules[0].paths, ["/user"]);
     }
+
+    #[test]
+    fn effective_profile_uses_plain_value_default_for_non_authorization_headers() {
+        let profile = AgentProfile {
+            project: None,
+            environment: None,
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            secrets: HashMap::from([(
+                "API_KEY".to_owned(),
+                AgentSecretProfile {
+                    hosts: vec!["API.EXAMPLE.COM.".to_owned()],
+                    rules: Vec::new(),
+                    from: None,
+                    env: None,
+                    placeholder: None,
+                    header: Some("x-api-key".to_owned()),
+                    value_template: None,
+                },
+            )]),
+            policy_tests: Vec::new(),
+        };
+
+        let secret = &effective_profile(&profile).secrets["API_KEY"];
+        assert_eq!(secret.hosts, ["api.example.com"]);
+        assert_eq!(secret.value_template.as_deref(), Some("{secret}"));
+    }
 }

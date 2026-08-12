@@ -2468,10 +2468,10 @@ fn full_body(body: Bytes) -> ProxyBody {
 mod tests {
     use super::*;
     use futures_util::{stream, StreamExt};
-    use hyper::header::{AUTHORIZATION, HOST, TRANSFER_ENCODING};
+    use hyper::header::{AUTHORIZATION, HOST, LOCATION, TRANSFER_ENCODING};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
-        sync::oneshot,
+        sync::{mpsc, oneshot},
         time::{sleep, timeout},
     };
 
@@ -3344,6 +3344,101 @@ mod tests {
             &Method::DELETE,
             "/anything"
         ));
+    }
+
+    #[tokio::test]
+    async fn child_environment_uses_the_binding_name_for_its_default_placeholder() {
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
+            ProxyPolicy::permissive(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            proxy.child_env().get("GITHUB_TOKEN").map(String::as_str),
+            Some("**STASHBASE_GITHUB_TOKEN**")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn redirects_reauthorize_the_credential_for_the_redirected_path() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (requests, mut received) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(move |request: Request<Incoming>| {
+                let requests = requests.clone();
+                async move {
+                    let _ = requests.send(request.uri().path().to_owned());
+                    let response = if request.uri().path() == "/allowed" {
+                        Response::builder()
+                            .status(StatusCode::FOUND)
+                            .header(LOCATION, "/blocked")
+                            .body(Full::new(Bytes::new()))
+                            .unwrap()
+                    } else {
+                        Response::builder()
+                            .status(StatusCode::NO_CONTENT)
+                            .body(Full::new(Bytes::new()))
+                            .unwrap()
+                    };
+                    Ok::<_, Infallible>(response)
+                }
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                SecretHttpPolicy::Rules(vec![
+                    AgentHttpRule {
+                        effect: AgentHttpRuleEffect::Allow,
+                        hosts: vec!["127.0.0.1".to_owned()],
+                        methods: vec!["GET".to_owned()],
+                        paths: vec!["/allowed".to_owned()],
+                    },
+                    AgentHttpRule {
+                        effect: AgentHttpRuleEffect::Deny,
+                        hosts: vec!["127.0.0.1".to_owned()],
+                        methods: vec!["GET".to_owned()],
+                        paths: vec!["/blocked".to_owned()],
+                    },
+                ]),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{address}/allowed"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GITHUB_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(received.recv().await.as_deref(), Some("/allowed"));
+        assert!(timeout(Duration::from_millis(100), received.recv())
+            .await
+            .is_err());
+        proxy.stop().await;
     }
 
     #[test]
