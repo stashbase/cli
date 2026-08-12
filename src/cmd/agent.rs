@@ -59,6 +59,10 @@ pub struct AgentProfilesShowCommand {
     /// Explicit direct profile file; bypasses global and directory lookup
     #[arg(long, conflicts_with = "profile_source")]
     pub policy_file: Option<PathBuf>,
+
+    /// Show resolved defaults and normalized policy values instead of raw TOML
+    #[arg(long)]
+    pub effective: bool,
 }
 
 #[derive(Debug, Args)]

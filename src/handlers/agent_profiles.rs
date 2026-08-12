@@ -1,6 +1,6 @@
 //! Read-only discovery and inspection of agent profiles.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::{bail, Result};
 use owo_colors::OwoColorize;
@@ -12,6 +12,7 @@ use crate::{
         AgentProfilesShowCommand, AgentProfilesSubcommand,
     },
     config::config,
+    handlers::agent_policy::{normalize_secret_http_policy, SecretHttpPolicy},
     models::{agent::AgentProfile, config::Config},
     utils::output::{get_formatted_json_string, is_color_enabled},
 };
@@ -95,10 +96,14 @@ fn handle_show(
             source_label(command.profile_source)
         );
     };
+    let profile = command
+        .effective
+        .then(|| effective_profile(profile))
+        .unwrap_or_else(|| profile.clone());
     let report = ProfileDetails {
         name: command.profile,
         source: source.clone(),
-        profile: profile.clone(),
+        profile,
     };
     if json {
         println!("{}", get_formatted_json_string(&report, true)?);
@@ -109,6 +114,51 @@ fn handle_show(
         print!("{}", format_profile_toml(&report.profile)?);
     }
     Ok(())
+}
+
+/// Produces the safe policy shape the local proxy uses after it resolves
+/// optional binding fields and canonicalizes host, method, and path matching.
+fn effective_profile(profile: &AgentProfile) -> AgentProfile {
+    let mut effective = profile.clone();
+    effective.egress_hosts = effective.egress_hosts.take().map(normalize_values);
+    effective.deny_hosts = effective.deny_hosts.take().map(normalize_values);
+    for (name, secret) in &mut effective.secrets {
+        secret.from.get_or_insert_with(|| name.clone());
+        secret.env.get_or_insert_with(|| name.clone());
+        secret
+            .placeholder
+            .get_or_insert_with(|| format!("**STASHBASE_{name}**"));
+        let header = secret
+            .header
+            .get_or_insert_with(|| "Authorization".to_owned());
+        secret.value_template.get_or_insert_with(|| {
+            if header.eq_ignore_ascii_case("authorization") {
+                "Bearer {secret}".to_owned()
+            } else {
+                "{secret}".to_owned()
+            }
+        });
+        if secret.rules.is_empty() {
+            secret.hosts = normalize_values(std::mem::take(&mut secret.hosts));
+        } else if let SecretHttpPolicy::Rules(rules) =
+            normalize_secret_http_policy(SecretHttpPolicy::Rules(std::mem::take(&mut secret.rules)))
+        {
+            secret.rules = rules;
+            secret.hosts.clear();
+        }
+    }
+    effective
+}
+
+fn normalize_values(values: Vec<String>) -> Vec<String> {
+    let mut values = values
+        .into_iter()
+        .map(|value| value.trim().trim_end_matches('.').to_ascii_lowercase())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    values.sort();
+    values
 }
 
 fn format_profile_toml(profile: &AgentProfile) -> Result<String> {
@@ -194,7 +244,11 @@ fn source_label(source: AgentProfileSource) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::colorize_toml;
+    use std::collections::HashMap;
+
+    use crate::models::agent::{AgentHttpRule, AgentHttpRuleEffect, AgentSecretProfile};
+
+    use super::{colorize_toml, effective_profile, AgentProfile};
 
     #[test]
     fn toml_highlighting_preserves_plain_output_when_color_is_disabled() {
@@ -206,5 +260,44 @@ mod tests {
     fn toml_highlighting_colors_headers_and_keys() {
         let output = colorize_toml("project = \"local\"\n[secrets.GITHUB_TOKEN]\n", true);
         assert!(output.contains("\u{1b}["));
+    }
+
+    #[test]
+    fn effective_profile_resolves_defaults_and_normalizes_rules() {
+        let profile = AgentProfile {
+            project: None,
+            environment: None,
+            file: None,
+            egress_hosts: Some(vec!["API.GITHUB.COM.".to_owned()]),
+            deny_hosts: None,
+            secrets: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                AgentSecretProfile {
+                    hosts: Vec::new(),
+                    rules: vec![AgentHttpRule {
+                        effect: AgentHttpRuleEffect::Allow,
+                        hosts: vec!["API.GITHUB.COM.".to_owned()],
+                        methods: vec!["get".to_owned()],
+                        paths: vec!["/repos/../user".to_owned()],
+                    }],
+                    from: None,
+                    env: None,
+                    placeholder: None,
+                    header: None,
+                    value_template: None,
+                },
+            )]),
+            policy_tests: Vec::new(),
+        };
+
+        let effective = effective_profile(&profile);
+        let secret = &effective.secrets["GITHUB_TOKEN"];
+        assert_eq!(secret.from.as_deref(), Some("GITHUB_TOKEN"));
+        assert_eq!(secret.env.as_deref(), Some("GITHUB_TOKEN"));
+        assert_eq!(secret.header.as_deref(), Some("Authorization"));
+        assert_eq!(secret.value_template.as_deref(), Some("Bearer {secret}"));
+        assert_eq!(secret.rules[0].hosts, ["api.github.com"]);
+        assert_eq!(secret.rules[0].methods, ["GET"]);
+        assert_eq!(secret.rules[0].paths, ["/user"]);
     }
 }

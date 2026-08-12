@@ -642,6 +642,19 @@ stashbase agent logs --since 24h --limit 100
 stashbase agent logs --follow
 ```
 
+To inspect the policy with defaults and matcher normalization resolved, without
+loading a secret value:
+
+```bash
+stashbase agent profiles show codex --effective
+stashbase agent profiles show codex --effective --json
+```
+
+The effective view fills omitted secret binding fields (`from`, `env`, local
+proxy placeholder, header, and value template), lowercases hosts, uppercases
+HTTP methods, and normalizes rule paths. It shows the local placeholder only,
+never the resolved secret value.
+
 `--json` returns a JSON array for a one-time view; with `--follow`, it emits
 one JSON event per line. Logs older than 30 days are removed automatically and
 the local store is capped at 1,000 session files. Disable persistence for one
