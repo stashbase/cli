@@ -634,13 +634,22 @@ Audit log: .../stashbase/audit/agent-5fd2....jsonl
 Inspect recent decisions without reading JSONL files directly:
 
 ```bash
-stashbase agent logs
+stashbase agent logs list
 stashbase agent logs --session 5fd2...
 stashbase agent logs --profile coding --action injected --host api.github.com
 stashbase agent logs --id evt_...
-stashbase agent logs --since 24h --limit 100
-stashbase agent logs --follow
+stashbase agent logs list --since 24h --limit 100
+stashbase agent logs list --follow
+stashbase agent logs summary --profile coding --since 7d
 ```
+
+`stashbase agent logs` remains a backward-compatible alias for `stashbase agent
+logs list`.
+
+`agent logs summary` groups local metadata-only events into request, injection,
+forward, and denial counts. Its `Denied by` section groups only the proxy
+action and destination host; it never prints secret names, request paths,
+headers, bodies, URLs, or credential values. Use `--json` for automation.
 
 To inspect the policy with defaults and matcher normalization resolved, without
 loading a secret value:

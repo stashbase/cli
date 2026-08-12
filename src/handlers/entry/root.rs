@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
     sync::atomic::Ordering,
     sync::{Arc, RwLock},
@@ -8,11 +8,15 @@ use std::{
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use tokio::{sync::watch, task::JoinHandle};
 
 use crate::{
     cmd::{
-        agent::{AgentLogsCommand, AgentProfileSource, AgentSubcommand},
+        agent::{
+            AgentLogsCommand, AgentLogsListCommand, AgentLogsSubcommand, AgentLogsSummaryCommand,
+            AgentProfileSource, AgentSubcommand,
+        },
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
@@ -292,9 +296,15 @@ pub async fn handle_cli(args: Cli) {
                     .await
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
-                AgentSubcommand::Logs(agent_logs) => {
-                    handle_agent_logs(agent_logs, raw_output).await
-                }
+                AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
+                    Some(AgentLogsSubcommand::List(list)) => {
+                        handle_agent_logs(list.into(), raw_output).await
+                    }
+                    Some(AgentLogsSubcommand::Summary(summary)) => {
+                        handle_agent_logs_summary(summary, silent, raw_output)
+                    }
+                    None => handle_agent_logs(agent_logs, raw_output).await,
+                },
                 AgentSubcommand::Doctor(agent_doctor) => {
                     match handle_agent_doctor_command(agent_doctor, raw_output).await {
                         Ok(true) => std::process::exit(1),
@@ -945,6 +955,137 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     }
 }
 
+impl From<AgentLogsListCommand> for AgentLogsCommand {
+    fn from(command: AgentLogsListCommand) -> Self {
+        Self {
+            subcommand: None,
+            limit: command.limit,
+            since: command.since,
+            profile: command.profile,
+            action: command.action,
+            host: command.host,
+            session: command.session,
+            id: command.id,
+            follow: command.follow,
+        }
+    }
+}
+
+fn handle_agent_logs_summary(
+    command: AgentLogsSummaryCommand,
+    silent: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    if command.limit == 0 || command.limit > 1_000 {
+        anyhow::bail!("--limit must be between 1 and 1000.");
+    }
+    let since = command
+        .since
+        .as_deref()
+        .map(parse_audit_duration)
+        .transpose()?;
+    let filter = ProxyAuditLogFilter {
+        profile: command.profile,
+        action: command.action,
+        host: command.host,
+        session: command.session,
+        id: command.id,
+    };
+    let report =
+        summarize_audit_events(read_local_proxy_audit_logs(command.limit, since, &filter)?);
+    if !silent {
+        println!();
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    println!("Agent proxy audit summary");
+    println!("Events: {}", report.events);
+    println!("Requests: {}", report.requests);
+    println!("Injected: {}", report.injected);
+    println!("Forwarded without credential: {}", report.forwarded);
+    println!("Denied: {}", report.denied);
+    if !report.denied_by.is_empty() {
+        println!();
+        println!("Denied by:");
+        for entry in &report.denied_by {
+            println!("- {}  {}  {}", entry.action, entry.count, entry.host);
+        }
+    }
+    Ok(())
+}
+
+fn summarize_audit_events(events: Vec<ProxyAuditLogEvent>) -> AuditSummary {
+    let events_count = events.len();
+    let requests = events.iter().filter(|event| event.method.is_some()).count();
+    let injected = events
+        .iter()
+        .filter(|event| event.action == "injected")
+        .count();
+    let forwarded = events
+        .iter()
+        .filter(|event| event.action == "forwarded")
+        .count();
+    let denied_events = events
+        .iter()
+        .filter(|event| event.response_status == Some(403))
+        .collect::<Vec<_>>();
+    let mut denied_by = BTreeMap::<(String, String), usize>::new();
+    for event in &denied_events {
+        *denied_by
+            .entry((
+                event.action.clone(),
+                event
+                    .destination_host
+                    .clone()
+                    .unwrap_or_else(|| "-".to_owned()),
+            ))
+            .or_default() += 1;
+    }
+    let mut denied_by = denied_by
+        .into_iter()
+        .map(|((action, host), count)| AuditDeniedSummary {
+            action,
+            host,
+            count,
+        })
+        .collect::<Vec<_>>();
+    denied_by.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.action.cmp(&right.action))
+            .then_with(|| left.host.cmp(&right.host))
+    });
+    AuditSummary {
+        events: events_count,
+        requests,
+        injected,
+        forwarded,
+        denied: denied_events.len(),
+        denied_by,
+    }
+}
+
+#[derive(Serialize)]
+struct AuditSummary {
+    events: usize,
+    requests: usize,
+    injected: usize,
+    forwarded: usize,
+    denied: usize,
+    denied_by: Vec<AuditDeniedSummary>,
+}
+
+#[derive(Serialize)]
+struct AuditDeniedSummary {
+    action: String,
+    host: String,
+    count: usize,
+}
+
 /// Returns a startup warning when repository-controlled policy has not been
 /// committed. A missing repository is normal for local profiles and is silent.
 fn directory_profile_git_warning(profile_path: &Path, source: &str) -> Option<String> {
@@ -1275,7 +1416,9 @@ mod tests {
         configured_host_matches, directory_profile_git_warning,
         ensure_replacement_session_is_compatible, infer_remote_agent_type,
         remote_session_rotation_delay_for, remote_session_transport_identity,
+        summarize_audit_events,
     };
+    use crate::handlers::run::proxy::ProxyAuditLogEvent;
     use std::{
         fs,
         path::Path,
@@ -1355,6 +1498,40 @@ mod tests {
             "api.stashbase.dev",
             "other.example"
         ));
+    }
+
+    #[test]
+    fn audit_summary_groups_denials_without_secret_metadata() {
+        let event = |action: &str, host: &str, status| ProxyAuditLogEvent {
+            timestamp: "2026-01-01T00:00:00Z".to_owned(),
+            id: "evt_test".to_owned(),
+            session_id: "session".to_owned(),
+            profile: "codex".to_owned(),
+            policy_fingerprint: "fingerprint".to_owned(),
+            profile_source: None,
+            profile_file_modified_at: None,
+            profile_file_sha256: None,
+            action: action.to_owned(),
+            destination_host: Some(host.to_owned()),
+            method: Some("GET".to_owned()),
+            secret_name: Some("GITHUB_TOKEN".to_owned()),
+            response_status: status,
+            duration_ms: Some(1),
+        };
+        let report = summarize_audit_events(vec![
+            event("injected", "api.github.com", Some(200)),
+            event("credential_rule_denied", "api.github.com", Some(403)),
+            event("credential_rule_denied", "api.github.com", Some(403)),
+            event("host_denied", "api.stripe.com", Some(403)),
+        ]);
+
+        assert_eq!(report.events, 4);
+        assert_eq!(report.requests, 4);
+        assert_eq!(report.injected, 1);
+        assert_eq!(report.denied, 3);
+        assert_eq!(report.denied_by[0].action, "credential_rule_denied");
+        assert_eq!(report.denied_by[0].host, "api.github.com");
+        assert_eq!(report.denied_by[0].count, 2);
     }
 
     #[test]

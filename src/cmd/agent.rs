@@ -211,6 +211,9 @@ pub struct AgentPolicyTestCommand {
 
 #[derive(Debug, Args)]
 pub struct AgentLogsCommand {
+    #[command(subcommand)]
+    pub subcommand: Option<AgentLogsSubcommand>,
+
     /// Number of most recent events to show
     #[arg(long, default_value_t = 50)]
     pub limit: usize,
@@ -242,6 +245,80 @@ pub struct AgentLogsCommand {
     /// Keep watching for new events
     #[arg(long)]
     pub follow: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentLogsSubcommand {
+    /// List individual local proxy audit events
+    List(AgentLogsListCommand),
+    /// Summarize recent proxy outcomes and denied destinations
+    Summary(AgentLogsSummaryCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentLogsListCommand {
+    /// Number of most recent events to show
+    #[arg(long, default_value_t = 50)]
+    pub limit: usize,
+
+    /// Only show events from this duration (for example: 30m, 24h, or 7d)
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Only show events for this agent profile
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Only show events with this proxy action (for example: injected)
+    #[arg(long)]
+    pub action: Option<String>,
+
+    /// Only show events for this destination host
+    #[arg(long)]
+    pub host: Option<String>,
+
+    /// Only show events for this proxy session ID
+    #[arg(long)]
+    pub session: Option<String>,
+
+    /// Only show one local audit event by ID
+    #[arg(long)]
+    pub id: Option<String>,
+
+    /// Keep watching for new events
+    #[arg(long)]
+    pub follow: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentLogsSummaryCommand {
+    /// Number of most recent events to include
+    #[arg(long, default_value_t = 1_000)]
+    pub limit: usize,
+
+    /// Only include events from this duration (for example: 30m, 24h, or 7d)
+    #[arg(long)]
+    pub since: Option<String>,
+
+    /// Only include events for this agent profile
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Only include events with this proxy action
+    #[arg(long)]
+    pub action: Option<String>,
+
+    /// Only include events for this destination host
+    #[arg(long)]
+    pub host: Option<String>,
+
+    /// Only include events for this proxy session ID
+    #[arg(long)]
+    pub session: Option<String>,
+
+    /// Only include one local audit event by ID
+    #[arg(long)]
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
