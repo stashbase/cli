@@ -1016,11 +1016,39 @@ fn handle_agent_logs_summary(
     if !report.denied_by.is_empty() {
         println!();
         println!("Denied by:");
-        for entry in &report.denied_by {
-            println!("- {}  {}  {}", entry.action, entry.count, entry.host);
-        }
+        print_denied_summary_table(&report.denied_by);
     }
     Ok(())
+}
+
+fn print_denied_summary_table(entries: &[AuditDeniedSummary]) {
+    print!("{}", format_denied_summary_table(entries));
+}
+
+fn format_denied_summary_table(entries: &[AuditDeniedSummary]) -> String {
+    let action_width = entries
+        .iter()
+        .map(|entry| entry.action.len())
+        .max()
+        .unwrap_or_default()
+        .max("ACTION".len());
+    let count_width = entries
+        .iter()
+        .map(|entry| entry.count.to_string().len())
+        .max()
+        .unwrap_or_default()
+        .max("COUNT".len());
+    let mut output = format!(
+        "{:<action_width$}  {:>count_width$}  HOST\n",
+        "ACTION", "COUNT"
+    );
+    for entry in entries {
+        output.push_str(&format!(
+            "{:<action_width$}  {:>count_width$}  {}\n",
+            entry.action, entry.count, entry.host
+        ));
+    }
+    output
 }
 
 fn summarize_audit_events(
@@ -1553,6 +1581,28 @@ mod tests {
         assert_eq!(report.denied_by[0].action, "credential_rule_denied");
         assert_eq!(report.denied_by[0].host, "api.github.com");
         assert_eq!(report.denied_by[0].count, 2);
+    }
+
+    #[test]
+    fn denied_summary_table_aligns_columns() {
+        let entries = vec![
+            super::AuditDeniedSummary {
+                action: "host_denied".to_owned(),
+                host: "api.stripe.com".to_owned(),
+                count: 5,
+            },
+            super::AuditDeniedSummary {
+                action: "credential_rule_denied".to_owned(),
+                host: "api.github.com".to_owned(),
+                count: 12,
+            },
+        ];
+        assert_eq!(
+            super::format_denied_summary_table(&entries),
+            "ACTION                  COUNT  HOST\n\
+             host_denied                 5  api.stripe.com\n\
+             credential_rule_denied     12  api.github.com\n"
+        );
     }
 
     #[test]
