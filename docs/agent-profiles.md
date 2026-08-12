@@ -706,7 +706,10 @@ Or keep them in a separate TOML file, conventionally
 `.stashbase/agent-policy-tests.toml`, using `[[tests]]` instead of
 `[[policy_tests]]`. If embedded cases exist, the command uses them by default;
 `--test-file` explicitly selects the separate file. A failed expectation exits
-with status 1.
+with status 1. Each result includes the decision reason—for example,
+`credential allow rule matches`, `connection denied by egress_hosts`, or `no
+credential allow rule matches`—so a CI failure identifies the policy layer to
+change.
 
 ## Troubleshooting
 

@@ -73,8 +73,8 @@ pub fn handle_agent_policy_test_command(
         for result in &report.tests {
             let marker = if result.passed { "✓" } else { "✗" };
             println!(
-                "{marker} {}: expected {}, got {}",
-                result.name, result.expected, result.actual
+                "{marker} {}: expected {}, got {} ({})",
+                result.name, result.expected, result.actual, result.reason
             );
         }
         println!("{} passed, {} failed", report.passed, report.failed);
@@ -170,29 +170,57 @@ fn evaluate_case(
         );
     };
 
-    let connection_allowed = !profile.deny_hosts.as_deref().is_some_and(|hosts| {
+    let denied_by_global_hosts = profile.deny_hosts.as_deref().is_some_and(|hosts| {
         hosts
             .iter()
             .any(|denied| denied == "*" || configured_host_matches(denied, &host))
-    }) && profile.egress_hosts.as_deref().is_none_or(|hosts| {
-        hosts
-            .iter()
-            .any(|allowed| allowed == "*" || configured_host_matches(allowed, &host))
     });
+    let denied_by_egress_hosts = !denied_by_global_hosts
+        && profile.egress_hosts.as_deref().is_some_and(|hosts| {
+            hosts
+                .iter()
+                .all(|allowed| allowed != "*" && !configured_host_matches(allowed, &host))
+        });
     let policy = if secret.rules.is_empty() {
         SecretHttpPolicy::LegacyHosts(secret.hosts.iter().cloned().collect::<HashSet<_>>())
     } else {
         SecretHttpPolicy::Rules(secret.rules.clone())
     };
     let path = test.path.split('?').next().unwrap_or(&test.path);
-    let credential_allowed = matches!(
-        evaluate_secret_authorization(&policy, &host, &test.method, path),
-        SecretAuthorizationDecision::AllowedLegacyHost | SecretAuthorizationDecision::AllowedRule
-    );
-    let actual = if connection_allowed && credential_allowed {
-        AgentPolicyTestExpectation::Allow
+    let credential_decision = evaluate_secret_authorization(&policy, &host, &test.method, path);
+    let (actual, reason) = if denied_by_global_hosts {
+        (
+            AgentPolicyTestExpectation::Deny,
+            PolicyTestReason::DeniedByDenyHosts,
+        )
+    } else if denied_by_egress_hosts {
+        (
+            AgentPolicyTestExpectation::Deny,
+            PolicyTestReason::DeniedByEgressHosts,
+        )
     } else {
-        AgentPolicyTestExpectation::Deny
+        match credential_decision {
+            SecretAuthorizationDecision::AllowedLegacyHost => (
+                AgentPolicyTestExpectation::Allow,
+                PolicyTestReason::AllowedLegacyHost,
+            ),
+            SecretAuthorizationDecision::AllowedRule => (
+                AgentPolicyTestExpectation::Allow,
+                PolicyTestReason::AllowedRule,
+            ),
+            SecretAuthorizationDecision::DeniedLegacyHost => (
+                AgentPolicyTestExpectation::Deny,
+                PolicyTestReason::DeniedLegacyHost,
+            ),
+            SecretAuthorizationDecision::DeniedRule => (
+                AgentPolicyTestExpectation::Deny,
+                PolicyTestReason::DeniedRule,
+            ),
+            SecretAuthorizationDecision::NoMatchingAllowRule => (
+                AgentPolicyTestExpectation::Deny,
+                PolicyTestReason::NoMatchingAllowRule,
+            ),
+        }
     };
     Ok(PolicyTestResult {
         name,
@@ -202,6 +230,7 @@ fn evaluate_case(
         path: path.to_owned(),
         expected: test.expect,
         actual,
+        reason,
         passed: actual == test.expect,
     })
 }
@@ -232,7 +261,34 @@ struct PolicyTestResult {
     path: String,
     expected: AgentPolicyTestExpectation,
     actual: AgentPolicyTestExpectation,
+    reason: PolicyTestReason,
     passed: bool,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum PolicyTestReason {
+    DeniedByDenyHosts,
+    DeniedByEgressHosts,
+    AllowedLegacyHost,
+    AllowedRule,
+    DeniedLegacyHost,
+    DeniedRule,
+    NoMatchingAllowRule,
+}
+
+impl std::fmt::Display for PolicyTestReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::DeniedByDenyHosts => "connection denied by deny_hosts",
+            Self::DeniedByEgressHosts => "connection denied by egress_hosts",
+            Self::AllowedLegacyHost => "legacy credential host matches",
+            Self::AllowedRule => "credential allow rule matches",
+            Self::DeniedLegacyHost => "legacy credential hosts do not match",
+            Self::DeniedRule => "credential deny rule matches",
+            Self::NoMatchingAllowRule => "no credential allow rule matches",
+        })
+    }
 }
 
 fn source_label(source: AgentProfileSource) -> &'static str {
@@ -297,6 +353,7 @@ mod tests {
         )
         .unwrap();
         assert!(allow.passed);
+        assert!(matches!(allow.reason, PolicyTestReason::AllowedRule));
 
         let deny = evaluate_case(
             &profile(),
@@ -312,5 +369,26 @@ mod tests {
         )
         .unwrap();
         assert!(deny.passed);
+        assert!(matches!(deny.reason, PolicyTestReason::NoMatchingAllowRule));
+    }
+
+    #[test]
+    fn reports_the_global_connection_denial_layer() {
+        let mut profile = profile();
+        profile.deny_hosts = Some(vec!["api.github.com".to_owned()]);
+        let result = evaluate_case(
+            &profile,
+            &AgentPolicyTestCase {
+                name: None,
+                secret: "GITHUB_TOKEN".to_owned(),
+                method: "GET".to_owned(),
+                host: "api.github.com".to_owned(),
+                path: "/user".to_owned(),
+                expect: AgentPolicyTestExpectation::Deny,
+            },
+            1,
+        )
+        .unwrap();
+        assert!(matches!(result.reason, PolicyTestReason::DeniedByDenyHosts));
     }
 }
