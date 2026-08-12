@@ -316,19 +316,26 @@ pub async fn handle_cli(args: Cli) {
                         .as_ref()
                         .and_then(|profiles| profiles.get(&agent_run.profile))
                         .cloned();
-                    let (profile, loaded_from_directory) = match agent_run.profile_source {
-                        AgentProfileSource::Global => (global_profile, false),
-                        AgentProfileSource::Directory => (
-                            config::get_directory_agent_profile(&agent_run.profile)?,
-                            true,
-                        ),
+                    let (profile, directory_source) = match agent_run.profile_source {
+                        AgentProfileSource::Global => (global_profile, None),
+                        AgentProfileSource::Directory => {
+                            let profile = config::get_directory_agent_profile(&agent_run.profile)?;
+                            let source = profile.as_ref().map(|profile| profile.source.clone());
+                            (profile.map(|profile| profile.profile), source)
+                        }
                         AgentProfileSource::Auto => {
                             let directory_profile =
                                 config::get_directory_agent_profile(&agent_run.profile)?;
-                            let loaded_from_directory = directory_profile.is_some();
-                            (directory_profile.or(global_profile), loaded_from_directory)
+                            let source = directory_profile
+                                .as_ref()
+                                .map(|profile| profile.source.clone());
+                            (
+                                directory_profile.map(|profile| profile.profile).or(global_profile),
+                                source,
+                            )
                         }
                     };
+                    let loaded_from_directory = directory_source.is_some();
 
                     let Some(profile) = profile else {
                         let source = match agent_run.profile_source {
@@ -350,8 +357,9 @@ pub async fn handle_cli(args: Cli) {
                         && !silent
                     {
                         eprintln!(
-                            "Warning: Loaded agent profile '{}' from ./stashbase-agent.toml. Review this repository policy before granting secrets.",
-                            agent_run.profile
+                            "Warning: Loaded agent profile '{}' from {}. Review this repository policy before granting secrets.",
+                            agent_run.profile,
+                            directory_source.as_deref().unwrap(),
                         );
                     }
 

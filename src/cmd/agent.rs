@@ -153,8 +153,8 @@ pub struct AgentLogsCommand {
 pub enum AgentProfileSource {
     /// User-level Stashbase config
     Global,
-    /// stashbase-agent.toml in the current directory
+    /// .stashbase/agents/<profile>.toml or legacy stashbase-agent.toml in the current directory
     Directory,
-    /// Directory config when present, otherwise user-level config
+    /// Directory profile when present, otherwise user-level config
     Auto,
 }

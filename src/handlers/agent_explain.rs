@@ -43,17 +43,19 @@ pub fn handle_agent_explain_command(
         .and_then(|profiles| profiles.get(&command.profile))
         .cloned();
     let (profile, source) = match command.profile_source {
-        AgentProfileSource::Global => (global_profile, "user-level config"),
-        AgentProfileSource::Directory => (
-            config::get_directory_agent_profile(&command.profile)?,
-            "./stashbase-agent.toml",
-        ),
+        AgentProfileSource::Global => (global_profile, "user-level config".to_owned()),
+        AgentProfileSource::Directory => {
+            match config::get_directory_agent_profile(&command.profile)? {
+                Some(profile) => (Some(profile.profile), profile.source),
+                None => (None, "directory config".to_owned()),
+            }
+        }
         AgentProfileSource::Auto => {
             let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-            if directory_profile.is_some() {
-                (directory_profile, "./stashbase-agent.toml")
+            if let Some(profile) = directory_profile {
+                (Some(profile.profile), profile.source)
             } else {
-                (global_profile, "user-level config")
+                (global_profile, "user-level config".to_owned())
             }
         }
     };
@@ -72,7 +74,7 @@ pub fn handle_agent_explain_command(
 
     let mut report = ExplainReport {
         profile: command.profile,
-        source: source.to_owned(),
+        source,
         request: ExplainRequest {
             host,
             method,

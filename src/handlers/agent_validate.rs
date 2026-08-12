@@ -58,17 +58,27 @@ pub async fn handle_agent_validate_command(
         .as_ref()
         .and_then(|profiles| profiles.get(&command.profile))
         .cloned();
-    let (profile, directory_profile) = match command.profile_source {
-        AgentProfileSource::Global => (global_profile, false),
+    let (profile, directory_source) = match command.profile_source {
+        AgentProfileSource::Global => (global_profile, None),
         AgentProfileSource::Directory => {
-            (config::get_directory_agent_profile(&command.profile)?, true)
+            let profile = config::get_directory_agent_profile(&command.profile)?;
+            let source = profile.as_ref().map(|profile| profile.source.clone());
+            (profile.map(|profile| profile.profile), source)
         }
         AgentProfileSource::Auto => {
             let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-            let from_directory = directory_profile.is_some();
-            (directory_profile.or(global_profile), from_directory)
+            let directory_source = directory_profile
+                .as_ref()
+                .map(|profile| profile.source.clone());
+            (
+                directory_profile
+                    .map(|profile| profile.profile)
+                    .or(global_profile),
+                directory_source,
+            )
         }
     };
+    let directory_profile = directory_source.is_some();
 
     let Some(profile) = profile else {
         checks.push(fail(
@@ -85,7 +95,7 @@ pub async fn handle_agent_validate_command(
     checks.push(ok(
         "Profile source",
         if directory_profile {
-            "Loaded from ./stashbase-agent.toml".to_owned()
+            format!("Loaded from {}", directory_source.as_deref().unwrap())
         } else {
             "Loaded from user-level config".to_owned()
         },
@@ -93,7 +103,7 @@ pub async fn handle_agent_validate_command(
     if directory_profile && matches!(command.profile_source, AgentProfileSource::Auto) {
         checks.push(warn(
             "Repository policy",
-            "Auto selected ./stashbase-agent.toml. Review this repository-controlled policy before granting secrets."
+            "Auto selected a repository-local agent profile. Review this repository-controlled policy before granting secrets."
                 .to_owned(),
         ));
     }
