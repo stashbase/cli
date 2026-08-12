@@ -107,6 +107,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_embedded_agent_policy_tests() {
+        let config: Config = toml::from_str(
+            r#"
+                [agent_profiles.coding]
+
+                [[agent_profiles.coding.policy_tests]]
+                secret = "GH_TOKEN"
+                method = "GET"
+                host = "api.github.com"
+                path = "/user"
+                expect = "allow"
+            "#,
+        )
+        .unwrap();
+
+        let test = &config.agent_profiles.unwrap()["coding"].policy_tests[0];
+        assert_eq!(test.secret, "GH_TOKEN");
+        assert_eq!(test.expect.to_string(), "allow");
+    }
+
+    #[test]
     fn parses_agent_profile_with_local_file_source() {
         let config: Config = toml::from_str(
             r#"

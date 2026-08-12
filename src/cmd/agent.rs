@@ -16,6 +16,8 @@ pub enum AgentSubcommand {
     Validate(AgentValidateCommand),
     /// Explain how an agent profile would handle an HTTP request without loading secrets
     Explain(AgentExplainCommand),
+    /// Run local, declarative policy regression tests without loading secrets or making requests
+    Policy(AgentPolicyCommand),
     /// List and inspect available agent profiles without loading secrets
     Profiles(AgentProfilesCommand),
     /// Check a tool's compatibility with the temporary Agent Proxy
@@ -167,6 +169,40 @@ pub struct AgentExplainCommand {
     /// URL path to evaluate; query strings are ignored
     #[arg(long)]
     pub path: String,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentPolicyCommand {
+    #[command(subcommand)]
+    pub subcommand: AgentPolicySubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentPolicySubcommand {
+    /// Verify declarative HTTP policy cases without loading secrets or making requests
+    Test(AgentPolicyTestCommand),
+}
+
+#[derive(Debug, Args)]
+#[command(
+    override_usage = "agent policy test --profile <PROFILE> [--test-file <PATH>] [--profile-source <auto|global|directory>]"
+)]
+pub struct AgentPolicyTestCommand {
+    /// Agent profile to test
+    #[arg(long)]
+    pub profile: String,
+
+    /// Where to load the agent profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
+
+    /// Explicit direct profile file; bypasses global and directory lookup
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
+
+    /// TOML policy test file (defaults to .stashbase/agent-policy-tests.toml)
+    #[arg(long)]
+    pub test_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

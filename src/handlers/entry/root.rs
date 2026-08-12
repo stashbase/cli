@@ -21,6 +21,7 @@ use crate::{
         agent_doctor::handle_agent_doctor_command,
         agent_explain::handle_agent_explain_command,
         agent_policy::SecretHttpPolicy,
+        agent_policy_test::handle_agent_policy_test_command,
         agent_profiles::handle_agent_profiles_command,
         agent_validate::handle_agent_validate_command,
         doctor::handle_doctor_command,
@@ -311,6 +312,20 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Explain(agent_explain) => {
                     handle_agent_explain_command(agent_explain, &config, silent, raw_output)
                 }
+                AgentSubcommand::Policy(agent_policy) => match agent_policy.subcommand {
+                    crate::cmd::agent::AgentPolicySubcommand::Test(agent_policy_test) => {
+                        match handle_agent_policy_test_command(
+                            agent_policy_test,
+                            &config,
+                            silent,
+                            raw_output,
+                        ) {
+                            Ok(true) => std::process::exit(1),
+                            Ok(false) => Ok(()),
+                            Err(error) => Err(error),
+                        }
+                    }
+                },
                 AgentSubcommand::Profiles(agent_profiles) => {
                     handle_agent_profiles_command(agent_profiles, &config, silent, raw_output)
                 }

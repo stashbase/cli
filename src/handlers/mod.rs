@@ -1,6 +1,7 @@
 pub mod agent_doctor;
 pub mod agent_explain;
 pub mod agent_policy;
+pub mod agent_policy_test;
 pub mod agent_profiles;
 pub mod agent_validate;
 pub mod config;

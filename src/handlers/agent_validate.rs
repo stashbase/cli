@@ -805,6 +805,7 @@ mod tests {
                     value_template: Some("static-value".to_owned()),
                 },
             )]),
+            policy_tests: Vec::new(),
         };
         assert!(validate_profile(&profile)
             .iter()
@@ -820,6 +821,7 @@ mod tests {
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
             secrets: HashMap::new(),
+            policy_tests: Vec::new(),
         };
 
         assert!(validate_profile(&profile).iter().any(|check| {
@@ -861,6 +863,7 @@ mod tests {
                     },
                 ),
             ]),
+            policy_tests: Vec::new(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();

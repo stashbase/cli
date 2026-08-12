@@ -657,6 +657,44 @@ also included as `error.id` in safe proxy errors, so a 403 or upstream failure
 can be inspected with `agent logs --id`.
 It is never forwarded to an upstream service or the remote Agent Proxy.
 
+## Policy regression tests
+
+Policy regression tests evaluate the same host, method, path, egress, and
+deny precedence logic as the proxy. They never load a secret, start an agent,
+or make a network request. Use them in CI to prevent an edit from widening or
+breaking a reviewed capability:
+
+```bash
+stashbase agent policy test --profile codex
+stashbase agent policy test --profile codex --test-file ci/agent-policy-tests.toml
+```
+
+Put cases directly in the profile with `[[policy_tests]]`:
+
+```toml
+[[policy_tests]]
+name = "GitHub current user remains readable"
+secret = "GITHUB_TOKEN"
+method = "GET"
+host = "api.github.com"
+path = "/user"
+expect = "allow"
+
+[[policy_tests]]
+name = "GitHub deletion remains denied"
+secret = "GITHUB_TOKEN"
+method = "DELETE"
+host = "api.github.com"
+path = "/repos/acme/app"
+expect = "deny"
+```
+
+Or keep them in a separate TOML file, conventionally
+`.stashbase/agent-policy-tests.toml`, using `[[tests]]` instead of
+`[[policy_tests]]`. If embedded cases exist, the command uses them by default;
+`--test-file` explicitly selects the separate file. A failed expectation exits
+with status 1.
+
 ## Troubleshooting
 
 When a tool reports a proxy 403, run once with `RUST_LOG=debug`. The proxy
