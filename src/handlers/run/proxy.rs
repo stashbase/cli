@@ -1241,7 +1241,7 @@ fn proxy_request(
                 return Ok(proxy_error_response_with_action(
                     StatusCode::FORBIDDEN,
                     "proxy.credential_not_allowed",
-                    "The supplied credential is not authorized for this request.",
+                    "The supplied credential is not allowed for this request.",
                     Some(&request_id),
                 ));
             }
