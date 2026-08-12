@@ -569,8 +569,11 @@ are trusted policy: review a repository's `.stashbase/agents/*.toml` (or legacy
 ## Audit logs
 
 `agent run` writes a local, metadata-only JSONL audit log by default. Startup
-prints an audit session ID and the local log path. Events include the profile,
-proxy action, destination host, secret name, response status, and duration.
+prints an audit session ID, policy fingerprint, and the local log path. The
+fingerprint is a SHA-256 identifier of the normalized policy snapshot for that
+run; it contains no secret values or placeholders. Events include the profile,
+policy fingerprint, proxy action, destination host, secret name, response
+status, and duration.
 They never include secret values, placeholders, headers, bodies, URLs, or
 command arguments.
 

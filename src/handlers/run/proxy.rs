@@ -80,6 +80,8 @@ pub struct ProxyAuditLogEvent {
     pub timestamp: String,
     pub session_id: String,
     pub profile: String,
+    /// SHA-256 fingerprint of the normalized policy snapshot for this run.
+    pub policy_fingerprint: String,
     pub action: String,
     pub destination_host: Option<String>,
     pub method: Option<String>,
@@ -124,18 +126,23 @@ impl ProxyAuditLogFilter {
 pub struct ProxyAuditLog {
     session_id: String,
     profile: String,
+    policy_fingerprint: String,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
 
 impl ProxyAuditLog {
-    pub fn local(profile: &str) -> Result<Self> {
-        Self::local_with_session_id(profile, Uuid::new_v4().to_string())
+    pub fn local(profile: &str, policy_fingerprint: String) -> Result<Self> {
+        Self::local_with_session_id(profile, Uuid::new_v4().to_string(), policy_fingerprint)
     }
 
     /// Uses the control-plane session identifier so local metadata can be
     /// correlated with future server-side remote-proxy audit events.
-    pub fn local_with_session_id(profile: &str, session_id: String) -> Result<Self> {
+    pub fn local_with_session_id(
+        profile: &str,
+        session_id: String,
+        policy_fingerprint: String,
+    ) -> Result<Self> {
         let directory = local_proxy_audit_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
@@ -153,6 +160,7 @@ impl ProxyAuditLog {
         Ok(Self {
             session_id,
             profile: profile.to_owned(),
+            policy_fingerprint,
             path: Arc::new(path),
             file: Arc::new(Mutex::new(file)),
         })
@@ -164,6 +172,10 @@ impl ProxyAuditLog {
 
     pub fn session_id(&self) -> &str {
         &self.session_id
+    }
+
+    pub fn policy_fingerprint(&self) -> &str {
+        &self.policy_fingerprint
     }
 
     fn record(
@@ -179,6 +191,7 @@ impl ProxyAuditLog {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
             profile: self.profile.clone(),
+            policy_fingerprint: self.policy_fingerprint.clone(),
             action: action.to_owned(),
             destination_host: host.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
@@ -402,6 +415,70 @@ impl ProxyPolicy {
             egress_hosts_configured: false,
             strict_deny: false,
         }
+    }
+
+    /// Stable SHA-256 identifier for this policy's effective normalized form.
+    /// It deliberately excludes secret values and child placeholders.
+    pub fn fingerprint(&self) -> String {
+        let mut lines = vec![
+            format!("egress_configured={}", self.egress_hosts_configured),
+            format!("strict_deny={}", self.strict_deny),
+        ];
+        let mut egress = normalize_hosts(self.allowed_egress_hosts.clone())
+            .into_iter()
+            .collect::<Vec<_>>();
+        egress.sort();
+        lines.push(format!("egress={}", egress.join(",")));
+        let mut denied = normalize_hosts(self.denied_hosts.clone())
+            .into_iter()
+            .collect::<Vec<_>>();
+        denied.sort();
+        lines.push(format!("deny={}", denied.join(",")));
+
+        let mut secret_policies = self.secret_policies.iter().collect::<Vec<_>>();
+        secret_policies.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (name, policy) in secret_policies {
+            match normalize_secret_http_policy(policy.clone()) {
+                SecretHttpPolicy::LegacyHosts(hosts) => {
+                    let mut hosts = hosts.into_iter().collect::<Vec<_>>();
+                    hosts.sort();
+                    lines.push(format!("secret={name};legacy={}", hosts.join(",")));
+                }
+                SecretHttpPolicy::Rules(rules) => {
+                    let mut rules = rules
+                        .into_iter()
+                        .map(|rule| {
+                            let mut hosts = rule.hosts;
+                            let mut methods = rule.methods;
+                            let mut paths = rule.paths;
+                            hosts.sort();
+                            methods.sort();
+                            paths.sort();
+                            format!(
+                                "{:?};{};{};{}",
+                                rule.effect,
+                                hosts.join(","),
+                                methods.join(","),
+                                paths.join(",")
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    rules.sort();
+                    lines.push(format!("secret={name};rules={}", rules.join("|")));
+                }
+            }
+        }
+        let mut injections = self.secret_injections.iter().collect::<Vec<_>>();
+        injections.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (name, injection) in injections {
+            lines.push(format!(
+                "injection={name};{};{}",
+                injection.header.to_ascii_lowercase(),
+                injection.value_template
+            ));
+        }
+
+        hex::encode(Sha256::digest(lines.join("\n").as_bytes()))
     }
 }
 
@@ -2792,6 +2869,7 @@ mod tests {
         let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -2814,6 +2892,7 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("api.example.com"));
         assert!(content.contains("EXAMPLE_API_KEY"));
+        assert!(content.contains("policy-fingerprint"));
         assert!(!content.contains("real-secret-value"));
         fs::remove_file(path).unwrap();
     }
@@ -2846,6 +2925,7 @@ mod tests {
             timestamp: "2026-01-01T00:00:00Z".to_owned(),
             session_id: "session-1".to_owned(),
             profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             method: Some("POST".to_owned()),
@@ -2920,6 +3000,29 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
         }
+    }
+
+    #[test]
+    fn policy_fingerprint_is_stable_for_equivalent_normalized_rules() {
+        let left = rule_policy(vec![
+            rule(
+                AgentHttpRuleEffect::Allow,
+                &["get", "POST"],
+                &["/repos/*", "/user"],
+            ),
+            rule(AgentHttpRuleEffect::Deny, &["DELETE"], &["*"]),
+        ]);
+        let right = rule_policy(vec![
+            rule(AgentHttpRuleEffect::Deny, &["delete"], &["*"]),
+            rule(
+                AgentHttpRuleEffect::Allow,
+                &["POST", "GET"],
+                &["/user", "/repos/*"],
+            ),
+        ]);
+
+        assert_eq!(left.fingerprint(), right.fingerprint());
+        assert_eq!(left.fingerprint().len(), 64);
     }
 
     #[test]
@@ -3402,6 +3505,7 @@ mod tests {
         let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()

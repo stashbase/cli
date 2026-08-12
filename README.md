@@ -313,35 +313,40 @@ deny_hosts = ["api.stashbase.dev"]
 
 Use the hostname from `STASHBASE_API_URL` instead when targeting a custom API.
 
-Agent profiles can also live in `stashbase-agent.toml` in the command's current
-directory. The directory file contains a complete profile and never stores API
-keys or secret values:
+For repositories with more than one agent, keep one direct profile per file in
+`.stashbase/agents/<name>.toml`. These files never store API keys or secret
+values:
 
 ```toml
-# stashbase-agent.toml
-[agent_profiles.coding]
+# .stashbase/agents/coding.toml
 file = ".env.agent"
 egress_hosts = ["registry.npmjs.org"]
 
-[agent_profiles.coding.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 hosts = ["api.github.com"]
 ```
+
+`stashbase-agent.toml` remains supported for a single-file or legacy layout.
+Do not define the same profile name in both locations; Stashbase reports that
+as an error rather than choosing one.
 
 Select where the profile is loaded with `--profile-source`:
 
 ```bash
-# Default: ./stashbase-agent.toml when present, otherwise global config
+# Default: ./.stashbase/agents/coding.toml or legacy ./stashbase-agent.toml,
+# otherwise global config
 stashbase agent run --profile coding -- codex
 
-# Require ./stashbase-agent.toml
+# Require a repository-local profile
 stashbase agent run --profile coding --profile-source directory -- codex
 
-# Use ./stashbase-agent.toml when present, otherwise global config
+# Use a repository-local profile when present, otherwise global config
 stashbase agent run --profile coding --profile-source auto -- codex
 ```
 
-The default is `auto`: a `stashbase-agent.toml` in the current directory is used
-when present, otherwise Stashbase falls back to global config. Treat a
+The default is `auto`: `.stashbase/agents/<profile>.toml` is preferred, with
+legacy `stashbase-agent.toml` supported as a fallback; otherwise Stashbase falls
+back to global config. Treat a
 repository profile as trusted policy: it can select its Stashbase environment
 or local secret file and determines where secrets may be sent.
 When `auto` selects a directory profile, the CLI prints a warning so the policy

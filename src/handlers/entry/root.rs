@@ -476,13 +476,22 @@ pub async fn handle_cli(args: Cli) {
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                     };
+                    let policy_fingerprint = policy.fingerprint();
                     let audit_log = (!agent_run.remote)
-                        .then(|| agent_run.audit_log.then(|| ProxyAuditLog::local(&agent_run.profile)))
+                        .then(|| {
+                            agent_run.audit_log.then(|| {
+                                ProxyAuditLog::local(
+                                    &agent_run.profile,
+                                    policy_fingerprint.clone(),
+                                )
+                            })
+                        })
                         .flatten()
                         .transpose()?;
                     if let Some(audit_log) = &audit_log {
                         if !silent {
                             eprintln!("Audit session: {}", audit_log.session_id());
+                            eprintln!("Policy fingerprint: {}", audit_log.policy_fingerprint());
                             eprintln!("Audit log: {}", audit_log.path().display());
                         }
                     }
@@ -554,7 +563,13 @@ pub async fn handle_cli(args: Cli) {
                         let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
-                            .then(|| ProxyAuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
+                            .then(|| {
+                                ProxyAuditLog::local_with_session_id(
+                                    &agent_run.profile,
+                                    session.session_id.clone(),
+                                    policy_fingerprint.clone(),
+                                )
+                            })
                             .transpose()
                         {
                             Ok(audit_log) => audit_log,
@@ -566,6 +581,7 @@ pub async fn handle_cli(args: Cli) {
                         if let Some(audit_log) = &remote_audit_log {
                             if !silent {
                                 eprintln!("Audit session: {}", audit_log.session_id());
+                                eprintln!("Policy fingerprint: {}", audit_log.policy_fingerprint());
                                 eprintln!("Audit log: {}", audit_log.path().display());
                             }
                         }
