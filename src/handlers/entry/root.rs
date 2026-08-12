@@ -899,6 +899,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         action: command.action,
         host: command.host,
         session: command.session,
+        id: command.id,
     };
     if !command.follow {
         let events = read_local_proxy_audit_logs(command.limit, since, &filter)?;
@@ -1040,8 +1041,8 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(|duration| format!("{duration}ms"))
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  profile={} action={} host={} secret={} status={} duration={}",
-        event.timestamp, event.profile, event.action, host, secret, status, duration
+        "{}  id={} profile={} action={} host={} secret={} status={} duration={}",
+        event.timestamp, event.id, event.profile, event.action, host, secret, status, duration
     );
     Ok(())
 }

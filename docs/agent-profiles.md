@@ -637,6 +637,7 @@ Inspect recent decisions without reading JSONL files directly:
 stashbase agent logs
 stashbase agent logs --session 5fd2...
 stashbase agent logs --profile coding --action injected --host api.github.com
+stashbase agent logs --id evt_...
 stashbase agent logs --since 24h --limit 100
 stashbase agent logs --follow
 ```
@@ -649,6 +650,12 @@ run with `--audit-log false`:
 ```bash
 stashbase agent run --profile coding --audit-log false -- codex
 ```
+
+Every local audit event receives an opaque short UUID `id` with an `evt_`
+prefix (for example, `evt_mhvXdrZT4jP5T8vBxuvm75`). A request event's ID is
+also included as `error.id` in safe proxy errors, so a 403 or upstream failure
+can be inspected with `agent logs --id`.
+It is never forwarded to an upstream service or the remote Agent Proxy.
 
 ## Troubleshooting
 

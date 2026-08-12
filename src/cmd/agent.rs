@@ -195,6 +195,10 @@ pub struct AgentLogsCommand {
     #[arg(long)]
     pub session: Option<String>,
 
+    /// Only show one local audit event by ID
+    #[arg(long)]
+    pub id: Option<String>,
+
     /// Keep watching for new events
     #[arg(long)]
     pub follow: bool,

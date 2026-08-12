@@ -44,6 +44,7 @@ use rustls::{
 use rustls_platform_verifier::BuilderVerifierExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use short_uuid::ShortUuid;
 use tokio::{
     io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -82,6 +83,8 @@ pub struct ProxyAuditLogEvent {
     pub profile: String,
     /// SHA-256 fingerprint of the normalized policy snapshot for this run.
     pub policy_fingerprint: String,
+    /// Opaque local audit-event ID.
+    pub id: String,
     /// Present only on `session_started`; identifies the selected profile file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_source: Option<String>,
@@ -106,6 +109,7 @@ pub struct ProxyAuditLogFilter {
     pub action: Option<String>,
     pub host: Option<String>,
     pub session: Option<String>,
+    pub id: Option<String>,
 }
 
 impl ProxyAuditLogFilter {
@@ -127,6 +131,7 @@ impl ProxyAuditLogFilter {
                 .session
                 .as_ref()
                 .is_none_or(|value| value == &event.session_id)
+            && self.id.as_ref().is_none_or(|value| value == &event.id)
     }
 }
 
@@ -236,12 +241,16 @@ impl ProxyAuditLog {
         secret_name: Option<&str>,
         status: Option<StatusCode>,
         duration: Option<Duration>,
+        id: Option<&str>,
     ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
             profile: self.profile.clone(),
             policy_fingerprint: self.policy_fingerprint.clone(),
+            id: id
+                .map(str::to_owned)
+                .unwrap_or_else(new_local_audit_event_id),
             profile_source: (action == "session_started")
                 .then(|| {
                     self.profile_provenance
@@ -772,7 +781,7 @@ impl Proxy {
         }
 
         if let Some(audit_log) = &audit_log {
-            audit_log.record("session_started", None, None, None, None, None);
+            audit_log.record("session_started", None, None, None, None, None, None);
         }
 
         Ok(Self {
@@ -799,7 +808,7 @@ impl Proxy {
             let _ = task.await;
         }
         if let Some(audit_log) = &self.audit_log {
-            audit_log.record("session_stopped", None, None, None, None, None);
+            audit_log.record("session_stopped", None, None, None, None, None, None);
         }
     }
 
@@ -1152,13 +1161,15 @@ fn proxy_request(
                 .unwrap());
         }
 
+        let request_id = new_local_request_id();
         let host = request_host(&request, connect_authority.as_deref());
         if state.host_is_denied(host.as_deref()) {
             debug!(
                 "proxy denied destination: {}",
                 host.as_deref().unwrap_or("unknown")
             );
-            state.record_audit(
+            state.record_audit_with_request(
+                &request_id,
                 "host_denied",
                 host.as_deref(),
                 Some(request.method()),
@@ -1166,10 +1177,11 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response(
+            return Ok(proxy_error_response_with_action(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
+                Some(&request_id),
             ));
         }
         if state.policy.egress_hosts_configured
@@ -1177,7 +1189,8 @@ fn proxy_request(
                 .as_deref()
                 .is_some_and(|host| policy_allows_egress(&state.policy, host))
         {
-            state.record_audit(
+            state.record_audit_with_request(
+                &request_id,
                 "host_denied",
                 host.as_deref(),
                 Some(request.method()),
@@ -1185,14 +1198,16 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response(
+            return Ok(proxy_error_response_with_action(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
+                Some(&request_id),
             ));
         }
         if contains_unknown_placeholder(&request, &state) {
-            state.record_audit(
+            state.record_audit_with_request(
+                &request_id,
                 "unknown_placeholder",
                 host.as_deref(),
                 Some(request.method()),
@@ -1200,10 +1215,11 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response(
+            return Ok(proxy_error_response_with_action(
                 StatusCode::FORBIDDEN,
                 "proxy.placeholder_not_allowed",
                 "Agent Proxy received an unknown credential placeholder",
+                Some(&request_id),
             ));
         }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
@@ -1213,7 +1229,8 @@ fn proxy_request(
                     "proxy denied credential injection for destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     denial.audit_action,
                     host.as_deref(),
                     Some(request.method()),
@@ -1221,10 +1238,11 @@ fn proxy_request(
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response(
+                return Ok(proxy_error_response_with_action(
                     StatusCode::FORBIDDEN,
                     "proxy.credential_not_allowed",
                     "The supplied credential is not authorized for this request.",
+                    Some(&request_id),
                 ));
             }
         };
@@ -1232,7 +1250,8 @@ fn proxy_request(
         // this request carries that secret's configured placeholder; all other
         // traffic must be explicitly listed in `egress_hosts`.
         if secret_name.is_none() && !state.host_allowed_for_ordinary_request(host.as_deref()) {
-            state.record_audit(
+            state.record_audit_with_request(
+                &request_id,
                 "host_denied",
                 host.as_deref(),
                 Some(request.method()),
@@ -1240,15 +1259,17 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response(
+            return Ok(proxy_error_response_with_action(
                 StatusCode::FORBIDDEN,
                 "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
+                Some(&request_id),
             ));
         }
         if let Some(remote) = &state.remote {
             if let Err(error) = remote.token_for_new_connection() {
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     "session_expired",
                     host.as_deref(),
                     Some(request.method()),
@@ -1256,10 +1277,11 @@ fn proxy_request(
                     Some(StatusCode::SERVICE_UNAVAILABLE),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response(
+                return Ok(proxy_error_response_with_action(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "proxy.session_expired",
                     &error.to_string(),
+                    Some(&request_id),
                 ));
             }
         }
@@ -1292,7 +1314,8 @@ fn proxy_request(
         let url = match request_url(&request, connect_authority.as_deref()) {
             Ok(url) => url,
             Err(_) => {
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     "request_invalid",
                     host.as_deref(),
                     Some(request.method()),
@@ -1300,10 +1323,11 @@ fn proxy_request(
                     Some(StatusCode::BAD_REQUEST),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response(
+                return Ok(proxy_error_response_with_action(
                     StatusCode::BAD_REQUEST,
                     "proxy.request_invalid",
                     "Unable to determine request URL",
+                    Some(&request_id),
                 ));
             }
         };
@@ -1324,10 +1348,11 @@ fn proxy_request(
             let token = match remote.token_for_new_connection() {
                 Ok(token) => token,
                 Err(error) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_action(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "proxy.session_expired",
                         &error.to_string(),
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1338,10 +1363,11 @@ fn proxy_request(
             let token = match HeaderValue::from_str(&token) {
                 Ok(token) => token,
                 Err(_) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_action(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid session token",
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1349,10 +1375,11 @@ fn proxy_request(
             let proxy = match reqwest::Url::parse(&remote.proxy_url) {
                 Ok(proxy) => proxy,
                 Err(_) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_action(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1362,10 +1389,11 @@ fn proxy_request(
             let proxy_host = match proxy_host_header(&proxy) {
                 Ok(value) => value,
                 Err(_) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_action(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1382,10 +1410,11 @@ fn proxy_request(
             Some(remote) => match remote_forward_client(remote, state.remote_ca.as_ref()) {
                 Ok(client) => client,
                 Err(error) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_action(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "proxy.session_unavailable",
                         &error.to_string(),
+                        Some(&request_id),
                     ))
                 }
             },
@@ -1411,7 +1440,8 @@ fn proxy_request(
                 .boxed_unsync();
                 let mut response = Response::builder().status(status).body(body).unwrap();
                 *response.headers_mut() = headers;
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     if secret_name.is_some() {
                         "injected"
                     } else {
@@ -1430,7 +1460,8 @@ fn proxy_request(
                     "proxy could not forward request to destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     upstream_error_action(&error),
                     host.as_deref(),
                     Some(&method),
@@ -1438,10 +1469,11 @@ fn proxy_request(
                     Some(StatusCode::BAD_GATEWAY),
                     Some(started.elapsed()),
                 );
-                Ok(proxy_error_response(
+                Ok(proxy_error_response_with_action(
                     StatusCode::BAD_GATEWAY,
                     &format!("proxy.{}", upstream_error_action(&error)),
                     "Unable to forward Agent Proxy request",
+                    Some(&request_id),
                 ))
             }
         }
@@ -2135,7 +2167,30 @@ impl ProxyState {
         duration: Option<Duration>,
     ) {
         if let Some(audit_log) = &self.audit_log {
-            audit_log.record(action, host, method, secret_name, status, duration);
+            audit_log.record(action, host, method, secret_name, status, duration, None);
+        }
+    }
+
+    fn record_audit_with_request(
+        &self,
+        request_id: &str,
+        action: &str,
+        host: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+    ) {
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record(
+                action,
+                host,
+                method,
+                secret_name,
+                status,
+                duration,
+                Some(request_id),
+            );
         }
     }
 }
@@ -2371,10 +2426,28 @@ fn normalize_injections(
 /// Proxy failures use the public API error envelope so a nested `stashbase`
 /// command can report policy denials clearly instead of failing JSON parsing.
 fn proxy_error_response(status: StatusCode, code: &str, message: &str) -> Response<ProxyBody> {
+    proxy_error_response_with_action(status, code, message, None)
+}
+
+fn new_local_request_id() -> String {
+    new_local_audit_event_id()
+}
+
+fn new_local_audit_event_id() -> String {
+    format!("evt_{}", ShortUuid::generate())
+}
+
+fn proxy_error_response_with_action(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    id: Option<&str>,
+) -> Response<ProxyBody> {
     let body = serde_json::json!({
         "error": {
             "code": code,
             "message": message,
+            "id": id,
         }
     })
     .to_string();
@@ -2881,6 +2954,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn proxy_errors_can_include_a_local_id() {
+        let response = proxy_error_response_with_action(
+            StatusCode::FORBIDDEN,
+            "proxy.credential_not_allowed",
+            "Credential is not authorized for this request.",
+            Some("evt_test"),
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"]["id"], "evt_test");
+    }
+
+    #[test]
+    fn local_audit_event_ids_use_a_short_uuid() {
+        let id = new_local_request_id();
+        assert!(id.starts_with("evt_"));
+        assert_eq!(id.len(), 26);
+        assert!(!id.contains('-'));
+
+        let id = new_local_audit_event_id();
+        assert!(id.starts_with("evt_"));
+        assert_eq!(id.len(), 26);
+        assert!(!id.contains('-'));
+    }
+
+    #[tokio::test]
     async fn proxy_stop_closes_the_listener() {
         let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
@@ -2959,6 +3058,7 @@ mod tests {
             Some("EXAMPLE_API_KEY"),
             Some(StatusCode::OK),
             Some(Duration::from_millis(12)),
+            Some("evt_test"),
         );
 
         let content = fs::read_to_string(&path).unwrap();
@@ -2992,7 +3092,7 @@ mod tests {
             )),
         };
 
-        audit_log.record("session_started", None, None, None, None, None);
+        audit_log.record("session_started", None, None, None, None, None, None);
         audit_log.record(
             "forwarded",
             Some("api.github.com"),
@@ -3000,6 +3100,7 @@ mod tests {
             None,
             None,
             None,
+            Some("evt_test"),
         );
 
         let events = fs::read_to_string(&path)
@@ -3007,6 +3108,8 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
             .collect::<Vec<_>>();
+        assert!(events[0].id.starts_with("evt_"));
+        assert_eq!(events[1].id, "evt_test");
         assert_eq!(
             events[0].profile_source.as_deref(),
             Some("./.stashbase/agents/coding.toml")
@@ -3050,6 +3153,7 @@ mod tests {
             session_id: "session-1".to_owned(),
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
+            id: "evt_test".to_owned(),
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
@@ -3066,6 +3170,7 @@ mod tests {
             action: Some("injected".to_owned()),
             host: Some("api.github.com".to_owned()),
             session: Some("session-1".to_owned()),
+            id: Some("evt_test".to_owned()),
         }
         .matches(&event));
         assert!(!ProxyAuditLogFilter {
