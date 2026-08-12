@@ -39,8 +39,8 @@ use crate::{
         run::{
             entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
             proxy::{
-                read_local_proxy_audit_logs, ProxyAuditLog, ProxyAuditLogEvent,
-                ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
+                read_local_proxy_audit_logs, ProfileAuditProvenance, ProxyAuditLog,
+                ProxyAuditLogEvent, ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
             },
             subprocess::CommandFailed,
         },
@@ -316,12 +316,15 @@ pub async fn handle_cli(args: Cli) {
                         .as_ref()
                         .and_then(|profiles| profiles.get(&agent_run.profile))
                         .cloned();
-                    let (profile, directory_source) = match agent_run.profile_source {
-                        AgentProfileSource::Global => (global_profile, None),
+                    let (profile, directory_source, profile_path) = match agent_run.profile_source {
+                        AgentProfileSource::Global => {
+                            (global_profile, None, Some(config::get_config_path()?))
+                        }
                         AgentProfileSource::Directory => {
                             let profile = config::get_directory_agent_profile(&agent_run.profile)?;
                             let source = profile.as_ref().map(|profile| profile.source.clone());
-                            (profile.map(|profile| profile.profile), source)
+                            let path = profile.as_ref().map(|profile| profile.path.clone());
+                            (profile.map(|profile| profile.profile), source, path)
                         }
                         AgentProfileSource::Auto => {
                             let directory_profile =
@@ -329,9 +332,11 @@ pub async fn handle_cli(args: Cli) {
                             let source = directory_profile
                                 .as_ref()
                                 .map(|profile| profile.source.clone());
+                            let path = directory_profile.as_ref().map(|profile| profile.path.clone());
                             (
                                 directory_profile.map(|profile| profile.profile).or(global_profile),
                                 source,
+                                path.or(Some(config::get_config_path()?)),
                             )
                         }
                     };
@@ -477,6 +482,13 @@ pub async fn handle_cli(args: Cli) {
                         strict_deny: true,
                     };
                     let policy_fingerprint = policy.fingerprint();
+                    let profile_source = directory_source
+                        .clone()
+                        .unwrap_or_else(|| "user-level config".to_owned());
+                    let profile_provenance = ProfileAuditProvenance::from_file(
+                        profile_source,
+                        profile_path.as_deref().context("Agent profile source path is unavailable")?,
+                    )?;
                     let audit_log = (!agent_run.remote)
                         .then(|| {
                             agent_run.audit_log.then(|| {
@@ -484,6 +496,7 @@ pub async fn handle_cli(args: Cli) {
                                     &agent_run.profile,
                                     policy_fingerprint.clone(),
                                 )
+                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
                             })
                         })
                         .flatten()
@@ -569,6 +582,7 @@ pub async fn handle_cli(args: Cli) {
                                     session.session_id.clone(),
                                     policy_fingerprint.clone(),
                                 )
+                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
                             })
                             .transpose()
                         {

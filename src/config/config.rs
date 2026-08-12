@@ -28,6 +28,7 @@ pub const DIRECTORY_AGENT_PROFILES_DIR: &str = ".stashbase/agents";
 pub struct LoadedDirectoryAgentProfile {
     pub profile: AgentProfile,
     pub source: String,
+    pub path: PathBuf,
 }
 
 fn ensure_config_dir(config_dir: &Path) -> Result<()> {
@@ -185,10 +186,12 @@ fn get_directory_agent_profile_from_dir(
         (Some(profile), None) => Ok(Some(LoadedDirectoryAgentProfile {
             profile,
             source: display_directory_profile_path(directory, &modern_path),
+            path: modern_path,
         })),
         (None, Some(profile)) => Ok(Some(LoadedDirectoryAgentProfile {
             profile,
             source: format!("./{DIRECTORY_AGENT_PROFILE_FILE}"),
+            path: legacy_path,
         })),
         (None, None) => Ok(None),
     }

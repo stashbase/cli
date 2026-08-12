@@ -577,6 +577,11 @@ status, and duration.
 They never include secret values, placeholders, headers, bodies, URLs, or
 command arguments.
 
+The `session_started` event also records the selected profile source, that
+file's RFC 3339 modification time, and a SHA-256 hash of its contents. This
+ties a session to the reviewed profile revision without storing the policy
+contents in every audit record.
+
 Common diagnostic actions are `host_denied`, `unknown_placeholder`,
 `tls_trust_failed`, `upstream_timeout`, `upstream_connection_failed`, and
 `upstream_response_failed`. For example:

@@ -82,6 +82,15 @@ pub struct ProxyAuditLogEvent {
     pub profile: String,
     /// SHA-256 fingerprint of the normalized policy snapshot for this run.
     pub policy_fingerprint: String,
+    /// Present only on `session_started`; identifies the selected profile file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_source: Option<String>,
+    /// RFC 3339 modification time of the selected profile file at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_file_modified_at: Option<String>,
+    /// SHA-256 of the selected profile file at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_file_sha256: Option<String>,
     pub action: String,
     pub destination_host: Option<String>,
     pub method: Option<String>,
@@ -127,8 +136,43 @@ pub struct ProxyAuditLog {
     session_id: String,
     profile: String,
     policy_fingerprint: String,
+    profile_provenance: Option<ProfileAuditProvenance>,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
+}
+
+/// Immutable provenance for the profile file selected when an agent session starts.
+#[derive(Debug, Clone)]
+pub struct ProfileAuditProvenance {
+    source: String,
+    modified_at: String,
+    sha256: String,
+}
+
+impl ProfileAuditProvenance {
+    pub fn from_file(source: String, path: &Path) -> Result<Self> {
+        let metadata = fs::metadata(path).with_context(|| {
+            format!(
+                "Could not read agent profile metadata from '{}'.",
+                path.display()
+            )
+        })?;
+        let modified_at = DateTime::<Utc>::from(metadata.modified().with_context(|| {
+            format!(
+                "Could not read agent profile modification time from '{}'.",
+                path.display()
+            )
+        })?)
+        .to_rfc3339();
+        let sha256 = hex::encode(Sha256::digest(fs::read(path).with_context(|| {
+            format!("Could not read agent profile file '{}'.", path.display())
+        })?));
+        Ok(Self {
+            source,
+            modified_at,
+            sha256,
+        })
+    }
 }
 
 impl ProxyAuditLog {
@@ -161,6 +205,7 @@ impl ProxyAuditLog {
             session_id,
             profile: profile.to_owned(),
             policy_fingerprint,
+            profile_provenance: None,
             path: Arc::new(path),
             file: Arc::new(Mutex::new(file)),
         })
@@ -178,6 +223,11 @@ impl ProxyAuditLog {
         &self.policy_fingerprint
     }
 
+    pub fn with_profile_provenance(mut self, profile_provenance: ProfileAuditProvenance) -> Self {
+        self.profile_provenance = Some(profile_provenance);
+        self
+    }
+
     fn record(
         &self,
         action: &str,
@@ -192,6 +242,27 @@ impl ProxyAuditLog {
             session_id: self.session_id.clone(),
             profile: self.profile.clone(),
             policy_fingerprint: self.policy_fingerprint.clone(),
+            profile_source: (action == "session_started")
+                .then(|| {
+                    self.profile_provenance
+                        .as_ref()
+                        .map(|provenance| provenance.source.clone())
+                })
+                .flatten(),
+            profile_file_modified_at: (action == "session_started")
+                .then(|| {
+                    self.profile_provenance
+                        .as_ref()
+                        .map(|provenance| provenance.modified_at.clone())
+                })
+                .flatten(),
+            profile_file_sha256: (action == "session_started")
+                .then(|| {
+                    self.profile_provenance
+                        .as_ref()
+                        .map(|provenance| provenance.sha256.clone())
+                })
+                .flatten(),
             action: action.to_owned(),
             destination_host: host.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
@@ -2870,6 +2941,7 @@ mod tests {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -2894,6 +2966,58 @@ mod tests {
         assert!(content.contains("EXAMPLE_API_KEY"));
         assert!(content.contains("policy-fingerprint"));
         assert!(!content.contains("real-secret-value"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn audit_log_records_profile_provenance_only_at_session_start() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = ProxyAuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: Some(ProfileAuditProvenance {
+                source: "./.stashbase/agents/coding.toml".to_owned(),
+                modified_at: "2026-08-12T00:00:00+00:00".to_owned(),
+                sha256: "profile-file-sha256".to_owned(),
+            }),
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+
+        audit_log.record("session_started", None, None, None, None, None);
+        audit_log.record(
+            "forwarded",
+            Some("api.github.com"),
+            Some(&Method::GET),
+            None,
+            None,
+            None,
+        );
+
+        let events = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            events[0].profile_source.as_deref(),
+            Some("./.stashbase/agents/coding.toml")
+        );
+        assert_eq!(
+            events[0].profile_file_sha256.as_deref(),
+            Some("profile-file-sha256")
+        );
+        assert!(events[1].profile_source.is_none());
+        assert!(events[1].profile_file_modified_at.is_none());
+        assert!(events[1].profile_file_sha256.is_none());
         fs::remove_file(path).unwrap();
     }
 
@@ -2926,6 +3050,9 @@ mod tests {
             session_id: "session-1".to_owned(),
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_source: None,
+            profile_file_modified_at: None,
+            profile_file_sha256: None,
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             method: Some("POST".to_owned()),
@@ -3506,6 +3633,7 @@ mod tests {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
