@@ -43,6 +43,10 @@ The default profile source is `auto`: Stashbase uses
 `./stashbase-agent.toml` format, and otherwise falls back to user-level config.
 Use `--profile-source directory` to require a repository-local profile. A
 profile defined in both layouts is rejected instead of silently overriding one.
+At startup, Stashbase warns when the selected repository-local profile is
+tracked by Git and has staged/unstaged changes. Untracked files are allowed so
+personal policy files do not create noise. This is a review signal only; it
+does not block a run. `--silent` suppresses the warning.
 
 Each file in `.stashbase/agents` contains the profile directly—there is no
 `[agent_profiles.<name>]` wrapper:

@@ -372,6 +372,17 @@ pub async fn handle_cli(args: Cli) {
                         );
                     }
 
+                    if loaded_from_directory && !silent {
+                        if let Some(warning) = directory_profile_git_warning(
+                            profile_path
+                                .as_deref()
+                                .context("Agent profile source path is unavailable")?,
+                            directory_source.as_deref().unwrap(),
+                        ) {
+                            eprintln!("Warning: {warning}");
+                        }
+                    }
+
                     if !silent {
                         if agent_run.sandbox {
                             eprintln!("Network sandbox: enabled");
@@ -906,6 +917,30 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     }
 }
 
+/// Returns a startup warning when repository-controlled policy has not been
+/// committed. A missing repository is normal for local profiles and is silent.
+fn directory_profile_git_warning(profile_path: &Path, source: &str) -> Option<String> {
+    let repository = git2::Repository::discover(profile_path.parent()?).ok()?;
+    let workdir = repository.workdir()?.canonicalize().ok()?;
+    let profile_path = profile_path.canonicalize().ok()?;
+    let relative_path = profile_path.strip_prefix(workdir).ok()?;
+    let is_untracked = repository
+        .index()
+        .map(|index| index.get_path(relative_path, 0).is_none())
+        // A newly initialized repository may not have an index file yet.
+        .unwrap_or(true);
+    if is_untracked {
+        return None;
+    }
+    let status = repository.status_file(relative_path).ok()?;
+    if status.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Agent profile {source} has uncommitted Git changes. Review or commit this policy before granting credentials."
+    ))
+}
+
 /// Makes the active risk visible at launch time. The proxy remains host-based:
 /// allowing the Stashbase API host lets a child use any API route its normal
 /// local credential is authorized for.
@@ -1209,10 +1244,73 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        configured_host_matches, ensure_replacement_session_is_compatible, infer_remote_agent_type,
+        configured_host_matches, directory_profile_git_warning,
+        ensure_replacement_session_is_compatible, infer_remote_agent_type,
         remote_session_rotation_delay_for, remote_session_transport_identity,
     };
-    use std::time::Duration;
+    use std::{
+        fs,
+        path::Path,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    fn temporary_git_repository() -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "stashbase-agent-profile-git-test-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        git2::Repository::init(&directory).unwrap();
+        directory
+    }
+
+    #[test]
+    fn warns_only_for_modified_tracked_directory_profiles() {
+        let directory = temporary_git_repository();
+        let profile = directory.join(".stashbase/agents/codex.toml");
+        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        fs::write(&profile, "egress_hosts = [\"api.github.com\"]\n").unwrap();
+
+        assert!(
+            directory_profile_git_warning(&profile, "./.stashbase/agents/codex.toml").is_none()
+        );
+
+        let repository = git2::Repository::open(&directory).unwrap();
+        let mut index = repository.index().unwrap();
+        index
+            .add_path(Path::new(".stashbase/agents/codex.toml"))
+            .unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repository.find_tree(tree_id).unwrap();
+        let signature = git2::Signature::now("Stashbase test", "test@example.com").unwrap();
+        repository
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                "add profile",
+                &tree,
+                &[],
+            )
+            .unwrap();
+        fs::write(
+            &profile,
+            "egress_hosts = [\"api.github.com\", \"chatgpt.com\"]\n",
+        )
+        .unwrap();
+
+        assert!(
+            directory_profile_git_warning(&profile, "./.stashbase/agents/codex.toml")
+                .unwrap()
+                .contains("uncommitted")
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn configured_host_matching_supports_exact_and_subdomain_wildcards() {
