@@ -991,8 +991,11 @@ fn handle_agent_logs_summary(
         session: command.session,
         id: command.id,
     };
-    let report =
-        summarize_audit_events(read_local_proxy_audit_logs(command.limit, since, &filter)?);
+    let report = summarize_audit_events(
+        read_local_proxy_audit_logs(command.limit, since, &filter)?,
+        command.limit,
+        command.since.clone(),
+    );
     if !silent {
         println!();
     }
@@ -1020,7 +1023,11 @@ fn handle_agent_logs_summary(
     Ok(())
 }
 
-fn summarize_audit_events(events: Vec<ProxyAuditLogEvent>) -> AuditSummary {
+fn summarize_audit_events(
+    events: Vec<ProxyAuditLogEvent>,
+    limit: usize,
+    since: Option<String>,
+) -> AuditSummary {
     let events_count = events.len();
     let requests = events.iter().filter(|event| event.method.is_some()).count();
     let injected = events
@@ -1063,6 +1070,8 @@ fn summarize_audit_events(events: Vec<ProxyAuditLogEvent>) -> AuditSummary {
             .then_with(|| left.host.cmp(&right.host))
     });
     AuditSummary {
+        limit,
+        since,
         events: events_count,
         requests,
         injected,
@@ -1074,6 +1083,9 @@ fn summarize_audit_events(events: Vec<ProxyAuditLogEvent>) -> AuditSummary {
 
 #[derive(Serialize)]
 struct AuditSummary {
+    limit: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since: Option<String>,
     events: usize,
     requests: usize,
     injected: usize,
@@ -1521,13 +1533,19 @@ mod tests {
             response_status: status,
             duration_ms: Some(1),
         };
-        let report = summarize_audit_events(vec![
-            event("injected", "api.github.com", Some(200)),
-            event("credential_rule_denied", "api.github.com", Some(403)),
-            event("credential_rule_denied", "api.github.com", Some(403)),
-            event("host_denied", "api.stripe.com", Some(403)),
-        ]);
+        let report = summarize_audit_events(
+            vec![
+                event("injected", "api.github.com", Some(200)),
+                event("credential_rule_denied", "api.github.com", Some(403)),
+                event("credential_rule_denied", "api.github.com", Some(403)),
+                event("host_denied", "api.stripe.com", Some(403)),
+            ],
+            50,
+            Some("7d".to_owned()),
+        );
 
+        assert_eq!(report.limit, 50);
+        assert_eq!(report.since.as_deref(), Some("7d"));
         assert_eq!(report.events, 4);
         assert_eq!(report.requests, 4);
         assert_eq!(report.injected, 1);

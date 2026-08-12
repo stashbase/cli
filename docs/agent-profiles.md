@@ -651,7 +651,8 @@ forward, and denial counts. Its `Denied by` section groups only the proxy
 action and destination host; it never prints secret names, request paths,
 headers, bodies, URLs, or credential values. Use `--json` for automation.
 It summarizes the newest matching events up to `--limit` (default: 1,000), not
-all historical audit data.
+all historical audit data. JSON output includes the selected `limit` and, when
+provided, the original `since` window.
 
 To inspect the policy with defaults and matcher normalization resolved, without
 loading a secret value:
