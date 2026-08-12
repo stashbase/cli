@@ -368,6 +368,7 @@ pub fn clear_legacy_api_key() -> Result<()> {
 mod tests {
     use std::{
         fs,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -377,13 +378,15 @@ mod tests {
     };
 
     fn temporary_directory() -> std::path::PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let directory = std::env::temp_dir().join(format!(
-            "stashbase-agent-profile-test-{}-{unique}",
-            std::process::id()
+            "stashbase-agent-profile-test-{}-{unique}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed),
         ));
         fs::create_dir_all(&directory).unwrap();
         directory

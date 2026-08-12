@@ -24,6 +24,7 @@ use crate::{
     handlers::{
         agent_doctor::handle_agent_doctor_command,
         agent_explain::handle_agent_explain_command,
+        agent_init::handle_agent_init_command,
         agent_policy::SecretHttpPolicy,
         agent_policy_test::handle_agent_policy_test_command,
         agent_profiles::handle_agent_profiles_command,
@@ -296,6 +297,9 @@ pub async fn handle_cli(args: Cli) {
                     .await
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
+                AgentSubcommand::Init(agent_init) => {
+                    handle_agent_init_command(agent_init, silent, raw_output)
+                }
                 AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
                         handle_agent_logs(list.into(), raw_output).await

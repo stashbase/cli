@@ -10,6 +10,8 @@ pub struct AgentCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentSubcommand {
+    /// Create a safe starter profile in .stashbase/agents
+    Init(AgentInitCommand),
     /// Run an agent through the Stashbase Agent Proxy
     Run(AgentRunCommand),
     /// Validate an agent profile without loading secrets or starting a proxy
@@ -24,6 +26,17 @@ pub enum AgentSubcommand {
     Doctor(AgentDoctorCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "agent init <PROFILE> [--force]")]
+pub struct AgentInitCommand {
+    /// Name for the new repository-local profile
+    pub profile: String,
+
+    /// Replace an existing profile file
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

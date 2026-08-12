@@ -121,6 +121,9 @@ impl EntityType {
             EntityType::Config(_) => false,
             EntityType::Doctor(_) => false,
             EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Init(_),
+            }) => false,
+            EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Logs(_),
             }) => false,
             EntityType::Agent(AgentCommand {

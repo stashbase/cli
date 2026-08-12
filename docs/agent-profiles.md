@@ -13,6 +13,19 @@ working directory at `.stashbase/agents/<name>.toml`. Run one with:
 stashbase agent run --profile <name> -- <command>
 ```
 
+Create a safe, generic starter file without granting any real destination or
+secret access:
+
+```bash
+stashbase agent init codex
+```
+
+This creates `.stashbase/agents/codex.toml` (and its parent directories when
+needed) with `egress_hosts = []`, a `[secrets.SECRET_NAME]` placeholder, and a
+single illustrative allow rule. Replace the placeholder and example before
+using it. Existing profile files are never overwritten unless `--force` is
+given.
+
 ## Remote Agent Proxy sessions
 
 For a project/environment-backed profile whose secrets are stored in Stashbase,
