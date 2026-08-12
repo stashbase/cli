@@ -37,25 +37,34 @@ pub fn handle_agent_explain_command(
         bail!("--path must begin with '/'");
     }
 
+    let explicit_profile = command
+        .policy_file
+        .as_deref()
+        .map(config::get_explicit_agent_profile)
+        .transpose()?;
     let global_profile = profile_config
         .agent_profiles
         .as_ref()
         .and_then(|profiles| profiles.get(&command.profile))
         .cloned();
-    let (profile, source) = match command.profile_source {
-        AgentProfileSource::Global => (global_profile, "user-level config".to_owned()),
-        AgentProfileSource::Directory => {
-            match config::get_directory_agent_profile(&command.profile)? {
-                Some(profile) => (Some(profile.profile), profile.source),
-                None => (None, "directory config".to_owned()),
+    let (profile, source) = if let Some(profile) = explicit_profile {
+        (Some(profile.profile), profile.source)
+    } else {
+        match command.profile_source {
+            AgentProfileSource::Global => (global_profile, "user-level config".to_owned()),
+            AgentProfileSource::Directory => {
+                match config::get_directory_agent_profile(&command.profile)? {
+                    Some(profile) => (Some(profile.profile), profile.source),
+                    None => (None, "directory config".to_owned()),
+                }
             }
-        }
-        AgentProfileSource::Auto => {
-            let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-            if let Some(profile) = directory_profile {
-                (Some(profile.profile), profile.source)
-            } else {
-                (global_profile, "user-level config".to_owned())
+            AgentProfileSource::Auto => {
+                let directory_profile = config::get_directory_agent_profile(&command.profile)?;
+                if let Some(profile) = directory_profile {
+                    (Some(profile.profile), profile.source)
+                } else {
+                    (global_profile, "user-level config".to_owned())
+                }
             }
         }
     };

@@ -126,6 +126,25 @@ pub fn get_directory_agent_profile(
     get_directory_agent_profile_from_dir(&current_dir, profile_name)
 }
 
+/// Load one direct profile file for explicit CI or automation use.
+pub fn get_explicit_agent_profile(path: &Path) -> Result<LoadedDirectoryAgentProfile> {
+    let path = path
+        .canonicalize()
+        .with_context(|| format!("Could not resolve agent policy file '{}'.", path.display()))?;
+    if !path.is_file() {
+        bail!("Agent policy file '{}' is not a file.", path.display());
+    }
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("Could not read agent policy file '{}'.", path.display()))?;
+    let profile = toml::from_str::<AgentProfile>(&content)
+        .with_context(|| format!("Could not parse agent policy file '{}'.", path.display()))?;
+    Ok(LoadedDirectoryAgentProfile {
+        profile,
+        source: path.display().to_string(),
+        path,
+    })
+}
+
 /// List every repository-local profile from the scalable and legacy layouts.
 /// A duplicate name is rejected so callers never have to infer precedence.
 pub fn get_directory_agent_profiles() -> Result<Vec<(String, LoadedDirectoryAgentProfile)>> {
@@ -354,7 +373,7 @@ mod tests {
 
     use super::{
         get_directory_agent_profile_from_dir, get_directory_agent_profiles_from_dir,
-        DIRECTORY_AGENT_PROFILES_DIR,
+        get_explicit_agent_profile, DIRECTORY_AGENT_PROFILES_DIR,
     };
 
     fn temporary_directory() -> std::path::PathBuf {
@@ -454,6 +473,21 @@ mod tests {
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
             ["claude", "codex"]
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn loads_an_explicit_direct_profile_file() {
+        let directory = temporary_directory();
+        let path = directory.join("ci-policy.toml");
+        fs::write(&path, "egress_hosts = [\"api.github.com\"]\n").unwrap();
+
+        let loaded = get_explicit_agent_profile(&path).unwrap();
+        assert_eq!(loaded.path, path.canonicalize().unwrap());
+        assert_eq!(
+            loaded.source,
+            path.canonicalize().unwrap().display().to_string()
         );
         fs::remove_dir_all(directory).unwrap();
     }

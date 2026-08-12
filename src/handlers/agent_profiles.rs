@@ -82,7 +82,12 @@ fn handle_show(
     global_config: &Config,
     json: bool,
 ) -> Result<()> {
-    let profiles = profiles_for_source(command.profile_source, global_config)?;
+    let profiles = if let Some(path) = command.policy_file.as_deref() {
+        let profile = config::get_explicit_agent_profile(path)?;
+        BTreeMap::from([(command.profile.clone(), (profile.profile, profile.source))])
+    } else {
+        profiles_for_source(command.profile_source, global_config)?
+    };
     let Some((profile, source)) = profiles.get(&command.profile) else {
         bail!(
             "Agent profile '{}' was not found in the {} config.",

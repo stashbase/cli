@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Args, Subcommand, ValueEnum};
 
 #[derive(Debug, Args)]
@@ -51,6 +53,10 @@ pub struct AgentProfilesShowCommand {
     /// Where to load the profile from
     #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
+
+    /// Explicit direct profile file; bypasses global and directory lookup
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -65,6 +71,10 @@ pub struct AgentRunCommand {
     /// Where to load the agent profile from
     #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
+
+    /// Explicit direct profile file; bypasses global and directory lookup
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
 
     /// Temporarily trust the proxy CA in the operating system trust store
     #[arg(long)]
@@ -120,6 +130,10 @@ pub struct AgentValidateCommand {
     #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
 
+    /// Explicit direct profile file; bypasses global and directory lookup
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
+
     /// Also verify requirements for a --remote agent session
     #[arg(long)]
     pub remote: bool,
@@ -137,6 +151,10 @@ pub struct AgentExplainCommand {
     /// Where to load the agent profile from
     #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
+
+    /// Explicit direct profile file; bypasses global and directory lookup
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
 
     /// Destination hostname to evaluate
     #[arg(long)]

@@ -85,6 +85,17 @@ stashbase --json agent profiles show coding
 `show` prints the configured policy only; it never loads or displays secret
 values.
 
+For CI or explicit automation, bypass global/current-directory discovery with a
+direct profile file. It uses the direct-file format and is mutually exclusive
+with `--profile-source`:
+
+```bash
+stashbase agent validate --profile codex --policy-file ci/agents/codex.toml
+stashbase agent run --profile codex --policy-file .stashbase/agents/codex.toml -- codex
+stashbase agent explain --profile codex --policy-file ci/agents/codex.toml \
+  --host api.github.com --method GET --path /user
+```
+
 Explain a prospective request without loading a secret, starting a proxy, or
 opening a network connection:
 

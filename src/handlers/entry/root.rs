@@ -315,12 +315,23 @@ pub async fn handle_cli(args: Cli) {
                     handle_agent_profiles_command(agent_profiles, &config, silent, raw_output)
                 }
                 AgentSubcommand::Run(agent_run) => async {
+                    let explicit_profile = agent_run
+                        .policy_file
+                        .as_deref()
+                        .map(config::get_explicit_agent_profile)
+                        .transpose()?;
                     let global_profile = config
                         .agent_profiles
                         .as_ref()
                         .and_then(|profiles| profiles.get(&agent_run.profile))
                         .cloned();
-                    let (profile, directory_source, profile_path) = match agent_run.profile_source {
+                    let (profile, directory_source, profile_path) = if let Some(profile) = explicit_profile {
+                        (
+                            Some(profile.profile),
+                            Some(profile.source),
+                            Some(profile.path),
+                        )
+                    } else { match agent_run.profile_source {
                         AgentProfileSource::Global => {
                             (global_profile, None, Some(config::get_config_path()?))
                         }
@@ -343,7 +354,7 @@ pub async fn handle_cli(args: Cli) {
                                 path.or(Some(config::get_config_path()?)),
                             )
                         }
-                    };
+                    }};
                     let loaded_from_directory = directory_source.is_some();
 
                     let Some(profile) = profile else {
@@ -363,6 +374,7 @@ pub async fn handle_cli(args: Cli) {
 
                     if loaded_from_directory
                         && matches!(agent_run.profile_source, AgentProfileSource::Auto)
+                        && agent_run.policy_file.is_none()
                         && !silent
                     {
                         eprintln!(

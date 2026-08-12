@@ -53,29 +53,38 @@ pub async fn handle_agent_validate_command(
     json_format: bool,
 ) -> Result<bool> {
     let mut checks = Vec::new();
+    let explicit_profile = command
+        .policy_file
+        .as_deref()
+        .map(config::get_explicit_agent_profile)
+        .transpose()?;
     let global_profile = global_config
         .agent_profiles
         .as_ref()
         .and_then(|profiles| profiles.get(&command.profile))
         .cloned();
-    let (profile, directory_source) = match command.profile_source {
-        AgentProfileSource::Global => (global_profile, None),
-        AgentProfileSource::Directory => {
-            let profile = config::get_directory_agent_profile(&command.profile)?;
-            let source = profile.as_ref().map(|profile| profile.source.clone());
-            (profile.map(|profile| profile.profile), source)
-        }
-        AgentProfileSource::Auto => {
-            let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-            let directory_source = directory_profile
-                .as_ref()
-                .map(|profile| profile.source.clone());
-            (
-                directory_profile
-                    .map(|profile| profile.profile)
-                    .or(global_profile),
-                directory_source,
-            )
+    let (profile, directory_source) = if let Some(profile) = explicit_profile {
+        (Some(profile.profile), Some(profile.source))
+    } else {
+        match command.profile_source {
+            AgentProfileSource::Global => (global_profile, None),
+            AgentProfileSource::Directory => {
+                let profile = config::get_directory_agent_profile(&command.profile)?;
+                let source = profile.as_ref().map(|profile| profile.source.clone());
+                (profile.map(|profile| profile.profile), source)
+            }
+            AgentProfileSource::Auto => {
+                let directory_profile = config::get_directory_agent_profile(&command.profile)?;
+                let directory_source = directory_profile
+                    .as_ref()
+                    .map(|profile| profile.source.clone());
+                (
+                    directory_profile
+                        .map(|profile| profile.profile)
+                        .or(global_profile),
+                    directory_source,
+                )
+            }
         }
     };
     let directory_profile = directory_source.is_some();
