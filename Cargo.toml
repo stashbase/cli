@@ -32,6 +32,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_yaml = { package = "yaml_serde", version = "0.10.4" }
 sha2 = "0.10.9"
+short-uuid = "0.2.1"
 spinoff = "0.8.0"
 tabled = "0.14.0"
 terminal_size = "0.4.3"
