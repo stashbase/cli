@@ -14,10 +14,43 @@ pub enum AgentSubcommand {
     Validate(AgentValidateCommand),
     /// Explain how an agent profile would handle an HTTP request without loading secrets
     Explain(AgentExplainCommand),
+    /// List and inspect available agent profiles without loading secrets
+    Profiles(AgentProfilesCommand),
     /// Check a tool's compatibility with the temporary Agent Proxy
     Doctor(AgentDoctorCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentProfilesCommand {
+    #[command(subcommand)]
+    pub subcommand: AgentProfilesSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentProfilesSubcommand {
+    /// List available profiles and their selected source
+    List(AgentProfilesListCommand),
+    /// Show one profile without loading secret values
+    Show(AgentProfilesShowCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentProfilesListCommand {
+    /// Which profile sources to include
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentProfilesShowCommand {
+    /// Profile name to display
+    pub profile: String,
+
+    /// Where to load the profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
 }
 
 #[derive(Debug, Args)]

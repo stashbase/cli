@@ -21,6 +21,7 @@ use crate::{
         agent_doctor::handle_agent_doctor_command,
         agent_explain::handle_agent_explain_command,
         agent_policy::SecretHttpPolicy,
+        agent_profiles::handle_agent_profiles_command,
         agent_validate::handle_agent_validate_command,
         doctor::handle_doctor_command,
         entry::{
@@ -309,6 +310,9 @@ pub async fn handle_cli(args: Cli) {
                 }
                 AgentSubcommand::Explain(agent_explain) => {
                     handle_agent_explain_command(agent_explain, &config, silent, raw_output)
+                }
+                AgentSubcommand::Profiles(agent_profiles) => {
+                    handle_agent_profiles_command(agent_profiles, &config, raw_output)
                 }
                 AgentSubcommand::Run(agent_run) => async {
                     let global_profile = config

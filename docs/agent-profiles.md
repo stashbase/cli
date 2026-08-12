@@ -68,6 +68,19 @@ stashbase agent validate --profile coding --json
 stashbase agent validate --remote --profile coding
 ```
 
+Discover repository-local and user-level profiles without opening their files:
+
+```bash
+stashbase agent profiles list
+stashbase agent profiles list --profile-source directory
+stashbase agent profiles show coding
+stashbase --json agent profiles show coding
+```
+
+`list` shows each profile's selected source and a small capability summary.
+`show` prints the configured policy only; it never loads or displays secret
+values.
+
 Explain a prospective request without loading a secret, starting a proxy, or
 opening a network connection:
 
