@@ -75,20 +75,7 @@ pub fn evaluate_secret_authorization(
             }
         }
         SecretHttpPolicy::Rules(rules) => {
-            let path = normalize_request_path(path);
-            let matches = |rule: &AgentHttpRule| {
-                rule.hosts
-                    .iter()
-                    .any(|allowed| configured_host_matches(allowed, host))
-                    && rule
-                        .methods
-                        .iter()
-                        .any(|allowed| allowed.eq_ignore_ascii_case(method))
-                    && rule
-                        .paths
-                        .iter()
-                        .any(|pattern| path_matches(pattern, &path))
-            };
+            let matches = |rule: &AgentHttpRule| rule_matches(rule, host, method, path);
             if rules
                 .iter()
                 .any(|rule| rule.effect == AgentHttpRuleEffect::Deny && matches(rule))
@@ -104,6 +91,27 @@ pub fn evaluate_secret_authorization(
             }
         }
     }
+}
+
+/// Returns one-based matching rule numbers in configured order for local
+/// diagnostics. Authorization still evaluates all matching deny rules first.
+pub fn matching_rule_indices(
+    policy: &SecretHttpPolicy,
+    host: &str,
+    method: &str,
+    path: &str,
+    effect: AgentHttpRuleEffect,
+) -> Vec<usize> {
+    let SecretHttpPolicy::Rules(rules) = policy else {
+        return Vec::new();
+    };
+    rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, rule)| {
+            (rule.effect == effect && rule_matches(rule, host, method, path)).then_some(index + 1)
+        })
+        .collect()
 }
 
 pub fn host_matches(allowed: &str, host: &str) -> bool {
@@ -129,8 +137,23 @@ fn normalize_path_pattern(pattern: &str) -> String {
     normalize_path_segments(pattern)
 }
 
-fn normalize_request_path(path: &str) -> String {
+pub fn normalize_request_path(path: &str) -> String {
     normalize_path_segments(path)
+}
+
+fn rule_matches(rule: &AgentHttpRule, host: &str, method: &str, path: &str) -> bool {
+    let path = normalize_request_path(path);
+    rule.hosts
+        .iter()
+        .any(|allowed| configured_host_matches(allowed, host))
+        && rule
+            .methods
+            .iter()
+            .any(|allowed| allowed.eq_ignore_ascii_case(method))
+        && rule
+            .paths
+            .iter()
+            .any(|pattern| path_matches(pattern, &path))
 }
 
 fn normalize_path_segments(path: &str) -> String {
@@ -174,4 +197,58 @@ fn path_matches(pattern: &str, path: &str) -> bool {
         }
     }
     pattern.ends_with('*') || remainder.is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{evaluate_secret_authorization, matching_rule_indices, SecretHttpPolicy};
+    use crate::models::agent::{AgentHttpRule, AgentHttpRuleEffect};
+
+    #[test]
+    fn reports_one_based_matching_rule_numbers_with_deny_precedence() {
+        let policy = SecretHttpPolicy::Rules(vec![
+            AgentHttpRule {
+                effect: AgentHttpRuleEffect::Allow,
+                hosts: vec!["api.example.com".to_owned()],
+                methods: vec!["GET".to_owned()],
+                paths: vec!["/repos/*".to_owned()],
+            },
+            AgentHttpRule {
+                effect: AgentHttpRuleEffect::Deny,
+                hosts: vec!["api.example.com".to_owned()],
+                methods: vec!["GET".to_owned()],
+                paths: vec!["/repos/private/*".to_owned()],
+            },
+        ]);
+
+        assert_eq!(
+            evaluate_secret_authorization(
+                &policy,
+                "api.example.com",
+                "GET",
+                "/repos/private/../private/a"
+            ),
+            super::SecretAuthorizationDecision::DeniedRule
+        );
+        assert_eq!(
+            matching_rule_indices(
+                &policy,
+                "api.example.com",
+                "GET",
+                "/repos/private/../private/a",
+                AgentHttpRuleEffect::Allow,
+            ),
+            vec![1]
+        );
+        assert_eq!(
+            matching_rule_indices(
+                &policy,
+                "api.example.com",
+                "GET",
+                "/repos/private/../private/a",
+                AgentHttpRuleEffect::Deny,
+            ),
+            vec![2]
+        );
+    }
 }

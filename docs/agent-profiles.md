@@ -121,6 +121,15 @@ The explanation reports the global connection decision and whether each
 configured credential would be eligible for injection. It never prints a
 secret value or placeholder.
 
+For local policy authoring, add `--verbose` to show the normalized request path
+and the one-based matching allow or deny rule number. This remains read-only
+and never exposes secret values, headers, or request bodies:
+
+```bash
+stashbase agent explain --verbose --profile coding \
+  --host api.github.com --method GET --path /repos/acme/widget/../widget/issues
+```
+
 Validation does not fetch or read secret values and does not start a proxy. It
 checks the selected source, local-file availability, duplicate `from` bindings,
 child environment-variable names, host rules, custom header names, and value

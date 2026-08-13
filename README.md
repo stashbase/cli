@@ -187,6 +187,21 @@ secret values.
 > limits this CLI request; it is not server-enforced authorization for a holder
 > of a normal personal or service API key.
 
+For a repository-local starting point, create a deliberately closed profile,
+then replace the placeholder and example rule with the capability your agent
+needs:
+
+```bash
+stashbase agent init codex
+stashbase agent validate --profile codex --profile-source directory
+stashbase agent run --profile codex -- codex
+```
+
+This creates `.stashbase/agents/codex.toml` with no egress destinations granted
+by default. See the [agent-profile cookbook](docs/agent-profiles.md) for
+credential-specific HTTP allow/deny rules, legacy host-only profiles, sandbox
+containment, auditing, and remote sessions.
+
 For a coding agent, use an agent profile instead of allowing the agent to select
 its own secret names or destinations. Add the profile to the user-level
 Stashbase `config.toml`:

@@ -186,6 +186,10 @@ pub struct AgentExplainCommand {
     /// URL path to evaluate; query strings are ignored
     #[arg(long)]
     pub path: String,
+
+    /// Show normalized request details and the matching HTTP rule number
+    #[arg(long)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Args)]

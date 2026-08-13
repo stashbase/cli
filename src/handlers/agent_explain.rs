@@ -10,8 +10,8 @@ use crate::{
     config::config,
     handlers::{
         agent_policy::{
-            configured_host_matches, evaluate_secret_authorization, SecretAuthorizationDecision,
-            SecretHttpPolicy,
+            configured_host_matches, evaluate_secret_authorization, matching_rule_indices,
+            normalize_request_path, SecretAuthorizationDecision, SecretHttpPolicy,
         },
         agent_validate::ensure_profile_is_valid_for_run,
     },
@@ -24,7 +24,7 @@ use crate::{
 pub fn handle_agent_explain_command(
     command: AgentExplainCommand,
     profile_config: &Config,
-    _silent: bool,
+    silent: bool,
     json: bool,
 ) -> Result<()> {
     if command.host.trim().is_empty() || command.host.trim() != command.host {
@@ -80,6 +80,7 @@ pub fn handle_agent_explain_command(
     let host = command.host.trim_end_matches('.').to_ascii_lowercase();
     let method = command.method.to_ascii_uppercase();
     let path = command.path.split('?').next().unwrap_or(&command.path);
+    let normalized_path = normalize_request_path(path);
 
     let mut report = ExplainReport {
         profile: command.profile,
@@ -89,6 +90,9 @@ pub fn handle_agent_explain_command(
             method,
             path: path.to_owned(),
         },
+        verbose: command.verbose.then(|| ExplainVerboseRequest {
+            normalized_path: normalized_path.clone(),
+        }),
         connection: ConnectionDecision::NoEgressRestriction,
         credentials: Vec::new(),
     };
@@ -119,19 +123,47 @@ pub fn handle_agent_explain_command(
             } else {
                 SecretHttpPolicy::Rules(secret.rules.clone())
             };
+            let decision = evaluate_secret_authorization(
+                &secret_policy,
+                &report.request.host,
+                &report.request.method,
+                &report.request.path,
+            );
+            let matched_rule = command
+                .verbose
+                .then(|| {
+                    let effect = match decision {
+                        SecretAuthorizationDecision::DeniedRule => {
+                            Some(crate::models::agent::AgentHttpRuleEffect::Deny)
+                        }
+                        SecretAuthorizationDecision::AllowedRule => {
+                            Some(crate::models::agent::AgentHttpRuleEffect::Allow)
+                        }
+                        _ => None,
+                    }?;
+                    matching_rule_indices(
+                        &secret_policy,
+                        &report.request.host,
+                        &report.request.method,
+                        &report.request.path,
+                        effect.clone(),
+                    )
+                    .into_iter()
+                    .next()
+                    .map(|index| ExplainMatchedRule { effect, index })
+                })
+                .flatten();
             report.credentials.push(ExplainCredential {
                 name: name.clone(),
-                decision: evaluate_secret_authorization(
-                    &secret_policy,
-                    &report.request.host,
-                    &report.request.method,
-                    &report.request.path,
-                )
-                .into(),
+                decision: decision.into(),
+                matched_rule,
             });
         }
     }
 
+    if !silent {
+        println!();
+    }
     if json {
         println!("{}", get_formatted_json_string(&report, true)?);
     } else {
@@ -147,6 +179,13 @@ struct ExplainReport {
     request: ExplainRequest,
     connection: ConnectionDecision,
     credentials: Vec<ExplainCredential>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verbose: Option<ExplainVerboseRequest>,
+}
+
+#[derive(Serialize)]
+struct ExplainVerboseRequest {
+    normalized_path: String,
 }
 
 #[derive(Serialize)]
@@ -169,6 +208,14 @@ enum ConnectionDecision {
 struct ExplainCredential {
     name: String,
     decision: ExplainCredentialDecision,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_rule: Option<ExplainMatchedRule>,
+}
+
+#[derive(Serialize)]
+struct ExplainMatchedRule {
+    effect: crate::models::agent::AgentHttpRuleEffect,
+    index: usize,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -208,6 +255,9 @@ fn print_human_report(report: &ExplainReport) {
             println!("Connection: no egress_hosts restriction configured")
         }
     }
+    if let Some(verbose) = &report.verbose {
+        println!("Normalized path: {}", verbose.normalized_path);
+    }
     if report.credentials.is_empty()
         && matches!(
             report.connection,
@@ -233,6 +283,13 @@ fn print_human_report(report: &ExplainReport) {
             }
         };
         println!("Credential {}: {outcome}", credential.name);
+        if let Some(rule) = &credential.matched_rule {
+            let effect = match rule.effect {
+                crate::models::agent::AgentHttpRuleEffect::Allow => "allow",
+                crate::models::agent::AgentHttpRuleEffect::Deny => "deny",
+            };
+            println!("  matched {effect} rule #{}", rule.index);
+        }
     }
 }
 
