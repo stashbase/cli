@@ -203,16 +203,15 @@ credential-specific HTTP allow/deny rules, legacy host-only profiles, sandbox
 containment, auditing, and remote sessions.
 
 For a coding agent, use an agent profile instead of allowing the agent to select
-its own secret names or destinations. Add the profile to the user-level
-Stashbase `config.toml`:
+its own secret names or destinations. Create
+`.stashbase/agents/coding.toml`:
 
 ```toml
-[agent_profiles.coding]
 project = "my-project"
 environment = "development"
 egress_hosts = ["collector.github.com"]
 
-[agent_profiles.coding.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 hosts = ["api.github.com"]
 ```
 
@@ -220,10 +219,10 @@ Profiles can instead use a fixed local secrets file. The profile owns this path;
 the agent cannot provide a different file at runtime.
 
 ```toml
-[agent_profiles.local-coding]
+# .stashbase/agents/local-coding.toml
 file = "/absolute/path/to/.env.agent"
 
-[agent_profiles.local-coding.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 hosts = ["api.github.com"]
 ```
 
@@ -266,7 +265,8 @@ For providers with a different credential header, set `header` and optionally
 `value_template` (which must contain `{secret}`):
 
 ```toml
-[agent_profiles.claude.secrets.ANTHROPIC_API_KEY]
+# .stashbase/agents/claude.toml
+[secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
 header = "x-api-key"
 env = "ANTHROPIC_API_KEY"
@@ -288,18 +288,19 @@ Use `egress_hosts = ["*"]` only when the agent needs unrestricted HTTP(S)
 egress; it does not widen a secret's configured injection hosts.
 
 ```toml
+# .stashbase/agents/coding.toml
 egress_hosts = ["api.github.com"]
 
-[agent_profiles.coding.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
 
-[[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+[[secrets.GH_TOKEN.rules]]
 effect = "allow"
 hosts = ["api.github.com"]
 methods = ["GET"]
 paths = ["/repos/*/*", "/repos/*/*/issues*"]
 
-[[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+[[secrets.GH_TOKEN.rules]]
 effect = "deny"
 hosts = ["api.github.com"]
 methods = ["DELETE"]
@@ -366,7 +367,7 @@ still starts the proxy and enforces its destination policy, but grants the
 child no Stashbase-managed credentials:
 
 ```toml
-[agent_profiles.codex]
+# .stashbase/agents/codex.toml
 egress_hosts = ["chatgpt.com", "mcp.context7.com"]
 deny_hosts = ["api.stashbase.dev"]
 ```
@@ -378,12 +379,12 @@ local `file`. The file is a local override: its configured source names win,
 and Stashbase requests only the remaining profile sources from the API.
 
 ```toml
-[agent_profiles.coding]
+# .stashbase/agents/coding.toml
 project = "platform"
 environment = "development"
 file = ".env.local"
 
-[agent_profiles.coding.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
 hosts = ["api.github.com"]
 ```
