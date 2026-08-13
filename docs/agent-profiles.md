@@ -52,10 +52,10 @@ scope. HTTP/1 WebSocket upgrades used by supported coding agents are relayed;
 HTTP/2 proxying and arbitrary third-party proxy integrations remain unsupported.
 
 The default profile source is `auto`: Stashbase uses
-`./.stashbase/agents/<profile>.toml` when present, then the legacy
-`./stashbase-agent.toml` format, and otherwise falls back to user-level config.
-Use `--profile-source directory` to require a repository-local profile. A
-profile defined in both layouts is rejected instead of silently overriding one.
+`./.stashbase/agents/<profile>.toml` when present, otherwise it falls back to
+user-level config. Use `--profile-source directory` to require a
+repository-local profile.
+
 At startup, Stashbase warns when the selected repository-local profile is
 tracked by Git and has staged/unstaged changes. Untracked files are allowed so
 personal policy files do not create noise. This is a review signal only; it
@@ -351,8 +351,7 @@ binding, legacy host allowlist or HTTP action rules, and header representation;
 `egress_hosts` controls connectivity and never causes credential injection.
 
 ```toml
-# stashbase-agent.toml
-[agent_profiles.full-stack]
+# .stashbase/agents/full-stack.toml
 project = "platform"
 environment = "development"
 file = ".env.local" # Optional local overrides for the source names below.
@@ -364,7 +363,7 @@ egress_hosts = [
 ]
 
 # GitHub CLI / Copilot: remote GITHUB_TOKEN becomes GH_TOKEN for the child.
-[agent_profiles.full-stack.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
 hosts = [
   "api.github.com",
@@ -374,16 +373,16 @@ hosts = [
 ]
 
 # OpenAI-compatible clients use the default Authorization: Bearer header.
-[agent_profiles.full-stack.secrets.OPENAI_API_KEY]
+[secrets.OPENAI_API_KEY]
 hosts = ["api.openai.com"]
 
 # Anthropic uses a dedicated API-key header.
-[agent_profiles.full-stack.secrets.ANTHROPIC_API_KEY]
+[secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
 header = "x-api-key"
 
 # A third-party service can use any configured header and source binding.
-[agent_profiles.full-stack.secrets.PARTNER_API_KEY]
+[secrets.PARTNER_API_KEY]
 from = "PLATFORM_PARTNER_KEY"
 hosts = ["api.partner.example"]
 header = "x-api-key"
@@ -613,8 +612,8 @@ proxy-bypassing tools can make direct network connections. The sandbox limits
 that network bypass but is not filesystem or process-memory isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
 variable as defense in depth, but this does not protect credentials stored in
 CLI configuration or the operating-system credential store. Directory profiles
-are trusted policy: review a repository's `.stashbase/agents/*.toml` (or legacy
-`stashbase-agent.toml`) before granting it secrets.
+are trusted policy: review a repository's `.stashbase/agents/*.toml` before
+granting it secrets.
 
 ## Audit logs
 

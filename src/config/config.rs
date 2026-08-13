@@ -8,7 +8,7 @@ use directories::ProjectDirs;
 
 use crate::models::{
     agent::AgentProfile,
-    config::{Config, DirectoryConfig, OutputFormatConfig, UpdateConfig},
+    config::{Config, OutputFormatConfig, UpdateConfig},
 };
 
 #[cfg(unix)]
@@ -20,9 +20,9 @@ const CONFIG_DIR_MODE: u32 = 0o700;
 const CONFIG_FILE_MODE: u32 = 0o600;
 
 /// Repository-local, security-sensitive policy for `stashbase agent run`.
-pub const DIRECTORY_AGENT_PROFILE_FILE: &str = "stashbase-agent.toml";
-/// Scalable repository-local layout: one direct agent profile per file.
+/// Each direct profile is stored in its own file.
 pub const DIRECTORY_AGENT_PROFILES_DIR: &str = ".stashbase/agents";
+const REMOVED_DIRECTORY_AGENT_PROFILE_FILE: &str = "stashbase-agent.toml";
 
 #[derive(Debug, Clone)]
 pub struct LoadedDirectoryAgentProfile {
@@ -116,9 +116,8 @@ pub fn get_config() -> Result<Config> {
     }
 }
 
-/// Load a repository-local profile from `.stashbase/agents/<name>.toml`, falling
-/// back to the legacy `stashbase-agent.toml` layout. These files never create
-/// config directories and are ignored when absent.
+/// Load a repository-local profile from `.stashbase/agents/<name>.toml`. These
+/// files never create config directories and are ignored when absent.
 pub fn get_directory_agent_profile(
     profile_name: &str,
 ) -> Result<Option<LoadedDirectoryAgentProfile>> {
@@ -145,8 +144,7 @@ pub fn get_explicit_agent_profile(path: &Path) -> Result<LoadedDirectoryAgentPro
     })
 }
 
-/// List every repository-local profile from the scalable and legacy layouts.
-/// A duplicate name is rejected so callers never have to infer precedence.
+/// List every repository-local profile from `.stashbase/agents`.
 pub fn get_directory_agent_profiles() -> Result<Vec<(String, LoadedDirectoryAgentProfile)>> {
     let current_dir = std::env::current_dir()?;
     get_directory_agent_profiles_from_dir(&current_dir)
@@ -155,6 +153,7 @@ pub fn get_directory_agent_profiles() -> Result<Vec<(String, LoadedDirectoryAgen
 fn get_directory_agent_profiles_from_dir(
     directory: &Path,
 ) -> Result<Vec<(String, LoadedDirectoryAgentProfile)>> {
+    ensure_removed_directory_profile_file_is_absent(directory)?;
     let mut profiles = std::collections::BTreeMap::new();
     let agents_directory = directory.join(DIRECTORY_AGENT_PROFILES_DIR);
     if agents_directory.is_dir() {
@@ -195,38 +194,6 @@ fn get_directory_agent_profiles_from_dir(
         }
     }
 
-    let legacy_path = directory.join(DIRECTORY_AGENT_PROFILE_FILE);
-    if legacy_path.is_file() {
-        let content = fs::read_to_string(&legacy_path).with_context(|| {
-            format!(
-                "Could not read agent profile file '{}'.",
-                legacy_path.display()
-            )
-        })?;
-        let legacy: DirectoryConfig = toml::from_str(&content).with_context(|| {
-            format!(
-                "Could not parse agent profile file '{}'.",
-                legacy_path.display()
-            )
-        })?;
-        for (name, profile) in legacy.agent_profiles.unwrap_or_default() {
-            if profiles.contains_key(&name) {
-                bail!(
-                    "Agent profile '{name}' is defined in both '{}' and '{}'. Remove one definition.",
-                    agents_directory.join(format!("{name}.toml")).display(),
-                    legacy_path.display(),
-                );
-            }
-            profiles.insert(
-                name,
-                LoadedDirectoryAgentProfile {
-                    profile,
-                    source: format!("./{DIRECTORY_AGENT_PROFILE_FILE}"),
-                    path: legacy_path.clone(),
-                },
-            );
-        }
-    }
     Ok(profiles.into_iter().collect())
 }
 
@@ -239,66 +206,39 @@ fn get_directory_agent_profile_from_dir(
             "Agent profile name '{profile_name}' must be a plain file name when using directory profiles."
         );
     }
+    ensure_removed_directory_profile_file_is_absent(directory)?;
 
     let modern_path = directory
         .join(DIRECTORY_AGENT_PROFILES_DIR)
         .join(format!("{profile_name}.toml"));
-    let modern_profile = if modern_path.is_file() {
-        let content = fs::read_to_string(&modern_path).with_context(|| {
-            format!(
-                "Could not read agent profile file '{}'.",
-                modern_path.display()
-            )
-        })?;
-        Some(toml::from_str::<AgentProfile>(&content).with_context(|| {
-            format!(
-                "Could not parse agent profile file '{}'.",
-                modern_path.display()
-            )
-        })?)
-    } else {
-        None
-    };
-
-    let legacy_path = directory.join(DIRECTORY_AGENT_PROFILE_FILE);
-    let legacy_profile = if legacy_path.is_file() {
-        let content = fs::read_to_string(&legacy_path).with_context(|| {
-            format!(
-                "Could not read agent profile file '{}'.",
-                legacy_path.display()
-            )
-        })?;
-        let config: DirectoryConfig = toml::from_str(&content).with_context(|| {
-            format!(
-                "Could not parse agent profile file '{}'.",
-                legacy_path.display()
-            )
-        })?;
-        config
-            .agent_profiles
-            .and_then(|profiles| profiles.get(profile_name).cloned())
-    } else {
-        None
-    };
-
-    match (modern_profile, legacy_profile) {
-        (Some(_), Some(_)) => bail!(
-            "Agent profile '{profile_name}' is defined in both '{}' and '{}'. Remove one definition.",
-            modern_path.display(),
-            legacy_path.display(),
-        ),
-        (Some(profile), None) => Ok(Some(LoadedDirectoryAgentProfile {
-            profile,
-            source: display_directory_profile_path(directory, &modern_path),
-            path: modern_path,
-        })),
-        (None, Some(profile)) => Ok(Some(LoadedDirectoryAgentProfile {
-            profile,
-            source: format!("./{DIRECTORY_AGENT_PROFILE_FILE}"),
-            path: legacy_path,
-        })),
-        (None, None) => Ok(None),
+    if !modern_path.is_file() {
+        return Ok(None);
     }
+    let content = fs::read_to_string(&modern_path).with_context(|| {
+        format!(
+            "Could not read agent profile file '{}'.",
+            modern_path.display()
+        )
+    })?;
+    let profile = toml::from_str::<AgentProfile>(&content).with_context(|| {
+        format!(
+            "Could not parse agent profile file '{}'.",
+            modern_path.display()
+        )
+    })?;
+    Ok(Some(LoadedDirectoryAgentProfile {
+        profile,
+        source: display_directory_profile_path(directory, &modern_path),
+        path: modern_path,
+    }))
+}
+
+fn ensure_removed_directory_profile_file_is_absent(directory: &Path) -> Result<()> {
+    let removed_path = directory.join(REMOVED_DIRECTORY_AGENT_PROFILE_FILE);
+    if removed_path.is_file() {
+        bail!("Repository-local agent profiles must use '.stashbase/agents/<profile>.toml'.");
+    }
+    Ok(())
 }
 
 fn is_safe_profile_file_name(name: &str) -> bool {
@@ -415,31 +355,8 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_legacy_directory_profile() {
+    fn rejects_removed_single_file_directory_profile_layout() {
         let directory = temporary_directory();
-        fs::write(
-            directory.join("stashbase-agent.toml"),
-            "[agent_profiles.codex]\negress_hosts = [\"api.github.com\"]\n",
-        )
-        .unwrap();
-
-        let loaded = get_directory_agent_profile_from_dir(&directory, "codex")
-            .unwrap()
-            .unwrap();
-        assert_eq!(loaded.source, "./stashbase-agent.toml");
-        fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn rejects_profile_defined_in_both_directory_layouts() {
-        let directory = temporary_directory();
-        let agents = directory.join(DIRECTORY_AGENT_PROFILES_DIR);
-        fs::create_dir_all(&agents).unwrap();
-        fs::write(
-            agents.join("codex.toml"),
-            "egress_hosts = [\"api.github.com\"]\n",
-        )
-        .unwrap();
         fs::write(
             directory.join("stashbase-agent.toml"),
             "[agent_profiles.codex]\negress_hosts = [\"api.github.com\"]\n",
@@ -449,12 +366,12 @@ mod tests {
         let error = get_directory_agent_profile_from_dir(&directory, "codex")
             .unwrap_err()
             .to_string();
-        assert!(error.contains("defined in both"));
+        assert!(error.contains(".stashbase/agents/<profile>.toml"));
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn lists_direct_and_legacy_directory_profiles() {
+    fn lists_direct_directory_profiles() {
         let directory = temporary_directory();
         let agents = directory.join(DIRECTORY_AGENT_PROFILES_DIR);
         fs::create_dir_all(&agents).unwrap();
@@ -463,19 +380,13 @@ mod tests {
             "egress_hosts = [\"api.github.com\"]\n",
         )
         .unwrap();
-        fs::write(
-            directory.join("stashbase-agent.toml"),
-            "[agent_profiles.claude]\negress_hosts = [\"api.anthropic.com\"]\n",
-        )
-        .unwrap();
-
         let profiles = get_directory_agent_profiles_from_dir(&directory).unwrap();
         assert_eq!(
             profiles
                 .into_iter()
                 .map(|(name, _)| name)
                 .collect::<Vec<_>>(),
-            ["claude", "codex"]
+            ["codex"]
         );
         fs::remove_dir_all(directory).unwrap();
     }

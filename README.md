@@ -341,15 +341,10 @@ egress_hosts = ["registry.npmjs.org"]
 hosts = ["api.github.com"]
 ```
 
-`stashbase-agent.toml` remains supported for a single-file or legacy layout.
-Do not define the same profile name in both locations; Stashbase reports that
-as an error rather than choosing one.
-
 Select where the profile is loaded with `--profile-source`:
 
 ```bash
-# Default: ./.stashbase/agents/coding.toml or legacy ./stashbase-agent.toml,
-# otherwise global config
+# Default: ./.stashbase/agents/coding.toml, otherwise global config
 stashbase agent run --profile coding -- codex
 
 # Require a repository-local profile
@@ -359,9 +354,8 @@ stashbase agent run --profile coding --profile-source directory -- codex
 stashbase agent run --profile coding --profile-source auto -- codex
 ```
 
-The default is `auto`: `.stashbase/agents/<profile>.toml` is preferred, with
-legacy `stashbase-agent.toml` supported as a fallback; otherwise Stashbase falls
-back to global config. Treat a
+The default is `auto`: `.stashbase/agents/<profile>.toml` is preferred;
+otherwise Stashbase falls back to global config. Treat a
 repository profile as trusted policy: it can select its Stashbase environment
 or local secret file and determines where secrets may be sent.
 When `auto` selects a directory profile, the CLI prints a warning so the policy
@@ -472,9 +466,9 @@ from accessing credentials stored elsewhere, such as CLI configuration or the
 operating-system credential store.
 
 Treat directory profiles as trusted policy: with the default `--profile-source
-auto`, a repository `stashbase-agent.toml` can select a secret source and its allowed
-destinations. Do not run an agent with secrets from an untrusted repository, or
-give it unrestricted Stashbase API credentials.
+auto`, a repository `.stashbase/agents/<profile>.toml` file can select a secret
+source and its allowed destinations. Do not run an agent with secrets from an
+untrusted repository, or give it unrestricted Stashbase API credentials.
 
 ### Audit logs
 

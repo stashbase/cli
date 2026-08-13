@@ -356,7 +356,7 @@ pub enum AgentAuditGroupBy {
 pub enum AgentProfileSource {
     /// User-level Stashbase config
     Global,
-    /// .stashbase/agents/<profile>.toml or legacy stashbase-agent.toml in the current directory
+    /// .stashbase/agents/<profile>.toml in the current directory
     Directory,
     /// Directory profile when present, otherwise user-level config
     Auto,
