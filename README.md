@@ -187,6 +187,21 @@ secret values.
 > limits this CLI request; it is not server-enforced authorization for a holder
 > of a normal personal or service API key.
 
+For a repository-local starting point, create a deliberately closed profile,
+then replace the placeholder and example rule with the capability your agent
+needs:
+
+```bash
+stashbase agent init codex
+stashbase agent validate --profile codex --profile-source directory
+stashbase agent run --profile codex -- codex
+```
+
+This creates `.stashbase/agents/codex.toml` with no egress destinations granted
+by default. See the [agent-profile cookbook](docs/agent-profiles.md) for
+credential-specific HTTP allow/deny rules, legacy host-only profiles, sandbox
+containment, auditing, and remote sessions.
+
 For a coding agent, use an agent profile instead of allowing the agent to select
 its own secret names or destinations. Add the profile to the user-level
 Stashbase `config.toml`:
@@ -227,6 +242,14 @@ stashbase agent validate --profile coding
 stashbase agent validate --remote --profile coding
 ```
 
+To inspect a proposed request against a profile without loading secrets or
+making a network request:
+
+```bash
+stashbase agent explain --profile coding \
+  --host api.github.com --method GET --path /user
+```
+
 `agent run` always uses proxy mode, exposes only placeholders to the child,
 suppresses secret printing, and strictly denies HTTP(S) destinations outside the
 profile. A placeholder can only be exchanged for its mapped secret at one of
@@ -254,11 +277,34 @@ placeholder = "sk-ant-api03-stashbase-placeholder-000000000000000000000000000000
 Hosts may use a leading subdomain wildcard such as `*.githubcopilot.com`; it
 matches subdomains only, never the apex domain itself.
 
-`egress_hosts` permits ordinary traffic without injecting a Stashbase
-credential. Keep a secret's `hosts` list limited to destinations that should
-receive that specific credential.
+When configured, `egress_hosts` controls where the agent may connect,
+including ordinary traffic without a Stashbase credential. A secret's `hosts`
+list is its legacy credential host allowlist; it remains active when that
+secret has no `rules`. For method-and-path restrictions, add
+credential-specific `rules`: rules are unordered, multiple allows are
+additive, any matching deny wins, and a secret with rules is default-deny when
+no allow matches. Rules never widen ordinary egress.
 Use `egress_hosts = ["*"]` only when the agent needs unrestricted HTTP(S)
 egress; it does not widen a secret's configured injection hosts.
+
+```toml
+egress_hosts = ["api.github.com"]
+
+[agent_profiles.coding.secrets.GH_TOKEN]
+from = "GITHUB_TOKEN"
+
+[[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*/*", "/repos/*/*/issues*"]
+
+[[agent_profiles.coding.secrets.GH_TOKEN.rules]]
+effect = "deny"
+hosts = ["api.github.com"]
+methods = ["DELETE"]
+paths = ["*"]
+```
 
 Egress is a developer policy choice in this local mode. If a profile allows
 your Stashbase API host (including through `egress_hosts = ["*"]`), a child may
@@ -282,35 +328,34 @@ deny_hosts = ["api.stashbase.dev"]
 
 Use the hostname from `STASHBASE_API_URL` instead when targeting a custom API.
 
-Agent profiles can also live in `stashbase-agent.toml` in the command's current
-directory. The directory file contains a complete profile and never stores API
-keys or secret values:
+For repositories with more than one agent, keep one direct profile per file in
+`.stashbase/agents/<name>.toml`. These files never store API keys or secret
+values:
 
 ```toml
-# stashbase-agent.toml
-[agent_profiles.coding]
+# .stashbase/agents/coding.toml
 file = ".env.agent"
 egress_hosts = ["registry.npmjs.org"]
 
-[agent_profiles.coding.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 hosts = ["api.github.com"]
 ```
 
 Select where the profile is loaded with `--profile-source`:
 
 ```bash
-# Default: ./stashbase-agent.toml when present, otherwise global config
+# Default: ./.stashbase/agents/coding.toml, otherwise global config
 stashbase agent run --profile coding -- codex
 
-# Require ./stashbase-agent.toml
+# Require a repository-local profile
 stashbase agent run --profile coding --profile-source directory -- codex
 
-# Use ./stashbase-agent.toml when present, otherwise global config
+# Use a repository-local profile when present, otherwise global config
 stashbase agent run --profile coding --profile-source auto -- codex
 ```
 
-The default is `auto`: a `stashbase-agent.toml` in the current directory is used
-when present, otherwise Stashbase falls back to global config. Treat a
+The default is `auto`: `.stashbase/agents/<profile>.toml` is preferred;
+otherwise Stashbase falls back to global config. Treat a
 repository profile as trusted policy: it can select its Stashbase environment
 or local secret file and determines where secrets may be sent.
 When `auto` selects a directory profile, the CLI prints a warning so the policy
@@ -421,9 +466,9 @@ from accessing credentials stored elsewhere, such as CLI configuration or the
 operating-system credential store.
 
 Treat directory profiles as trusted policy: with the default `--profile-source
-auto`, a repository `stashbase-agent.toml` can select a secret source and its allowed
-destinations. Do not run an agent with secrets from an untrusted repository, or
-give it unrestricted Stashbase API credentials.
+auto`, a repository `.stashbase/agents/<profile>.toml` file can select a secret
+source and its allowed destinations. Do not run an agent with secrets from an
+untrusted repository, or give it unrestricted Stashbase API credentials.
 
 ### Audit logs
 

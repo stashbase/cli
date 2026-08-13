@@ -121,6 +121,9 @@ impl EntityType {
             EntityType::Config(_) => false,
             EntityType::Doctor(_) => false,
             EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Init(_),
+            }) => false,
+            EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Logs(_),
             }) => false,
             EntityType::Agent(AgentCommand {
@@ -128,6 +131,12 @@ impl EntityType {
             }) => false,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Validate(_),
+            }) => false,
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Explain(_),
+            }) => false,
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Policy(_),
             }) => false,
             // File-only agent profiles require no Stashbase authentication.
             // Remote fallback is validated after the profile and local overrides

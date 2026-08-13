@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::Path,
     sync::atomic::Ordering,
     sync::{Arc, RwLock},
@@ -8,17 +8,27 @@ use std::{
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use serde::Serialize;
+use tabled::Tabled;
 use tokio::{sync::watch, task::JoinHandle};
 
 use crate::{
     cmd::{
-        agent::{AgentLogsCommand, AgentProfileSource, AgentSubcommand},
+        agent::{
+            AgentAuditGroupBy, AgentLogsCommand, AgentLogsListCommand, AgentLogsSubcommand,
+            AgentLogsSummaryCommand, AgentProfileSource, AgentSubcommand,
+        },
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
     handlers::{
         agent_doctor::handle_agent_doctor_command,
+        agent_explain::handle_agent_explain_command,
+        agent_init::handle_agent_init_command,
+        agent_policy::SecretHttpPolicy,
+        agent_policy_test::handle_agent_policy_test_command,
+        agent_profiles::handle_agent_profiles_command,
         agent_validate::handle_agent_validate_command,
         doctor::handle_doctor_command,
         entry::{
@@ -37,15 +47,17 @@ use crate::{
         run::{
             entry::{handle_load_env_run, handle_remote_agent_run, HandleRunArgs},
             proxy::{
-                read_local_proxy_audit_logs, ProxyAuditLog, ProxyAuditLogEvent,
-                ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
+                read_local_proxy_audit_logs, ProfileAuditProvenance, ProxyAuditLog,
+                ProxyAuditLogEvent, ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
             },
             subprocess::CommandFailed,
         },
         setup::setup,
     },
     models::{config::Config, validation::InputValidationError},
-    utils::{env::get_stashbase_api_key, output::ColorizeIfColoredOutput},
+    utils::{
+        env::get_stashbase_api_key, output::ColorizeIfColoredOutput, tables::build::build_table,
+    },
     REQUEST_ABORTED,
 };
 
@@ -288,9 +300,18 @@ pub async fn handle_cli(args: Cli) {
                     .await
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
-                AgentSubcommand::Logs(agent_logs) => {
-                    handle_agent_logs(agent_logs, raw_output).await
+                AgentSubcommand::Init(agent_init) => {
+                    handle_agent_init_command(agent_init, silent, raw_output)
                 }
+                AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
+                    Some(AgentLogsSubcommand::List(list)) => {
+                        handle_agent_logs(list.into(), raw_output).await
+                    }
+                    Some(AgentLogsSubcommand::Summary(summary)) => {
+                        handle_agent_logs_summary(summary, silent, raw_output)
+                    }
+                    None => handle_agent_logs(agent_logs, raw_output).await,
+                },
                 AgentSubcommand::Doctor(agent_doctor) => {
                     match handle_agent_doctor_command(agent_doctor, raw_output).await {
                         Ok(true) => std::process::exit(1),
@@ -305,25 +326,68 @@ pub async fn handle_cli(args: Cli) {
                         Err(error) => Err(error),
                     }
                 }
+                AgentSubcommand::Explain(agent_explain) => {
+                    handle_agent_explain_command(agent_explain, &config, silent, raw_output)
+                }
+                AgentSubcommand::Policy(agent_policy) => match agent_policy.subcommand {
+                    crate::cmd::agent::AgentPolicySubcommand::Test(agent_policy_test) => {
+                        match handle_agent_policy_test_command(
+                            agent_policy_test,
+                            &config,
+                            silent,
+                            raw_output,
+                        ) {
+                            Ok(true) => std::process::exit(1),
+                            Ok(false) => Ok(()),
+                            Err(error) => Err(error),
+                        }
+                    }
+                },
+                AgentSubcommand::Profiles(agent_profiles) => {
+                    handle_agent_profiles_command(agent_profiles, &config, silent, raw_output)
+                }
                 AgentSubcommand::Run(agent_run) => async {
+                    let explicit_profile = agent_run
+                        .policy_file
+                        .as_deref()
+                        .map(config::get_explicit_agent_profile)
+                        .transpose()?;
                     let global_profile = config
                         .agent_profiles
                         .as_ref()
                         .and_then(|profiles| profiles.get(&agent_run.profile))
                         .cloned();
-                    let (profile, loaded_from_directory) = match agent_run.profile_source {
-                        AgentProfileSource::Global => (global_profile, false),
-                        AgentProfileSource::Directory => (
-                            config::get_directory_agent_profile(&agent_run.profile)?,
-                            true,
-                        ),
+                    let (profile, directory_source, profile_path) = if let Some(profile) = explicit_profile {
+                        (
+                            Some(profile.profile),
+                            Some(profile.source),
+                            Some(profile.path),
+                        )
+                    } else { match agent_run.profile_source {
+                        AgentProfileSource::Global => {
+                            (global_profile, None, Some(config::get_config_path()?))
+                        }
+                        AgentProfileSource::Directory => {
+                            let profile = config::get_directory_agent_profile(&agent_run.profile)?;
+                            let source = profile.as_ref().map(|profile| profile.source.clone());
+                            let path = profile.as_ref().map(|profile| profile.path.clone());
+                            (profile.map(|profile| profile.profile), source, path)
+                        }
                         AgentProfileSource::Auto => {
                             let directory_profile =
                                 config::get_directory_agent_profile(&agent_run.profile)?;
-                            let loaded_from_directory = directory_profile.is_some();
-                            (directory_profile.or(global_profile), loaded_from_directory)
+                            let source = directory_profile
+                                .as_ref()
+                                .map(|profile| profile.source.clone());
+                            let path = directory_profile.as_ref().map(|profile| profile.path.clone());
+                            (
+                                directory_profile.map(|profile| profile.profile).or(global_profile),
+                                source,
+                                path.or(Some(config::get_config_path()?)),
+                            )
                         }
-                    };
+                    }};
+                    let loaded_from_directory = directory_source.is_some();
 
                     let Some(profile) = profile else {
                         let source = match agent_run.profile_source {
@@ -342,12 +406,25 @@ pub async fn handle_cli(args: Cli) {
 
                     if loaded_from_directory
                         && matches!(agent_run.profile_source, AgentProfileSource::Auto)
+                        && agent_run.policy_file.is_none()
                         && !silent
                     {
                         eprintln!(
-                            "Warning: Loaded agent profile '{}' from ./stashbase-agent.toml. Review this repository policy before granting secrets.",
-                            agent_run.profile
+                            "Warning: Loaded agent profile '{}' from {}. Review this repository policy before granting secrets.",
+                            agent_run.profile,
+                            directory_source.as_deref().unwrap(),
                         );
+                    }
+
+                    if loaded_from_directory && !silent {
+                        if let Some(warning) = directory_profile_git_warning(
+                            profile_path
+                                .as_deref()
+                                .context("Agent profile source path is unavailable")?,
+                            directory_source.as_deref().unwrap(),
+                        ) {
+                            eprintln!("Warning: {warning}");
+                        }
                     }
 
                     if !silent {
@@ -404,14 +481,20 @@ pub async fn handle_cli(args: Cli) {
                     }
 
                     let policy = ProxyPolicy {
-                        allowed_hosts_by_secret: profile
+                        secret_policies: profile
                             .secrets
                             .iter()
                             .map(|(name, secret)| {
-                                (
-                                    name.clone(),
-                                    secret.hosts.iter().cloned().collect::<HashSet<_>>(),
-                                )
+                                let policy = if secret.rules.is_empty() {
+                                    SecretHttpPolicy::LegacyHosts(
+                                        secret.hosts.iter().cloned().collect::<HashSet<_>>(),
+                                    )
+                                } else {
+                                    SecretHttpPolicy::Rules(
+                                        secret.rules.clone(),
+                                    )
+                                };
+                                (name.clone(), policy)
                             })
                             .collect::<HashMap<_, _>>(),
                         secret_injections: profile
@@ -454,15 +537,33 @@ pub async fn handle_cli(args: Cli) {
                             .unwrap_or_default()
                             .into_iter()
                             .collect(),
+                        egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                     };
+                    let policy_fingerprint = policy.fingerprint();
+                    let profile_source = directory_source
+                        .clone()
+                        .unwrap_or_else(|| "user-level config".to_owned());
+                    let profile_provenance = ProfileAuditProvenance::from_file(
+                        profile_source,
+                        profile_path.as_deref().context("Agent profile source path is unavailable")?,
+                    )?;
                     let audit_log = (!agent_run.remote)
-                        .then(|| agent_run.audit_log.then(|| ProxyAuditLog::local(&agent_run.profile)))
+                        .then(|| {
+                            agent_run.audit_log.then(|| {
+                                ProxyAuditLog::local(
+                                    &agent_run.profile,
+                                    policy_fingerprint.clone(),
+                                )
+                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
+                            })
+                        })
                         .flatten()
                         .transpose()?;
                     if let Some(audit_log) = &audit_log {
                         if !silent {
                             eprintln!("Audit session: {}", audit_log.session_id());
+                            eprintln!("Policy fingerprint: {}", audit_log.policy_fingerprint());
                             eprintln!("Audit log: {}", audit_log.path().display());
                         }
                     }
@@ -494,6 +595,19 @@ pub async fn handle_cli(args: Cli) {
                                 name: name.clone(),
                                 from: secret.from.clone().unwrap_or_else(|| name.clone()),
                                 hosts: secret.hosts.clone(),
+                                rules: secret
+                                    .rules
+                                    .iter()
+                                    .cloned()
+                                    .map(|mut rule| {
+                                        rule.methods = rule
+                                            .methods
+                                            .into_iter()
+                                            .map(|method| method.trim().to_ascii_uppercase())
+                                            .collect();
+                                        rule
+                                    })
+                                    .collect(),
                                 header,
                                 placeholder: secret
                                     .placeholder
@@ -521,7 +635,14 @@ pub async fn handle_cli(args: Cli) {
                         let token = session.session_token.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
-                            .then(|| ProxyAuditLog::local_with_session_id(&agent_run.profile, session.session_id.clone()))
+                            .then(|| {
+                                ProxyAuditLog::local_with_session_id(
+                                    &agent_run.profile,
+                                    session.session_id.clone(),
+                                    policy_fingerprint.clone(),
+                                )
+                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
+                            })
                             .transpose()
                         {
                             Ok(audit_log) => audit_log,
@@ -533,6 +654,7 @@ pub async fn handle_cli(args: Cli) {
                         if let Some(audit_log) = &remote_audit_log {
                             if !silent {
                                 eprintln!("Audit session: {}", audit_log.session_id());
+                                eprintln!("Policy fingerprint: {}", audit_log.policy_fingerprint());
                                 eprintln!("Audit log: {}", audit_log.path().display());
                             }
                         }
@@ -809,6 +931,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
         action: command.action,
         host: command.host,
         session: command.session,
+        id: command.id,
     };
     if !command.follow {
         let events = read_local_proxy_audit_logs(command.limit, since, &filter)?;
@@ -837,6 +960,313 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
 
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
+}
+
+impl From<AgentLogsListCommand> for AgentLogsCommand {
+    fn from(command: AgentLogsListCommand) -> Self {
+        Self {
+            subcommand: None,
+            limit: command.limit,
+            since: command.since,
+            profile: command.profile,
+            action: command.action,
+            host: command.host,
+            session: command.session,
+            id: command.id,
+            follow: command.follow,
+        }
+    }
+}
+
+fn handle_agent_logs_summary(
+    command: AgentLogsSummaryCommand,
+    silent: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    if command.limit == 0 || command.limit > 1_000 {
+        anyhow::bail!("--limit must be between 1 and 1000.");
+    }
+    let since = command
+        .since
+        .as_deref()
+        .map(parse_audit_duration)
+        .transpose()?;
+    let filter = ProxyAuditLogFilter {
+        profile: command.profile,
+        action: command.action,
+        host: command.host,
+        session: command.session,
+        id: command.id,
+    };
+    let report = summarize_audit_events(
+        read_local_proxy_audit_logs(command.limit, since, &filter)?,
+        command.limit,
+        command.since.clone(),
+        command.group_by,
+    );
+    if !silent {
+        println!();
+    }
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    println!("Agent proxy audit summary");
+    println!(
+        "Events: {} (newest matching events; limit {})",
+        report.events, command.limit
+    );
+    println!("Requests: {}", report.requests);
+    println!("Injected: {}", report.injected);
+    println!("Forwarded without credential: {}", report.forwarded);
+    println!("Denied: {}", report.denied);
+    println!("Uploaded: {}", format_bytes(report.request_bytes));
+    println!("Downloaded: {}", format_bytes(report.response_bytes));
+    if !report.groups.is_empty() {
+        println!();
+        println!("Grouped by {}:", report.group_by.unwrap_or_default());
+        print_audit_group_summary_table(&report.groups);
+    }
+    if !report.denied_by.is_empty() {
+        println!();
+        println!("Denied by:");
+        print_denied_summary_table(&report.denied_by);
+    }
+    Ok(())
+}
+
+fn print_audit_group_summary_table(entries: &[AuditGroupSummary]) {
+    print!("{}", format_audit_group_summary_table(entries));
+}
+
+fn format_audit_group_summary_table(entries: &[AuditGroupSummary]) -> String {
+    let rows = entries
+        .iter()
+        .map(|entry| AuditGroupSummaryRow {
+            group: entry.value.clone(),
+            events: entry.events,
+            requests: entry.requests,
+            denied: entry.denied,
+            uploaded: format_bytes(entry.request_bytes),
+            downloaded: format_bytes(entry.response_bytes),
+        })
+        .collect::<Vec<_>>();
+    build_table(&rows).to_string() + "\n"
+}
+
+fn print_denied_summary_table(entries: &[AuditDeniedSummary]) {
+    print!("{}", format_denied_summary_table(entries));
+}
+
+fn format_denied_summary_table(entries: &[AuditDeniedSummary]) -> String {
+    let rows = entries
+        .iter()
+        .map(|entry| AuditDeniedSummaryRow {
+            action: entry.action.clone(),
+            host: entry.host.clone(),
+            count: entry.count,
+        })
+        .collect::<Vec<_>>();
+    build_table(&rows).to_string() + "\n"
+}
+
+fn summarize_audit_events(
+    events: Vec<ProxyAuditLogEvent>,
+    limit: usize,
+    since: Option<String>,
+    group_by: Option<AgentAuditGroupBy>,
+) -> AuditSummary {
+    let events_count = events.len();
+    let requests = events.iter().filter(|event| event.method.is_some()).count();
+    let injected = events
+        .iter()
+        .filter(|event| event.action == "injected")
+        .count();
+    let forwarded = events
+        .iter()
+        .filter(|event| event.action == "forwarded")
+        .count();
+    let request_bytes = events.iter().filter_map(|event| event.request_bytes).sum();
+    let response_bytes = events.iter().filter_map(|event| event.response_bytes).sum();
+    let denied_events = events
+        .iter()
+        .filter(|event| event.response_status == Some(403))
+        .collect::<Vec<_>>();
+    let mut denied_by = BTreeMap::<(String, String), usize>::new();
+    for event in &denied_events {
+        *denied_by
+            .entry((
+                event.action.clone(),
+                event
+                    .destination_host
+                    .clone()
+                    .unwrap_or_else(|| "-".to_owned()),
+            ))
+            .or_default() += 1;
+    }
+    let mut denied_by = denied_by
+        .into_iter()
+        .map(|((action, host), count)| AuditDeniedSummary {
+            action,
+            host,
+            count,
+        })
+        .collect::<Vec<_>>();
+    denied_by.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.action.cmp(&right.action))
+            .then_with(|| left.host.cmp(&right.host))
+    });
+    let groups = group_by.map(|group_by| summarize_audit_groups(&events, group_by));
+    AuditSummary {
+        limit,
+        since,
+        events: events_count,
+        requests,
+        injected,
+        forwarded,
+        denied: denied_events.len(),
+        request_bytes,
+        response_bytes,
+        denied_by,
+        group_by: group_by.map(audit_group_by_name),
+        groups: groups.unwrap_or_default(),
+    }
+}
+
+#[derive(Serialize)]
+struct AuditSummary {
+    limit: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since: Option<String>,
+    events: usize,
+    requests: usize,
+    injected: usize,
+    forwarded: usize,
+    denied: usize,
+    request_bytes: u64,
+    response_bytes: u64,
+    denied_by: Vec<AuditDeniedSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group_by: Option<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    groups: Vec<AuditGroupSummary>,
+}
+
+#[derive(Serialize)]
+struct AuditDeniedSummary {
+    action: String,
+    host: String,
+    count: usize,
+}
+
+#[derive(Tabled)]
+struct AuditDeniedSummaryRow {
+    #[tabled(rename = "ACTION")]
+    action: String,
+    #[tabled(rename = "HOST")]
+    host: String,
+    #[tabled(rename = "COUNT")]
+    count: usize,
+}
+
+#[derive(Serialize)]
+struct AuditGroupSummary {
+    value: String,
+    events: usize,
+    requests: usize,
+    denied: usize,
+    request_bytes: u64,
+    response_bytes: u64,
+}
+
+#[derive(Tabled)]
+struct AuditGroupSummaryRow {
+    #[tabled(rename = "GROUP")]
+    group: String,
+    #[tabled(rename = "EVENTS")]
+    events: usize,
+    #[tabled(rename = "REQUESTS")]
+    requests: usize,
+    #[tabled(rename = "DENIED")]
+    denied: usize,
+    #[tabled(rename = "UPLOADED")]
+    uploaded: String,
+    #[tabled(rename = "DOWNLOADED")]
+    downloaded: String,
+}
+
+fn audit_group_by_name(group_by: AgentAuditGroupBy) -> &'static str {
+    match group_by {
+        AgentAuditGroupBy::Host => "host",
+        AgentAuditGroupBy::Action => "action",
+        AgentAuditGroupBy::Secret => "secret",
+    }
+}
+
+fn summarize_audit_groups(
+    events: &[ProxyAuditLogEvent],
+    group_by: AgentAuditGroupBy,
+) -> Vec<AuditGroupSummary> {
+    let mut groups = BTreeMap::<String, AuditGroupSummary>::new();
+    for event in events {
+        let value = match group_by {
+            AgentAuditGroupBy::Host => event.destination_host.as_deref(),
+            AgentAuditGroupBy::Action => Some(event.action.as_str()),
+            AgentAuditGroupBy::Secret => event.secret_name.as_deref(),
+        }
+        .unwrap_or("-")
+        .to_owned();
+        let group = groups.entry(value.clone()).or_insert(AuditGroupSummary {
+            value,
+            events: 0,
+            requests: 0,
+            denied: 0,
+            request_bytes: 0,
+            response_bytes: 0,
+        });
+        group.events += 1;
+        group.requests += usize::from(event.method.is_some());
+        group.denied += usize::from(event.response_status == Some(403));
+        group.request_bytes += event.request_bytes.unwrap_or_default();
+        group.response_bytes += event.response_bytes.unwrap_or_default();
+    }
+    let mut groups = groups.into_values().collect::<Vec<_>>();
+    groups.sort_by(|left, right| {
+        right
+            .response_bytes
+            .cmp(&left.response_bytes)
+            .then_with(|| right.events.cmp(&left.events))
+            .then_with(|| left.value.cmp(&right.value))
+    });
+    groups
+}
+
+/// Returns a startup warning when repository-controlled policy has not been
+/// committed. A missing repository is normal for local profiles and is silent.
+fn directory_profile_git_warning(profile_path: &Path, source: &str) -> Option<String> {
+    let repository = git2::Repository::discover(profile_path.parent()?).ok()?;
+    let workdir = repository.workdir()?.canonicalize().ok()?;
+    let profile_path = profile_path.canonicalize().ok()?;
+    let relative_path = profile_path.strip_prefix(workdir).ok()?;
+    let is_untracked = repository
+        .index()
+        .map(|index| index.get_path(relative_path, 0).is_none())
+        // A newly initialized repository may not have an index file yet.
+        .unwrap_or(true);
+    if is_untracked {
+        return None;
+    }
+    let status = repository.status_file(relative_path).ok()?;
+    if status.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Agent profile {source} has uncommitted Git changes. Review or commit this policy before granting credentials."
+    ))
 }
 
 /// Makes the active risk visible at launch time. The proxy remains host-based:
@@ -925,11 +1355,39 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .duration_ms
         .map(|duration| format!("{duration}ms"))
         .unwrap_or_else(|| "-".to_owned());
+    let request_bytes = event
+        .request_bytes
+        .map(format_bytes)
+        .unwrap_or_else(|| "-".to_owned());
+    let response_bytes = event
+        .response_bytes
+        .map(format_bytes)
+        .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  profile={} action={} host={} secret={} status={} duration={}",
-        event.timestamp, event.profile, event.action, host, secret, status, duration
+        "{}  id={} profile={} action={} host={} secret={} status={} duration={} request_bytes={} response_bytes={}",
+        event.timestamp, event.id, event.profile, event.action, host, secret, status, duration,
+        request_bytes, response_bytes
     );
     Ok(())
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else if value >= 100.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else if value >= 10.0 {
+        format!("{value:.1} {}", UNITS[unit])
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
 }
 
 const REMOTE_SESSION_ROTATE_EARLY: Duration = Duration::from_secs(120);
@@ -1142,10 +1600,75 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        configured_host_matches, ensure_replacement_session_is_compatible, infer_remote_agent_type,
+        configured_host_matches, directory_profile_git_warning,
+        ensure_replacement_session_is_compatible, infer_remote_agent_type,
         remote_session_rotation_delay_for, remote_session_transport_identity,
+        summarize_audit_events,
     };
-    use std::time::Duration;
+    use crate::handlers::run::proxy::ProxyAuditLogEvent;
+    use std::{
+        fs,
+        path::Path,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    fn temporary_git_repository() -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!(
+            "stashbase-agent-profile-git-test-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        git2::Repository::init(&directory).unwrap();
+        directory
+    }
+
+    #[test]
+    fn warns_only_for_modified_tracked_directory_profiles() {
+        let directory = temporary_git_repository();
+        let profile = directory.join(".stashbase/agents/codex.toml");
+        fs::create_dir_all(profile.parent().unwrap()).unwrap();
+        fs::write(&profile, "egress_hosts = [\"api.github.com\"]\n").unwrap();
+
+        assert!(
+            directory_profile_git_warning(&profile, "./.stashbase/agents/codex.toml").is_none()
+        );
+
+        let repository = git2::Repository::open(&directory).unwrap();
+        let mut index = repository.index().unwrap();
+        index
+            .add_path(Path::new(".stashbase/agents/codex.toml"))
+            .unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repository.find_tree(tree_id).unwrap();
+        let signature = git2::Signature::now("Stashbase test", "test@example.com").unwrap();
+        repository
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                "add profile",
+                &tree,
+                &[],
+            )
+            .unwrap();
+        fs::write(
+            &profile,
+            "egress_hosts = [\"api.github.com\", \"chatgpt.com\"]\n",
+        )
+        .unwrap();
+
+        assert!(
+            directory_profile_git_warning(&profile, "./.stashbase/agents/codex.toml")
+                .unwrap()
+                .contains("uncommitted")
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn configured_host_matching_supports_exact_and_subdomain_wildcards() {
@@ -1162,6 +1685,139 @@ mod tests {
             "api.stashbase.dev",
             "other.example"
         ));
+    }
+
+    #[test]
+    fn audit_summary_groups_denials_without_secret_metadata() {
+        let event = |action: &str, host: &str, status| ProxyAuditLogEvent {
+            timestamp: "2026-01-01T00:00:00Z".to_owned(),
+            id: "evt_test".to_owned(),
+            session_id: "session".to_owned(),
+            profile: "codex".to_owned(),
+            policy_fingerprint: "fingerprint".to_owned(),
+            profile_source: None,
+            profile_file_modified_at: None,
+            profile_file_sha256: None,
+            action: action.to_owned(),
+            destination_host: Some(host.to_owned()),
+            method: Some("GET".to_owned()),
+            secret_name: Some("GITHUB_TOKEN".to_owned()),
+            response_status: status,
+            duration_ms: Some(1),
+            request_bytes: Some(10),
+            response_bytes: Some(20),
+        };
+        let report = summarize_audit_events(
+            vec![
+                event("injected", "api.github.com", Some(200)),
+                event("credential_rule_denied", "api.github.com", Some(403)),
+                event("credential_rule_denied", "api.github.com", Some(403)),
+                event("host_denied", "api.stripe.com", Some(403)),
+            ],
+            50,
+            Some("7d".to_owned()),
+            None,
+        );
+
+        assert_eq!(report.limit, 50);
+        assert_eq!(report.since.as_deref(), Some("7d"));
+        assert_eq!(report.events, 4);
+        assert_eq!(report.requests, 4);
+        assert_eq!(report.injected, 1);
+        assert_eq!(report.denied, 3);
+        assert_eq!(report.request_bytes, 40);
+        assert_eq!(report.response_bytes, 80);
+        assert_eq!(report.denied_by[0].action, "credential_rule_denied");
+        assert_eq!(report.denied_by[0].host, "api.github.com");
+        assert_eq!(report.denied_by[0].count, 2);
+    }
+
+    #[test]
+    fn audit_summary_groups_transfer_totals_by_requested_dimension() {
+        let events = vec![
+            ProxyAuditLogEvent {
+                timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                id: "evt_one".to_owned(),
+                session_id: "session".to_owned(),
+                profile: "codex".to_owned(),
+                policy_fingerprint: "fingerprint".to_owned(),
+                profile_source: None,
+                profile_file_modified_at: None,
+                profile_file_sha256: None,
+                action: "injected".to_owned(),
+                destination_host: Some("api.github.com".to_owned()),
+                method: Some("POST".to_owned()),
+                secret_name: Some("GITHUB_TOKEN".to_owned()),
+                response_status: Some(200),
+                duration_ms: Some(1),
+                request_bytes: Some(10),
+                response_bytes: Some(100),
+            },
+            ProxyAuditLogEvent {
+                timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                id: "evt_two".to_owned(),
+                session_id: "session".to_owned(),
+                profile: "codex".to_owned(),
+                policy_fingerprint: "fingerprint".to_owned(),
+                profile_source: None,
+                profile_file_modified_at: None,
+                profile_file_sha256: None,
+                action: "forwarded".to_owned(),
+                destination_host: Some("registry.npmjs.org".to_owned()),
+                method: Some("GET".to_owned()),
+                secret_name: None,
+                response_status: Some(200),
+                duration_ms: Some(1),
+                request_bytes: Some(2),
+                response_bytes: Some(200),
+            },
+        ];
+
+        let by_host =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Host);
+        assert_eq!(by_host[0].value, "registry.npmjs.org");
+        assert_eq!(by_host[0].response_bytes, 200);
+
+        let by_action =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Action);
+        assert_eq!(by_action[1].value, "injected");
+        assert_eq!(by_action[1].request_bytes, 10);
+
+        let by_secret =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Secret);
+        assert_eq!(by_secret[0].value, "-");
+        assert_eq!(by_secret[1].value, "GITHUB_TOKEN");
+    }
+
+    #[test]
+    fn denied_summary_table_uses_the_shared_table_renderer() {
+        let entries = vec![
+            super::AuditDeniedSummary {
+                action: "host_denied".to_owned(),
+                host: "api.stripe.com".to_owned(),
+                count: 5,
+            },
+            super::AuditDeniedSummary {
+                action: "credential_rule_denied".to_owned(),
+                host: "api.github.com".to_owned(),
+                count: 12,
+            },
+        ];
+        let output = super::format_denied_summary_table(&entries);
+        assert!(output.contains("ACTION"));
+        assert!(output.contains("credential_rule_denied"));
+        assert!(output.contains("api.stripe.com"));
+    }
+
+    #[test]
+    fn formats_byte_counts_for_human_audit_output() {
+        assert_eq!(super::format_bytes(0), "0 B");
+        assert_eq!(super::format_bytes(1_023), "1023 B");
+        assert_eq!(super::format_bytes(1_024), "1.00 KiB");
+        assert_eq!(super::format_bytes(12 * 1_024), "12.0 KiB");
+        assert_eq!(super::format_bytes(128 * 1_024), "128 KiB");
+        assert_eq!(super::format_bytes(1_572_864), "1.50 MiB");
+        assert_eq!(super::format_bytes(3 * 1_024 * 1_024 * 1_024), "3.00 GiB");
     }
 
     #[test]

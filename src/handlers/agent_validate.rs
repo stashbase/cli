@@ -18,7 +18,10 @@ use serde::Serialize;
 use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
-    models::{agent::AgentProfile, config::Config},
+    models::{
+        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentProfile},
+        config::Config,
+    },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
 
@@ -50,22 +53,41 @@ pub async fn handle_agent_validate_command(
     json_format: bool,
 ) -> Result<bool> {
     let mut checks = Vec::new();
+    let explicit_profile = command
+        .policy_file
+        .as_deref()
+        .map(config::get_explicit_agent_profile)
+        .transpose()?;
     let global_profile = global_config
         .agent_profiles
         .as_ref()
         .and_then(|profiles| profiles.get(&command.profile))
         .cloned();
-    let (profile, directory_profile) = match command.profile_source {
-        AgentProfileSource::Global => (global_profile, false),
-        AgentProfileSource::Directory => {
-            (config::get_directory_agent_profile(&command.profile)?, true)
-        }
-        AgentProfileSource::Auto => {
-            let directory_profile = config::get_directory_agent_profile(&command.profile)?;
-            let from_directory = directory_profile.is_some();
-            (directory_profile.or(global_profile), from_directory)
+    let (profile, directory_source) = if let Some(profile) = explicit_profile {
+        (Some(profile.profile), Some(profile.source))
+    } else {
+        match command.profile_source {
+            AgentProfileSource::Global => (global_profile, None),
+            AgentProfileSource::Directory => {
+                let profile = config::get_directory_agent_profile(&command.profile)?;
+                let source = profile.as_ref().map(|profile| profile.source.clone());
+                (profile.map(|profile| profile.profile), source)
+            }
+            AgentProfileSource::Auto => {
+                let directory_profile = config::get_directory_agent_profile(&command.profile)?;
+                let directory_source = directory_profile
+                    .as_ref()
+                    .map(|profile| profile.source.clone());
+                (
+                    directory_profile
+                        .map(|profile| profile.profile)
+                        .or(global_profile),
+                    directory_source,
+                )
+            }
         }
     };
+    let directory_profile = directory_source.is_some();
 
     let Some(profile) = profile else {
         checks.push(fail(
@@ -82,7 +104,7 @@ pub async fn handle_agent_validate_command(
     checks.push(ok(
         "Profile source",
         if directory_profile {
-            "Loaded from ./stashbase-agent.toml".to_owned()
+            format!("Loaded from {}", directory_source.as_deref().unwrap())
         } else {
             "Loaded from user-level config".to_owned()
         },
@@ -90,7 +112,7 @@ pub async fn handle_agent_validate_command(
     if directory_profile && matches!(command.profile_source, AgentProfileSource::Auto) {
         checks.push(warn(
             "Repository policy",
-            "Auto selected ./stashbase-agent.toml. Review this repository-controlled policy before granting secrets."
+            "Auto selected a repository-local agent profile. Review this repository-controlled policy before granting secrets."
                 .to_owned(),
         ));
     }
@@ -310,7 +332,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
         bindings.entry(source).or_default().push(target);
 
-        if secret.hosts.is_empty() {
+        if secret.hosts.is_empty() && secret.rules.is_empty() {
             checks.push(fail(
                 format!("Secret '{target}' hosts"),
                 "At least one destination host is required for credential injection.".to_owned(),
@@ -327,6 +349,10 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 ));
             }
         }
+        for (index, rule) in secret.rules.iter().enumerate() {
+            validate_http_rule(target, index, rule, &mut checks);
+        }
+        lint_http_rules(target, &secret.rules, &mut checks);
         if let Some(header) = &secret.header {
             if HeaderName::from_bytes(header.as_bytes()).is_err() {
                 checks.push(fail(
@@ -426,6 +452,180 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         ));
     }
     checks
+}
+
+fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: &mut Vec<Check>) {
+    let label = format!("Secret '{target}' rule {}", index + 1);
+    if rule.hosts.is_empty() {
+        checks.push(fail(
+            format!("{label} hosts"),
+            "At least one host is required.".to_owned(),
+        ));
+    }
+    if rule.methods.is_empty() {
+        checks.push(fail(
+            format!("{label} methods"),
+            "At least one HTTP method is required.".to_owned(),
+        ));
+    }
+    if rule.paths.is_empty() {
+        checks.push(fail(
+            format!("{label} paths"),
+            "At least one path pattern is required.".to_owned(),
+        ));
+    }
+    for host in &rule.hosts {
+        if let Err(reason) = validate_host(host, false) {
+            checks.push(fail(format!("{label} host"), reason));
+        }
+    }
+    for method in &rule.methods {
+        if !valid_http_method(method) {
+            checks.push(fail(
+                format!("{label} method"),
+                format!("'{method}' is not a supported HTTP method."),
+            ));
+        }
+    }
+    for path in &rule.paths {
+        if let Err(reason) = validate_path_pattern(path) {
+            checks.push(fail(format!("{label} path"), reason));
+        }
+    }
+}
+
+/// Emits only conservative warnings: every reported rule relationship is
+/// statically certain, while more complex wildcard overlap is left to review.
+fn lint_http_rules(target: &str, rules: &[AgentHttpRule], checks: &mut Vec<Check>) {
+    let mut seen = HashSet::new();
+    for (index, rule) in rules.iter().enumerate() {
+        let label = format!("Secret '{target}' rule {}", index + 1);
+        if !seen.insert(rule_fingerprint(rule)) {
+            checks.push(warn(
+                label.clone(),
+                "Duplicates an earlier HTTP action rule.".to_owned(),
+            ));
+        }
+        if rule.paths.iter().any(|path| path == "*") {
+            checks.push(warn(
+                format!("{label} path"),
+                "'*' matches every URL path; review this broad rule carefully.".to_owned(),
+            ));
+        }
+        if rule.effect == AgentHttpRuleEffect::Allow
+            && rules.iter().any(|deny| rule_is_fully_denied(rule, deny))
+        {
+            checks.push(warn(
+                label,
+                "Is fully shadowed by a deny rule and can never inject a credential.".to_owned(),
+            ));
+        }
+    }
+}
+
+fn rule_fingerprint(rule: &AgentHttpRule) -> String {
+    let mut hosts = rule
+        .hosts
+        .iter()
+        .map(|host| host.trim().trim_end_matches('.').to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let mut methods = rule
+        .methods
+        .iter()
+        .map(|method| method.trim().to_ascii_uppercase())
+        .collect::<Vec<_>>();
+    let mut paths = rule.paths.clone();
+    hosts.sort();
+    methods.sort();
+    paths.sort();
+    format!(
+        "{:?}|{}|{}|{}",
+        rule.effect,
+        hosts.join(","),
+        methods.join(","),
+        paths.join(",")
+    )
+}
+
+fn rule_is_fully_denied(allow: &AgentHttpRule, deny: &AgentHttpRule) -> bool {
+    deny.effect == AgentHttpRuleEffect::Deny
+        && allow.hosts.iter().all(|host| {
+            deny.hosts
+                .iter()
+                .any(|denied| host_pattern_covers(denied, host))
+        })
+        && allow.methods.iter().all(|method| {
+            deny.methods
+                .iter()
+                .any(|denied| denied.eq_ignore_ascii_case(method))
+        })
+        && allow.paths.iter().all(|path| {
+            deny.paths
+                .iter()
+                .any(|denied| denied == "*" || denied == path)
+        })
+}
+
+fn host_pattern_covers(denied: &str, allowed: &str) -> bool {
+    let denied = denied.trim().trim_end_matches('.').to_ascii_lowercase();
+    let allowed = allowed.trim().trim_end_matches('.').to_ascii_lowercase();
+    if denied == allowed {
+        return true;
+    }
+    let Some(denied_suffix) = denied.strip_prefix("*.") else {
+        return false;
+    };
+    match allowed.strip_prefix("*.") {
+        Some(allowed_suffix) => {
+            allowed_suffix != denied_suffix
+                && allowed_suffix.ends_with(&format!(".{denied_suffix}"))
+        }
+        None => allowed != denied_suffix && allowed.ends_with(&format!(".{denied_suffix}")),
+    }
+}
+
+fn valid_http_method(method: &str) -> bool {
+    !method.is_empty() && hyper::Method::from_bytes(method.as_bytes()).is_ok()
+}
+
+fn validate_path_pattern(path: &str) -> std::result::Result<(), String> {
+    if path.is_empty()
+        || path.trim() != path
+        || path.chars().any(char::is_whitespace)
+        || path.contains(['?', '#', '\r', '\n'])
+    {
+        return Err(
+            "Use a non-empty URL path pattern without whitespace, query, or fragment.".to_owned(),
+        );
+    }
+    if path != "*" && !path.starts_with('/') {
+        return Err("Use '*' or a path pattern beginning with '/'.".to_owned());
+    }
+    if path.contains('\\') || !has_valid_percent_encoding(path) {
+        return Err(
+            "Path patterns cannot contain backslashes or malformed percent escapes.".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+fn has_valid_percent_encoding(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit()
+            {
+                return false;
+            }
+            index += 3;
+        } else {
+            index += 1;
+        }
+    }
+    true
 }
 
 fn validate_host(host: &str, allow_all: bool) -> std::result::Result<(), String> {
@@ -531,6 +731,61 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_http_action_rules() {
+        let rule = AgentHttpRule {
+            effect: crate::models::agent::AgentHttpRuleEffect::Allow,
+            hosts: Vec::new(),
+            methods: vec!["GET /".to_owned()],
+            paths: vec!["repos?private=true".to_owned()],
+        };
+        let mut checks = Vec::new();
+        validate_http_rule("TOKEN", 0, &rule, &mut checks);
+        assert_eq!(
+            checks
+                .iter()
+                .filter(|check| check.status == Status::Fail)
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn accepts_extension_http_methods() {
+        assert!(valid_http_method("PROPFIND"));
+        assert!(valid_http_method("custom-method"));
+        assert!(!valid_http_method("GET /"));
+    }
+
+    #[test]
+    fn lints_duplicate_broad_and_shadowed_http_rules() {
+        let allow = AgentHttpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["api.example.com".to_owned()],
+            methods: vec!["GET".to_owned()],
+            paths: vec!["/repos/*".to_owned()],
+        };
+        let deny = AgentHttpRule {
+            effect: AgentHttpRuleEffect::Deny,
+            hosts: vec!["api.example.com".to_owned()],
+            methods: vec!["GET".to_owned()],
+            paths: vec!["*".to_owned()],
+        };
+        let mut checks = Vec::new();
+        lint_http_rules("TOKEN", &[allow, deny.clone(), deny], &mut checks);
+        let messages = checks
+            .iter()
+            .map(|check| check.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(messages.iter().any(|message| message.contains("shadowed")));
+        assert!(messages
+            .iter()
+            .any(|message| message.contains("Duplicates")));
+        assert!(messages
+            .iter()
+            .any(|message| message.contains("every URL path")));
+    }
+
+    #[test]
     fn requires_templates_to_contain_the_secret_marker() {
         let profile = AgentProfile {
             project: Some("project".to_owned()),
@@ -542,6 +797,7 @@ mod tests {
                 "API_KEY".to_owned(),
                 crate::models::agent::AgentSecretProfile {
                     hosts: vec!["api.example.com".to_owned()],
+                    rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -549,6 +805,7 @@ mod tests {
                     value_template: Some("static-value".to_owned()),
                 },
             )]),
+            policy_tests: Vec::new(),
         };
         assert!(validate_profile(&profile)
             .iter()
@@ -564,6 +821,7 @@ mod tests {
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
             secrets: HashMap::new(),
+            policy_tests: Vec::new(),
         };
 
         assert!(validate_profile(&profile).iter().any(|check| {
@@ -584,6 +842,7 @@ mod tests {
                     "FIRST_KEY".to_owned(),
                     crate::models::agent::AgentSecretProfile {
                         hosts: vec!["first.example.com".to_owned()],
+                        rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: Some("shared-placeholder".to_owned()),
@@ -595,6 +854,7 @@ mod tests {
                     "SECOND_KEY".to_owned(),
                     crate::models::agent::AgentSecretProfile {
                         hosts: vec!["second.example.com".to_owned()],
+                        rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: Some("shared-placeholder".to_owned()),
@@ -603,6 +863,7 @@ mod tests {
                     },
                 ),
             ]),
+            policy_tests: Vec::new(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();

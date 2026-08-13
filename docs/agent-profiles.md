@@ -6,12 +6,25 @@
 > malicious process running as the same user from accessing broader Stashbase
 > credentials or bypassing this workflow.
 
-These are copy-paste starting points for `stashbase-agent.toml` in a trusted working
-directory. Run one with:
+For a repository with several agents, put each direct profile in a trusted
+working directory at `.stashbase/agents/<name>.toml`. Run one with:
 
 ```bash
 stashbase agent run --profile <name> -- <command>
 ```
+
+Create a safe, generic starter file without granting any real destination or
+secret access:
+
+```bash
+stashbase agent init codex
+```
+
+This creates `.stashbase/agents/codex.toml` (and its parent directories when
+needed) with `egress_hosts = []`, a `[secrets.SECRET_NAME]` placeholder, and a
+single illustrative allow rule. Replace the placeholder and example before
+using it. Existing profile files are never overwritten unless `--force` is
+given.
 
 ## Remote Agent Proxy sessions
 
@@ -38,9 +51,30 @@ browsers, and a tool that deliberately bypasses proxy settings are outside its
 scope. HTTP/1 WebSocket upgrades used by supported coding agents are relayed;
 HTTP/2 proxying and arbitrary third-party proxy integrations remain unsupported.
 
-The default profile source is `auto`: Stashbase uses `./stashbase-agent.toml` when
-present and otherwise falls back to the user-level config. Use
-`--profile-source directory` to require the current directory's profile.
+The default profile source is `auto`: Stashbase uses
+`./.stashbase/agents/<profile>.toml` when present, otherwise it falls back to
+user-level config. Use `--profile-source directory` to require a
+repository-local profile.
+
+At startup, Stashbase warns when the selected repository-local profile is
+tracked by Git and has staged/unstaged changes. Untracked files are allowed so
+personal policy files do not create noise. This is a review signal only; it
+does not block a run. `--silent` suppresses the warning.
+
+Each file in `.stashbase/agents` contains the profile directly—there is no
+`[agent_profiles.<name>]` wrapper:
+
+```toml
+# .stashbase/agents/codex.toml
+project = "local-agents"
+environment = "local-creds"
+egress_hosts = ["api.github.com"]
+
+[secrets.GITHUB_TOKEN]
+from = "GITHUB_TOKEN"
+header = "Authorization"
+value_template = "Bearer {secret}"
+```
 
 Validate a profile before granting it secrets—locally or in CI:
 
@@ -51,10 +85,58 @@ stashbase agent validate --profile coding --json
 stashbase agent validate --remote --profile coding
 ```
 
+Discover repository-local and user-level profiles without opening their files:
+
+```bash
+stashbase agent profiles list
+stashbase agent profiles list --profile-source directory
+stashbase agent profiles show coding
+stashbase --json agent profiles show coding
+```
+
+`list` shows each profile's selected source and a small capability summary.
+`show` prints the configured policy only; it never loads or displays secret
+values.
+
+For CI or explicit automation, bypass global/current-directory discovery with a
+direct profile file. It uses the direct-file format and is mutually exclusive
+with `--profile-source`:
+
+```bash
+stashbase agent validate --profile codex --policy-file ci/agents/codex.toml
+stashbase agent run --profile codex --policy-file .stashbase/agents/codex.toml -- codex
+stashbase agent explain --profile codex --policy-file ci/agents/codex.toml \
+  --host api.github.com --method GET --path /user
+```
+
+Explain a prospective request without loading a secret, starting a proxy, or
+opening a network connection:
+
+```bash
+stashbase agent explain --profile coding \
+  --host api.github.com --method GET --path /user
+```
+
+The explanation reports the global connection decision and whether each
+configured credential would be eligible for injection. It never prints a
+secret value or placeholder.
+
+For local policy authoring, add `--verbose` to show the normalized request path
+and the one-based matching allow or deny rule number. This remains read-only
+and never exposes secret values, headers, or request bodies:
+
+```bash
+stashbase agent explain --verbose --profile coding \
+  --host api.github.com --method GET --path /repos/acme/widget/../widget/issues
+```
+
 Validation does not fetch or read secret values and does not start a proxy. It
 checks the selected source, local-file availability, duplicate `from` bindings,
 child environment-variable names, host rules, custom header names, and value
-templates. `egress_hosts = ["*"]` is valid but reported as a warning.
+templates. It also warns about duplicate HTTP rules, all-path `"*"` rules, and
+allows that a deny rule fully shadows. These warnings do not reject an
+intentional policy. `egress_hosts = ["*"]` is also valid but reported as a
+warning.
 
 Add `--remote` before a remote run to also verify that the profile is compatible
 with a project/environment-backed remote session and inspect cached public
@@ -67,10 +149,84 @@ secrets, or create a remote session.
 By default, the proxy exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
 another HTTP header; the default value template is `{secret}` for a custom
-header. A profile's `hosts` controls where that secret may be injected;
-`egress_hosts` permits ordinary traffic without injecting a credential. A
-secret's `hosts` list does not itself grant ordinary egress; it authorizes only
-an exchange of that secret's matching placeholder. Keep the two lists separate.
+header. The three destination controls are intentionally separate:
+
+- When configured, `egress_hosts` controls where the agent may connect,
+  including requests that carry no Stashbase credential.
+- `secrets.<name>.hosts` is the legacy credential host allowlist. It remains in
+  effect when that secret has no `rules`.
+- `secrets.<name>.rules` controls which HTTP methods and URL paths may receive
+  that particular credential. Rules do not widen ordinary egress.
+
+### Credential rule evaluation
+
+Rules are an unordered set: their order in TOML does not change the result.
+Multiple `allow` rules are additive—a request may match any one of them. A
+matching `deny` always wins, even when the same request also matches an
+`allow`. If a secret has any rules, no matching `allow` means that secret is
+not injected. This is the complete decision order for a request carrying a
+secret placeholder:
+
+1. A matching global `deny_hosts` entry denies the request.
+2. When `egress_hosts` is configured, the destination must match it.
+3. With no secret `rules`, the legacy `secrets.<name>.hosts` list must match.
+4. With rules, any matching `deny` rejects the credential; otherwise at least
+   one matching `allow` is required.
+5. Only then does the proxy inject the credential.
+
+Rules match host, HTTP method, and URL path. Methods are normalized to
+uppercase. Query strings are ignored; paths are normalized before matching;
+and `*` matches any sequence of path characters. Redirects are evaluated as
+independent requests, so a credential is never forwarded to a redirected
+destination without a fresh policy check.
+
+For example, the two allows below form a union. A `GET /user` request, a
+`PATCH` request, or any other unmatched route is denied for this credential:
+
+```toml
+egress_hosts = ["api.github.com"]
+
+[secrets.github]
+from = "GITHUB_TOKEN"
+env = "GITHUB_TOKEN"
+header = "Authorization"
+value_template = "Bearer {secret}"
+
+[[secrets.github.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*/*", "/repos/*/*/issues*"]
+
+[[secrets.github.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["POST", "PATCH"]
+paths = ["/repos/*/*/issues", "/repos/*/*/issues/*/comments"]
+
+[[secrets.github.rules]]
+effect = "deny"
+hosts = ["api.github.com"]
+methods = ["DELETE"]
+paths = ["*"]
+```
+
+You can put a narrow safety exception inside a broad allow. The deny is still
+effective regardless of rule order:
+
+```toml
+[[secrets.github.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*"]
+
+[[secrets.github.rules]]
+effect = "deny"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/*/actions/secrets/*"]
+```
 
 `deny_hosts` is an optional final override. It uses the same exact-host and
 `*.subdomain.example` syntax as `egress_hosts`; a matching deny blocks the
@@ -191,12 +347,11 @@ values or API keys in an untrusted file.
 
 One profile can grant several independent capabilities to one coding-agent
 session and any HTTP(S)-aware tools it launches. Each secret has its own source
-binding, destination allowlist, and header representation; `egress_hosts` is
-for ordinary traffic that must never receive a credential.
+binding, legacy host allowlist or HTTP action rules, and header representation;
+`egress_hosts` controls connectivity and never causes credential injection.
 
 ```toml
-# stashbase-agent.toml
-[agent_profiles.full-stack]
+# .stashbase/agents/full-stack.toml
 project = "platform"
 environment = "development"
 file = ".env.local" # Optional local overrides for the source names below.
@@ -208,7 +363,7 @@ egress_hosts = [
 ]
 
 # GitHub CLI / Copilot: remote GITHUB_TOKEN becomes GH_TOKEN for the child.
-[agent_profiles.full-stack.secrets.GH_TOKEN]
+[secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
 hosts = [
   "api.github.com",
@@ -218,16 +373,16 @@ hosts = [
 ]
 
 # OpenAI-compatible clients use the default Authorization: Bearer header.
-[agent_profiles.full-stack.secrets.OPENAI_API_KEY]
+[secrets.OPENAI_API_KEY]
 hosts = ["api.openai.com"]
 
 # Anthropic uses a dedicated API-key header.
-[agent_profiles.full-stack.secrets.ANTHROPIC_API_KEY]
+[secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
 header = "x-api-key"
 
 # A third-party service can use any configured header and source binding.
-[agent_profiles.full-stack.secrets.PARTNER_API_KEY]
+[secrets.PARTNER_API_KEY]
 from = "PLATFORM_PARTNER_KEY"
 hosts = ["api.partner.example"]
 header = "x-api-key"
@@ -457,16 +612,27 @@ proxy-bypassing tools can make direct network connections. The sandbox limits
 that network bypass but is not filesystem or process-memory isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
 variable as defense in depth, but this does not protect credentials stored in
 CLI configuration or the operating-system credential store. Directory profiles
-are trusted policy: review a repository's `stashbase-agent.toml` before granting it
-secrets.
+are trusted policy: review a repository's `.stashbase/agents/*.toml` before
+granting it secrets.
 
 ## Audit logs
 
 `agent run` writes a local, metadata-only JSONL audit log by default. Startup
-prints an audit session ID and the local log path. Events include the profile,
-proxy action, destination host, secret name, response status, and duration.
+prints an audit session ID, policy fingerprint, and the local log path. The
+fingerprint is a SHA-256 identifier of the normalized policy snapshot for that
+run; it contains no secret values or placeholders. Events include the profile,
+policy fingerprint, proxy action, destination host, secret name, response
+status, duration, and—after an HTTP response stream finishes—actual request
+and response byte counts. Byte counts are derived from data relayed by the
+proxy, not `Content-Length`; they are absent for requests denied before
+forwarding and for CONNECT/upgrade tunnels.
 They never include secret values, placeholders, headers, bodies, URLs, or
 command arguments.
+
+The `session_started` event also records the selected profile source, that
+file's RFC 3339 modification time, and a SHA-256 hash of its contents. This
+ties a session to the reviewed profile revision without storing the policy
+contents in every audit record.
 
 Common diagnostic actions are `host_denied`, `unknown_placeholder`,
 `tls_trust_failed`, `upstream_timeout`, `upstream_connection_failed`, and
@@ -492,12 +658,48 @@ Audit log: .../stashbase/audit/agent-5fd2....jsonl
 Inspect recent decisions without reading JSONL files directly:
 
 ```bash
-stashbase agent logs
+stashbase agent logs list
 stashbase agent logs --session 5fd2...
 stashbase agent logs --profile coding --action injected --host api.github.com
-stashbase agent logs --since 24h --limit 100
-stashbase agent logs --follow
+stashbase agent logs --id evt_...
+stashbase agent logs list --since 24h --limit 100
+stashbase agent logs list --follow
+stashbase agent logs summary --profile coding --since 7d
+stashbase agent logs summary --profile coding --by host
+stashbase agent logs summary --profile coding --by action
 ```
+
+`stashbase agent logs` remains a backward-compatible alias for `stashbase agent
+logs list`.
+
+`agent logs summary` groups local metadata-only events into request, injection,
+forward, and denial counts. Its `Denied by` section groups only the proxy
+action and destination host; it never prints secret names, request paths,
+headers, bodies, URLs, or credential values. Use `--json` for automation.
+It also reports total uploaded and downloaded HTTP bytes for the matching
+completed events. Byte counts are metadata and may reveal rough response size,
+so they should be handled as local audit data.
+
+Pass `--by host`, `--by action`, or `--by secret` to add a transfer and outcome
+table for that dimension. `--by secret` deliberately displays configured secret
+binding names, never secret values; use it only where those names are suitable
+for the local audit audience.
+It summarizes the newest matching events up to `--limit` (default: 1,000), not
+all historical audit data. JSON output includes the selected `limit` and, when
+provided, the original `since` window.
+
+To inspect the policy with defaults and matcher normalization resolved, without
+loading a secret value:
+
+```bash
+stashbase agent profiles show codex --effective
+stashbase agent profiles show codex --effective --json
+```
+
+The effective view fills omitted secret binding fields (`from`, `env`, local
+proxy placeholder, header, and value template), lowercases hosts, uppercases
+HTTP methods, and normalizes rule paths. It shows the local placeholder only,
+never the resolved secret value.
 
 `--json` returns a JSON array for a one-time view; with `--follow`, it emits
 one JSON event per line. Logs older than 30 days are removed automatically and
@@ -507,6 +709,53 @@ run with `--audit-log false`:
 ```bash
 stashbase agent run --profile coding --audit-log false -- codex
 ```
+
+Every local audit event receives an opaque short UUID `id` with an `evt_`
+prefix (for example, `evt_mhvXdrZT4jP5T8vBxuvm75`). A request event's ID is
+also included as `error.id` in safe proxy errors, so a 403 or upstream failure
+can be inspected with `agent logs --id`.
+It is never forwarded to an upstream service or the remote Agent Proxy.
+
+## Policy regression tests
+
+Policy regression tests evaluate the same host, method, path, egress, and
+deny precedence logic as the proxy. They never load a secret, start an agent,
+or make a network request. Use them in CI to prevent an edit from widening or
+breaking a reviewed capability:
+
+```bash
+stashbase agent policy test --profile codex
+stashbase agent policy test --profile codex --test-file ci/agent-policy-tests.toml
+```
+
+Put cases directly in the profile with `[[policy_tests]]`:
+
+```toml
+[[policy_tests]]
+name = "GitHub current user remains readable"
+secret = "GITHUB_TOKEN"
+method = "GET"
+host = "api.github.com"
+path = "/user"
+expect = "allow"
+
+[[policy_tests]]
+name = "GitHub deletion remains denied"
+secret = "GITHUB_TOKEN"
+method = "DELETE"
+host = "api.github.com"
+path = "/repos/acme/app"
+expect = "deny"
+```
+
+Or keep them in a separate TOML file, conventionally
+`.stashbase/agent-policy-tests.toml`, using `[[tests]]` instead of
+`[[policy_tests]]`. If embedded cases exist, the command uses them by default;
+`--test-file` explicitly selects the separate file. A failed expectation exits
+with status 1. Each result includes the decision reason—for example,
+`credential allow rule matches`, `connection denied by egress_hosts`, or `no
+credential allow rule matches`—so a CI failure identifies the policy layer to
+change.
 
 ## Troubleshooting
 

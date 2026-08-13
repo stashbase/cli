@@ -18,13 +18,17 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, RwLock,
+    },
+    task::{Context as TaskContext, Poll},
     time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
 use hyper::{
     body::{Bytes, Frame, Incoming},
@@ -44,6 +48,7 @@ use rustls::{
 use rustls_platform_verifier::BuilderVerifierExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use short_uuid::ShortUuid;
 use tokio::{
     io::{copy_bidirectional, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -53,7 +58,16 @@ use tokio::{
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 use uuid::Uuid;
 
-use crate::REQUEST_TIMEOUT_SECS;
+use crate::{
+    handlers::agent_policy::{
+        evaluate_secret_authorization, host_matches, normalize_secret_http_policy,
+        SecretAuthorizationDecision, SecretHttpPolicy,
+    },
+    REQUEST_TIMEOUT_SECS,
+};
+
+#[cfg(test)]
+use crate::models::agent::{AgentHttpRule, AgentHttpRuleEffect};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -71,12 +85,31 @@ pub struct ProxyAuditLogEvent {
     pub timestamp: String,
     pub session_id: String,
     pub profile: String,
+    /// SHA-256 fingerprint of the normalized policy snapshot for this run.
+    pub policy_fingerprint: String,
+    /// Opaque local audit-event ID.
+    pub id: String,
+    /// Present only on `session_started`; identifies the selected profile file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_source: Option<String>,
+    /// RFC 3339 modification time of the selected profile file at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_file_modified_at: Option<String>,
+    /// SHA-256 of the selected profile file at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile_file_sha256: Option<String>,
     pub action: String,
     pub destination_host: Option<String>,
     pub method: Option<String>,
     pub secret_name: Option<String>,
     pub response_status: Option<u16>,
     pub duration_ms: Option<u64>,
+    /// Bytes actually relayed from the child to the destination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_bytes: Option<u64>,
+    /// Bytes actually relayed from the destination to the child.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_bytes: Option<u64>,
 }
 
 /// Exact-match filters for the local audit-log viewer.
@@ -86,6 +119,7 @@ pub struct ProxyAuditLogFilter {
     pub action: Option<String>,
     pub host: Option<String>,
     pub session: Option<String>,
+    pub id: Option<String>,
 }
 
 impl ProxyAuditLogFilter {
@@ -107,6 +141,7 @@ impl ProxyAuditLogFilter {
                 .session
                 .as_ref()
                 .is_none_or(|value| value == &event.session_id)
+            && self.id.as_ref().is_none_or(|value| value == &event.id)
     }
 }
 
@@ -115,18 +150,58 @@ impl ProxyAuditLogFilter {
 pub struct ProxyAuditLog {
     session_id: String,
     profile: String,
+    policy_fingerprint: String,
+    profile_provenance: Option<ProfileAuditProvenance>,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
 
+/// Immutable provenance for the profile file selected when an agent session starts.
+#[derive(Debug, Clone)]
+pub struct ProfileAuditProvenance {
+    source: String,
+    modified_at: String,
+    sha256: String,
+}
+
+impl ProfileAuditProvenance {
+    pub fn from_file(source: String, path: &Path) -> Result<Self> {
+        let metadata = fs::metadata(path).with_context(|| {
+            format!(
+                "Could not read agent profile metadata from '{}'.",
+                path.display()
+            )
+        })?;
+        let modified_at = DateTime::<Utc>::from(metadata.modified().with_context(|| {
+            format!(
+                "Could not read agent profile modification time from '{}'.",
+                path.display()
+            )
+        })?)
+        .to_rfc3339();
+        let sha256 = hex::encode(Sha256::digest(fs::read(path).with_context(|| {
+            format!("Could not read agent profile file '{}'.", path.display())
+        })?));
+        Ok(Self {
+            source,
+            modified_at,
+            sha256,
+        })
+    }
+}
+
 impl ProxyAuditLog {
-    pub fn local(profile: &str) -> Result<Self> {
-        Self::local_with_session_id(profile, Uuid::new_v4().to_string())
+    pub fn local(profile: &str, policy_fingerprint: String) -> Result<Self> {
+        Self::local_with_session_id(profile, Uuid::new_v4().to_string(), policy_fingerprint)
     }
 
     /// Uses the control-plane session identifier so local metadata can be
     /// correlated with future server-side remote-proxy audit events.
-    pub fn local_with_session_id(profile: &str, session_id: String) -> Result<Self> {
+    pub fn local_with_session_id(
+        profile: &str,
+        session_id: String,
+        policy_fingerprint: String,
+    ) -> Result<Self> {
         let directory = local_proxy_audit_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
@@ -144,6 +219,8 @@ impl ProxyAuditLog {
         Ok(Self {
             session_id,
             profile: profile.to_owned(),
+            policy_fingerprint,
+            profile_provenance: None,
             path: Arc::new(path),
             file: Arc::new(Mutex::new(file)),
         })
@@ -157,6 +234,15 @@ impl ProxyAuditLog {
         &self.session_id
     }
 
+    pub fn policy_fingerprint(&self) -> &str {
+        &self.policy_fingerprint
+    }
+
+    pub fn with_profile_provenance(mut self, profile_provenance: ProfileAuditProvenance) -> Self {
+        self.profile_provenance = Some(profile_provenance);
+        self
+    }
+
     fn record(
         &self,
         action: &str,
@@ -165,17 +251,71 @@ impl ProxyAuditLog {
         secret_name: Option<&str>,
         status: Option<StatusCode>,
         duration: Option<Duration>,
+        id: Option<&str>,
+    ) {
+        self.record_with_bytes(
+            action,
+            host,
+            method,
+            secret_name,
+            status,
+            duration,
+            id,
+            None,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_with_bytes(
+        &self,
+        action: &str,
+        host: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+        id: Option<&str>,
+        request_bytes: Option<u64>,
+        response_bytes: Option<u64>,
     ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
             profile: self.profile.clone(),
+            policy_fingerprint: self.policy_fingerprint.clone(),
+            id: id
+                .map(str::to_owned)
+                .unwrap_or_else(new_local_audit_event_id),
+            profile_source: (action == "session_started")
+                .then(|| {
+                    self.profile_provenance
+                        .as_ref()
+                        .map(|provenance| provenance.source.clone())
+                })
+                .flatten(),
+            profile_file_modified_at: (action == "session_started")
+                .then(|| {
+                    self.profile_provenance
+                        .as_ref()
+                        .map(|provenance| provenance.modified_at.clone())
+                })
+                .flatten(),
+            profile_file_sha256: (action == "session_started")
+                .then(|| {
+                    self.profile_provenance
+                        .as_ref()
+                        .map(|provenance| provenance.sha256.clone())
+                })
+                .flatten(),
             action: action.to_owned(),
             destination_host: host.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
             secret_name: secret_name.map(str::to_owned),
             response_status: status.map(|status| status.as_u16()),
             duration_ms: duration.and_then(|duration| u64::try_from(duration.as_millis()).ok()),
+            request_bytes,
+            response_bytes,
         };
         if let Ok(mut file) = self.file.lock() {
             let _ = writeln!(
@@ -184,6 +324,102 @@ impl ProxyAuditLog {
                 serde_json::to_string(&event).unwrap_or_default()
             );
         }
+    }
+}
+
+/// Counts response data as Hyper relays it to the child, then records the final
+/// audit event on normal completion or early stream drop.
+struct AuditedResponseStream {
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    request_bytes: Arc<AtomicU64>,
+    response_bytes: u64,
+    audit_log: Option<ProxyAuditLog>,
+    request_id: String,
+    action: &'static str,
+    host: Option<String>,
+    method: Method,
+    secret_name: Option<String>,
+    status: StatusCode,
+    started: Instant,
+    recorded: bool,
+}
+
+impl AuditedResponseStream {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        inner: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+        request_bytes: Arc<AtomicU64>,
+        audit_log: Option<ProxyAuditLog>,
+        request_id: String,
+        action: &'static str,
+        host: Option<String>,
+        method: Method,
+        secret_name: Option<String>,
+        status: StatusCode,
+        started: Instant,
+    ) -> Self {
+        Self {
+            inner: Box::pin(inner),
+            request_bytes,
+            response_bytes: 0,
+            audit_log,
+            request_id,
+            action,
+            host,
+            method,
+            secret_name,
+            status,
+            started,
+            recorded: false,
+        }
+    }
+
+    fn record_once(&mut self) {
+        if self.recorded {
+            return;
+        }
+        self.recorded = true;
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record_with_bytes(
+                self.action,
+                self.host.as_deref(),
+                Some(&self.method),
+                self.secret_name.as_deref(),
+                Some(self.status),
+                Some(self.started.elapsed()),
+                Some(&self.request_id),
+                Some(self.request_bytes.load(Ordering::Relaxed)),
+                Some(self.response_bytes),
+            );
+        }
+    }
+}
+
+impl Stream for AuditedResponseStream {
+    type Item = Result<Frame<Bytes>, BoxError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        match self.inner.as_mut().poll_next(context) {
+            Poll::Ready(Some(Ok(chunk))) => {
+                self.response_bytes = self.response_bytes.saturating_add(chunk.len() as u64);
+                Poll::Ready(Some(Ok(Frame::data(chunk))))
+            }
+            Poll::Ready(Some(Err(error))) => Poll::Ready(Some(Err(Box::new(error)))),
+            Poll::Ready(None) => {
+                self.record_once();
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Drop for AuditedResponseStream {
+    fn drop(&mut self) {
+        self.record_once();
     }
 }
 
@@ -283,10 +519,12 @@ fn prune_proxy_audit_logs(directory: &Path) -> Result<()> {
 /// Destination policy for credentials proxied into an agent process.
 #[derive(Debug, Clone)]
 pub struct ProxyPolicy {
-    pub allowed_hosts_by_secret: HashMap<String, HashSet<String>>,
+    pub secret_policies: HashMap<String, SecretHttpPolicy>,
     pub secret_injections: HashMap<String, SecretInjection>,
     pub allowed_egress_hosts: HashSet<String>,
     pub denied_hosts: HashSet<String>,
+    /// Whether credential-bearing requests must also satisfy egress policy.
+    pub egress_hosts_configured: bool,
     pub strict_deny: bool,
 }
 
@@ -384,12 +622,77 @@ impl SecretInjection {
 impl ProxyPolicy {
     pub fn permissive() -> Self {
         Self {
-            allowed_hosts_by_secret: HashMap::new(),
+            secret_policies: HashMap::new(),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
             strict_deny: false,
         }
+    }
+
+    /// Stable SHA-256 identifier for this policy's effective normalized form.
+    /// It deliberately excludes secret values and child placeholders.
+    pub fn fingerprint(&self) -> String {
+        let mut lines = vec![
+            format!("egress_configured={}", self.egress_hosts_configured),
+            format!("strict_deny={}", self.strict_deny),
+        ];
+        let mut egress = normalize_hosts(self.allowed_egress_hosts.clone())
+            .into_iter()
+            .collect::<Vec<_>>();
+        egress.sort();
+        lines.push(format!("egress={}", egress.join(",")));
+        let mut denied = normalize_hosts(self.denied_hosts.clone())
+            .into_iter()
+            .collect::<Vec<_>>();
+        denied.sort();
+        lines.push(format!("deny={}", denied.join(",")));
+
+        let mut secret_policies = self.secret_policies.iter().collect::<Vec<_>>();
+        secret_policies.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (name, policy) in secret_policies {
+            match normalize_secret_http_policy(policy.clone()) {
+                SecretHttpPolicy::LegacyHosts(hosts) => {
+                    let mut hosts = hosts.into_iter().collect::<Vec<_>>();
+                    hosts.sort();
+                    lines.push(format!("secret={name};legacy={}", hosts.join(",")));
+                }
+                SecretHttpPolicy::Rules(rules) => {
+                    let mut rules = rules
+                        .into_iter()
+                        .map(|rule| {
+                            let mut hosts = rule.hosts;
+                            let mut methods = rule.methods;
+                            let mut paths = rule.paths;
+                            hosts.sort();
+                            methods.sort();
+                            paths.sort();
+                            format!(
+                                "{:?};{};{};{}",
+                                rule.effect,
+                                hosts.join(","),
+                                methods.join(","),
+                                paths.join(",")
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    rules.sort();
+                    lines.push(format!("secret={name};rules={}", rules.join("|")));
+                }
+            }
+        }
+        let mut injections = self.secret_injections.iter().collect::<Vec<_>>();
+        injections.sort_by(|(left, _), (right, _)| left.cmp(right));
+        for (name, injection) in injections {
+            lines.push(format!(
+                "injection={name};{};{}",
+                injection.header.to_ascii_lowercase(),
+                injection.value_template
+            ));
+        }
+
+        hex::encode(Sha256::digest(lines.join("\n").as_bytes()))
     }
 }
 
@@ -527,16 +830,16 @@ impl Proxy {
                 .map(|(name, placeholder)| (placeholder.clone(), name.clone()))
                 .collect::<HashMap<_, _>>()
         });
-        policy.allowed_hosts_by_secret = policy
-            .allowed_hosts_by_secret
+        policy.secret_policies = policy
+            .secret_policies
             .into_iter()
-            .map(|(name, hosts)| {
+            .map(|(name, secret_policy)| {
                 let placeholder = remote_placeholders
                     .as_ref()
                     .and_then(|placeholders| placeholders.get(&name))
                     .cloned()
                     .unwrap_or_else(|| placeholder_for(&name));
-                (placeholder, normalize_hosts(hosts))
+                (placeholder, normalize_secret_http_policy(secret_policy))
             })
             .collect();
         policy.secret_injections =
@@ -612,7 +915,7 @@ impl Proxy {
         }
 
         if let Some(audit_log) = &audit_log {
-            audit_log.record("session_started", None, None, None, None, None);
+            audit_log.record("session_started", None, None, None, None, None, None);
         }
 
         Ok(Self {
@@ -639,7 +942,7 @@ impl Proxy {
             let _ = task.await;
         }
         if let Some(audit_log) = &self.audit_log {
-            audit_log.record("session_stopped", None, None, None, None, None);
+            audit_log.record("session_stopped", None, None, None, None, None, None);
         }
     }
 
@@ -897,7 +1200,7 @@ fn proxy_request(
                 );
                 return Ok(proxy_error_response(
                     StatusCode::FORBIDDEN,
-                    "proxy.host_denied",
+                    "proxy.host_not_allowed",
                     "Agent Proxy policy denied destination",
                 ));
             }
@@ -992,13 +1295,15 @@ fn proxy_request(
                 .unwrap());
         }
 
+        let request_id = new_local_request_id();
         let host = request_host(&request, connect_authority.as_deref());
         if state.host_is_denied(host.as_deref()) {
             debug!(
                 "proxy denied destination: {}",
                 host.as_deref().unwrap_or("unknown")
             );
-            state.record_audit(
+            state.record_audit_with_request(
+                &request_id,
                 "host_denied",
                 host.as_deref(),
                 Some(request.method()),
@@ -1006,14 +1311,37 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response(
+            return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
-                "proxy.host_denied",
+                "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
+                Some(&request_id),
+            ));
+        }
+        if state.policy.egress_hosts_configured
+            && !host
+                .as_deref()
+                .is_some_and(|host| policy_allows_egress(&state.policy, host))
+        {
+            state.record_audit_with_request(
+                &request_id,
+                "host_denied",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response_with_id(
+                StatusCode::FORBIDDEN,
+                "proxy.host_not_allowed",
+                "Agent Proxy policy denied destination",
+                Some(&request_id),
             ));
         }
         if contains_unknown_placeholder(&request, &state) {
-            state.record_audit(
+            state.record_audit_with_request(
+                &request_id,
                 "unknown_placeholder",
                 host.as_deref(),
                 Some(request.method()),
@@ -1021,31 +1349,34 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response(
+            return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
-                "proxy.unknown_placeholder",
+                "proxy.placeholder_not_allowed",
                 "Agent Proxy received an unknown credential placeholder",
+                Some(&request_id),
             ));
         }
         let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
             Ok(secret_name) => secret_name,
-            Err(secret_name) => {
+            Err(denial) => {
                 debug!(
                     "proxy denied credential injection for destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
-                state.record_audit(
-                    "host_denied",
+                state.record_audit_with_request(
+                    &request_id,
+                    denial.audit_action,
                     host.as_deref(),
                     Some(request.method()),
-                    Some(&secret_name),
+                    Some(&denial.secret_name),
                     Some(StatusCode::FORBIDDEN),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response(
+                return Ok(proxy_error_response_with_id(
                     StatusCode::FORBIDDEN,
-                    "proxy.credential_host_denied",
-                    "Agent Proxy policy denied credential",
+                    "proxy.credential_not_allowed",
+                    "The supplied credential is not allowed for this request.",
+                    Some(&request_id),
                 ));
             }
         };
@@ -1053,7 +1384,8 @@ fn proxy_request(
         // this request carries that secret's configured placeholder; all other
         // traffic must be explicitly listed in `egress_hosts`.
         if secret_name.is_none() && !state.host_allowed_for_ordinary_request(host.as_deref()) {
-            state.record_audit(
+            state.record_audit_with_request(
+                &request_id,
                 "host_denied",
                 host.as_deref(),
                 Some(request.method()),
@@ -1061,15 +1393,17 @@ fn proxy_request(
                 Some(StatusCode::FORBIDDEN),
                 Some(started.elapsed()),
             );
-            return Ok(proxy_error_response(
+            return Ok(proxy_error_response_with_id(
                 StatusCode::FORBIDDEN,
-                "proxy.host_denied",
+                "proxy.host_not_allowed",
                 "Agent Proxy policy denied destination",
+                Some(&request_id),
             ));
         }
         if let Some(remote) = &state.remote {
             if let Err(error) = remote.token_for_new_connection() {
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     "session_expired",
                     host.as_deref(),
                     Some(request.method()),
@@ -1077,10 +1411,11 @@ fn proxy_request(
                     Some(StatusCode::SERVICE_UNAVAILABLE),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response(
+                return Ok(proxy_error_response_with_id(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "proxy.session_expired",
                     &error.to_string(),
+                    Some(&request_id),
                 ));
             }
         }
@@ -1113,7 +1448,8 @@ fn proxy_request(
         let url = match request_url(&request, connect_authority.as_deref()) {
             Ok(url) => url,
             Err(_) => {
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     "request_invalid",
                     host.as_deref(),
                     Some(request.method()),
@@ -1121,10 +1457,11 @@ fn proxy_request(
                     Some(StatusCode::BAD_REQUEST),
                     Some(started.elapsed()),
                 );
-                return Ok(proxy_error_response(
+                return Ok(proxy_error_response_with_id(
                     StatusCode::BAD_REQUEST,
                     "proxy.request_invalid",
                     "Unable to determine request URL",
+                    Some(&request_id),
                 ));
             }
         };
@@ -1133,7 +1470,15 @@ fn proxy_request(
         // `Incoming` is converted into a data stream without collecting it. Reqwest
         // applies chunked transfer encoding when no content length is available, so
         // streaming uploads retain their incremental delivery to the upstream.
-        let body = reqwest::Body::wrap_stream(request.into_body().into_data_stream());
+        let request_bytes = Arc::new(AtomicU64::new(0));
+        let request_byte_counter = request_bytes.clone();
+        let body =
+            reqwest::Body::wrap_stream(request.into_body().into_data_stream().map(move |chunk| {
+                if let Ok(bytes) = &chunk {
+                    request_byte_counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                }
+                chunk
+            }));
 
         let destination_url = if let Some(remote) = state
             .remote
@@ -1145,10 +1490,11 @@ fn proxy_request(
             let token = match remote.token_for_new_connection() {
                 Ok(token) => token,
                 Err(error) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "proxy.session_expired",
                         &error.to_string(),
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1159,10 +1505,11 @@ fn proxy_request(
             let token = match HeaderValue::from_str(&token) {
                 Ok(token) => token,
                 Err(_) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid session token",
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1170,10 +1517,11 @@ fn proxy_request(
             let proxy = match reqwest::Url::parse(&remote.proxy_url) {
                 Ok(proxy) => proxy,
                 Err(_) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1183,10 +1531,11 @@ fn proxy_request(
             let proxy_host = match proxy_host_header(&proxy) {
                 Ok(value) => value,
                 Err(_) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::BAD_GATEWAY,
                         "proxy.session_invalid",
                         "Agent Proxy returned an invalid proxy URL",
+                        Some(&request_id),
                     ))
                 }
             };
@@ -1203,10 +1552,11 @@ fn proxy_request(
             Some(remote) => match remote_forward_client(remote, state.remote_ca.as_ref()) {
                 Ok(client) => client,
                 Err(error) => {
-                    return Ok(proxy_error_response(
+                    return Ok(proxy_error_response_with_id(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "proxy.session_unavailable",
                         &error.to_string(),
+                        Some(&request_id),
                     ))
                 }
             },
@@ -1224,26 +1574,26 @@ fn proxy_request(
                 let headers = upstream.headers().clone();
                 // Do not await `bytes()`: forwarding this stream lets clients observe
                 // each upstream chunk (including SSE events) as it arrives.
-                let body = StreamBody::new(upstream.bytes_stream().map(|chunk| {
-                    chunk
-                        .map(Frame::data)
-                        .map_err(|error| -> BoxError { Box::new(error) })
-                }))
+                let action = if secret_name.is_some() {
+                    "injected"
+                } else {
+                    "forwarded"
+                };
+                let body = StreamBody::new(AuditedResponseStream::new(
+                    upstream.bytes_stream(),
+                    request_bytes,
+                    state.audit_log.clone(),
+                    request_id,
+                    action,
+                    host.clone(),
+                    method.clone(),
+                    secret_name.clone(),
+                    status,
+                    started,
+                ))
                 .boxed_unsync();
                 let mut response = Response::builder().status(status).body(body).unwrap();
                 *response.headers_mut() = headers;
-                state.record_audit(
-                    if secret_name.is_some() {
-                        "injected"
-                    } else {
-                        "forwarded"
-                    },
-                    host.as_deref(),
-                    Some(&method),
-                    secret_name.as_deref(),
-                    Some(status),
-                    Some(started.elapsed()),
-                );
                 Ok(response)
             }
             Err(error) => {
@@ -1251,7 +1601,8 @@ fn proxy_request(
                     "proxy could not forward request to destination: {}",
                     host.as_deref().unwrap_or("unknown")
                 );
-                state.record_audit(
+                state.record_audit_with_request(
+                    &request_id,
                     upstream_error_action(&error),
                     host.as_deref(),
                     Some(&method),
@@ -1259,10 +1610,11 @@ fn proxy_request(
                     Some(StatusCode::BAD_GATEWAY),
                     Some(started.elapsed()),
                 );
-                Ok(proxy_error_response(
+                Ok(proxy_error_response_with_id(
                     StatusCode::BAD_GATEWAY,
                     &format!("proxy.{}", upstream_error_action(&error)),
                     "Unable to forward Agent Proxy request",
+                    Some(&request_id),
                 ))
             }
         }
@@ -1934,6 +2286,7 @@ impl ProxyState {
             return !self.policy.strict_deny;
         };
         !policy_denies_host(&self.policy, host)
+            && (!self.policy.egress_hosts_configured || policy_allows_egress(&self.policy, host))
             && (!self.policy.strict_deny || policy_allows_connect(&self.policy, host))
     }
 
@@ -1955,16 +2308,46 @@ impl ProxyState {
         duration: Option<Duration>,
     ) {
         if let Some(audit_log) = &self.audit_log {
-            audit_log.record(action, host, method, secret_name, status, duration);
+            audit_log.record(action, host, method, secret_name, status, duration, None);
+        }
+    }
+
+    fn record_audit_with_request(
+        &self,
+        request_id: &str,
+        action: &str,
+        host: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+    ) {
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record(
+                action,
+                host,
+                method,
+                secret_name,
+                status,
+                duration,
+                Some(request_id),
+            );
         }
     }
 }
 
 fn policy_allows_connect(policy: &ProxyPolicy, host: &str) -> bool {
     policy
-        .allowed_hosts_by_secret
+        .secret_policies
         .values()
-        .any(|hosts| hosts.iter().any(|allowed| host_matches(allowed, host)))
+        .any(|secret_policy| match secret_policy {
+            SecretHttpPolicy::LegacyHosts(hosts) => {
+                hosts.iter().any(|allowed| host_matches(allowed, host))
+            }
+            SecretHttpPolicy::Rules(rules) => rules
+                .iter()
+                .any(|rule| rule.hosts.iter().any(|allowed| host_matches(allowed, host))),
+        })
         || policy_allows_egress(policy, host)
 }
 
@@ -1986,7 +2369,7 @@ fn replace_placeholder(
     request: &mut Request<Incoming>,
     state: &ProxyState,
     host: Option<&str>,
-) -> std::result::Result<Option<String>, String> {
+) -> std::result::Result<Option<String>, CredentialDenial> {
     for (placeholder, secret) in state.secrets.iter() {
         let injection = state
             .policy
@@ -2008,15 +2391,18 @@ fn replace_placeholder(
         }
 
         if state.policy.strict_deny
-            && !state
-                .policy
-                .allowed_hosts_by_secret
-                .get(placeholder)
-                .is_some_and(|hosts| {
-                    host.is_some_and(|host| hosts.iter().any(|allowed| host_matches(allowed, host)))
-                })
+            && !secret_allows_request(
+                &state.policy,
+                placeholder,
+                host,
+                request.method(),
+                request.uri().path(),
+            )
         {
-            return Err(secret_name_from_placeholder(placeholder));
+            return Err(CredentialDenial {
+                secret_name: secret_name_from_placeholder(placeholder),
+                audit_action: credential_denial_action(&state.policy, placeholder),
+            });
         }
         if state.remote.is_some() {
             return Ok(Some(secret_name_from_placeholder(placeholder)));
@@ -2029,6 +2415,40 @@ fn replace_placeholder(
     }
 
     Ok(None)
+}
+
+/// Internal-only detail for audit classification. The agent receives the same
+/// generic credential-denied response for every variant.
+struct CredentialDenial {
+    secret_name: String,
+    audit_action: &'static str,
+}
+
+fn credential_denial_action(policy: &ProxyPolicy, placeholder: &str) -> &'static str {
+    match policy.secret_policies.get(placeholder) {
+        Some(SecretHttpPolicy::Rules(_)) => "credential_rule_denied",
+        Some(SecretHttpPolicy::LegacyHosts(_)) | None => "host_denied",
+    }
+}
+
+fn secret_allows_request(
+    policy: &ProxyPolicy,
+    placeholder: &str,
+    host: Option<&str>,
+    method: &Method,
+    path: &str,
+) -> bool {
+    let Some(host) = host else { return false };
+    policy
+        .secret_policies
+        .get(placeholder)
+        .is_some_and(|secret_policy| {
+            matches!(
+                evaluate_secret_authorization(secret_policy, host, method.as_str(), path),
+                SecretAuthorizationDecision::AllowedLegacyHost
+                    | SecretAuthorizationDecision::AllowedRule
+            )
+        })
 }
 
 /// Reject placeholder-shaped values that do not belong to this session instead
@@ -2144,21 +2564,31 @@ fn normalize_injections(
         .collect()
 }
 
-fn host_matches(allowed: &str, host: &str) -> bool {
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    match allowed.strip_prefix("*.") {
-        Some(suffix) => host != suffix && host.ends_with(&format!(".{suffix}")),
-        None => allowed == host,
-    }
-}
-
 /// Proxy failures use the public API error envelope so a nested `stashbase`
 /// command can report policy denials clearly instead of failing JSON parsing.
 fn proxy_error_response(status: StatusCode, code: &str, message: &str) -> Response<ProxyBody> {
+    proxy_error_response_with_id(status, code, message, None)
+}
+
+fn new_local_request_id() -> String {
+    new_local_audit_event_id()
+}
+
+fn new_local_audit_event_id() -> String {
+    format!("evt_{}", ShortUuid::generate())
+}
+
+fn proxy_error_response_with_id(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    id: Option<&str>,
+) -> Response<ProxyBody> {
     let body = serde_json::json!({
         "error": {
             "code": code,
             "message": message,
+            "id": id,
         }
     })
     .to_string();
@@ -2179,10 +2609,10 @@ fn full_body(body: Bytes) -> ProxyBody {
 mod tests {
     use super::*;
     use futures_util::{stream, StreamExt};
-    use hyper::header::{AUTHORIZATION, HOST, TRANSFER_ENCODING};
+    use hyper::header::{AUTHORIZATION, HOST, LOCATION, TRANSFER_ENCODING};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
-        sync::oneshot,
+        sync::{mpsc, oneshot},
         time::{sleep, timeout},
     };
 
@@ -2404,9 +2834,9 @@ mod tests {
             ca_file: None,
         };
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "ANTHROPIC_API_KEY".to_owned(),
-                HashSet::from(["api.anthropic.com".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.anthropic.com".to_owned()])),
             )]),
             secret_injections: HashMap::from([(
                 "ANTHROPIC_API_KEY".to_owned(),
@@ -2417,6 +2847,7 @@ mod tests {
             )]),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: true,
             strict_deny: true,
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
@@ -2434,13 +2865,113 @@ mod tests {
         let body = response.bytes().await.unwrap();
         let error: crate::models::api_client::ApiErrorResponse =
             serde_json::from_slice(&body).unwrap();
-        assert_eq!(error.error.code, "proxy.credential_host_denied");
+        assert_eq!(error.error.code, "proxy.credential_not_allowed");
         assert!(
             timeout(Duration::from_millis(100), remote_listener.accept())
                 .await
                 .is_err()
         );
         proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn remote_relay_decision_matches_agent_explain_evaluator() {
+        let rules = vec![
+            AgentHttpRule {
+                effect: AgentHttpRuleEffect::Allow,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["GET".to_owned()],
+                paths: vec!["/user".to_owned()],
+            },
+            AgentHttpRule {
+                effect: AgentHttpRuleEffect::Deny,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["DELETE".to_owned()],
+                paths: vec!["*".to_owned()],
+            },
+        ];
+        let explain_policy = SecretHttpPolicy::Rules(rules.clone());
+        assert_eq!(
+            evaluate_secret_authorization(&explain_policy, "api.github.com", "GET", "/user"),
+            SecretAuthorizationDecision::AllowedRule
+        );
+        assert_eq!(
+            evaluate_secret_authorization(&explain_policy, "api.github.com", "DELETE", "/user"),
+            SecretAuthorizationDecision::DeniedRule
+        );
+
+        let (allowed_address, _authorization) = start_backend().await;
+        let allowed_proxy = Proxy::start_remote_with_port(
+            remote_test_config(allowed_address),
+            remote_rule_policy(rules.clone()),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let allowed_response = proxy_client(&allowed_proxy)
+            .get("http://api.github.com/user")
+            .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(allowed_response.status(), StatusCode::NO_CONTENT);
+        allowed_proxy.stop().await;
+
+        let denied_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let denied_proxy = Proxy::start_remote_with_port(
+            remote_test_config(denied_listener.local_addr().unwrap()),
+            remote_rule_policy(rules),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let denied_response = proxy_client(&denied_proxy)
+            .delete("http://api.github.com/user")
+            .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied_response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            timeout(Duration::from_millis(100), denied_listener.accept())
+                .await
+                .is_err()
+        );
+        denied_proxy.stop().await;
+    }
+
+    fn remote_test_config(address: std::net::SocketAddr) -> RemoteProxyConfig {
+        RemoteProxyConfig {
+            proxy_url: format!("http://{address}/v1/agent-proxy/proxy"),
+            session: Arc::new(RwLock::new(RemoteProxySessionState {
+                token: "session-token".to_owned(),
+                expires_at: Utc::now() + chrono::Duration::minutes(10),
+                last_rotation_error: None,
+            })),
+            placeholders: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                "${STASHBASE_GITHUB_TOKEN}".to_owned(),
+            )]),
+            child_env: HashMap::new(),
+            protocol: RemoteProxyProtocol::Custom,
+            ca_file: None,
+        }
+    }
+
+    fn remote_rule_policy(rules: Vec<AgentHttpRule>) -> ProxyPolicy {
+        ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                SecretHttpPolicy::Rules(rules),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: true,
+            strict_deny: true,
+        }
     }
 
     #[tokio::test]
@@ -2510,7 +3041,7 @@ mod tests {
     #[tokio::test]
     async fn unclosed_dollar_brace_in_header_is_not_treated_as_unknown_placeholder() {
         // An unclosed "${" (shell template, JS interpolation, etc.) must not
-        // produce a false-positive 403 proxy.unknown_placeholder response.
+        // produce a false-positive 403 proxy.placeholder_not_allowed response.
         // Use a real backend listener as the remote proxy so a 502 connection
         // error cannot mask a 403 that slips through the placeholder check.
         let (proxy_address, _) = start_backend().await;
@@ -2549,18 +3080,44 @@ mod tests {
     async fn proxy_errors_use_the_api_error_envelope() {
         let response = proxy_error_response(
             StatusCode::FORBIDDEN,
-            "proxy.host_denied",
+            "proxy.host_not_allowed",
             "Agent Proxy policy denied destination",
         );
         assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let error: crate::models::api_client::ApiErrorResponse =
             serde_json::from_slice(&body).unwrap();
-        assert_eq!(error.error.code, "proxy.host_denied");
+        assert_eq!(error.error.code, "proxy.host_not_allowed");
         assert_eq!(
             error.error.message.as_deref(),
             Some("Agent Proxy policy denied destination")
         );
+    }
+
+    #[tokio::test]
+    async fn proxy_errors_can_include_a_local_id() {
+        let response = proxy_error_response_with_id(
+            StatusCode::FORBIDDEN,
+            "proxy.credential_not_allowed",
+            "Credential is not authorized for this request.",
+            Some("evt_test"),
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["error"]["id"], "evt_test");
+    }
+
+    #[test]
+    fn local_audit_event_ids_use_a_short_uuid() {
+        let id = new_local_request_id();
+        assert!(id.starts_with("evt_"));
+        assert_eq!(id.len(), 26);
+        assert!(!id.contains('-'));
+
+        let id = new_local_audit_event_id();
+        assert!(id.starts_with("evt_"));
+        assert_eq!(id.len(), 26);
+        assert!(!id.contains('-'));
     }
 
     #[tokio::test]
@@ -2623,6 +3180,8 @@ mod tests {
         let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -2640,12 +3199,122 @@ mod tests {
             Some("EXAMPLE_API_KEY"),
             Some(StatusCode::OK),
             Some(Duration::from_millis(12)),
+            Some("evt_test"),
         );
 
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("api.example.com"));
         assert!(content.contains("EXAMPLE_API_KEY"));
+        assert!(content.contains("policy-fingerprint"));
         assert!(!content.contains("real-secret-value"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn audit_response_stream_records_actual_relayed_byte_counts() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = ProxyAuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+        let request_bytes = Arc::new(AtomicU64::new(7));
+        let mut response = AuditedResponseStream::new(
+            stream::iter(vec![Ok::<_, reqwest::Error>(Bytes::from_static(b"hello"))]),
+            request_bytes,
+            Some(audit_log),
+            "evt_test".to_owned(),
+            "injected",
+            Some("api.example.com".to_owned()),
+            Method::POST,
+            Some("EXAMPLE_API_KEY".to_owned()),
+            StatusCode::OK,
+            Instant::now(),
+        );
+
+        assert_eq!(
+            response
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .data_ref()
+                .unwrap()
+                .len(),
+            5
+        );
+        assert!(response.next().await.is_none());
+        drop(response);
+
+        let event: ProxyAuditLogEvent =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(event.request_bytes, Some(7));
+        assert_eq!(event.response_bytes, Some(5));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn audit_log_records_profile_provenance_only_at_session_start() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = ProxyAuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: Some(ProfileAuditProvenance {
+                source: "./.stashbase/agents/coding.toml".to_owned(),
+                modified_at: "2026-08-12T00:00:00+00:00".to_owned(),
+                sha256: "profile-file-sha256".to_owned(),
+            }),
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+
+        audit_log.record("session_started", None, None, None, None, None, None);
+        audit_log.record(
+            "forwarded",
+            Some("api.github.com"),
+            Some(&Method::GET),
+            None,
+            None,
+            None,
+            Some("evt_test"),
+        );
+
+        let events = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert!(events[0].id.starts_with("evt_"));
+        assert_eq!(events[1].id, "evt_test");
+        assert_eq!(
+            events[0].profile_source.as_deref(),
+            Some("./.stashbase/agents/coding.toml")
+        );
+        assert_eq!(
+            events[0].profile_file_sha256.as_deref(),
+            Some("profile-file-sha256")
+        );
+        assert!(events[1].profile_source.is_none());
+        assert!(events[1].profile_file_modified_at.is_none());
+        assert!(events[1].profile_file_sha256.is_none());
         fs::remove_file(path).unwrap();
     }
 
@@ -2677,12 +3346,19 @@ mod tests {
             timestamp: "2026-01-01T00:00:00Z".to_owned(),
             session_id: "session-1".to_owned(),
             profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            id: "evt_test".to_owned(),
+            profile_source: None,
+            profile_file_modified_at: None,
+            profile_file_sha256: None,
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             method: Some("POST".to_owned()),
             secret_name: Some("GH_TOKEN".to_owned()),
             response_status: Some(200),
             duration_ms: Some(42),
+            request_bytes: Some(10),
+            response_bytes: Some(20),
         };
 
         assert!(ProxyAuditLogFilter {
@@ -2690,6 +3366,7 @@ mod tests {
             action: Some("injected".to_owned()),
             host: Some("api.github.com".to_owned()),
             session: Some("session-1".to_owned()),
+            id: Some("evt_test".to_owned()),
         }
         .matches(&event));
         assert!(!ProxyAuditLogFilter {
@@ -2702,13 +3379,16 @@ mod tests {
     #[test]
     fn strict_policy_only_allows_secret_hosts_during_connect() {
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
-                normalize_hosts(HashSet::from(["API.GITHUB.COM.".to_owned()])),
+                SecretHttpPolicy::LegacyHosts(normalize_hosts(HashSet::from([
+                    "API.GITHUB.COM.".to_owned()
+                ]))),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
             strict_deny: true,
         };
 
@@ -2727,35 +3407,269 @@ mod tests {
         ));
     }
 
+    fn rule(effect: AgentHttpRuleEffect, methods: &[&str], paths: &[&str]) -> AgentHttpRule {
+        AgentHttpRule {
+            effect,
+            hosts: vec!["api.github.com".to_owned()],
+            methods: methods.iter().map(|method| (*method).to_owned()).collect(),
+            paths: paths.iter().map(|path| (*path).to_owned()).collect(),
+        }
+    }
+
+    fn rule_policy(rules: Vec<AgentHttpRule>) -> ProxyPolicy {
+        ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "**STASHBASE_GH_TOKEN**".to_owned(),
+                SecretHttpPolicy::Rules(rules),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+        }
+    }
+
+    #[test]
+    fn policy_fingerprint_is_stable_for_equivalent_normalized_rules() {
+        let left = rule_policy(vec![
+            rule(
+                AgentHttpRuleEffect::Allow,
+                &["get", "POST"],
+                &["/repos/*", "/user"],
+            ),
+            rule(AgentHttpRuleEffect::Deny, &["DELETE"], &["*"]),
+        ]);
+        let right = rule_policy(vec![
+            rule(AgentHttpRuleEffect::Deny, &["delete"], &["*"]),
+            rule(
+                AgentHttpRuleEffect::Allow,
+                &["POST", "GET"],
+                &["/user", "/repos/*"],
+            ),
+        ]);
+
+        assert_eq!(left.fingerprint(), right.fingerprint());
+        assert_eq!(left.fingerprint().len(), 64);
+    }
+
+    #[test]
+    fn http_rules_allow_a_matching_request() {
+        let policy = rule_policy(vec![rule(
+            AgentHttpRuleEffect::Allow,
+            &["get"],
+            &["/repos/*"],
+        )]);
+        assert!(secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::GET,
+            "/repos/acme/cli"
+        ));
+    }
+
+    #[test]
+    fn http_rules_default_deny_unmatched_routes_and_methods() {
+        let policy = rule_policy(vec![rule(
+            AgentHttpRuleEffect::Allow,
+            &["GET"],
+            &["/repos/*"],
+        )]);
+        assert!(!secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::GET,
+            "/user"
+        ));
+        assert!(!secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::POST,
+            "/repos/acme/cli"
+        ));
+    }
+
+    #[test]
+    fn http_rule_deny_overrides_allow_and_normalizes_dot_segments() {
+        let policy = rule_policy(vec![
+            rule(AgentHttpRuleEffect::Allow, &["GET"], &["/repos/*"]),
+            rule(AgentHttpRuleEffect::Deny, &["GET"], &["/repos/private/*"]),
+        ]);
+        assert!(!secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::GET,
+            "/repos/public/../private/repo"
+        ));
+    }
+
+    #[test]
+    fn audits_rule_denials_without_exposing_rule_details() {
+        let policy = rule_policy(vec![rule(
+            AgentHttpRuleEffect::Allow,
+            &["GET"],
+            &["/repos/*"],
+        )]);
+        assert_eq!(
+            credential_denial_action(&policy, "**STASHBASE_GH_TOKEN**"),
+            "credential_rule_denied"
+        );
+    }
+
+    #[test]
+    fn legacy_hosts_are_used_when_no_http_rules_exist() {
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "**STASHBASE_GH_TOKEN**".to_owned(),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+        };
+        assert!(secret_allows_request(
+            &policy,
+            "**STASHBASE_GH_TOKEN**",
+            Some("api.github.com"),
+            &Method::DELETE,
+            "/anything"
+        ));
+    }
+
+    #[tokio::test]
+    async fn child_environment_uses_the_binding_name_for_its_default_placeholder() {
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
+            ProxyPolicy::permissive(),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            proxy.child_env().get("GITHUB_TOKEN").map(String::as_str),
+            Some("**STASHBASE_GITHUB_TOKEN**")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn redirects_reauthorize_the_credential_for_the_redirected_path() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (requests, mut received) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let service = service_fn(move |request: Request<Incoming>| {
+                let requests = requests.clone();
+                async move {
+                    let _ = requests.send(request.uri().path().to_owned());
+                    let response = if request.uri().path() == "/allowed" {
+                        Response::builder()
+                            .status(StatusCode::FOUND)
+                            .header(LOCATION, "/blocked")
+                            .body(Full::new(Bytes::new()))
+                            .unwrap()
+                    } else {
+                        Response::builder()
+                            .status(StatusCode::NO_CONTENT)
+                            .body(Full::new(Bytes::new()))
+                            .unwrap()
+                    };
+                    Ok::<_, Infallible>(response)
+                }
+            });
+            http1::Builder::new()
+                .serve_connection(TokioIo::new(stream), service)
+                .await
+                .unwrap();
+        });
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                SecretHttpPolicy::Rules(vec![
+                    AgentHttpRule {
+                        effect: AgentHttpRuleEffect::Allow,
+                        hosts: vec!["127.0.0.1".to_owned()],
+                        methods: vec!["GET".to_owned()],
+                        paths: vec!["/allowed".to_owned()],
+                    },
+                    AgentHttpRule {
+                        effect: AgentHttpRuleEffect::Deny,
+                        hosts: vec!["127.0.0.1".to_owned()],
+                        methods: vec!["GET".to_owned()],
+                        paths: vec!["/blocked".to_owned()],
+                    },
+                ]),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{address}/allowed"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GITHUB_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(received.recv().await.as_deref(), Some("/allowed"));
+        assert!(timeout(Duration::from_millis(100), received.recv())
+            .await
+            .is_err());
+        proxy.stop().await;
+    }
+
     #[test]
     fn egress_wildcard_allows_any_destination_without_widening_secret_hosts() {
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
-                HashSet::from(["api.github.com".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: true,
             strict_deny: true,
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
-        assert!(!policy.allowed_hosts_by_secret["**STASHBASE_GH_TOKEN**"]
-            .iter()
-            .any(|allowed| host_matches(allowed, "example.com")));
+        assert!(matches!(
+            &policy.secret_policies["**STASHBASE_GH_TOKEN**"],
+            SecretHttpPolicy::LegacyHosts(hosts)
+                if !hosts.iter().any(|allowed| host_matches(allowed, "example.com"))
+        ));
     }
 
     #[test]
     fn denied_hosts_override_wildcard_egress_and_secret_destinations() {
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "**STASHBASE_GH_TOKEN**".to_owned(),
-                HashSet::from(["api.stashbase.dev".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["api.stashbase.dev".to_owned()])),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
+            egress_hosts_configured: true,
             strict_deny: true,
         };
         let state = ProxyState {
@@ -2805,13 +3719,14 @@ mod tests {
     async fn secret_hosts_do_not_grant_ordinary_egress() {
         let (address, authorization) = start_backend().await;
         let policy = ProxyPolicy {
-            allowed_hosts_by_secret: HashMap::from([(
+            secret_policies: HashMap::from([(
                 "GH_TOKEN".to_owned(),
-                HashSet::from(["127.0.0.1".to_owned()]),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["127.0.0.1".to_owned()])),
             )]),
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            egress_hosts_configured: false,
             strict_deny: true,
         };
         let proxy = Proxy::start(
@@ -3113,6 +4028,8 @@ mod tests {
         let audit_log = ProxyAuditLog {
             session_id: "session".to_owned(),
             profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -3153,9 +4070,9 @@ mod tests {
         let proxy = Proxy::start(
             HashMap::from([("ANTHROPIC_API_KEY".to_owned(), "real-token".to_owned())]),
             ProxyPolicy {
-                allowed_hosts_by_secret: HashMap::from([(
+                secret_policies: HashMap::from([(
                     "ANTHROPIC_API_KEY".to_owned(),
-                    HashSet::from(["127.0.0.1".to_owned()]),
+                    SecretHttpPolicy::LegacyHosts(HashSet::from(["127.0.0.1".to_owned()])),
                 )]),
                 secret_injections: HashMap::from([(
                     "ANTHROPIC_API_KEY".to_owned(),
@@ -3166,6 +4083,7 @@ mod tests {
                 )]),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
+                egress_hosts_configured: false,
                 strict_deny: true,
             },
             None,
@@ -3191,13 +4109,14 @@ mod tests {
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
             ProxyPolicy {
-                allowed_hosts_by_secret: HashMap::from([(
+                secret_policies: HashMap::from([(
                     "GH_TOKEN".to_owned(),
-                    HashSet::from(["api.github.com".to_owned()]),
+                    SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
                 )]),
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
+                egress_hosts_configured: false,
                 strict_deny: true,
             },
             None,
@@ -3224,13 +4143,14 @@ mod tests {
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
             ProxyPolicy {
-                allowed_hosts_by_secret: HashMap::from([(
+                secret_policies: HashMap::from([(
                     "GH_TOKEN".to_owned(),
-                    HashSet::from(["api.github.com".to_owned()]),
+                    SecretHttpPolicy::LegacyHosts(HashSet::from(["api.github.com".to_owned()])),
                 )]),
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 denied_hosts: HashSet::new(),
+                egress_hosts_configured: true,
                 strict_deny: true,
             },
             None,
