@@ -18,13 +18,17 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, RwLock,
+    },
+    task::{Context as TaskContext, Poll},
     time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
 use hyper::{
     body::{Bytes, Frame, Incoming},
@@ -100,6 +104,12 @@ pub struct ProxyAuditLogEvent {
     pub secret_name: Option<String>,
     pub response_status: Option<u16>,
     pub duration_ms: Option<u64>,
+    /// Bytes actually relayed from the child to the destination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_bytes: Option<u64>,
+    /// Bytes actually relayed from the destination to the child.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_bytes: Option<u64>,
 }
 
 /// Exact-match filters for the local audit-log viewer.
@@ -243,6 +253,32 @@ impl ProxyAuditLog {
         duration: Option<Duration>,
         id: Option<&str>,
     ) {
+        self.record_with_bytes(
+            action,
+            host,
+            method,
+            secret_name,
+            status,
+            duration,
+            id,
+            None,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_with_bytes(
+        &self,
+        action: &str,
+        host: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+        id: Option<&str>,
+        request_bytes: Option<u64>,
+        response_bytes: Option<u64>,
+    ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
@@ -278,6 +314,8 @@ impl ProxyAuditLog {
             secret_name: secret_name.map(str::to_owned),
             response_status: status.map(|status| status.as_u16()),
             duration_ms: duration.and_then(|duration| u64::try_from(duration.as_millis()).ok()),
+            request_bytes,
+            response_bytes,
         };
         if let Ok(mut file) = self.file.lock() {
             let _ = writeln!(
@@ -286,6 +324,102 @@ impl ProxyAuditLog {
                 serde_json::to_string(&event).unwrap_or_default()
             );
         }
+    }
+}
+
+/// Counts response data as Hyper relays it to the child, then records the final
+/// audit event on normal completion or early stream drop.
+struct AuditedResponseStream {
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    request_bytes: Arc<AtomicU64>,
+    response_bytes: u64,
+    audit_log: Option<ProxyAuditLog>,
+    request_id: String,
+    action: &'static str,
+    host: Option<String>,
+    method: Method,
+    secret_name: Option<String>,
+    status: StatusCode,
+    started: Instant,
+    recorded: bool,
+}
+
+impl AuditedResponseStream {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        inner: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+        request_bytes: Arc<AtomicU64>,
+        audit_log: Option<ProxyAuditLog>,
+        request_id: String,
+        action: &'static str,
+        host: Option<String>,
+        method: Method,
+        secret_name: Option<String>,
+        status: StatusCode,
+        started: Instant,
+    ) -> Self {
+        Self {
+            inner: Box::pin(inner),
+            request_bytes,
+            response_bytes: 0,
+            audit_log,
+            request_id,
+            action,
+            host,
+            method,
+            secret_name,
+            status,
+            started,
+            recorded: false,
+        }
+    }
+
+    fn record_once(&mut self) {
+        if self.recorded {
+            return;
+        }
+        self.recorded = true;
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record_with_bytes(
+                self.action,
+                self.host.as_deref(),
+                Some(&self.method),
+                self.secret_name.as_deref(),
+                Some(self.status),
+                Some(self.started.elapsed()),
+                Some(&self.request_id),
+                Some(self.request_bytes.load(Ordering::Relaxed)),
+                Some(self.response_bytes),
+            );
+        }
+    }
+}
+
+impl Stream for AuditedResponseStream {
+    type Item = Result<Frame<Bytes>, BoxError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        match self.inner.as_mut().poll_next(context) {
+            Poll::Ready(Some(Ok(chunk))) => {
+                self.response_bytes = self.response_bytes.saturating_add(chunk.len() as u64);
+                Poll::Ready(Some(Ok(Frame::data(chunk))))
+            }
+            Poll::Ready(Some(Err(error))) => Poll::Ready(Some(Err(Box::new(error)))),
+            Poll::Ready(None) => {
+                self.record_once();
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Drop for AuditedResponseStream {
+    fn drop(&mut self) {
+        self.record_once();
     }
 }
 
@@ -1336,7 +1470,15 @@ fn proxy_request(
         // `Incoming` is converted into a data stream without collecting it. Reqwest
         // applies chunked transfer encoding when no content length is available, so
         // streaming uploads retain their incremental delivery to the upstream.
-        let body = reqwest::Body::wrap_stream(request.into_body().into_data_stream());
+        let request_bytes = Arc::new(AtomicU64::new(0));
+        let request_byte_counter = request_bytes.clone();
+        let body =
+            reqwest::Body::wrap_stream(request.into_body().into_data_stream().map(move |chunk| {
+                if let Ok(bytes) = &chunk {
+                    request_byte_counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                }
+                chunk
+            }));
 
         let destination_url = if let Some(remote) = state
             .remote
@@ -1432,27 +1574,26 @@ fn proxy_request(
                 let headers = upstream.headers().clone();
                 // Do not await `bytes()`: forwarding this stream lets clients observe
                 // each upstream chunk (including SSE events) as it arrives.
-                let body = StreamBody::new(upstream.bytes_stream().map(|chunk| {
-                    chunk
-                        .map(Frame::data)
-                        .map_err(|error| -> BoxError { Box::new(error) })
-                }))
+                let action = if secret_name.is_some() {
+                    "injected"
+                } else {
+                    "forwarded"
+                };
+                let body = StreamBody::new(AuditedResponseStream::new(
+                    upstream.bytes_stream(),
+                    request_bytes,
+                    state.audit_log.clone(),
+                    request_id,
+                    action,
+                    host.clone(),
+                    method.clone(),
+                    secret_name.clone(),
+                    status,
+                    started,
+                ))
                 .boxed_unsync();
                 let mut response = Response::builder().status(status).body(body).unwrap();
                 *response.headers_mut() = headers;
-                state.record_audit_with_request(
-                    &request_id,
-                    if secret_name.is_some() {
-                        "injected"
-                    } else {
-                        "forwarded"
-                    },
-                    host.as_deref(),
-                    Some(&method),
-                    secret_name.as_deref(),
-                    Some(status),
-                    Some(started.elapsed()),
-                );
                 Ok(response)
             }
             Err(error) => {
@@ -3069,6 +3210,59 @@ mod tests {
         fs::remove_file(path).unwrap();
     }
 
+    #[tokio::test]
+    async fn audit_response_stream_records_actual_relayed_byte_counts() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = ProxyAuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+        let request_bytes = Arc::new(AtomicU64::new(7));
+        let mut response = AuditedResponseStream::new(
+            stream::iter(vec![Ok::<_, reqwest::Error>(Bytes::from_static(b"hello"))]),
+            request_bytes,
+            Some(audit_log),
+            "evt_test".to_owned(),
+            "injected",
+            Some("api.example.com".to_owned()),
+            Method::POST,
+            Some("EXAMPLE_API_KEY".to_owned()),
+            StatusCode::OK,
+            Instant::now(),
+        );
+
+        assert_eq!(
+            response
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .data_ref()
+                .unwrap()
+                .len(),
+            5
+        );
+        assert!(response.next().await.is_none());
+        drop(response);
+
+        let event: ProxyAuditLogEvent =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(event.request_bytes, Some(7));
+        assert_eq!(event.response_bytes, Some(5));
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn audit_log_records_profile_provenance_only_at_session_start() {
         let path =
@@ -3163,6 +3357,8 @@ mod tests {
             secret_name: Some("GH_TOKEN".to_owned()),
             response_status: Some(200),
             duration_ms: Some(42),
+            request_bytes: Some(10),
+            response_bytes: Some(20),
         };
 
         assert!(ProxyAuditLogFilter {

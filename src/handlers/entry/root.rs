@@ -1017,6 +1017,8 @@ fn handle_agent_logs_summary(
     println!("Injected: {}", report.injected);
     println!("Forwarded without credential: {}", report.forwarded);
     println!("Denied: {}", report.denied);
+    println!("Uploaded: {} bytes", report.request_bytes);
+    println!("Downloaded: {} bytes", report.response_bytes);
     if !report.denied_by.is_empty() {
         println!();
         println!("Denied by:");
@@ -1070,6 +1072,8 @@ fn summarize_audit_events(
         .iter()
         .filter(|event| event.action == "forwarded")
         .count();
+    let request_bytes = events.iter().filter_map(|event| event.request_bytes).sum();
+    let response_bytes = events.iter().filter_map(|event| event.response_bytes).sum();
     let denied_events = events
         .iter()
         .filter(|event| event.response_status == Some(403))
@@ -1109,6 +1113,8 @@ fn summarize_audit_events(
         injected,
         forwarded,
         denied: denied_events.len(),
+        request_bytes,
+        response_bytes,
         denied_by,
     }
 }
@@ -1123,6 +1129,8 @@ struct AuditSummary {
     injected: usize,
     forwarded: usize,
     denied: usize,
+    request_bytes: u64,
+    response_bytes: u64,
     denied_by: Vec<AuditDeniedSummary>,
 }
 
@@ -1243,9 +1251,18 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .duration_ms
         .map(|duration| format!("{duration}ms"))
         .unwrap_or_else(|| "-".to_owned());
+    let request_bytes = event
+        .request_bytes
+        .map(|bytes| bytes.to_string())
+        .unwrap_or_else(|| "-".to_owned());
+    let response_bytes = event
+        .response_bytes
+        .map(|bytes| bytes.to_string())
+        .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} secret={} status={} duration={}",
-        event.timestamp, event.id, event.profile, event.action, host, secret, status, duration
+        "{}  id={} profile={} action={} host={} secret={} status={} duration={} request_bytes={} response_bytes={}",
+        event.timestamp, event.id, event.profile, event.action, host, secret, status, duration,
+        request_bytes, response_bytes
     );
     Ok(())
 }
@@ -1564,6 +1581,8 @@ mod tests {
             secret_name: Some("GITHUB_TOKEN".to_owned()),
             response_status: status,
             duration_ms: Some(1),
+            request_bytes: Some(10),
+            response_bytes: Some(20),
         };
         let report = summarize_audit_events(
             vec![
@@ -1582,6 +1601,8 @@ mod tests {
         assert_eq!(report.requests, 4);
         assert_eq!(report.injected, 1);
         assert_eq!(report.denied, 3);
+        assert_eq!(report.request_bytes, 40);
+        assert_eq!(report.response_bytes, 80);
         assert_eq!(report.denied_by[0].action, "credential_rule_denied");
         assert_eq!(report.denied_by[0].host, "api.github.com");
         assert_eq!(report.denied_by[0].count, 2);

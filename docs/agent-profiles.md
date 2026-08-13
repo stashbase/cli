@@ -614,7 +614,10 @@ prints an audit session ID, policy fingerprint, and the local log path. The
 fingerprint is a SHA-256 identifier of the normalized policy snapshot for that
 run; it contains no secret values or placeholders. Events include the profile,
 policy fingerprint, proxy action, destination host, secret name, response
-status, and duration.
+status, duration, and—after an HTTP response stream finishes—actual request
+and response byte counts. Byte counts are derived from data relayed by the
+proxy, not `Content-Length`; they are absent for requests denied before
+forwarding and for CONNECT/upgrade tunnels.
 They never include secret values, placeholders, headers, bodies, URLs, or
 command arguments.
 
@@ -663,6 +666,9 @@ logs list`.
 forward, and denial counts. Its `Denied by` section groups only the proxy
 action and destination host; it never prints secret names, request paths,
 headers, bodies, URLs, or credential values. Use `--json` for automation.
+It also reports total uploaded and downloaded HTTP bytes for the matching
+completed events. Byte counts are metadata and may reveal rough response size,
+so they should be handled as local audit data.
 It summarizes the newest matching events up to `--limit` (default: 1,000), not
 all historical audit data. JSON output includes the selected `limit` and, when
 provided, the original `since` window.
