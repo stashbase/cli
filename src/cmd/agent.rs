@@ -332,6 +332,20 @@ pub struct AgentLogsSummaryCommand {
     /// Only include one local audit event by ID
     #[arg(long)]
     pub id: Option<String>,
+
+    /// Group matching events by host, proxy action, or credential binding
+    #[arg(long = "by", value_enum)]
+    pub group_by: Option<AgentAuditGroupBy>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum AgentAuditGroupBy {
+    /// Group by destination host
+    Host,
+    /// Group by proxy action
+    Action,
+    /// Group by configured credential binding name
+    Secret,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

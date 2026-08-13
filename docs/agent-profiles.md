@@ -657,6 +657,8 @@ stashbase agent logs --id evt_...
 stashbase agent logs list --since 24h --limit 100
 stashbase agent logs list --follow
 stashbase agent logs summary --profile coding --since 7d
+stashbase agent logs summary --profile coding --by host
+stashbase agent logs summary --profile coding --by action
 ```
 
 `stashbase agent logs` remains a backward-compatible alias for `stashbase agent
@@ -669,6 +671,11 @@ headers, bodies, URLs, or credential values. Use `--json` for automation.
 It also reports total uploaded and downloaded HTTP bytes for the matching
 completed events. Byte counts are metadata and may reveal rough response size,
 so they should be handled as local audit data.
+
+Pass `--by host`, `--by action`, or `--by secret` to add a transfer and outcome
+table for that dimension. `--by secret` deliberately displays configured secret
+binding names, never secret values; use it only where those names are suitable
+for the local audit audience.
 It summarizes the newest matching events up to `--limit` (default: 1,000), not
 all historical audit data. JSON output includes the selected `limit` and, when
 provided, the original `since` window.

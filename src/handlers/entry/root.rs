@@ -14,8 +14,8 @@ use tokio::{sync::watch, task::JoinHandle};
 use crate::{
     cmd::{
         agent::{
-            AgentLogsCommand, AgentLogsListCommand, AgentLogsSubcommand, AgentLogsSummaryCommand,
-            AgentProfileSource, AgentSubcommand,
+            AgentAuditGroupBy, AgentLogsCommand, AgentLogsListCommand, AgentLogsSubcommand,
+            AgentLogsSummaryCommand, AgentProfileSource, AgentSubcommand,
         },
         config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
@@ -999,6 +999,7 @@ fn handle_agent_logs_summary(
         read_local_proxy_audit_logs(command.limit, since, &filter)?,
         command.limit,
         command.since.clone(),
+        command.group_by,
     );
     if !silent {
         println!();
@@ -1017,14 +1018,48 @@ fn handle_agent_logs_summary(
     println!("Injected: {}", report.injected);
     println!("Forwarded without credential: {}", report.forwarded);
     println!("Denied: {}", report.denied);
-    println!("Uploaded: {} bytes", report.request_bytes);
-    println!("Downloaded: {} bytes", report.response_bytes);
+    println!("Uploaded: {}", format_bytes(report.request_bytes));
+    println!("Downloaded: {}", format_bytes(report.response_bytes));
+    if !report.groups.is_empty() {
+        println!();
+        println!("Grouped by {}:", report.group_by.unwrap_or_default());
+        print_audit_group_summary_table(&report.groups);
+    }
     if !report.denied_by.is_empty() {
         println!();
         println!("Denied by:");
         print_denied_summary_table(&report.denied_by);
     }
     Ok(())
+}
+
+fn print_audit_group_summary_table(entries: &[AuditGroupSummary]) {
+    print!("{}", format_audit_group_summary_table(entries));
+}
+
+fn format_audit_group_summary_table(entries: &[AuditGroupSummary]) -> String {
+    let group_width = entries
+        .iter()
+        .map(|entry| entry.value.len())
+        .max()
+        .unwrap_or_default()
+        .max("GROUP".len());
+    let mut output = format!(
+        "{:<group_width$}  EVENTS  REQUESTS  DENIED  UPLOADED  DOWNLOADED\n",
+        "GROUP"
+    );
+    for entry in entries {
+        output.push_str(&format!(
+            "{:<group_width$}  {:>6}  {:>8}  {:>6}  {:>8}  {:>10}\n",
+            entry.value,
+            entry.events,
+            entry.requests,
+            entry.denied,
+            format_bytes(entry.request_bytes),
+            format_bytes(entry.response_bytes),
+        ));
+    }
+    output
 }
 
 fn print_denied_summary_table(entries: &[AuditDeniedSummary]) {
@@ -1061,6 +1096,7 @@ fn summarize_audit_events(
     events: Vec<ProxyAuditLogEvent>,
     limit: usize,
     since: Option<String>,
+    group_by: Option<AgentAuditGroupBy>,
 ) -> AuditSummary {
     let events_count = events.len();
     let requests = events.iter().filter(|event| event.method.is_some()).count();
@@ -1105,6 +1141,7 @@ fn summarize_audit_events(
             .then_with(|| left.action.cmp(&right.action))
             .then_with(|| left.host.cmp(&right.host))
     });
+    let groups = group_by.map(|group_by| summarize_audit_groups(&events, group_by));
     AuditSummary {
         limit,
         since,
@@ -1116,6 +1153,8 @@ fn summarize_audit_events(
         request_bytes,
         response_bytes,
         denied_by,
+        group_by: group_by.map(audit_group_by_name),
+        groups: groups.unwrap_or_default(),
     }
 }
 
@@ -1132,6 +1171,10 @@ struct AuditSummary {
     request_bytes: u64,
     response_bytes: u64,
     denied_by: Vec<AuditDeniedSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    group_by: Option<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    groups: Vec<AuditGroupSummary>,
 }
 
 #[derive(Serialize)]
@@ -1139,6 +1182,62 @@ struct AuditDeniedSummary {
     action: String,
     host: String,
     count: usize,
+}
+
+#[derive(Serialize)]
+struct AuditGroupSummary {
+    value: String,
+    events: usize,
+    requests: usize,
+    denied: usize,
+    request_bytes: u64,
+    response_bytes: u64,
+}
+
+fn audit_group_by_name(group_by: AgentAuditGroupBy) -> &'static str {
+    match group_by {
+        AgentAuditGroupBy::Host => "host",
+        AgentAuditGroupBy::Action => "action",
+        AgentAuditGroupBy::Secret => "secret",
+    }
+}
+
+fn summarize_audit_groups(
+    events: &[ProxyAuditLogEvent],
+    group_by: AgentAuditGroupBy,
+) -> Vec<AuditGroupSummary> {
+    let mut groups = BTreeMap::<String, AuditGroupSummary>::new();
+    for event in events {
+        let value = match group_by {
+            AgentAuditGroupBy::Host => event.destination_host.as_deref(),
+            AgentAuditGroupBy::Action => Some(event.action.as_str()),
+            AgentAuditGroupBy::Secret => event.secret_name.as_deref(),
+        }
+        .unwrap_or("-")
+        .to_owned();
+        let group = groups.entry(value.clone()).or_insert(AuditGroupSummary {
+            value,
+            events: 0,
+            requests: 0,
+            denied: 0,
+            request_bytes: 0,
+            response_bytes: 0,
+        });
+        group.events += 1;
+        group.requests += usize::from(event.method.is_some());
+        group.denied += usize::from(event.response_status == Some(403));
+        group.request_bytes += event.request_bytes.unwrap_or_default();
+        group.response_bytes += event.response_bytes.unwrap_or_default();
+    }
+    let mut groups = groups.into_values().collect::<Vec<_>>();
+    groups.sort_by(|left, right| {
+        right
+            .response_bytes
+            .cmp(&left.response_bytes)
+            .then_with(|| right.events.cmp(&left.events))
+            .then_with(|| left.value.cmp(&right.value))
+    });
+    groups
 }
 
 /// Returns a startup warning when repository-controlled policy has not been
@@ -1253,11 +1352,11 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .unwrap_or_else(|| "-".to_owned());
     let request_bytes = event
         .request_bytes
-        .map(|bytes| bytes.to_string())
+        .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     let response_bytes = event
         .response_bytes
-        .map(|bytes| bytes.to_string())
+        .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
         "{}  id={} profile={} action={} host={} secret={} status={} duration={} request_bytes={} response_bytes={}",
@@ -1265,6 +1364,25 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         request_bytes, response_bytes
     );
     Ok(())
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else if value >= 100.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else if value >= 10.0 {
+        format!("{value:.1} {}", UNITS[unit])
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
 }
 
 const REMOTE_SESSION_ROTATE_EARLY: Duration = Duration::from_secs(120);
@@ -1593,6 +1711,7 @@ mod tests {
             ],
             50,
             Some("7d".to_owned()),
+            None,
         );
 
         assert_eq!(report.limit, 50);
@@ -1606,6 +1725,63 @@ mod tests {
         assert_eq!(report.denied_by[0].action, "credential_rule_denied");
         assert_eq!(report.denied_by[0].host, "api.github.com");
         assert_eq!(report.denied_by[0].count, 2);
+    }
+
+    #[test]
+    fn audit_summary_groups_transfer_totals_by_requested_dimension() {
+        let events = vec![
+            ProxyAuditLogEvent {
+                timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                id: "evt_one".to_owned(),
+                session_id: "session".to_owned(),
+                profile: "codex".to_owned(),
+                policy_fingerprint: "fingerprint".to_owned(),
+                profile_source: None,
+                profile_file_modified_at: None,
+                profile_file_sha256: None,
+                action: "injected".to_owned(),
+                destination_host: Some("api.github.com".to_owned()),
+                method: Some("POST".to_owned()),
+                secret_name: Some("GITHUB_TOKEN".to_owned()),
+                response_status: Some(200),
+                duration_ms: Some(1),
+                request_bytes: Some(10),
+                response_bytes: Some(100),
+            },
+            ProxyAuditLogEvent {
+                timestamp: "2026-01-01T00:00:00Z".to_owned(),
+                id: "evt_two".to_owned(),
+                session_id: "session".to_owned(),
+                profile: "codex".to_owned(),
+                policy_fingerprint: "fingerprint".to_owned(),
+                profile_source: None,
+                profile_file_modified_at: None,
+                profile_file_sha256: None,
+                action: "forwarded".to_owned(),
+                destination_host: Some("registry.npmjs.org".to_owned()),
+                method: Some("GET".to_owned()),
+                secret_name: None,
+                response_status: Some(200),
+                duration_ms: Some(1),
+                request_bytes: Some(2),
+                response_bytes: Some(200),
+            },
+        ];
+
+        let by_host =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Host);
+        assert_eq!(by_host[0].value, "registry.npmjs.org");
+        assert_eq!(by_host[0].response_bytes, 200);
+
+        let by_action =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Action);
+        assert_eq!(by_action[1].value, "injected");
+        assert_eq!(by_action[1].request_bytes, 10);
+
+        let by_secret =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Secret);
+        assert_eq!(by_secret[0].value, "-");
+        assert_eq!(by_secret[1].value, "GITHUB_TOKEN");
     }
 
     #[test]
@@ -1628,6 +1804,17 @@ mod tests {
              host_denied                 5  api.stripe.com\n\
              credential_rule_denied     12  api.github.com\n"
         );
+    }
+
+    #[test]
+    fn formats_byte_counts_for_human_audit_output() {
+        assert_eq!(super::format_bytes(0), "0 B");
+        assert_eq!(super::format_bytes(1_023), "1023 B");
+        assert_eq!(super::format_bytes(1_024), "1.00 KiB");
+        assert_eq!(super::format_bytes(12 * 1_024), "12.0 KiB");
+        assert_eq!(super::format_bytes(128 * 1_024), "128 KiB");
+        assert_eq!(super::format_bytes(1_572_864), "1.50 MiB");
+        assert_eq!(super::format_bytes(3 * 1_024 * 1_024 * 1_024), "3.00 GiB");
     }
 
     #[test]
