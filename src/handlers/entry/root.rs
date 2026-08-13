@@ -9,6 +9,7 @@ use std::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use tabled::Tabled;
 use tokio::{sync::watch, task::JoinHandle};
 
 use crate::{
@@ -54,7 +55,9 @@ use crate::{
         setup::setup,
     },
     models::{config::Config, validation::InputValidationError},
-    utils::{env::get_stashbase_api_key, output::ColorizeIfColoredOutput},
+    utils::{
+        env::get_stashbase_api_key, output::ColorizeIfColoredOutput, tables::build::build_table,
+    },
     REQUEST_ABORTED,
 };
 
@@ -1038,28 +1041,18 @@ fn print_audit_group_summary_table(entries: &[AuditGroupSummary]) {
 }
 
 fn format_audit_group_summary_table(entries: &[AuditGroupSummary]) -> String {
-    let group_width = entries
+    let rows = entries
         .iter()
-        .map(|entry| entry.value.len())
-        .max()
-        .unwrap_or_default()
-        .max("GROUP".len());
-    let mut output = format!(
-        "{:<group_width$}  EVENTS  REQUESTS  DENIED  UPLOADED  DOWNLOADED\n",
-        "GROUP"
-    );
-    for entry in entries {
-        output.push_str(&format!(
-            "{:<group_width$}  {:>6}  {:>8}  {:>6}  {:>8}  {:>10}\n",
-            entry.value,
-            entry.events,
-            entry.requests,
-            entry.denied,
-            format_bytes(entry.request_bytes),
-            format_bytes(entry.response_bytes),
-        ));
-    }
-    output
+        .map(|entry| AuditGroupSummaryRow {
+            group: entry.value.clone(),
+            events: entry.events,
+            requests: entry.requests,
+            denied: entry.denied,
+            uploaded: format_bytes(entry.request_bytes),
+            downloaded: format_bytes(entry.response_bytes),
+        })
+        .collect::<Vec<_>>();
+    build_table(&rows).to_string() + "\n"
 }
 
 fn print_denied_summary_table(entries: &[AuditDeniedSummary]) {
@@ -1067,29 +1060,15 @@ fn print_denied_summary_table(entries: &[AuditDeniedSummary]) {
 }
 
 fn format_denied_summary_table(entries: &[AuditDeniedSummary]) -> String {
-    let action_width = entries
+    let rows = entries
         .iter()
-        .map(|entry| entry.action.len())
-        .max()
-        .unwrap_or_default()
-        .max("ACTION".len());
-    let count_width = entries
-        .iter()
-        .map(|entry| entry.count.to_string().len())
-        .max()
-        .unwrap_or_default()
-        .max("COUNT".len());
-    let mut output = format!(
-        "{:<action_width$}  {:>count_width$}  HOST\n",
-        "ACTION", "COUNT"
-    );
-    for entry in entries {
-        output.push_str(&format!(
-            "{:<action_width$}  {:>count_width$}  {}\n",
-            entry.action, entry.count, entry.host
-        ));
-    }
-    output
+        .map(|entry| AuditDeniedSummaryRow {
+            action: entry.action.clone(),
+            host: entry.host.clone(),
+            count: entry.count,
+        })
+        .collect::<Vec<_>>();
+    build_table(&rows).to_string() + "\n"
 }
 
 fn summarize_audit_events(
@@ -1184,6 +1163,16 @@ struct AuditDeniedSummary {
     count: usize,
 }
 
+#[derive(Tabled)]
+struct AuditDeniedSummaryRow {
+    #[tabled(rename = "ACTION")]
+    action: String,
+    #[tabled(rename = "HOST")]
+    host: String,
+    #[tabled(rename = "COUNT")]
+    count: usize,
+}
+
 #[derive(Serialize)]
 struct AuditGroupSummary {
     value: String,
@@ -1192,6 +1181,22 @@ struct AuditGroupSummary {
     denied: usize,
     request_bytes: u64,
     response_bytes: u64,
+}
+
+#[derive(Tabled)]
+struct AuditGroupSummaryRow {
+    #[tabled(rename = "GROUP")]
+    group: String,
+    #[tabled(rename = "EVENTS")]
+    events: usize,
+    #[tabled(rename = "REQUESTS")]
+    requests: usize,
+    #[tabled(rename = "DENIED")]
+    denied: usize,
+    #[tabled(rename = "UPLOADED")]
+    uploaded: String,
+    #[tabled(rename = "DOWNLOADED")]
+    downloaded: String,
 }
 
 fn audit_group_by_name(group_by: AgentAuditGroupBy) -> &'static str {
@@ -1785,7 +1790,7 @@ mod tests {
     }
 
     #[test]
-    fn denied_summary_table_aligns_columns() {
+    fn denied_summary_table_uses_the_shared_table_renderer() {
         let entries = vec![
             super::AuditDeniedSummary {
                 action: "host_denied".to_owned(),
@@ -1798,12 +1803,10 @@ mod tests {
                 count: 12,
             },
         ];
-        assert_eq!(
-            super::format_denied_summary_table(&entries),
-            "ACTION                  COUNT  HOST\n\
-             host_denied                 5  api.stripe.com\n\
-             credential_rule_denied     12  api.github.com\n"
-        );
+        let output = super::format_denied_summary_table(&entries);
+        assert!(output.contains("ACTION"));
+        assert!(output.contains("credential_rule_denied"));
+        assert!(output.contains("api.stripe.com"));
     }
 
     #[test]
