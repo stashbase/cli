@@ -43,6 +43,7 @@ pub async fn run_command(
     command: &str,
     args: Vec<String>,
     env_vars: HashMap<String, String>,
+    env_removals: Vec<String>,
     sandbox: bool,
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
@@ -51,6 +52,12 @@ pub async fn run_command(
     let (program, launcher_args) = sandbox_command(command, sandbox, &env_vars)?;
     let cmd: Expression = cmd(program, launcher_args)
         .before_spawn(move |cmd| {
+            // Agent profiles may rename a project secret for the child process.
+            // Never let an identically named parent environment variable bypass
+            // that binding and expose the source name alongside the placeholder.
+            for name in &env_removals {
+                cmd.env_remove(name);
+            }
             if restrict_stashbase_credentials {
                 // Do not inherit the developer's Stashbase API key into a
                 // restricted agent child. Explicit profile placeholders are
@@ -194,6 +201,7 @@ mod tests {
             "sh",
             vec!["-c".to_owned(), "exit 7".to_owned()],
             HashMap::new(),
+            Vec::new(),
             false,
             false,
             false,
@@ -214,6 +222,7 @@ mod tests {
             "sh",
             vec!["-c".to_owned(), "test -z \"$STASHBASE_API_KEY\"".to_owned()],
             HashMap::new(),
+            Vec::new(),
             false,
             false,
             true,
@@ -224,6 +233,35 @@ mod tests {
         match previous {
             Some(value) => std::env::set_var("STASHBASE_API_KEY", value),
             None => std::env::remove_var("STASHBASE_API_KEY"),
+        }
+        assert!(status.success());
+    }
+
+    #[tokio::test]
+    async fn proxy_child_removes_the_source_name_when_a_secret_is_renamed() {
+        let _guard = environment_lock().lock().unwrap();
+        let previous = std::env::var_os("GITHUB_TOKEN");
+        std::env::set_var("GITHUB_TOKEN", "parent-token");
+
+        let status = run_command(
+            "sh",
+            vec![
+                "-c".to_owned(),
+                "test -z \"$GITHUB_TOKEN\" && test \"$GH_TOKEN\" = \"proxy-placeholder\""
+                    .to_owned(),
+            ],
+            HashMap::from([("GH_TOKEN".to_owned(), "proxy-placeholder".to_owned())]),
+            vec!["GITHUB_TOKEN".to_owned()],
+            false,
+            true,
+            true,
+        )
+        .await
+        .unwrap();
+
+        match previous {
+            Some(value) => std::env::set_var("GITHUB_TOKEN", value),
+            None => std::env::remove_var("GITHUB_TOKEN"),
         }
         assert!(status.success());
     }
@@ -253,6 +291,7 @@ mod tests {
                 ("NO_PROXY".to_owned(), String::new()),
                 ("no_proxy".to_owned(), String::new()),
             ]),
+            Vec::new(),
             false,
             true,
             false,
@@ -297,6 +336,7 @@ mod tests {
                 "ANTHROPIC_API_KEY".to_owned(),
                 "proxy-placeholder".to_owned(),
             )]),
+            Vec::new(),
             false,
             true,
             false,

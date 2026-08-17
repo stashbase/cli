@@ -71,10 +71,16 @@ environment = "local-creds"
 egress_hosts = ["api.github.com"]
 
 [secrets.GITHUB_TOKEN]
-from = "GITHUB_TOKEN"
+env = "GH_TOKEN"
 header = "Authorization"
 value_template = "Bearer {secret}"
 ```
+
+The name after `secrets.` selects the secret from the configured project and
+environment. `env` names the environment variable exposed to the child, so the
+profile above makes the `GITHUB_TOKEN` secret available as `GH_TOKEN`. The
+source name is removed from the child environment, preventing a parent process
+variable such as `GITHUB_TOKEN` from bypassing the profile's chosen name.
 
 Validate a profile before granting it secrets—locally or in CI:
 

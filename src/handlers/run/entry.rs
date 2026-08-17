@@ -48,6 +48,7 @@ pub async fn handle_remote_agent_run(
     sandbox: bool,
     trust_proxy_ca: bool,
     audit_log: Option<super::proxy::ProxyAuditLog>,
+    source_env_names: Vec<String>,
     silent: bool,
 ) -> anyhow::Result<()> {
     let cmd = command.first().context("no command provided")?.clone();
@@ -63,8 +64,16 @@ pub async fn handle_remote_agent_run(
         );
         eprintln!("Remote agent proxy session active");
     }
-    let result =
-        subprocess::run_command(&cmd, args, proxy.child_env().clone(), sandbox, true, true).await;
+    let result = subprocess::run_command(
+        &cmd,
+        args,
+        proxy.child_env().clone(),
+        source_env_names,
+        sandbox,
+        true,
+        true,
+    )
+    .await;
     proxy.stop().await;
     if !silent {
         eprintln!("Remote agent proxy relay stopped");
@@ -1102,6 +1111,7 @@ async fn handle_run(
             &cmd,
             args,
             proxy.child_env().clone(),
+            secret_bindings.keys().cloned().collect(),
             sandbox,
             true,
             restrict_stashbase_credentials,
@@ -1114,7 +1124,16 @@ async fn handle_run(
         result
     } else {
         // TODO: errors: no such file or directory
-        subprocess::run_command(&cmd, args, secrets_hash_map, sandbox, false, false).await
+        subprocess::run_command(
+            &cmd,
+            args,
+            secrets_hash_map,
+            Vec::new(),
+            sandbox,
+            false,
+            false,
+        )
+        .await
     };
 
     let mut mutex = SUBPROCESS_RUNNING

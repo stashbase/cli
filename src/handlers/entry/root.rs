@@ -116,6 +116,18 @@ fn infer_remote_agent_type(command: &[String]) -> &'static str {
     }
 }
 
+fn secret_child_name(
+    name: &str,
+    secret: &crate::models::agent::AgentSecretProfile,
+    is_remote: bool,
+) -> String {
+    if is_remote {
+        name.to_owned()
+    } else {
+        secret.env.clone().unwrap_or_else(|| name.to_owned())
+    }
+}
+
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
     if let EntityType::Generate(cmd) = args.entity_type {
@@ -465,11 +477,13 @@ pub async fn handle_cli(args: Cli) {
                         );
                     }
 
+                    let is_remote = agent_run.remote;
                     let secret_bindings = profile
                         .secrets
                         .iter()
-                        .map(|(target, secret)| {
-                            (secret.from.clone().unwrap_or_else(|| target.clone()), target.clone())
+                        .map(|(name, secret)| {
+                            let child_name = secret_child_name(name, secret, is_remote);
+                            (secret.from.clone().unwrap_or_else(|| name.clone()), child_name)
                         })
                         .collect::<HashMap<_, _>>();
                     if secret_bindings.len() != profile.secrets.len() {
@@ -494,7 +508,8 @@ pub async fn handle_cli(args: Cli) {
                                         secret.rules.clone(),
                                     )
                                 };
-                                (name.clone(), policy)
+                                let child_name = secret_child_name(name, secret, is_remote);
+                                (child_name, policy)
                             })
                             .collect::<HashMap<_, _>>(),
                         secret_injections: profile
@@ -514,7 +529,7 @@ pub async fn handle_cli(args: Cli) {
                                     "{secret}"
                                 };
                                 Some((
-                                    name.clone(),
+                                    secret_child_name(name, secret, is_remote),
                                     SecretInjection {
                                         value_template: secret
                                             .value_template
@@ -721,6 +736,7 @@ pub async fn handle_cli(args: Cli) {
                             agent_run.sandbox,
                             agent_run.trust_proxy_ca,
                             remote_audit_log,
+                            secret_bindings.keys().cloned().collect(),
                             silent,
                         ).await;
                         let _ = rotation_stop.send(true);
@@ -1602,10 +1618,11 @@ mod tests {
     use super::{
         configured_host_matches, directory_profile_git_warning,
         ensure_replacement_session_is_compatible, infer_remote_agent_type,
-        remote_session_rotation_delay_for, remote_session_transport_identity,
+        remote_session_rotation_delay_for, remote_session_transport_identity, secret_child_name,
         summarize_audit_events,
     };
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
+    use crate::models::agent::AgentSecretProfile;
     use std::{
         fs,
         path::Path,
@@ -1624,6 +1641,28 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         git2::Repository::init(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn local_secret_binding_uses_the_configured_child_environment_name() {
+        let secret = AgentSecretProfile {
+            hosts: Vec::new(),
+            rules: Vec::new(),
+            from: None,
+            env: Some("GH_TOKEN".to_owned()),
+            placeholder: None,
+            header: None,
+            value_template: None,
+        };
+
+        assert_eq!(
+            secret_child_name("GITHUB_TOKEN", &secret, false),
+            "GH_TOKEN"
+        );
+        assert_eq!(
+            secret_child_name("GITHUB_TOKEN", &secret, true),
+            "GITHUB_TOKEN"
+        );
     }
 
     #[test]
