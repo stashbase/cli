@@ -138,7 +138,7 @@ pub async fn handle_cli(args: Cli) {
     }
 
     if let EntityType::Doctor(cmd) = args.entity_type {
-        match handle_doctor_command(cmd, args.raw, args.api_key).await {
+        match handle_doctor_command(cmd, args.raw, args.api_key, args.profile).await {
             Ok(has_failures) => {
                 if has_failures {
                     std::process::exit(1);

@@ -12,7 +12,7 @@ pub fn handle_profile_command(
     cli_profile: Option<&str>,
 ) {
     match command {
-        ProfileSubcommand::Add(args) => add_profile(args),
+        ProfileSubcommand::Add(args) => add_profile(args, config_data),
         ProfileSubcommand::List => list_profiles(config_data),
         ProfileSubcommand::Current => {
             match config::resolve_profile_name(config_data, cli_profile) {
@@ -24,24 +24,29 @@ pub fn handle_profile_command(
             Ok(()) => println!("Default profile set to '{}'.", args.name),
             Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),
         },
-        ProfileSubcommand::Remove(args) => match config::remove_profile(&args.name) {
-            Ok(()) => {
-                if let Err(error) = secure_store::delete_api_key_for_profile(&args.name) {
-                    eprintln!(
-                        "{} Profile removed, but its secure-store key could not be deleted: {}",
-                        "Warning:".yellow_if_tty_stderr(),
-                        error
-                    );
-                } else {
-                    println!("Profile '{}' removed.", args.name);
-                }
+        ProfileSubcommand::Remove(args) => {
+            if let Err(error) = secure_store::delete_api_key_for_profile(&args.name) {
+                eprintln!(
+                    "{} Profile '{}' was not removed because its secure-store key could not be deleted: {}",
+                    "Error:".red_if_tty_stderr(),
+                    args.name,
+                    error
+                );
+                return;
             }
-            Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),
-        },
+            match config::remove_profile(&args.name) {
+                Ok(()) => println!("Profile '{}' removed.", args.name),
+                Err(error) => eprintln!(
+                    "{} The secure-store key was removed, but profile metadata could not be removed: {}",
+                    "Warning:".yellow_if_tty_stderr(),
+                    error
+                ),
+            }
+        }
     }
 }
 
-fn add_profile(args: AddProfile) {
+fn add_profile(args: AddProfile, config_data: &Config) {
     if let Err(error) = config::validate_profile_name(&args.name) {
         eprintln!("{} {}", "Error:".red_if_tty_stderr(), error);
         return;
@@ -68,10 +73,16 @@ fn add_profile(args: AddProfile) {
         );
         return;
     }
+    let profile_already_exists = config_data
+        .profiles
+        .as_ref()
+        .is_some_and(|profiles| profiles.contains_key(&args.name));
     match config::add_profile(&args.name, args.workspace) {
         Ok(()) => println!("Profile '{}' saved.", args.name),
         Err(error) => {
-            let _ = secure_store::delete_api_key_for_profile(&args.name);
+            if !profile_already_exists {
+                let _ = secure_store::delete_api_key_for_profile(&args.name);
+            }
             eprintln!("{} {}", "Error:".red_if_tty_stderr(), error);
         }
     }
