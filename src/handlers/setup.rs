@@ -99,11 +99,15 @@ pub fn setup(existing_config: Config) -> Result<()> {
             }
         }
     } else if profile_name != config::DEFAULT_PROFILE {
-        eprintln!(
-            "{} Profile '{}' was not activated because no API key was entered.",
-            "Warning:".yellow_if_tty_stderr(),
-            profile_name
-        );
+        if secure_store_api_key.is_some() {
+            config::set_default_profile(&profile_name)?;
+        } else {
+            eprintln!(
+                "{} Profile '{}' was not activated because no API key was entered.",
+                "Warning:".yellow_if_tty_stderr(),
+                profile_name
+            );
+        }
     }
     eprintln!("\nSetup completed.");
 

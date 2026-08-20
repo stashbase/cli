@@ -155,7 +155,7 @@ pub async fn handle_cli(args: Cli) {
     let config = config::get_config();
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            if let Err(err) = handle_config_commands(cmd, &config) {
+            if let Err(err) = handle_config_commands(cmd, &config, args.raw) {
                 eprintln!("{:?}", err);
             }
 
@@ -932,7 +932,7 @@ pub async fn handle_cli(args: Cli) {
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
-                if let Err(e) = handle_config_commands(cmd, &Config::new()) {
+                if let Err(e) = handle_config_commands(cmd, &Config::new(), args.raw) {
                     eprintln!("{:?}", e);
                 }
 

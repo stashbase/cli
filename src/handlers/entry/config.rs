@@ -21,7 +21,11 @@ fn print_output_format_not_set() {
     eprintln!("{}", "Default output format is not set");
 }
 
-pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()> {
+pub fn handle_config_commands(
+    cmd: ConfigCommand,
+    config: &Config,
+    json_output: bool,
+) -> Result<()> {
     match cmd.subcommand {
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
@@ -44,7 +48,9 @@ pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()>
                 api_key::print_api_key(&key);
             }
         },
-        ConfigSubcommand::Profile(command) => handle_profile_command(command.subcommand, config),
+        ConfigSubcommand::Profile(command) => {
+            handle_profile_command(command.subcommand, config, json_output)
+        }
         ConfigSubcommand::Output(o) => match o.subcommand {
             OutputSubcommand::Set(s) => {
                 set_default_output_format(s.format);
