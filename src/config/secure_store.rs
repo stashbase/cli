@@ -80,11 +80,6 @@ pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn get_api_key() -> Result<Option<String>> {
-    get_api_key_for_profile(ACCOUNT)
-}
-
-#[cfg(target_os = "macos")]
 pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
     let account = account_for_profile(profile);
     let output = Command::new("security")
@@ -109,11 +104,6 @@ pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
             ))
         }
     }
-}
-
-#[cfg(target_os = "linux")]
-pub fn get_api_key() -> Result<Option<String>> {
-    get_api_key_for_profile(ACCOUNT)
 }
 
 #[cfg(target_os = "linux")]
@@ -248,11 +238,6 @@ pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_api_key() -> Result<Option<String>> {
-    get_api_key_for_profile(ACCOUNT)
-}
-
-#[cfg(target_os = "windows")]
 pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
     let path = windows_secret_file_path(profile)?;
     if !path.exists() {
@@ -310,11 +295,6 @@ pub fn set_api_key_for_profile(_profile: &str, _api_key: &str) -> Result<()> {
     Err(anyhow!(
         "Secure API key storage is not implemented for this OS."
     ))
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-pub fn get_api_key() -> Result<Option<String>> {
-    Ok(None)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
