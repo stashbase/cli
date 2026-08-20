@@ -66,6 +66,9 @@ You can run the interactive setup command to configure the CLI for the first tim
 stashbase setup
 ```
 
+Setup asks for a profile name and pre-fills `default`; press Enter to keep the
+standard one-workspace setup.
+
 ### Authenticate with Stashbase
 If you don't set the API Key during setup, you can set it later manually.
 You can generate an API Key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
@@ -77,6 +80,29 @@ stashbase config api-key set
 # or set API key via stdin (e.g. from environment variable or secret manager)
 printf '%s' 'sb_personal_35tnv...' | stashbase config api-key set --stdin
 ```
+
+### Credential profiles
+
+Use profiles when you work with more than one Stashbase workspace. Each
+profile's API key is stored separately in the OS secure credential store; the
+config file contains only the profile name and optional workspace label.
+
+```bash
+# Create a profile and enter its API key when prompted.
+stashbase config profile add acme --workspace acme-production
+
+# Make it your usual profile.
+stashbase config profile use acme
+
+# Use a profile for one command or an automation run.
+stashbase --profile acme projects list
+STASHBASE_PROFILE=acme stashbase projects list
+```
+
+Selection order is `--profile`, then `STASHBASE_PROFILE`, then the configured
+default profile (or the backwards-compatible `default` profile). `--api-key`
+and `STASHBASE_API_KEY` override the selected profile's stored key, which is
+useful in CI.
 
 ### API key storage
 

@@ -58,6 +58,9 @@ pub struct ConfigCommand {
 pub enum ConfigSubcommand {
     /// Api key config
     ApiKey(ApiKeyCommand),
+    /// Manage credential profiles
+    #[clap(alias = "profiles")]
+    Profile(ProfileCommand),
     /// Default output (general)
     Output(OutputCommand),
     /// Default output for secrets
@@ -80,10 +83,10 @@ pub struct ApiKeyCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ApiKeySubcommand {
-    /// Set api key
+    /// Set API key for the active profile
     Set(SetApiKey),
 
-    /// Print api key
+    /// Print masked API key for the active profile
     Print(PrintApiKey),
 }
 
@@ -98,6 +101,48 @@ pub struct SetApiKey {
 #[derive(Debug, Args)]
 #[command(override_usage = "config api-key print [OPTIONS]")]
 pub struct PrintApiKey {}
+
+#[derive(Debug, Args)]
+pub struct ProfileCommand {
+    #[clap(subcommand)]
+    pub subcommand: ProfileSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProfileSubcommand {
+    /// Add or update a profile and securely store its API key
+    Add(AddProfile),
+    /// List configured profiles
+    List,
+    /// Print the profile resolved for this command
+    Current,
+    /// Set the default profile
+    Use(UseProfile),
+    /// Remove a profile and its secure-store key
+    Remove(RemoveProfile),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "config profile add <NAME> [OPTIONS]")]
+pub struct AddProfile {
+    pub name: String,
+    /// Optional workspace name or slug for display
+    #[arg(long)]
+    pub workspace: Option<String>,
+    /// Read the API key from stdin instead of prompting interactively
+    #[arg(long)]
+    pub stdin: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct UseProfile {
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+pub struct RemoveProfile {
+    pub name: String,
+}
 
 //
 

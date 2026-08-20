@@ -31,6 +31,10 @@ pub struct Cli {
     #[arg(long = "api-key", global = true)]
     pub api_key: Option<String>,
 
+    /// Credential profile to use (overrides STASHBASE_PROFILE)
+    #[arg(long, global = true, value_name = "NAME")]
+    pub profile: Option<String>,
+
     /// Suppress non-essential output
     #[arg(long = "silent", global = true)]
     pub silent: bool,

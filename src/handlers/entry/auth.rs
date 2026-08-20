@@ -14,6 +14,7 @@ use crate::{
 // for whoami command
 pub struct GetCurrentAuthDetailsRequestArgs {
     pub api_key: String,
+    pub profile_display: String,
     pub format: OutputFormat,
     pub silent: bool,
 }
@@ -21,6 +22,7 @@ pub struct GetCurrentAuthDetailsRequestArgs {
 pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Result<()> {
     let GetCurrentAuthDetailsRequestArgs {
         api_key,
+        profile_display,
         format,
         silent,
     } = args;
@@ -60,9 +62,11 @@ pub async fn handle_whoami_command(args: GetCurrentAuthDetailsRequestArgs) -> Re
                         println!("{}", pretty);
                     }
                     OutputFormat::Plain => {
+                        println!("Profile: {}\n", profile_display);
                         print!("{}", auth_details);
                     }
                     OutputFormat::Table => {
+                        println!("Profile: {}\n", profile_display);
                         let rows = whoami_table_rows(&auth_details);
                         let table = tables::build::build_table(&rows);
                         println!("{}", table.to_string());

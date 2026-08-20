@@ -8,8 +8,13 @@ use directories::ProjectDirs;
 
 use crate::models::{
     agent::AgentProfile,
-    config::{Config, OutputFormatConfig, UpdateConfig},
+    config::{Config, OutputFormatConfig, ProfileConfig, UpdateConfig},
 };
+
+use crate::utils::env::get_env_var;
+
+pub const DEFAULT_PROFILE: &str = "default";
+const PROFILE_ENV_VAR: &str = "STASHBASE_PROFILE";
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -114,6 +119,96 @@ pub fn get_config() -> Result<Config> {
     } else {
         bail!("Could not find config directory.")
     }
+}
+
+pub fn resolve_profile_name(config: &Config, cli_profile: Option<&str>) -> Result<String> {
+    let profile = cli_profile
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+        .map(str::to_owned)
+        .or_else(|| get_env_var(PROFILE_ENV_VAR))
+        .or_else(|| config.default_profile.clone())
+        .unwrap_or_else(|| DEFAULT_PROFILE.to_owned());
+
+    validate_profile_name(&profile)?;
+    if profile != DEFAULT_PROFILE
+        && !config
+            .profiles
+            .as_ref()
+            .is_some_and(|profiles| profiles.contains_key(&profile))
+    {
+        bail!("Profile '{profile}' was not found. Run 'stashbase config profile list' to see available profiles.");
+    }
+    Ok(profile)
+}
+
+pub fn validate_profile_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        bail!("Profile name '{name}' must contain only letters, numbers, hyphens, or underscores.");
+    }
+    Ok(())
+}
+
+pub fn add_profile(name: &str, workspace: Option<String>) -> Result<()> {
+    validate_profile_name(name)?;
+    if name == DEFAULT_PROFILE {
+        bail!("'default' is the implicit backwards-compatible profile and cannot be added. Use 'config api-key set' to manage its key.");
+    }
+    let config_path = get_config_path()?;
+    let mut config = get_config()?;
+    let profiles = config.profiles.get_or_insert_with(Default::default);
+    let existing_workspace = profiles
+        .get(name)
+        .and_then(|profile| profile.workspace.clone());
+    profiles.insert(
+        name.to_owned(),
+        ProfileConfig {
+            workspace: workspace
+                .filter(|workspace| !workspace.trim().is_empty())
+                .or(existing_workspace),
+        },
+    );
+    write_config(&config_path, &config)
+}
+
+pub fn remove_profile(name: &str) -> Result<()> {
+    validate_profile_name(name)?;
+    if name == DEFAULT_PROFILE {
+        bail!("The implicit 'default' profile cannot be removed. Use 'config api-key set' to replace its key.");
+    }
+    let config_path = get_config_path()?;
+    let mut config = get_config()?;
+    let removed = config
+        .profiles
+        .as_mut()
+        .and_then(|profiles| profiles.remove(name));
+    if removed.is_none() {
+        bail!("Profile '{name}' was not found.");
+    }
+    if config.default_profile.as_deref() == Some(name) {
+        config.default_profile = None;
+    }
+    write_config(&config_path, &config)
+}
+
+pub fn set_default_profile(name: &str) -> Result<()> {
+    validate_profile_name(name)?;
+    let config_path = get_config_path()?;
+    let mut config = get_config()?;
+    if name != DEFAULT_PROFILE
+        && !config
+            .profiles
+            .as_ref()
+            .is_some_and(|profiles| profiles.contains_key(name))
+    {
+        bail!("Profile '{name}' was not found.");
+    }
+    config.default_profile = (name != DEFAULT_PROFILE).then(|| name.to_owned());
+    write_config(&config_path, &config)
 }
 
 /// Load a repository-local profile from `.stashbase/agents/<name>.toml`. These
@@ -314,8 +409,9 @@ mod tests {
 
     use super::{
         get_directory_agent_profile_from_dir, get_directory_agent_profiles_from_dir,
-        get_explicit_agent_profile, DIRECTORY_AGENT_PROFILES_DIR,
+        get_explicit_agent_profile, resolve_profile_name, DIRECTORY_AGENT_PROFILES_DIR,
     };
+    use crate::models::config::{Config, ProfileConfig};
 
     fn temporary_directory() -> std::path::PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -404,5 +500,28 @@ mod tests {
             path.canonicalize().unwrap().display().to_string()
         );
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn resolves_explicit_profile_before_config_default() {
+        let mut config = Config::new();
+        config.default_profile = Some("acme".to_owned());
+        config.profiles = Some(std::collections::BTreeMap::from([
+            ("acme".to_owned(), ProfileConfig::default()),
+            ("personal".to_owned(), ProfileConfig::default()),
+        ]));
+
+        assert_eq!(
+            resolve_profile_name(&config, Some("personal")).unwrap(),
+            "personal"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_named_profile() {
+        let error = resolve_profile_name(&Config::new(), Some("missing"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Profile 'missing' was not found"));
     }
 }

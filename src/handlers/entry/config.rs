@@ -11,6 +11,7 @@ use crate::{
         expand_refs::{print_expand_refs_config, set_expand_refs_config},
         output::{print_default_output_format, set_default_output_format},
         output_secrets::{print_default_secrets_output_format, set_default_secrets_output_format},
+        profile::handle_profile_command,
         reset::reset_config,
     },
     models::config::Config,
@@ -20,20 +21,36 @@ fn print_output_format_not_set() {
     eprintln!("{}", "Default output format is not set");
 }
 
-pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()> {
+pub fn handle_config_commands(
+    cmd: ConfigCommand,
+    config: &Config,
+    cli_profile: Option<&str>,
+) -> Result<()> {
     match cmd.subcommand {
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
-                api_key::set_api_key(s.stdin);
+                let profile = crate::config::config::resolve_profile_name(config, cli_profile)?;
+                api_key::set_api_key(s.stdin, &profile);
             }
             ApiKeySubcommand::Print(_) => {
-                let key = match secure_store::get_api_key() {
-                    Ok(value) => value.or(config.api_key.clone()),
-                    Err(_) => config.api_key.clone(),
+                let profile = crate::config::config::resolve_profile_name(config, cli_profile)?;
+                let key = match secure_store::get_api_key_for_profile(&profile) {
+                    Ok(value) => value.or_else(|| {
+                        (profile == crate::config::config::DEFAULT_PROFILE)
+                            .then(|| config.api_key.clone())
+                            .flatten()
+                    }),
+                    Err(_) if profile == crate::config::config::DEFAULT_PROFILE => {
+                        config.api_key.clone()
+                    }
+                    Err(_) => None,
                 };
                 api_key::print_api_key(&key);
             }
         },
+        ConfigSubcommand::Profile(command) => {
+            handle_profile_command(command.subcommand, config, cli_profile)
+        }
         ConfigSubcommand::Output(o) => match o.subcommand {
             OutputSubcommand::Set(s) => {
                 set_default_output_format(s.format);
