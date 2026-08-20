@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,9 +10,20 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub api_key: Option<String>,
+    /// The profile used when neither `--profile` nor `STASHBASE_PROFILE` is set.
+    pub default_profile: Option<String>,
+    /// Non-sensitive profile metadata. Profile API keys live in the OS secure store.
+    pub profiles: Option<BTreeMap<String, ProfileConfig>>,
     pub expand_refs: Option<bool>,
     pub ouput_format: Option<OutputFormatConfig>,
     pub agent_profiles: Option<HashMap<String, AgentProfile>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProfileConfig {
+    /// An optional, human-readable workspace name or slug. Authentication is
+    /// determined by the profile's API key, not this value.
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +85,26 @@ mod tests {
             profile.secrets["GH_TOKEN"].value_template.as_deref(),
             Some("Token {secret}")
         );
+    }
+
+    #[test]
+    fn parses_profile_metadata_without_api_keys() {
+        let config: Config = toml::from_str(
+            r#"
+                default_profile = "acme"
+
+                [profiles.acme]
+                workspace = "acme-production"
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.default_profile.as_deref(), Some("acme"));
+        assert_eq!(
+            config.profiles.unwrap()["acme"].workspace.as_deref(),
+            Some("acme-production")
+        );
+        assert!(config.api_key.is_none());
     }
 
     #[test]
@@ -183,6 +214,8 @@ impl Config {
     pub fn new() -> Self {
         Self {
             api_key: None,
+            default_profile: None,
+            profiles: None,
             ouput_format: None,
             agent_profiles: None,
             expand_refs: None,
@@ -192,11 +225,15 @@ impl Config {
         if let Some(output_format) = &self.ouput_format {
             self.api_key.is_none()
                 && output_format.is_empty()
+                && self.default_profile.is_none()
+                && self.profiles.is_none()
                 && self.expand_refs.is_none()
                 && self.agent_profiles.is_none()
         } else {
             self.api_key.is_none()
                 && self.ouput_format.is_none()
+                && self.default_profile.is_none()
+                && self.profiles.is_none()
                 && self.expand_refs.is_none()
                 && self.agent_profiles.is_none()
         }
