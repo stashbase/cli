@@ -138,7 +138,7 @@ pub async fn handle_cli(args: Cli) {
     }
 
     if let EntityType::Doctor(cmd) = args.entity_type {
-        match handle_doctor_command(cmd, args.raw, args.api_key, args.profile).await {
+        match handle_doctor_command(cmd, args.raw, args.api_key).await {
             Ok(has_failures) => {
                 if has_failures {
                     std::process::exit(1);
@@ -155,7 +155,7 @@ pub async fn handle_cli(args: Cli) {
     let config = config::get_config();
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            if let Err(err) = handle_config_commands(cmd, &config, args.profile.as_deref()) {
+            if let Err(err) = handle_config_commands(cmd, &config) {
                 eprintln!("{:?}", err);
             }
 
@@ -168,7 +168,7 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
-        let profile_name = match config::resolve_profile_name(&config, args.profile.as_deref()) {
+        let profile_name = match config::resolve_profile_name(&config) {
             Ok(profile) => profile,
             Err(error) => {
                 eprintln!("{}", error);
@@ -932,8 +932,7 @@ pub async fn handle_cli(args: Cli) {
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
-                if let Err(e) = handle_config_commands(cmd, &Config::new(), args.profile.as_deref())
-                {
+                if let Err(e) = handle_config_commands(cmd, &Config::new()) {
                     eprintln!("{:?}", e);
                 }
 

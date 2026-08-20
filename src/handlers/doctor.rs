@@ -44,7 +44,6 @@ pub async fn handle_doctor_command(
     cmd: DoctorCommand,
     json_format: bool,
     api_key_override: Option<String>,
-    profile_override: Option<String>,
 ) -> Result<bool> {
     let mut checks: Vec<DoctorCheck> = Vec::new();
     let mut parsed_config: Option<Config> = None;
@@ -132,19 +131,17 @@ pub async fn handle_doctor_command(
     }
 
     let fallback_config = Config::new();
-    let profile_name = match config::resolve_profile_name(
-        parsed_config.as_ref().unwrap_or(&fallback_config),
-        profile_override.as_deref(),
-    ) {
-        Ok(profile) => {
-            checks.push(ok("Profile", format!("Using: {profile}")));
-            profile
-        }
-        Err(error) => {
-            checks.push(fail("Profile", error.to_string()));
-            crate::config::config::DEFAULT_PROFILE.to_owned()
-        }
-    };
+    let profile_name =
+        match config::resolve_profile_name(parsed_config.as_ref().unwrap_or(&fallback_config)) {
+            Ok(profile) => {
+                checks.push(ok("Profile", format!("Using: {profile}")));
+                profile
+            }
+            Err(error) => {
+                checks.push(fail("Profile", error.to_string()));
+                crate::config::config::DEFAULT_PROFILE.to_owned()
+            }
+        };
 
     let env_api_key = get_stashbase_api_key();
     let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {

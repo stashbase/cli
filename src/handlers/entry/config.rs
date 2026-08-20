@@ -21,19 +21,15 @@ fn print_output_format_not_set() {
     eprintln!("{}", "Default output format is not set");
 }
 
-pub fn handle_config_commands(
-    cmd: ConfigCommand,
-    config: &Config,
-    cli_profile: Option<&str>,
-) -> Result<()> {
+pub fn handle_config_commands(cmd: ConfigCommand, config: &Config) -> Result<()> {
     match cmd.subcommand {
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
-                let profile = crate::config::config::resolve_profile_name(config, cli_profile)?;
+                let profile = crate::config::config::resolve_profile_name(config)?;
                 api_key::set_api_key(s.stdin, &profile);
             }
             ApiKeySubcommand::Print(_) => {
-                let profile = crate::config::config::resolve_profile_name(config, cli_profile)?;
+                let profile = crate::config::config::resolve_profile_name(config)?;
                 let key = match secure_store::get_api_key_for_profile(&profile) {
                     Ok(value) => value.or_else(|| {
                         (profile == crate::config::config::DEFAULT_PROFILE)
@@ -48,9 +44,7 @@ pub fn handle_config_commands(
                 api_key::print_api_key(&key);
             }
         },
-        ConfigSubcommand::Profile(command) => {
-            handle_profile_command(command.subcommand, config, cli_profile)
-        }
+        ConfigSubcommand::Profile(command) => handle_profile_command(command.subcommand, config),
         ConfigSubcommand::Output(o) => match o.subcommand {
             OutputSubcommand::Set(s) => {
                 set_default_output_format(s.format);

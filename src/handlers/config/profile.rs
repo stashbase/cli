@@ -6,20 +6,14 @@ use crate::{
     utils::output::ColorizeIfColoredOutput,
 };
 
-pub fn handle_profile_command(
-    command: ProfileSubcommand,
-    config_data: &Config,
-    cli_profile: Option<&str>,
-) {
+pub fn handle_profile_command(command: ProfileSubcommand, config_data: &Config) {
     match command {
         ProfileSubcommand::Add(args) => add_profile(args, config_data),
         ProfileSubcommand::List => list_profiles(config_data),
-        ProfileSubcommand::Current => {
-            match config::resolve_profile_name(config_data, cli_profile) {
-                Ok(profile) => println!("{profile}"),
-                Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),
-            }
-        }
+        ProfileSubcommand::Current => match config::resolve_profile_name(config_data) {
+            Ok(profile) => println!("{profile}"),
+            Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),
+        },
         ProfileSubcommand::Use(args) => match config::set_default_profile(&args.name) {
             Ok(()) => println!("Default profile set to '{}'.", args.name),
             Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),

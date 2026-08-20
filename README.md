@@ -95,14 +95,12 @@ stashbase config profile add acme --workspace acme-production
 stashbase config profile use acme
 
 # Use a profile for one command or an automation run.
-stashbase --profile acme projects list
 STASHBASE_PROFILE=acme stashbase projects list
 ```
 
-Selection order is `--profile`, then `STASHBASE_PROFILE`, then the configured
-default profile (or the backwards-compatible `default` profile). `--api-key`
-and `STASHBASE_API_KEY` override the selected profile's stored key, which is
-useful in CI.
+Selection uses `STASHBASE_PROFILE`, then the configured default profile (or the
+backwards-compatible `default` profile). `--api-key` and `STASHBASE_API_KEY`
+override the selected profile's stored key, which is useful in CI.
 
 ### API key storage
 

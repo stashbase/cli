@@ -121,12 +121,8 @@ pub fn get_config() -> Result<Config> {
     }
 }
 
-pub fn resolve_profile_name(config: &Config, cli_profile: Option<&str>) -> Result<String> {
-    let profile = cli_profile
-        .map(str::trim)
-        .filter(|profile| !profile.is_empty())
-        .map(str::to_owned)
-        .or_else(|| get_env_var(PROFILE_ENV_VAR))
+pub fn resolve_profile_name(config: &Config) -> Result<String> {
+    let profile = get_env_var(PROFILE_ENV_VAR)
         .or_else(|| config.default_profile.clone())
         .unwrap_or_else(|| DEFAULT_PROFILE.to_owned());
 
@@ -409,7 +405,8 @@ mod tests {
 
     use super::{
         get_directory_agent_profile_from_dir, get_directory_agent_profiles_from_dir,
-        get_explicit_agent_profile, resolve_profile_name, DIRECTORY_AGENT_PROFILES_DIR,
+        get_explicit_agent_profile, resolve_profile_name, DEFAULT_PROFILE,
+        DIRECTORY_AGENT_PROFILES_DIR,
     };
     use crate::models::config::{Config, ProfileConfig};
 
@@ -503,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_explicit_profile_before_config_default() {
+    fn resolves_configured_default_profile() {
         let mut config = Config::new();
         config.default_profile = Some("acme".to_owned());
         config.profiles = Some(std::collections::BTreeMap::from([
@@ -511,17 +508,12 @@ mod tests {
             ("personal".to_owned(), ProfileConfig::default()),
         ]));
 
-        assert_eq!(
-            resolve_profile_name(&config, Some("personal")).unwrap(),
-            "personal"
-        );
+        assert_eq!(resolve_profile_name(&config).unwrap(), "acme");
     }
 
     #[test]
     fn rejects_unknown_named_profile() {
-        let error = resolve_profile_name(&Config::new(), Some("missing"))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("Profile 'missing' was not found"));
+        let config = Config::new();
+        assert_eq!(resolve_profile_name(&config).unwrap(), DEFAULT_PROFILE);
     }
 }
