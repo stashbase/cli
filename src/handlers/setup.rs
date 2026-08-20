@@ -6,14 +6,20 @@ use crate::{
     models::config::{Config, OutputFormatConfig, UpdateConfig},
     utils::{interaction::input_password, output::ColorizeIfColoredOutput},
 };
-use dialoguer::{theme::ColorfulTheme, Confirm, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 
 pub fn setup(existing_config: Config) -> Result<()> {
     // Implementation for setup
     //
     eprintln!("Welcome! This will guide you through configuring the Stashbase CLI.");
 
-    let secure_store_api_key = match secure_store::get_api_key() {
+    let profile_name = Input::<String>::with_theme(&ColorfulTheme::default())
+        .with_prompt("Profile name")
+        .default(config::DEFAULT_PROFILE.to_owned())
+        .interact_text()?;
+    config::validate_profile_name(&profile_name)?;
+
+    let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
         Ok(value) => value,
         Err(err) => {
             eprintln!(
@@ -25,7 +31,10 @@ pub fn setup(existing_config: Config) -> Result<()> {
         }
     };
 
-    let has_api_key = existing_config.api_key.is_some() || secure_store_api_key.is_some();
+    let legacy_api_key = (profile_name == config::DEFAULT_PROFILE)
+        .then(|| existing_config.api_key.clone())
+        .flatten();
+    let has_api_key = legacy_api_key.is_some() || secure_store_api_key.is_some();
 
     let api_key_prompt = if has_api_key {
         "Enter your API key (leave empty to keep existing)"
@@ -59,21 +68,45 @@ pub fn setup(existing_config: Config) -> Result<()> {
 
     config::update_config(updated_config)?;
     if let Some(api_key) = api_key_to_store {
-        if let Err(store_err) = secure_store::set_api_key(&api_key) {
-            config::update_config(UpdateConfig {
-                api_key: Some(api_key),
-                expand_refs: None,
-                output_format: None,
-            })?;
+        if let Err(store_err) = secure_store::set_api_key_for_profile(&profile_name, &api_key) {
+            if profile_name == config::DEFAULT_PROFILE {
+                config::update_config(UpdateConfig {
+                    api_key: Some(api_key),
+                    expand_refs: None,
+                    output_format: None,
+                })?;
 
-            eprintln!(
-                "{} {}",
-                "Warning:".yellow_if_tty_stderr(),
-                "Secure key storage unavailable, using encrypted-by-permissions config fallback."
-            );
-            eprintln!("{} {}", "Reason:".yellow_if_tty_stderr(), store_err);
+                eprintln!(
+                    "{} {}",
+                    "Warning:".yellow_if_tty_stderr(),
+                    "Secure key storage unavailable, using encrypted-by-permissions config fallback."
+                );
+                eprintln!("{} {}", "Reason:".yellow_if_tty_stderr(), store_err);
+            } else {
+                eprintln!(
+                    "{} Profile '{}' was not activated because its API key could not be stored securely: {}",
+                    "Warning:".yellow_if_tty_stderr(),
+                    profile_name,
+                    store_err
+                );
+            }
         } else {
-            config::clear_legacy_api_key()?;
+            if profile_name == config::DEFAULT_PROFILE {
+                config::clear_legacy_api_key()?;
+            } else {
+                config::add_profile(&profile_name, None)?;
+                config::set_default_profile(&profile_name)?;
+            }
+        }
+    } else if profile_name != config::DEFAULT_PROFILE {
+        if secure_store_api_key.is_some() {
+            config::set_default_profile(&profile_name)?;
+        } else {
+            eprintln!(
+                "{} Profile '{}' was not activated because no API key was entered.",
+                "Warning:".yellow_if_tty_stderr(),
+                profile_name
+            );
         }
     }
     eprintln!("\nSetup completed.");

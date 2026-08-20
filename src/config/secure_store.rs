@@ -11,14 +11,23 @@ use directories::ProjectDirs;
 const SERVICE: &str = "stashbase-cli";
 const ACCOUNT: &str = "default";
 
+fn account_for_profile(profile: &str) -> String {
+    if profile == ACCOUNT {
+        ACCOUNT.to_owned()
+    } else {
+        format!("profile:{profile}")
+    }
+}
+
 #[cfg(target_os = "macos")]
-pub fn set_api_key(api_key: &str) -> Result<()> {
+pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
+    let account = account_for_profile(profile);
     let output = Command::new("security")
         .args([
             "add-generic-password",
             "-U",
             "-a",
-            ACCOUNT,
+            &account,
             "-s",
             SERVICE,
             "-w",
@@ -37,7 +46,8 @@ pub fn set_api_key(api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn set_api_key(api_key: &str) -> Result<()> {
+pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
+    let account = account_for_profile(profile);
     let mut child = Command::new("secret-tool")
         .args([
             "store",
@@ -46,7 +56,7 @@ pub fn set_api_key(api_key: &str) -> Result<()> {
             "service",
             SERVICE,
             "account",
-            ACCOUNT,
+            &account,
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -70,9 +80,10 @@ pub fn set_api_key(api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn get_api_key() -> Result<Option<String>> {
+pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
+    let account = account_for_profile(profile);
     let output = Command::new("security")
-        .args(["find-generic-password", "-a", ACCOUNT, "-s", SERVICE, "-w"])
+        .args(["find-generic-password", "-a", &account, "-s", SERVICE, "-w"])
         .output()?;
 
     if output.status.success() {
@@ -96,9 +107,10 @@ pub fn get_api_key() -> Result<Option<String>> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn get_api_key() -> Result<Option<String>> {
+pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
+    let account = account_for_profile(profile);
     let output = Command::new("secret-tool")
-        .args(["lookup", "service", SERVICE, "account", ACCOUNT])
+        .args(["lookup", "service", SERVICE, "account", &account])
         .output()?;
 
     parse_linux_secret_tool_lookup_output(&output.stdout, &output.stderr, output.status.success())
@@ -106,8 +118,14 @@ pub fn get_api_key() -> Result<Option<String>> {
 
 #[cfg(target_os = "macos")]
 pub fn delete_api_key() -> Result<()> {
+    delete_api_key_for_profile(ACCOUNT)
+}
+
+#[cfg(target_os = "macos")]
+pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
+    let account = account_for_profile(profile);
     let output = Command::new("security")
-        .args(["delete-generic-password", "-a", ACCOUNT, "-s", SERVICE])
+        .args(["delete-generic-password", "-a", &account, "-s", SERVICE])
         .output()?;
 
     if output.status.success() {
@@ -127,8 +145,14 @@ pub fn delete_api_key() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 pub fn delete_api_key() -> Result<()> {
+    delete_api_key_for_profile(ACCOUNT)
+}
+
+#[cfg(target_os = "linux")]
+pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
+    let account = account_for_profile(profile);
     let output = Command::new("secret-tool")
-        .args(["clear", "service", SERVICE, "account", ACCOUNT])
+        .args(["clear", "service", SERVICE, "account", &account])
         .output()?;
 
     if output.status.success() {
@@ -168,12 +192,17 @@ fn parse_linux_secret_tool_lookup_output(
 }
 
 #[cfg(target_os = "windows")]
-fn windows_secret_file_path() -> Result<PathBuf> {
+fn windows_secret_file_path(profile: &str) -> Result<PathBuf> {
     let dirs = ProjectDirs::from("", "", "stashbase")
         .ok_or_else(|| anyhow!("Could not find config directory."))?;
     let config_dir = dirs.config_dir();
     fs::create_dir_all(config_dir)?;
-    Ok(config_dir.join("secure-api-key.txt"))
+    if profile == ACCOUNT {
+        Ok(config_dir.join("secure-api-key.txt"))
+    } else {
+        let encoded = hex::encode(profile.as_bytes());
+        Ok(config_dir.join(format!("secure-api-key-profile-{encoded}.txt")))
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -182,8 +211,8 @@ fn escape_ps_single_quoted(value: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
-pub fn set_api_key(api_key: &str) -> Result<()> {
-    let path = windows_secret_file_path()?;
+pub fn set_api_key_for_profile(profile: &str, api_key: &str) -> Result<()> {
+    let path = windows_secret_file_path(profile)?;
     let path = escape_ps_single_quoted(path.to_string_lossy().as_ref());
 
     let script = format!(
@@ -209,8 +238,8 @@ pub fn set_api_key(api_key: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn get_api_key() -> Result<Option<String>> {
-    let path = windows_secret_file_path()?;
+pub fn get_api_key_for_profile(profile: &str) -> Result<Option<String>> {
+    let path = windows_secret_file_path(profile)?;
     if !path.exists() {
         return Ok(None);
     }
@@ -247,7 +276,12 @@ pub fn get_api_key() -> Result<Option<String>> {
 
 #[cfg(target_os = "windows")]
 pub fn delete_api_key() -> Result<()> {
-    let path = windows_secret_file_path()?;
+    delete_api_key_for_profile(ACCOUNT)
+}
+
+#[cfg(target_os = "windows")]
+pub fn delete_api_key_for_profile(profile: &str) -> Result<()> {
+    let path = windows_secret_file_path(profile)?;
     if !path.exists() {
         return Ok(());
     }
@@ -257,19 +291,24 @@ pub fn delete_api_key() -> Result<()> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-pub fn set_api_key(_api_key: &str) -> Result<()> {
+pub fn set_api_key_for_profile(_profile: &str, _api_key: &str) -> Result<()> {
     Err(anyhow!(
         "Secure API key storage is not implemented for this OS."
     ))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-pub fn get_api_key() -> Result<Option<String>> {
+pub fn get_api_key_for_profile(_profile: &str) -> Result<Option<String>> {
     Ok(None)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub fn delete_api_key() -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+pub fn delete_api_key_for_profile(_profile: &str) -> Result<()> {
     Ok(())
 }
 

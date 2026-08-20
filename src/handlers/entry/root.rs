@@ -155,7 +155,7 @@ pub async fn handle_cli(args: Cli) {
     let config = config::get_config();
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            if let Err(err) = handle_config_commands(cmd, &config) {
+            if let Err(err) = handle_config_commands(cmd, &config, args.raw) {
                 eprintln!("{:?}", err);
             }
 
@@ -168,7 +168,14 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
 
-        let secure_store_api_key = match secure_store::get_api_key() {
+        let profile_name = match config::resolve_profile_name(&config) {
+            Ok(profile) => profile,
+            Err(error) => {
+                eprintln!("{}", error);
+                return;
+            }
+        };
+        let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
             Ok(key) => key,
             Err(err) => {
                 if !args.silent {
@@ -181,22 +188,30 @@ pub async fn handle_cli(args: Cli) {
                 None
             }
         };
-        let mut legacy_config_api_key = config.api_key.clone();
+        let mut legacy_config_api_key = (profile_name == config::DEFAULT_PROFILE)
+            .then(|| config.api_key.clone())
+            .flatten();
 
         if secure_store_api_key.is_none() {
             if let Some(legacy_key) = legacy_config_api_key.clone() {
-                if secure_store::set_api_key(&legacy_key).is_ok() {
+                if secure_store::set_api_key_for_profile(&profile_name, &legacy_key).is_ok() {
                     let _ = config::clear_legacy_api_key();
                     legacy_config_api_key = None;
                 }
             }
         }
 
-        let api_key = args
-            .api_key
-            .or_else(|| get_stashbase_api_key())
-            .or(secure_store_api_key)
-            .or(legacy_config_api_key);
+        let (api_key, credential_source) = if let Some(api_key) = args.api_key {
+            (Some(api_key), CredentialSource::CommandLine)
+        } else if let Some(api_key) = get_stashbase_api_key() {
+            (Some(api_key), CredentialSource::Environment)
+        } else if let Some(api_key) = secure_store_api_key {
+            (Some(api_key), CredentialSource::Profile)
+        } else if let Some(api_key) = legacy_config_api_key {
+            (Some(api_key), CredentialSource::LegacyConfig)
+        } else {
+            (None, CredentialSource::None)
+        };
 
         let raw_output = args.raw;
         let silent = args.silent;
@@ -247,6 +262,7 @@ pub async fn handle_cli(args: Cli) {
 
                 let args = GetCurrentAuthDetailsRequestArgs {
                     api_key,
+                    profile_display: credential_source.profile_display(&profile_name),
                     format,
                     silent,
                 };
@@ -916,7 +932,7 @@ pub async fn handle_cli(args: Cli) {
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
-                if let Err(e) = handle_config_commands(cmd, &Config::new()) {
+                if let Err(e) = handle_config_commands(cmd, &Config::new(), args.raw) {
                     eprintln!("{:?}", e);
                 }
 
@@ -930,6 +946,28 @@ pub async fn handle_cli(args: Cli) {
             return;
         }
         eprintln!("{:?}", err);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CredentialSource {
+    CommandLine,
+    Environment,
+    Profile,
+    LegacyConfig,
+    None,
+}
+
+impl CredentialSource {
+    fn profile_display(self, profile_name: &str) -> String {
+        match self {
+            Self::CommandLine => format!("{profile_name} (API key overridden by --api-key)"),
+            Self::Environment => {
+                format!("{profile_name} (API key overridden by STASHBASE_API_KEY)")
+            }
+            Self::LegacyConfig => format!("{profile_name} (using legacy config API key)"),
+            Self::Profile | Self::None => profile_name.to_owned(),
+        }
     }
 }
 
@@ -1915,5 +1953,17 @@ mod tests {
         let identity = remote_session_transport_identity(&initial).unwrap();
         let error = ensure_replacement_session_is_compatible(&identity, &replacement).unwrap_err();
         assert!(error.to_string().contains("TLS interception CA"));
+    }
+
+    #[test]
+    fn whoami_profile_display_explains_api_key_overrides() {
+        assert_eq!(
+            super::CredentialSource::Environment.profile_display("acme"),
+            "acme (API key overridden by STASHBASE_API_KEY)"
+        );
+        assert_eq!(
+            super::CredentialSource::Profile.profile_display("acme"),
+            "acme"
+        );
     }
 }

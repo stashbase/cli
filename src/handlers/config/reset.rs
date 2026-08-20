@@ -1,3 +1,4 @@
+use crate::models::config::Config;
 use crate::{
     config::{
         config::{create_config, get_config_path},
@@ -18,8 +19,16 @@ pub fn reset_config(force: bool) -> Result<()> {
     }
 
     let config_path = get_config_path()?;
+    let existing_config = crate::config::config::get_config().unwrap_or_else(|_| Config::new());
     create_config(config_path.as_path())?;
     let _ = secure_store::delete_api_key();
+    if let Some(profiles) = existing_config.profiles {
+        for profile in profiles.keys() {
+            if profile != crate::config::config::DEFAULT_PROFILE {
+                let _ = secure_store::delete_api_key_for_profile(profile);
+            }
+        }
+    }
 
     Ok(())
 }
