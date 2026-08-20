@@ -7,28 +7,40 @@ use crate::{
     utils::{interaction::input_password, output::ColorizeIfColoredOutput},
 };
 
-pub fn set_api_key(read_from_stdin: bool) {
-    let api_key_value = if read_from_stdin {
+pub fn read_api_key(read_from_stdin: bool) -> Result<String, &'static str> {
+    if read_from_stdin {
         match read_api_key_from_stdin() {
-            Ok(value) => value,
-            Err(message) => {
-                eprintln!("{}", message.red_if_tty_stderr());
-                return;
-            }
+            Ok(value) => Ok(value),
+            Err(message) => Err(message),
         }
     } else {
         match input_password("Enter your API key") {
-            Some(value) => value,
-            None => {
-                eprintln!("{}", "No API key entered. Aborted.".red_if_tty_stderr());
-                return;
-            }
+            Some(value) => Ok(value),
+            None => Err("No API key entered. Aborted."),
+        }
+    }
+}
+
+pub fn set_api_key(read_from_stdin: bool, profile: &str) {
+    let api_key_value = match read_api_key(read_from_stdin) {
+        Ok(value) => value,
+        Err(message) => {
+            eprintln!("{}", message.red_if_tty_stderr());
+            return;
         }
     };
 
-    let store_res = secure_store::set_api_key(&api_key_value);
+    let store_res = secure_store::set_api_key_for_profile(profile, &api_key_value);
 
     if let Err(store_err) = store_res {
+        if profile != crate::config::config::DEFAULT_PROFILE {
+            eprintln!(
+                "{} Secure storage is required for named profiles: {}",
+                "Error:".red_if_tty_stderr(),
+                store_err
+            );
+            return;
+        }
         let fallback_res = config::update_config(crate::models::config::UpdateConfig {
             api_key: Some(api_key_value),
             output_format: None,
@@ -48,7 +60,9 @@ pub fn set_api_key(read_from_stdin: bool) {
         eprintln!("{} {}", "Reason:".yellow_if_tty_stderr(), store_err);
         println!("API key set.");
     } else {
-        let _ = config::clear_legacy_api_key();
+        if profile == crate::config::config::DEFAULT_PROFILE {
+            let _ = config::clear_legacy_api_key();
+        }
         println!("API key set.");
     }
 }
