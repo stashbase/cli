@@ -265,6 +265,29 @@ loading, this mode rejects a configured `file`, `project`, or `environment`.
 
 ## Secret sources, bindings, and local overrides
 
+## Personal credentials
+
+Personal credentials are private to your account and available only to your
+Agent Proxy sessions. They are not fetched, printed, exported, or stored by the
+CLI. Configure them for a Remote Agent session with
+`[personal_credentials.<NAME>]`; they use the same HTTP policy and injection
+fields as `[secrets.<NAME>]`.
+
+```toml
+[personal_credentials.LINEAR_API_KEY]
+env = "LINEAR_API_KEY"
+
+[[personal_credentials.LINEAR_API_KEY.rules]]
+effect = "allow"
+hosts = ["mcp.linear.app"]
+methods = ["GET", "POST"]
+paths = ["/mcp"]
+```
+
+For Codex MCP servers using `bearer_token_env_var = "LINEAR_API_KEY"`, the
+Remote Agent launch supplies `Authorization = "Bearer ${LINEAR_API_KEY}"`.
+The value remains an opaque proxy placeholder, never the personal credential.
+
 Without `from`, each secret-table key is also its remote source name. This
 profile fetches only `GH_TOKEN` and `OPENAI_API_KEY` with the Stashbase API's
 `only` query; it never fetches the entire environment.

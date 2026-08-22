@@ -84,7 +84,7 @@ pub struct RemoteBinding {
 #[serde(rename_all = "snake_case")]
 pub enum RemoteBindingSource {
     Secret,
-    Credential,
+    PersonalCredential,
 }
 
 /// Everything needed to issue a replacement session. This remains in memory for
@@ -153,7 +153,7 @@ pub async fn create_session(
     if request
         .bindings
         .iter()
-        .any(|binding| binding.source == RemoteBindingSource::Credential)
+        .any(|binding| binding.source == RemoteBindingSource::PersonalCredential)
     {
         ensure_user_authentication_for_credentials(&request.api_key, json_format).await?;
     }
@@ -174,7 +174,7 @@ pub async fn create_session(
             request
                 .bindings
                 .iter()
-                .any(|binding| binding.source == RemoteBindingSource::Credential),
+                .any(|binding| binding.source == RemoteBindingSource::PersonalCredential),
         )?);
     }
     let mut session: RemoteProxySession = response
@@ -426,7 +426,7 @@ mod tests {
             },
             RemoteBinding {
                 name: "LINEAR_API_KEY".to_owned(),
-                source: RemoteBindingSource::Credential,
+                source: RemoteBindingSource::PersonalCredential,
                 from: "LINEAR_API_KEY".to_owned(),
                 hosts: vec!["mcp.linear.app".to_owned()],
                 rules: Vec::new(),
@@ -443,7 +443,7 @@ mod tests {
                 .unwrap();
 
         assert_eq!(body["bindings"][0]["source"], "secret");
-        assert_eq!(body["bindings"][1]["source"], "credential");
+        assert_eq!(body["bindings"][1]["source"], "personal_credential");
         assert_eq!(body["bindings"][1]["secret_name"], "LINEAR_API_KEY");
     }
 

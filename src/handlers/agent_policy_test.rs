@@ -173,7 +173,7 @@ fn evaluate_case(
     let Some(secret) = profile
         .secrets
         .get(&test.secret)
-        .or_else(|| profile.credentials.get(&test.secret))
+        .or_else(|| profile.personal_credentials.get(&test.secret))
     else {
         bail!(
             "Policy test '{name}' refers to unknown secret or credential binding '{}'.",
@@ -345,7 +345,7 @@ mod tests {
                     value_template: None,
                 },
             )]),
-            credentials: HashMap::new(),
+            personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         }
     }

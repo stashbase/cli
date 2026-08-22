@@ -116,6 +116,86 @@ fn infer_remote_agent_type(command: &[String]) -> &'static str {
     }
 }
 
+/// Generates per-invocation Codex MCP header overrides. The header references
+/// the child environment variable, which Codex expands to the opaque Agent
+/// Proxy placeholder; no raw secret or personal credential is exposed.
+fn remote_codex_command_with_mcp_binding_headers(
+    command: &[String],
+    bindings: &[crate::api::remote_proxy::RemoteBinding],
+    child_env: &HashMap<String, String>,
+) -> anyhow::Result<Vec<String>> {
+    if infer_remote_agent_type(command) != "codex" {
+        return Ok(command.to_vec());
+    }
+    let Some(config_path) = codex_config_path() else {
+        return Ok(command.to_vec());
+    };
+    let Ok(contents) = std::fs::read_to_string(config_path) else {
+        return Ok(command.to_vec());
+    };
+    let config: toml::Value = toml::from_str(&contents)
+        .context("could not parse Codex config while preparing Remote Agent MCP headers")?;
+    let overrides = codex_mcp_binding_header_overrides(&config, bindings, child_env);
+    if overrides.is_empty() {
+        return Ok(command.to_vec());
+    }
+    let mut generated = Vec::with_capacity(command.len() + overrides.len() * 2);
+    generated.push(command[0].clone());
+    for override_value in overrides {
+        generated.push("--config".to_owned());
+        generated.push(override_value);
+    }
+    generated.extend_from_slice(&command[1..]);
+    Ok(generated)
+}
+
+fn codex_config_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".codex")))
+        .map(|directory| directory.join("config.toml"))
+}
+
+fn codex_mcp_binding_header_overrides(
+    config: &toml::Value,
+    bindings: &[crate::api::remote_proxy::RemoteBinding],
+    child_env: &HashMap<String, String>,
+) -> Vec<String> {
+    let Some(servers) = config.get("mcp_servers").and_then(toml::Value::as_table) else {
+        return Vec::new();
+    };
+    servers
+        .iter()
+        .filter_map(|(server_name, server)| {
+            let env_name = server
+                .get("bearer_token_env_var")
+                .and_then(toml::Value::as_str)?;
+            let binding = bindings.iter().find(|binding| {
+                child_env
+                    .get(&binding.name)
+                    .is_some_and(|env| env == env_name)
+            })?;
+            if !is_toml_bare_key(server_name) || !is_toml_bare_key(&binding.header) {
+                return None;
+            }
+            let placeholder = format!("${{{env_name}}}");
+            let value = binding.value_template.replace("{secret}", &placeholder);
+            Some(format!(
+                "mcp_servers.{server_name}.http_headers.{}={}",
+                binding.header,
+                toml::Value::String(value)
+            ))
+        })
+        .collect()
+}
+
+fn is_toml_bare_key(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
 fn secret_child_name(
     name: &str,
     secret: &crate::models::agent::AgentSecretProfile,
@@ -472,7 +552,8 @@ pub async fn handle_cli(args: Cli) {
                             | (None, Some(_), Some(_))
                             | (Some(_), Some(_), Some(_))
                     );
-                    let egress_only = profile.secrets.is_empty() && profile.credentials.is_empty();
+                    let egress_only = profile.secrets.is_empty()
+                        && profile.personal_credentials.is_empty();
                     if egress_only && !matches!((&profile.file, &profile.project, &profile.environment), (None, None, None)) {
                         eprintln!(
                             "Egress-only agent profile '{}' must not define 'file', 'project', or 'environment'.",
@@ -494,9 +575,9 @@ pub async fn handle_cli(args: Cli) {
                     }
 
                     let is_remote = agent_run.remote;
-                    if !is_remote && !profile.credentials.is_empty() {
+                    if !is_remote && !profile.personal_credentials.is_empty() {
                         anyhow::bail!(
-                            "Account-owned credential bindings are supported only with --remote; local agent runs continue to use [secrets.*] sources."
+                            "Personal credential bindings are supported only with --remote; local agent runs continue to use [secrets.*] sources."
                         );
                     }
                     let secret_bindings = profile
@@ -519,7 +600,7 @@ pub async fn handle_cli(args: Cli) {
                         secret_policies: profile
                             .secrets
                             .iter()
-                            .chain(profile.credentials.iter())
+                            .chain(profile.personal_credentials.iter())
                             .map(|(name, secret)| {
                                 let policy = if secret.rules.is_empty() {
                                     SecretHttpPolicy::LegacyHosts(
@@ -537,7 +618,7 @@ pub async fn handle_cli(args: Cli) {
                         secret_injections: profile
                             .secrets
                             .iter()
-                            .chain(profile.credentials.iter())
+                            .chain(profile.personal_credentials.iter())
                             .filter_map(|(name, secret)| {
                                 if secret.header.is_none() && secret.value_template.is_none() {
                                     return None;
@@ -612,7 +693,8 @@ pub async fn handle_cli(args: Cli) {
                             anyhow::bail!("--remote requires a project/environment-backed agent profile.");
                         };
                         if profile.file.is_some()
-                            || (profile.secrets.is_empty() && profile.credentials.is_empty())
+                            || (profile.secrets.is_empty()
+                                && profile.personal_credentials.is_empty())
                         {
                             anyhow::bail!("--remote requires Stashbase-managed secret or account-owned credential bindings and does not support local-file or egress-only profiles.");
                         }
@@ -667,11 +749,11 @@ pub async fn handle_cli(args: Cli) {
                                     crate::api::remote_proxy::RemoteBindingSource::Secret,
                                 )
                             })
-                            .chain(profile.credentials.iter().map(|(name, credential)| {
+                            .chain(profile.personal_credentials.iter().map(|(name, credential)| {
                                 build_binding(
                                     name,
                                     credential,
-                                    crate::api::remote_proxy::RemoteBindingSource::Credential,
+                                    crate::api::remote_proxy::RemoteBindingSource::PersonalCredential,
                                 )
                             }))
                             .collect::<Vec<_>>();
@@ -717,14 +799,10 @@ pub async fn handle_cli(args: Cli) {
                                 eprintln!("Audit log: {}", audit_log.path().display());
                             }
                         }
-                        let placeholders = bindings
-                            .into_iter()
-                            .map(|binding| (binding.name, binding.placeholder))
-                            .collect();
                         let child_env: HashMap<String, String> = profile
                             .secrets
                             .iter()
-                            .chain(profile.credentials.iter())
+                            .chain(profile.personal_credentials.iter())
                             .map(|(name, secret)| {
                                 (
                                     name.clone(),
@@ -733,6 +811,27 @@ pub async fn handle_cli(args: Cli) {
                             })
                             .collect();
                         let source_env_names = child_env.keys().cloned().collect();
+                        if !profile.personal_credentials.is_empty() && !silent {
+                            eprintln!(
+                                "Personal credentials are private to your account and available only to your Agent Proxy sessions."
+                            );
+                        }
+                        let command = match remote_codex_command_with_mcp_binding_headers(
+                            &agent_run.command,
+                            &bindings,
+                            &child_env,
+                        ) {
+                            Ok(command) => command,
+                            Err(error) => {
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token)
+                                    .await;
+                                return Err(error);
+                            }
+                        };
+                        let placeholders = bindings
+                            .into_iter()
+                            .map(|binding| (binding.name, binding.placeholder))
+                            .collect();
                         let protocol = match session.protocol.as_str() {
                             "http/1.1-custom" => crate::handlers::run::proxy::RemoteProxyProtocol::Custom,
                             "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::proxy::RemoteProxyProtocol::ForwardProxyTlsIntercept,
@@ -775,7 +874,7 @@ pub async fn handle_cli(args: Cli) {
                             remote_transport_identity,
                         );
                         let result = handle_remote_agent_run(
-                            agent_run.command,
+                            command,
                             policy,
                             crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
                             agent_run.proxy_port,
@@ -1383,7 +1482,7 @@ fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
     let secret_allows_api = profile
         .secrets
         .values()
-        .chain(profile.credentials.values())
+        .chain(profile.personal_credentials.values())
         .any(|secret| {
             secret
                 .hosts
@@ -1688,14 +1787,16 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        configured_host_matches, directory_profile_git_warning,
+        codex_mcp_binding_header_overrides, configured_host_matches, directory_profile_git_warning,
         ensure_replacement_session_is_compatible, infer_remote_agent_type,
         remote_session_rotation_delay_for, remote_session_transport_identity, secret_child_name,
         summarize_audit_events,
     };
+    use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
     use crate::models::agent::AgentSecretProfile;
     use std::{
+        collections::HashMap,
         fs,
         path::Path,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -1735,6 +1836,55 @@ mod tests {
             secret_child_name("GITHUB_TOKEN", &secret, true),
             "GITHUB_TOKEN"
         );
+    }
+
+    #[test]
+    fn linear_mcp_authorization_header_matches_for_secret_and_personal_credential() {
+        let config: toml::Value = toml::from_str(
+            r#"
+                [mcp_servers.linear]
+                url = "https://mcp.linear.app/mcp"
+                bearer_token_env_var = "LINEAR_API_KEY"
+            "#,
+        )
+        .unwrap();
+        let binding = |source| RemoteBinding {
+            name: "LINEAR_API_KEY".to_owned(),
+            source,
+            from: "LINEAR_API_KEY".to_owned(),
+            hosts: vec!["mcp.linear.app".to_owned()],
+            rules: Vec::new(),
+            header: "Authorization".to_owned(),
+            placeholder: "${STASHBASE_LINEAR_API_KEY}".to_owned(),
+            value_template: "Bearer {secret}".to_owned(),
+        };
+        let child_env = HashMap::from([("LINEAR_API_KEY".to_owned(), "LINEAR_API_KEY".to_owned())]);
+        let secret = binding(RemoteBindingSource::Secret);
+        let personal = binding(RemoteBindingSource::PersonalCredential);
+
+        let secret_headers =
+            codex_mcp_binding_header_overrides(&config, std::slice::from_ref(&secret), &child_env);
+        let personal_headers = codex_mcp_binding_header_overrides(
+            &config,
+            std::slice::from_ref(&personal),
+            &child_env,
+        );
+        assert_eq!(secret_headers, personal_headers);
+        assert_eq!(
+            personal_headers,
+            [
+                "mcp_servers.linear.http_headers.Authorization=\"Bearer ${LINEAR_API_KEY}\""
+                    .to_owned()
+            ]
+        );
+
+        let mut secret_payload = serde_json::to_value(&secret).unwrap();
+        let mut personal_payload = serde_json::to_value(&personal).unwrap();
+        assert_eq!(secret_payload["source"], "secret");
+        assert_eq!(personal_payload["source"], "personal_credential");
+        secret_payload.as_object_mut().unwrap().remove("source");
+        personal_payload.as_object_mut().unwrap().remove("source");
+        assert_eq!(secret_payload, personal_payload);
     }
 
     #[test]

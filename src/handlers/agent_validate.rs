@@ -150,7 +150,7 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
 fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
     if profile.file.is_some()
-        || (profile.secrets.is_empty() && profile.credentials.is_empty())
+        || (profile.secrets.is_empty() && profile.personal_credentials.is_empty())
         || profile.project.is_none()
         || profile.environment.is_none()
     {
@@ -218,7 +218,7 @@ fn print_report(profile: String, checks: Vec<Check>, json_format: bool) -> Resul
 
 fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
-    let egress_only = profile.secrets.is_empty() && profile.credentials.is_empty();
+    let egress_only = profile.secrets.is_empty() && profile.personal_credentials.is_empty();
     let valid_source = matches!(
         (&profile.file, &profile.project, &profile.environment),
         (Some(_), None, None) | (None, Some(_), Some(_)) | (Some(_), Some(_), Some(_))
@@ -293,14 +293,18 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut child_envs: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut placeholders: HashMap<&str, Vec<&str>> = HashMap::new();
     for name in profile.secrets.keys() {
-        if profile.credentials.contains_key(name) {
+        if profile.personal_credentials.contains_key(name) {
             checks.push(fail(
                 "Credential bindings",
-                format!("Binding name '{name}' is declared in both [secrets] and [credentials]."),
+                format!("Binding name '{name}' is declared in both [secrets] and [personal_credentials]."),
             ));
         }
     }
-    for (target, secret) in profile.secrets.iter().chain(profile.credentials.iter()) {
+    for (target, secret) in profile
+        .secrets
+        .iter()
+        .chain(profile.personal_credentials.iter())
+    {
         let env = secret.env.as_deref().unwrap_or(target);
         child_envs.entry(env).or_default().push(target);
         if !valid_environment_name(env) {
@@ -453,7 +457,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             "Profile policy",
             format!(
                 "{} secret binding(s), {} egress host rule(s), and {} denied host rule(s) are valid.",
-                profile.secrets.len() + profile.credentials.len(),
+                profile.secrets.len() + profile.personal_credentials.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
                 profile.deny_hosts.as_ref().map_or(0, Vec::len)
             ),
@@ -813,7 +817,7 @@ mod tests {
                     value_template: Some("static-value".to_owned()),
                 },
             )]),
-            credentials: HashMap::new(),
+            personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
         assert!(validate_profile(&profile)
@@ -830,7 +834,7 @@ mod tests {
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
             secrets: HashMap::new(),
-            credentials: HashMap::new(),
+            personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
 
@@ -873,7 +877,7 @@ mod tests {
                     },
                 ),
             ]),
-            credentials: HashMap::new(),
+            personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
 
@@ -901,13 +905,13 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             secrets: HashMap::from([("API_KEY".to_owned(), binding.clone())]),
-            credentials: HashMap::from([("API_KEY".to_owned(), binding)]),
+            personal_credentials: HashMap::from([("API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
         assert!(error
             .to_string()
-            .contains("declared in both [secrets] and [credentials]"));
+            .contains("declared in both [secrets] and [personal_credentials]"));
     }
 }

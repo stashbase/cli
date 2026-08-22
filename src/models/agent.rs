@@ -13,10 +13,11 @@ pub struct AgentProfile {
     pub deny_hosts: Option<Vec<String>>,
     #[serde(default)]
     pub secrets: HashMap<String, AgentSecretProfile>,
-    /// Account-owned credentials. These are resolved only by Remote Agent
-    /// sessions; the CLI never reads or persists their values.
-    #[serde(default)]
-    pub credentials: HashMap<String, AgentSecretProfile>,
+    /// Personal credentials are private to the authenticated account and are
+    /// resolved only by Remote Agent sessions. The CLI never reads or persists
+    /// their values.
+    #[serde(default, alias = "credentials")]
+    pub personal_credentials: HashMap<String, AgentSecretProfile>,
     /// Optional local-only regression cases for this profile's HTTP policy.
     #[serde(default)]
     pub policy_tests: Vec<AgentPolicyTestCase>,

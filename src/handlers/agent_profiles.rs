@@ -147,7 +147,7 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
             secret.hosts.clear();
         }
     }
-    for (name, credential) in &mut effective.credentials {
+    for (name, credential) in &mut effective.personal_credentials {
         credential.from.get_or_insert_with(|| name.clone());
         credential.env.get_or_insert_with(|| name.clone());
         credential
@@ -312,7 +312,7 @@ mod tests {
                     value_template: None,
                 },
             )]),
-            credentials: HashMap::new(),
+            personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
 
@@ -347,7 +347,7 @@ mod tests {
                     value_template: None,
                 },
             )]),
-            credentials: HashMap::new(),
+            personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
 
