@@ -68,7 +68,7 @@ pub async fn end_registered_agent_run() {
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteBinding {
     pub name: String,
-    /// The control plane resolves project/environment secrets or account-owned
+    /// The control plane resolves project/environment secrets or personal
     /// credentials based on this source; the CLI never receives their values.
     pub source: RemoteBindingSource,
     #[serde(rename = "secret_name")]
@@ -92,8 +92,9 @@ pub enum RemoteBindingSource {
 #[derive(Clone)]
 pub struct RemoteProxySessionRequest {
     pub api_key: String,
-    pub project_identifier: String,
-    pub environment_identifier: String,
+    /// Required when the session contains project/environment secret bindings.
+    pub project_identifier: Option<String>,
+    pub environment_identifier: Option<String>,
     /// Ordinary destinations the agent may reach without secret injection.
     /// Per-secret credential policy remains in each binding's legacy `hosts`
     /// field or its HTTP `rules`.
@@ -137,8 +138,10 @@ pub struct RemoteProxyCa {
 
 #[derive(Serialize)]
 struct CreateSession<'a> {
-    project_id: &'a str,
-    environment_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    environment_id: Option<&'a str>,
     egress_hosts: &'a [String],
     deny_hosts: &'a [String],
     bindings: &'a [RemoteBinding],
@@ -204,7 +207,7 @@ async fn ensure_user_authentication_for_credentials(
     let auth: CurrentAuthResponse = serde_json::from_str(&response.text)
         .context("invalid authentication response while checking credential access")?;
     if matches!(auth, CurrentAuthResponse::ServiceAccount { .. }) {
-        bail!("Service API keys cannot create Remote Agent sessions with account-owned credential bindings.");
+        bail!("Service API keys cannot create Remote Agent sessions with personal credential bindings.");
     }
     Ok(())
 }
@@ -256,8 +259,8 @@ fn create_session_http_request(
         .post(format!("{}/v1/agent-proxy/sessions", client::get_api_url()))
         .bearer_auth(&request.api_key)
         .json(&CreateSession {
-            project_id: &request.project_identifier,
-            environment_id: &request.environment_identifier,
+            project_id: request.project_identifier.as_deref(),
+            environment_id: request.environment_identifier.as_deref(),
             egress_hosts: &request.egress_hosts,
             deny_hosts: &request.deny_hosts,
             bindings: &request.bindings,
@@ -341,8 +344,8 @@ mod tests {
     fn session_request(previous_session_token: Option<&str>) -> RemoteProxySessionRequest {
         RemoteProxySessionRequest {
             api_key: "test-api-key".to_owned(),
-            project_identifier: "project".to_owned(),
-            environment_identifier: "environment".to_owned(),
+            project_identifier: Some("project".to_owned()),
+            environment_identifier: Some("environment".to_owned()),
             egress_hosts: vec!["api.example.com".to_owned()],
             deny_hosts: Vec::new(),
             bindings: Vec::new(),
@@ -407,6 +410,34 @@ mod tests {
         assert_eq!(body["bindings"][0]["source"], "secret");
         assert_eq!(body["bindings"][0]["secret_name"], "GH_TOKEN");
         assert!(body["bindings"][0].get("from").is_none());
+    }
+
+    #[test]
+    fn personal_credential_only_session_omits_project_and_environment() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        session.project_identifier = None;
+        session.environment_identifier = None;
+        session.bindings = vec![RemoteBinding {
+            name: "LINEAR_API_KEY".to_owned(),
+            source: RemoteBindingSource::PersonalCredential,
+            from: "LINEAR_API_KEY".to_owned(),
+            hosts: vec!["mcp.linear.app".to_owned()],
+            rules: Vec::new(),
+            header: "Authorization".to_owned(),
+            placeholder: "${LINEAR_API_KEY}".to_owned(),
+            value_template: "Bearer {secret}".to_owned(),
+        }];
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+
+        assert!(body.get("project_id").is_none());
+        assert!(body.get("environment_id").is_none());
+        assert_eq!(body["bindings"][0]["source"], "personal_credential");
     }
 
     #[test]

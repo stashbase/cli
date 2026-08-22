@@ -149,20 +149,27 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
 
 fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
+    let needs_project_environment = !profile.secrets.is_empty();
     if profile.file.is_some()
         || (profile.secrets.is_empty() && profile.personal_credentials.is_empty())
-        || profile.project.is_none()
-        || profile.environment.is_none()
+        || (needs_project_environment
+            && (profile.project.is_none() || profile.environment.is_none()))
     {
         checks.push(fail(
             "Remote session profile",
-            "--remote requires project/environment-backed secret or credential bindings and does not support local-file or egress-only profiles."
+            "--remote requires [secrets.*] bindings to set both 'project' and 'environment', or supports personal-credential-only bindings without a local file. Egress-only profiles are not supported."
                 .to_owned(),
         ));
     } else {
         checks.push(ok(
             "Remote session profile",
-            "Project/environment-backed secret and credential bindings are compatible with --remote.".to_owned(),
+            if needs_project_environment {
+                "Project/environment-backed secret bindings are compatible with --remote."
+                    .to_owned()
+            } else {
+                "Personal credentials are compatible with --remote without project or environment."
+                    .to_owned()
+            },
         ));
     }
 
@@ -219,10 +226,20 @@ fn print_report(profile: String, checks: Vec<Check>, json_format: bool) -> Resul
 fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
     let egress_only = profile.secrets.is_empty() && profile.personal_credentials.is_empty();
-    let valid_source = matches!(
-        (&profile.file, &profile.project, &profile.environment),
-        (Some(_), None, None) | (None, Some(_), Some(_)) | (Some(_), Some(_), Some(_))
-    );
+    let personal_credentials_only =
+        profile.secrets.is_empty() && !profile.personal_credentials.is_empty();
+    let valid_source = if personal_credentials_only {
+        profile.file.is_none()
+            && matches!(
+                (&profile.project, &profile.environment),
+                (None, None) | (Some(_), Some(_))
+            )
+    } else {
+        matches!(
+            (&profile.file, &profile.project, &profile.environment),
+            (Some(_), None, None) | (None, Some(_), Some(_)) | (Some(_), Some(_), Some(_))
+        )
+    };
     if egress_only {
         if matches!(
             (&profile.file, &profile.project, &profile.environment),
@@ -243,17 +260,27 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     } else if valid_source {
         checks.push(ok(
             "Secret source",
-            match (&profile.file, &profile.project) {
-                (Some(file), Some(_)) => format!("Local file '{file}' with remote fallback"),
-                (Some(file), None) => format!("Local file '{file}'"),
-                (None, Some(_)) => "Remote project and environment".to_owned(),
-                _ => unreachable!(),
+            if personal_credentials_only {
+                "Personal credentials: remote Agent Proxy only".to_owned()
+            } else {
+                match (&profile.file, &profile.project) {
+                    (Some(file), Some(_)) => format!("Local file '{file}' with remote fallback"),
+                    (Some(file), None) => format!("Local file '{file}'"),
+                    (None, Some(_)) => "Remote project and environment".to_owned(),
+                    _ => unreachable!(),
+                }
             },
         ));
     } else {
         checks.push(fail(
             "Secret source",
-            "Set 'file', both 'project' and 'environment', or both sources together.".to_owned(),
+            if personal_credentials_only {
+                "Personal credentials cannot use 'file' and, when set, require both 'project' and 'environment'."
+                    .to_owned()
+            } else {
+                "Set 'file', both 'project' and 'environment', or both sources together."
+                    .to_owned()
+            },
         ));
     }
 
@@ -841,6 +868,38 @@ mod tests {
         assert!(validate_profile(&profile).iter().any(|check| {
             check.status == Status::Fail && check.message.contains("egress-only profile")
         }));
+    }
+
+    #[test]
+    fn accepts_personal_credential_only_profile_without_project_environment_or_file() {
+        let profile = AgentProfile {
+            project: None,
+            environment: None,
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            secrets: HashMap::new(),
+            personal_credentials: HashMap::from([(
+                "LINEAR_API_KEY".to_owned(),
+                crate::models::agent::AgentSecretProfile {
+                    hosts: vec!["mcp.linear.app".to_owned()],
+                    rules: Vec::new(),
+                    from: None,
+                    env: None,
+                    placeholder: None,
+                    header: None,
+                    value_template: None,
+                },
+            )]),
+            policy_tests: Vec::new(),
+        };
+
+        assert!(!validate_profile(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail));
+        assert!(!validate_remote_profile(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail));
     }
 
     #[test]

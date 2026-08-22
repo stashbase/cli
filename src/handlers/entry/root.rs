@@ -546,14 +546,24 @@ pub async fn handle_cli(args: Cli) {
                         print_agent_egress_warnings(&profile);
                     }
 
-                    let valid_source = matches!(
-                        (&profile.file, &profile.project, &profile.environment),
-                        (Some(_), None, None)
-                            | (None, Some(_), Some(_))
-                            | (Some(_), Some(_), Some(_))
-                    );
                     let egress_only = profile.secrets.is_empty()
                         && profile.personal_credentials.is_empty();
+                    let personal_credentials_only = profile.secrets.is_empty()
+                        && !profile.personal_credentials.is_empty();
+                    let valid_source = if personal_credentials_only {
+                        profile.file.is_none()
+                            && matches!(
+                                (&profile.project, &profile.environment),
+                                (None, None) | (Some(_), Some(_))
+                            )
+                    } else {
+                        matches!(
+                            (&profile.file, &profile.project, &profile.environment),
+                            (Some(_), None, None)
+                                | (None, Some(_), Some(_))
+                                | (Some(_), Some(_), Some(_))
+                        )
+                    };
                     if egress_only && !matches!((&profile.file, &profile.project, &profile.environment), (None, None, None)) {
                         eprintln!(
                             "Egress-only agent profile '{}' must not define 'file', 'project', or 'environment'.",
@@ -563,7 +573,7 @@ pub async fn handle_cli(args: Cli) {
                     }
                     if !egress_only && !valid_source {
                         eprintln!(
-                            "Agent profile '{}' must define 'file', both 'project' and 'environment', or both sources together.",
+                            "Agent profile '{}' has an invalid secret source configuration.",
                             agent_run.profile
                         );
                         return Ok(());
@@ -687,17 +697,24 @@ pub async fn handle_cli(args: Cli) {
                         }
                     }
                     if agent_run.remote {
-                        let (Some(project), Some(environment)) =
-                            (profile.project.clone(), profile.environment.clone())
-                        else {
-                            anyhow::bail!("--remote requires a project/environment-backed agent profile.");
-                        };
                         if profile.file.is_some()
                             || (profile.secrets.is_empty()
                                 && profile.personal_credentials.is_empty())
                         {
-                            anyhow::bail!("--remote requires Stashbase-managed secret or account-owned credential bindings and does not support local-file or egress-only profiles.");
+                            anyhow::bail!("--remote requires Stashbase-managed secret or personal credential bindings and does not support local-file or egress-only profiles.");
                         }
+                        let (project, environment) = if profile.secrets.is_empty() {
+                            (None, None)
+                        } else {
+                            let (Some(project), Some(environment)) =
+                                (profile.project.clone(), profile.environment.clone())
+                            else {
+                                anyhow::bail!(
+                                    "--remote requires both 'project' and 'environment' when using [secrets.*] bindings."
+                                );
+                            };
+                            (Some(project), Some(environment))
+                        };
                         // Keep ordinary egress separate from per-secret destinations. The
                         // control plane applies `egress_hosts` to uncredentialed requests and
                         // each binding's `hosts` only when it injects that secret.
