@@ -5,9 +5,12 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::client,
-    models::agent::AgentHttpRule,
-    models::api_client::{ApiErrorResponse, GenericOutputError, OutputError},
+    api::{auth::get_current_auth_details, client},
+    models::{
+        agent::AgentHttpRule,
+        api_client::{ApiErrorResponse, GenericOutputError, GetRequestApiResponse, OutputError},
+        auth::CurrentAuthResponse,
+    },
 };
 
 #[derive(Clone)]
@@ -65,12 +68,23 @@ pub async fn end_registered_agent_run() {
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteBinding {
     pub name: String,
+    /// The control plane resolves project/environment secrets or account-owned
+    /// credentials based on this source; the CLI never receives their values.
+    pub source: RemoteBindingSource,
+    #[serde(rename = "secret_name")]
     pub from: String,
     pub hosts: Vec<String>,
     pub rules: Vec<AgentHttpRule>,
     pub header: String,
     pub placeholder: String,
     pub value_template: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteBindingSource {
+    Secret,
+    Credential,
 }
 
 /// Everything needed to issue a replacement session. This remains in memory for
@@ -136,6 +150,13 @@ pub async fn create_session(
     request: &RemoteProxySessionRequest,
     json_format: bool,
 ) -> Result<RemoteProxySession> {
+    if request
+        .bindings
+        .iter()
+        .any(|binding| binding.source == RemoteBindingSource::Credential)
+    {
+        ensure_user_authentication_for_credentials(&request.api_key, json_format).await?;
+    }
     let client = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
         .build()?;
@@ -146,7 +167,15 @@ pub async fn create_session(
     if !response.status().is_success() {
         let status = response.status();
         let error_response = response.json::<ApiErrorResponse>().await.ok();
-        bail!(format_session_error(status, error_response, json_format)?);
+        bail!(format_session_error(
+            status,
+            error_response,
+            json_format,
+            request
+                .bindings
+                .iter()
+                .any(|binding| binding.source == RemoteBindingSource::Credential),
+        )?);
     }
     let mut session: RemoteProxySession = response
         .json()
@@ -158,6 +187,28 @@ pub async fn create_session(
     Ok(session)
 }
 
+async fn ensure_user_authentication_for_credentials(
+    api_key: &str,
+    json_format: bool,
+) -> Result<()> {
+    let response = match get_current_auth_details(api_key.to_owned()).await {
+        Ok(response) => response,
+        Err(error) => bail!(error.format_error_output(json_format)?),
+    };
+    let GetRequestApiResponse::Ok(response) = response else {
+        let GetRequestApiResponse::Err(error) = response else {
+            unreachable!()
+        };
+        bail!(error.format_error_output(json_format)?);
+    };
+    let auth: CurrentAuthResponse = serde_json::from_str(&response.text)
+        .context("invalid authentication response while checking credential access")?;
+    if matches!(auth, CurrentAuthResponse::ServiceAccount { .. }) {
+        bail!("Service API keys cannot create Remote Agent sessions with account-owned credential bindings.");
+    }
+    Ok(())
+}
+
 /// Formats HTTP responses from the Agent Proxy control plane with the same
 /// stable envelope used by the rest of the CLI. Session tokens and bindings are
 /// never included in this error path.
@@ -165,7 +216,11 @@ fn format_session_error(
     status: reqwest::StatusCode,
     response: Option<ApiErrorResponse>,
     json_format: bool,
+    requested_credentials: bool,
 ) -> Result<String> {
+    if requested_credentials && response.as_ref().is_some_and(credential_access_is_disabled) {
+        return Ok("Enable Personal credential access in Workspace → Agents before starting this Remote Agent session.".to_owned());
+    }
     let error = match response {
         Some(response) => OutputError::from(response.error),
         None => OutputError::Generic(GenericOutputError {
@@ -178,6 +233,19 @@ fn format_session_error(
     }
     .with_status(Some(status.as_u16()));
     Ok(error.format_error_output(json_format)?)
+}
+
+fn credential_access_is_disabled(response: &ApiErrorResponse) -> bool {
+    let code = response.error.code.to_ascii_lowercase();
+    let message = response
+        .error
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    (code.contains("credential") && (code.contains("disabled") || code.contains("not_enabled")))
+        || (message.contains("credential")
+            && (message.contains("disabled") || message.contains("not enabled")))
 }
 
 fn create_session_http_request(
@@ -315,6 +383,7 @@ mod tests {
         session.egress_hosts = vec!["*".to_owned()];
         session.bindings = vec![RemoteBinding {
             name: "GH_TOKEN".to_owned(),
+            source: RemoteBindingSource::Secret,
             from: "GH_TOKEN".to_owned(),
             hosts: vec!["api.github.com".to_owned(), "github.com".to_owned()],
             rules: Vec::new(),
@@ -335,6 +404,47 @@ mod tests {
             serde_json::json!(["api.github.com", "github.com"])
         );
         assert!(body.get("allowed_hosts").is_none());
+        assert_eq!(body["bindings"][0]["source"], "secret");
+        assert_eq!(body["bindings"][0]["secret_name"], "GH_TOKEN");
+        assert!(body["bindings"][0].get("from").is_none());
+    }
+
+    #[test]
+    fn session_request_serializes_secret_and_credential_bindings_together() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        session.bindings = vec![
+            RemoteBinding {
+                name: "GITHUB_TOKEN".to_owned(),
+                source: RemoteBindingSource::Secret,
+                from: "GITHUB_TOKEN".to_owned(),
+                hosts: vec!["api.github.com".to_owned()],
+                rules: Vec::new(),
+                header: "Authorization".to_owned(),
+                placeholder: "{{GITHUB_TOKEN}}".to_owned(),
+                value_template: "Bearer {secret}".to_owned(),
+            },
+            RemoteBinding {
+                name: "LINEAR_API_KEY".to_owned(),
+                source: RemoteBindingSource::Credential,
+                from: "LINEAR_API_KEY".to_owned(),
+                hosts: vec!["mcp.linear.app".to_owned()],
+                rules: Vec::new(),
+                header: "Authorization".to_owned(),
+                placeholder: "{{LINEAR_API_KEY}}".to_owned(),
+                value_template: "Bearer {secret}".to_owned(),
+            },
+        ];
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+
+        assert_eq!(body["bindings"][0]["source"], "secret");
+        assert_eq!(body["bindings"][1]["source"], "credential");
+        assert_eq!(body["bindings"][1]["secret_name"], "LINEAR_API_KEY");
     }
 
     #[test]
@@ -409,6 +519,7 @@ mod tests {
                 },
             }),
             false,
+            false,
         )
         .unwrap();
 
@@ -416,5 +527,27 @@ mod tests {
         assert!(error.contains("Code: agent_proxy.subscription_required"));
         assert!(error.contains("Message: An active paid workspace subscription"));
         assert!(!error.contains("Hint:"));
+    }
+
+    #[test]
+    fn credential_access_disabled_error_is_actionable() {
+        let error = format_session_error(
+            reqwest::StatusCode::FORBIDDEN,
+            Some(ApiErrorResponse {
+                error: crate::models::api_client::ApiError {
+                    code: "agent_proxy.credential_access_disabled".to_owned(),
+                    message: Some("Credential access is disabled for this workspace.".to_owned()),
+                    hint: None,
+                    details: None,
+                },
+            }),
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            error,
+            "Enable Personal credential access in Workspace → Agents before starting this Remote Agent session."
+        );
     }
 }

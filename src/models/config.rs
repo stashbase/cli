@@ -131,6 +131,37 @@ mod tests {
     }
 
     #[test]
+    fn parses_agent_profile_with_account_credentials() {
+        let config: Config = toml::from_str(
+            r#"
+                [agent_profiles.coding]
+                project = "project"
+                environment = "development"
+
+                [agent_profiles.coding.credentials.LINEAR_API_KEY]
+                env = "LINEAR_API_KEY"
+                [[agent_profiles.coding.credentials.LINEAR_API_KEY.rules]]
+                effect = "allow"
+                hosts = ["mcp.linear.app"]
+                methods = ["GET", "POST"]
+                paths = ["/mcp"]
+            "#,
+        )
+        .unwrap();
+
+        let profile = &config.agent_profiles.unwrap()["coding"];
+        assert!(profile.secrets.is_empty());
+        assert_eq!(
+            profile.credentials["LINEAR_API_KEY"].env.as_deref(),
+            Some("LINEAR_API_KEY")
+        );
+        assert_eq!(
+            profile.credentials["LINEAR_API_KEY"].rules[0].methods,
+            ["GET", "POST"]
+        );
+    }
+
+    #[test]
     fn parses_embedded_agent_policy_tests() {
         let config: Config = toml::from_str(
             r#"

@@ -147,6 +147,31 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
             secret.hosts.clear();
         }
     }
+    for (name, credential) in &mut effective.credentials {
+        credential.from.get_or_insert_with(|| name.clone());
+        credential.env.get_or_insert_with(|| name.clone());
+        credential
+            .placeholder
+            .get_or_insert_with(|| format!("**STASHBASE_{name}**"));
+        let header = credential
+            .header
+            .get_or_insert_with(|| "Authorization".to_owned());
+        credential.value_template.get_or_insert_with(|| {
+            if header.eq_ignore_ascii_case("authorization") {
+                "Bearer {secret}".to_owned()
+            } else {
+                "{secret}".to_owned()
+            }
+        });
+        if credential.rules.is_empty() {
+            credential.hosts = normalize_values(std::mem::take(&mut credential.hosts));
+        } else if let SecretHttpPolicy::Rules(rules) = normalize_secret_http_policy(
+            SecretHttpPolicy::Rules(std::mem::take(&mut credential.rules)),
+        ) {
+            credential.rules = rules;
+            credential.hosts.clear();
+        }
+    }
     effective
 }
 
@@ -287,6 +312,7 @@ mod tests {
                     value_template: None,
                 },
             )]),
+            credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
 
@@ -321,6 +347,7 @@ mod tests {
                     value_template: None,
                 },
             )]),
+            credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
 

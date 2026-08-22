@@ -117,7 +117,7 @@ pub fn handle_agent_explain_command(
         report.connection,
         ConnectionDecision::AllowedByEgressHosts | ConnectionDecision::NoEgressRestriction
     ) {
-        for (name, secret) in &profile.secrets {
+        for (name, secret) in profile.secrets.iter().chain(profile.credentials.iter()) {
             let secret_policy = if secret.rules.is_empty() {
                 SecretHttpPolicy::LegacyHosts(secret.hosts.iter().cloned().collect::<HashSet<_>>())
             } else {

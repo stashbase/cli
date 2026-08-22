@@ -170,9 +170,13 @@ fn evaluate_case(
     if !test.path.starts_with('/') {
         bail!("Policy test '{name}' path must begin with '/'.");
     }
-    let Some(secret) = profile.secrets.get(&test.secret) else {
+    let Some(secret) = profile
+        .secrets
+        .get(&test.secret)
+        .or_else(|| profile.credentials.get(&test.secret))
+    else {
         bail!(
-            "Policy test '{name}' refers to unknown secret binding '{}'.",
+            "Policy test '{name}' refers to unknown secret or credential binding '{}'.",
             test.secret
         );
     };
@@ -341,6 +345,7 @@ mod tests {
                     value_template: None,
                 },
             )]),
+            credentials: HashMap::new(),
             policy_tests: Vec::new(),
         }
     }

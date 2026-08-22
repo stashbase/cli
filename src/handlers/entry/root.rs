@@ -472,7 +472,7 @@ pub async fn handle_cli(args: Cli) {
                             | (None, Some(_), Some(_))
                             | (Some(_), Some(_), Some(_))
                     );
-                    let egress_only = profile.secrets.is_empty();
+                    let egress_only = profile.secrets.is_empty() && profile.credentials.is_empty();
                     if egress_only && !matches!((&profile.file, &profile.project, &profile.environment), (None, None, None)) {
                         eprintln!(
                             "Egress-only agent profile '{}' must not define 'file', 'project', or 'environment'.",
@@ -494,6 +494,11 @@ pub async fn handle_cli(args: Cli) {
                     }
 
                     let is_remote = agent_run.remote;
+                    if !is_remote && !profile.credentials.is_empty() {
+                        anyhow::bail!(
+                            "Account-owned credential bindings are supported only with --remote; local agent runs continue to use [secrets.*] sources."
+                        );
+                    }
                     let secret_bindings = profile
                         .secrets
                         .iter()
@@ -514,6 +519,7 @@ pub async fn handle_cli(args: Cli) {
                         secret_policies: profile
                             .secrets
                             .iter()
+                            .chain(profile.credentials.iter())
                             .map(|(name, secret)| {
                                 let policy = if secret.rules.is_empty() {
                                     SecretHttpPolicy::LegacyHosts(
@@ -531,6 +537,7 @@ pub async fn handle_cli(args: Cli) {
                         secret_injections: profile
                             .secrets
                             .iter()
+                            .chain(profile.credentials.iter())
                             .filter_map(|(name, secret)| {
                                 if secret.header.is_none() && secret.value_template.is_none() {
                                     return None;
@@ -604,8 +611,10 @@ pub async fn handle_cli(args: Cli) {
                         else {
                             anyhow::bail!("--remote requires a project/environment-backed agent profile.");
                         };
-                        if profile.file.is_some() || profile.secrets.is_empty() {
-                            anyhow::bail!("--remote currently supports Stashbase-managed secret bindings, not local-file or egress-only profiles.");
+                        if profile.file.is_some()
+                            || (profile.secrets.is_empty() && profile.credentials.is_empty())
+                        {
+                            anyhow::bail!("--remote requires Stashbase-managed secret or account-owned credential bindings and does not support local-file or egress-only profiles.");
                         }
                         // Keep ordinary egress separate from per-secret destinations. The
                         // control plane applies `egress_hosts` to uncredentialed requests and
@@ -617,13 +626,14 @@ pub async fn handle_cli(args: Cli) {
                             .into_iter()
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
-                        let bindings = profile.secrets.iter().map(|(name, secret)| {
+                        let build_binding = |name: &String, secret: &crate::models::agent::AgentSecretProfile, source| {
                             let header = secret.header.clone().unwrap_or_else(|| "authorization".to_owned());
                             let value_template = secret.value_template.clone().unwrap_or_else(|| {
                                 if header.eq_ignore_ascii_case("authorization") { "Bearer {secret}".to_owned() } else { "{secret}".to_owned() }
                             });
                             crate::api::remote_proxy::RemoteBinding {
                                 name: name.clone(),
+                                source,
                                 from: secret.from.clone().unwrap_or_else(|| name.clone()),
                                 hosts: secret.hosts.clone(),
                                 rules: secret
@@ -646,7 +656,25 @@ pub async fn handle_cli(args: Cli) {
                                     .unwrap_or_else(|| format!("${{STASHBASE_{name}}}")),
                                 value_template,
                             }
-                        }).collect::<Vec<_>>();
+                        };
+                        let bindings = profile
+                            .secrets
+                            .iter()
+                            .map(|(name, secret)| {
+                                build_binding(
+                                    name,
+                                    secret,
+                                    crate::api::remote_proxy::RemoteBindingSource::Secret,
+                                )
+                            })
+                            .chain(profile.credentials.iter().map(|(name, credential)| {
+                                build_binding(
+                                    name,
+                                    credential,
+                                    crate::api::remote_proxy::RemoteBindingSource::Credential,
+                                )
+                            }))
+                            .collect::<Vec<_>>();
                         let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {
                             api_key: api_key.clone(),
                             project_identifier: project,
@@ -693,9 +721,10 @@ pub async fn handle_cli(args: Cli) {
                             .into_iter()
                             .map(|binding| (binding.name, binding.placeholder))
                             .collect();
-                        let child_env = profile
+                        let child_env: HashMap<String, String> = profile
                             .secrets
                             .iter()
+                            .chain(profile.credentials.iter())
                             .map(|(name, secret)| {
                                 (
                                     name.clone(),
@@ -703,6 +732,7 @@ pub async fn handle_cli(args: Cli) {
                                 )
                             })
                             .collect();
+                        let source_env_names = child_env.keys().cloned().collect();
                         let protocol = match session.protocol.as_str() {
                             "http/1.1-custom" => crate::handlers::run::proxy::RemoteProxyProtocol::Custom,
                             "http/1.1-forward-proxy-tls-intercept" => crate::handlers::run::proxy::RemoteProxyProtocol::ForwardProxyTlsIntercept,
@@ -752,7 +782,7 @@ pub async fn handle_cli(args: Cli) {
                             agent_run.sandbox,
                             agent_run.trust_proxy_ca,
                             remote_audit_log,
-                            secret_bindings.keys().cloned().collect(),
+                            source_env_names,
                             silent,
                         ).await;
                         let _ = rotation_stop.send(true);
@@ -1350,12 +1380,16 @@ fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
             .iter()
             .any(|allowed| configured_host_matches(allowed, &api_host))
     });
-    let secret_allows_api = profile.secrets.values().any(|secret| {
-        secret
-            .hosts
-            .iter()
-            .any(|allowed| configured_host_matches(allowed, &api_host))
-    });
+    let secret_allows_api = profile
+        .secrets
+        .values()
+        .chain(profile.credentials.values())
+        .any(|secret| {
+            secret
+                .hosts
+                .iter()
+                .any(|allowed| configured_host_matches(allowed, &api_host))
+        });
     if !api_denied && (egress_allows_api || secret_allows_api) {
         eprintln!(
             "Warning: Profile allows the Stashbase API host ({api_host}). The child may run normal Stashbase CLI commands using locally stored authentication."
