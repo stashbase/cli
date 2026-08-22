@@ -828,11 +828,6 @@ pub async fn handle_cli(args: Cli) {
                             })
                             .collect();
                         let source_env_names = child_env.keys().cloned().collect();
-                        if !profile.personal_credentials.is_empty() && !silent {
-                            eprintln!(
-                                "Personal credentials are private to your account and available only to your Agent Proxy sessions."
-                            );
-                        }
                         let command = match remote_codex_command_with_mcp_binding_headers(
                             &agent_run.command,
                             &bindings,
