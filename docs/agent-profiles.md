@@ -28,16 +28,20 @@ given.
 
 ## Remote Agent Proxy sessions
 
-For a project/environment-backed profile whose secrets are stored in Stashbase,
-add `--remote` to resolve and retain credentials only in the control plane:
+For a profile with `[secrets.*]` bindings stored in Stashbase, add `--remote`
+to resolve and retain credentials only in the control plane. Secret bindings
+require both `project` and `environment`; a profile with only
+`[personal_credentials.*]` bindings requires neither and must not set `file`:
 
 ```bash
 stashbase agent run --remote --profile coding -- codex
 ```
 
 The CLI authenticates normally, creates one short-lived scoped session, and
-passes only `${STASHBASE_SECRET_NAME}` placeholders to the child. The opaque
-session token is memory-only and revoked when the child exits.
+passes only opaque placeholders to the child. The session token is memory-only
+and revoked when the child exits. Personal credentials remain private to the
+authenticated account: the CLI never fetches, prints, exports, or stores their
+values.
 
 The child uses a temporary localhost proxy through its normal `HTTP_PROXY` and
 `HTTPS_PROXY` settings. That relay attaches the session token to the remote
@@ -709,10 +713,12 @@ It also reports total uploaded and downloaded HTTP bytes for the matching
 completed events. Byte counts are metadata and may reveal rough response size,
 so they should be handled as local audit data.
 
-Pass `--by host`, `--by action`, or `--by secret` to add a transfer and outcome
-table for that dimension. `--by secret` deliberately displays configured secret
-binding names, never secret values; use it only where those names are suitable
-for the local audit audience.
+Pass `--by host`, `--by action`, or `--by binding` to add a transfer and outcome
+table for that dimension. `--by binding` displays configured binding names,
+never credential values; use it only where those names are suitable for the
+local audit audience. Individual audit events also include the metadata source
+(`secret` or `personal_credential`).
+`--by secret` remains a compatibility alias for `--by binding`.
 It summarizes the newest matching events up to `--limit` (default: 1,000), not
 all historical audit data. JSON output includes the selected `limit` and, when
 provided, the original `since` window.
