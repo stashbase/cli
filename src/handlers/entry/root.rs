@@ -208,6 +208,41 @@ fn secret_child_name(
     }
 }
 
+/// Builds metadata-only audit labels for the binding names a proxy records.
+/// Binding values and resolved credential values are intentionally absent.
+fn audit_binding_sources(
+    bindings: &[crate::api::remote_proxy::RemoteBinding],
+) -> HashMap<String, String> {
+    bindings
+        .iter()
+        .flat_map(|binding| {
+            let source = match binding.source {
+                crate::api::remote_proxy::RemoteBindingSource::Secret => "secret",
+                crate::api::remote_proxy::RemoteBindingSource::PersonalCredential => {
+                    "personal_credential"
+                }
+            }
+            .to_owned();
+            let placeholder_name = binding
+                .placeholder
+                .strip_prefix("${")
+                .and_then(|value| value.strip_suffix('}'))
+                .or_else(|| {
+                    binding
+                        .placeholder
+                        .strip_prefix("{{")
+                        .and_then(|value| value.strip_suffix("}}"))
+                })
+                .unwrap_or(&binding.placeholder)
+                .to_owned();
+            [
+                (binding.name.clone(), source.clone()),
+                (placeholder_name, source),
+            ]
+        })
+        .collect()
+}
+
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
     if let EntityType::Generate(cmd) = args.entity_type {
@@ -794,32 +829,7 @@ pub async fn handle_cli(args: Cli) {
                         let remote_audit_log = match agent_run
                             .audit_log
                             .then(|| {
-                                let binding_sources = bindings
-                                    .iter()
-                                    .flat_map(|binding| {
-                                        let source = match binding.source {
-                                                crate::api::remote_proxy::RemoteBindingSource::Secret => "secret",
-                                                crate::api::remote_proxy::RemoteBindingSource::PersonalCredential => "personal_credential",
-                                            }
-                                        .to_owned();
-                                        let placeholder_name = binding
-                                            .placeholder
-                                            .strip_prefix("${")
-                                            .and_then(|value| value.strip_suffix('}'))
-                                            .or_else(|| {
-                                                binding
-                                                    .placeholder
-                                                    .strip_prefix("{{")
-                                                    .and_then(|value| value.strip_suffix("}}"))
-                                            })
-                                            .unwrap_or(&binding.placeholder)
-                                            .to_owned();
-                                        [
-                                            (binding.name.clone(), source.clone()),
-                                            (placeholder_name, source),
-                                        ]
-                                    })
-                                    .collect();
+                                let binding_sources = audit_binding_sources(&bindings);
                                 ProxyAuditLog::local_with_session_id(
                                     &agent_run.profile,
                                     session.session_id.clone(),
@@ -1830,10 +1840,10 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        codex_mcp_binding_header_overrides, configured_host_matches, directory_profile_git_warning,
-        ensure_replacement_session_is_compatible, infer_remote_agent_type,
-        remote_session_rotation_delay_for, remote_session_transport_identity, secret_child_name,
-        summarize_audit_events,
+        audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
+        directory_profile_git_warning, ensure_replacement_session_is_compatible,
+        infer_remote_agent_type, remote_session_rotation_delay_for,
+        remote_session_transport_identity, secret_child_name, summarize_audit_events,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
@@ -1928,6 +1938,37 @@ mod tests {
         secret_payload.as_object_mut().unwrap().remove("source");
         personal_payload.as_object_mut().unwrap().remove("source");
         assert_eq!(secret_payload, personal_payload);
+    }
+
+    #[test]
+    fn audit_binding_sources_classifies_mixed_bindings_and_custom_placeholders() {
+        let binding = |name: &str, source, placeholder: &str| RemoteBinding {
+            name: name.to_owned(),
+            source,
+            from: name.to_owned(),
+            hosts: Vec::new(),
+            rules: Vec::new(),
+            header: "Authorization".to_owned(),
+            placeholder: placeholder.to_owned(),
+            value_template: "Bearer {secret}".to_owned(),
+        };
+        let sources = audit_binding_sources(&[
+            binding(
+                "GITHUB_TOKEN",
+                RemoteBindingSource::Secret,
+                "${GITHUB_TOKEN}",
+            ),
+            binding(
+                "LINEAR_API_KEY",
+                RemoteBindingSource::PersonalCredential,
+                "{{LINEAR_PROXY_TOKEN}}",
+            ),
+        ]);
+
+        assert_eq!(sources["GITHUB_TOKEN"], "secret");
+        assert_eq!(sources["LINEAR_API_KEY"], "personal_credential");
+        assert_eq!(sources["LINEAR_PROXY_TOKEN"], "personal_credential");
+        assert!(!sources.values().any(|value| value.contains("secret-value")));
     }
 
     #[test]
