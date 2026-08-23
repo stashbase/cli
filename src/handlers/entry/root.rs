@@ -794,12 +794,42 @@ pub async fn handle_cli(args: Cli) {
                         let remote_audit_log = match agent_run
                             .audit_log
                             .then(|| {
+                                let binding_sources = bindings
+                                    .iter()
+                                    .flat_map(|binding| {
+                                        let source = match binding.source {
+                                                crate::api::remote_proxy::RemoteBindingSource::Secret => "secret",
+                                                crate::api::remote_proxy::RemoteBindingSource::PersonalCredential => "personal_credential",
+                                            }
+                                        .to_owned();
+                                        let placeholder_name = binding
+                                            .placeholder
+                                            .strip_prefix("${")
+                                            .and_then(|value| value.strip_suffix('}'))
+                                            .or_else(|| {
+                                                binding
+                                                    .placeholder
+                                                    .strip_prefix("{{")
+                                                    .and_then(|value| value.strip_suffix("}}"))
+                                            })
+                                            .unwrap_or(&binding.placeholder)
+                                            .to_owned();
+                                        [
+                                            (binding.name.clone(), source.clone()),
+                                            (placeholder_name, source),
+                                        ]
+                                    })
+                                    .collect();
                                 ProxyAuditLog::local_with_session_id(
                                     &agent_run.profile,
                                     session.session_id.clone(),
                                     policy_fingerprint.clone(),
                                 )
-                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
+                                .map(|audit_log| {
+                                    audit_log
+                                        .with_profile_provenance(profile_provenance.clone())
+                                        .with_binding_sources(binding_sources)
+                                })
                             })
                             .transpose()
                         {
@@ -1411,7 +1441,7 @@ fn summarize_audit_groups(
         let value = match group_by {
             AgentAuditGroupBy::Host => event.destination_host.as_deref(),
             AgentAuditGroupBy::Action => Some(event.action.as_str()),
-            AgentAuditGroupBy::Secret => event.secret_name.as_deref(),
+            AgentAuditGroupBy::Secret => event.binding_name.as_deref(),
         }
         .unwrap_or("-")
         .to_owned();
@@ -1545,7 +1575,7 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
     }
 
     let host = event.destination_host.as_deref().unwrap_or("-");
-    let secret = event.secret_name.as_deref().unwrap_or("-");
+    let binding = event.binding_name.as_deref().unwrap_or("-");
     let status = event
         .response_status
         .map(|status| status.to_string())
@@ -1563,8 +1593,9 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} secret={} status={} duration={} request_bytes={} response_bytes={}",
-        event.timestamp, event.id, event.profile, event.action, host, secret, status, duration,
+        "{}  id={} profile={} action={} host={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        event.timestamp, event.id, event.profile, event.action, host, binding,
+        event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
     );
     Ok(())
@@ -1974,7 +2005,8 @@ mod tests {
             action: action.to_owned(),
             destination_host: Some(host.to_owned()),
             method: Some("GET".to_owned()),
-            secret_name: Some("GITHUB_TOKEN".to_owned()),
+            binding_name: Some("GITHUB_TOKEN".to_owned()),
+            binding_source: None,
             response_status: status,
             duration_ms: Some(1),
             request_bytes: Some(10),
@@ -2020,7 +2052,8 @@ mod tests {
                 action: "injected".to_owned(),
                 destination_host: Some("api.github.com".to_owned()),
                 method: Some("POST".to_owned()),
-                secret_name: Some("GITHUB_TOKEN".to_owned()),
+                binding_name: Some("GITHUB_TOKEN".to_owned()),
+                binding_source: None,
                 response_status: Some(200),
                 duration_ms: Some(1),
                 request_bytes: Some(10),
@@ -2038,7 +2071,8 @@ mod tests {
                 action: "forwarded".to_owned(),
                 destination_host: Some("registry.npmjs.org".to_owned()),
                 method: Some("GET".to_owned()),
-                secret_name: None,
+                binding_name: None,
+                binding_source: None,
                 response_status: Some(200),
                 duration_ms: Some(1),
                 request_bytes: Some(2),

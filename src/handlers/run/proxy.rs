@@ -101,7 +101,16 @@ pub struct ProxyAuditLogEvent {
     pub action: String,
     pub destination_host: Option<String>,
     pub method: Option<String>,
-    pub secret_name: Option<String>,
+    #[serde(default, alias = "secret_name")]
+    pub binding_name: Option<String>,
+    /// Binding origin, such as `secret` or `personal_credential`. This is
+    /// metadata only; audit logs never contain binding values.
+    #[serde(
+        default,
+        alias = "credential_source",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub binding_source: Option<String>,
     pub response_status: Option<u16>,
     pub duration_ms: Option<u64>,
     /// Bytes actually relayed from the child to the destination.
@@ -152,6 +161,7 @@ pub struct ProxyAuditLog {
     profile: String,
     policy_fingerprint: String,
     profile_provenance: Option<ProfileAuditProvenance>,
+    binding_sources: Arc<HashMap<String, String>>,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
@@ -221,6 +231,7 @@ impl ProxyAuditLog {
             profile: profile.to_owned(),
             policy_fingerprint,
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path),
             file: Arc::new(Mutex::new(file)),
         })
@@ -240,6 +251,12 @@ impl ProxyAuditLog {
 
     pub fn with_profile_provenance(mut self, profile_provenance: ProfileAuditProvenance) -> Self {
         self.profile_provenance = Some(profile_provenance);
+        self
+    }
+
+    /// Adds non-sensitive binding origin metadata for remote audit events.
+    pub fn with_binding_sources(mut self, binding_sources: HashMap<String, String>) -> Self {
+        self.binding_sources = Arc::new(binding_sources);
         self
     }
 
@@ -311,7 +328,10 @@ impl ProxyAuditLog {
             action: action.to_owned(),
             destination_host: host.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
-            secret_name: secret_name.map(str::to_owned),
+            binding_name: secret_name.map(str::to_owned),
+            binding_source: secret_name
+                .and_then(|name| self.binding_sources.get(name))
+                .cloned(),
             response_status: status.map(|status| status.as_u16()),
             duration_ms: duration.and_then(|duration| u64::try_from(duration.as_millis()).ok()),
             request_bytes,
@@ -3182,6 +3202,10 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::from([(
+                "EXAMPLE_API_KEY".to_owned(),
+                "personal_credential".to_owned(),
+            )])),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -3205,6 +3229,7 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("api.example.com"));
         assert!(content.contains("EXAMPLE_API_KEY"));
+        assert!(content.contains("personal_credential"));
         assert!(content.contains("policy-fingerprint"));
         assert!(!content.contains("real-secret-value"));
         fs::remove_file(path).unwrap();
@@ -3219,6 +3244,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -3276,6 +3302,7 @@ mod tests {
                 modified_at: "2026-08-12T00:00:00+00:00".to_owned(),
                 sha256: "profile-file-sha256".to_owned(),
             }),
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -3354,7 +3381,8 @@ mod tests {
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             method: Some("POST".to_owned()),
-            secret_name: Some("GH_TOKEN".to_owned()),
+            binding_name: Some("GH_TOKEN".to_owned()),
+            binding_source: None,
             response_status: Some(200),
             duration_ms: Some(42),
             request_bytes: Some(10),
@@ -3374,6 +3402,30 @@ mod tests {
             ..Default::default()
         }
         .matches(&event));
+    }
+
+    #[test]
+    fn audit_events_read_legacy_secret_field_names() {
+        let event: ProxyAuditLogEvent = serde_json::from_str(
+            r#"{
+                "timestamp":"2026-08-23T00:00:00Z",
+                "session_id":"session",
+                "profile":"coding",
+                "policy_fingerprint":"fingerprint",
+                "id":"event",
+                "action":"injected",
+                "destination_host":"mcp.linear.app",
+                "method":"POST",
+                "secret_name":"LINEAR_API_KEY",
+                "credential_source":"personal_credential",
+                "response_status":200,
+                "duration_ms":1
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(event.binding_name.as_deref(), Some("LINEAR_API_KEY"));
+        assert_eq!(event.binding_source.as_deref(), Some("personal_credential"));
     }
 
     #[test]
@@ -4030,6 +4082,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
