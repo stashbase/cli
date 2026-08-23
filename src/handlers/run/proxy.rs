@@ -101,15 +101,11 @@ pub struct ProxyAuditLogEvent {
     pub action: String,
     pub destination_host: Option<String>,
     pub method: Option<String>,
-    #[serde(default, alias = "secret_name")]
+    #[serde(default)]
     pub binding_name: Option<String>,
     /// Binding origin, such as `secret` or `personal_credential`. This is
     /// metadata only; audit logs never contain binding values.
-    #[serde(
-        default,
-        alias = "credential_source",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_source: Option<String>,
     pub response_status: Option<u16>,
     pub duration_ms: Option<u64>,
@@ -3402,30 +3398,6 @@ mod tests {
             ..Default::default()
         }
         .matches(&event));
-    }
-
-    #[test]
-    fn audit_events_read_legacy_secret_field_names() {
-        let event: ProxyAuditLogEvent = serde_json::from_str(
-            r#"{
-                "timestamp":"2026-08-23T00:00:00Z",
-                "session_id":"session",
-                "profile":"coding",
-                "policy_fingerprint":"fingerprint",
-                "id":"event",
-                "action":"injected",
-                "destination_host":"mcp.linear.app",
-                "method":"POST",
-                "secret_name":"LINEAR_API_KEY",
-                "credential_source":"personal_credential",
-                "response_status":200,
-                "duration_ms":1
-            }"#,
-        )
-        .unwrap();
-
-        assert_eq!(event.binding_name.as_deref(), Some("LINEAR_API_KEY"));
-        assert_eq!(event.binding_source.as_deref(), Some("personal_credential"));
     }
 
     #[test]
