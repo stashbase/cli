@@ -342,14 +342,15 @@ pub struct AgentLogsSummaryCommand {
     pub group_by: Option<AgentAuditGroupBy>,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum AgentAuditGroupBy {
     /// Group by destination host
     Host,
     /// Group by proxy action
     Action,
     /// Group by configured credential binding name
-    Secret,
+    #[value(alias = "secret")]
+    Binding,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -360,4 +361,23 @@ pub enum AgentProfileSource {
     Directory,
     /// Directory profile when present, otherwise user-level config
     Auto,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::ValueEnum;
+
+    use super::AgentAuditGroupBy;
+
+    #[test]
+    fn audit_binding_group_accepts_the_legacy_secret_alias() {
+        assert_eq!(
+            AgentAuditGroupBy::from_str("binding", true),
+            Ok(AgentAuditGroupBy::Binding)
+        );
+        assert_eq!(
+            AgentAuditGroupBy::from_str("secret", true),
+            Ok(AgentAuditGroupBy::Binding)
+        );
+    }
 }

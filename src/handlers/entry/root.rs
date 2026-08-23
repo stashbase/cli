@@ -1428,7 +1428,7 @@ fn audit_group_by_name(group_by: AgentAuditGroupBy) -> &'static str {
     match group_by {
         AgentAuditGroupBy::Host => "host",
         AgentAuditGroupBy::Action => "action",
-        AgentAuditGroupBy::Secret => "secret",
+        AgentAuditGroupBy::Binding => "binding",
     }
 }
 
@@ -1441,7 +1441,7 @@ fn summarize_audit_groups(
         let value = match group_by {
             AgentAuditGroupBy::Host => event.destination_host.as_deref(),
             AgentAuditGroupBy::Action => Some(event.action.as_str()),
-            AgentAuditGroupBy::Secret => event.binding_name.as_deref(),
+            AgentAuditGroupBy::Binding => event.binding_name.as_deref(),
         }
         .unwrap_or("-")
         .to_owned();
@@ -2090,10 +2090,10 @@ mod tests {
         assert_eq!(by_action[1].value, "injected");
         assert_eq!(by_action[1].request_bytes, 10);
 
-        let by_secret =
-            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Secret);
-        assert_eq!(by_secret[0].value, "-");
-        assert_eq!(by_secret[1].value, "GITHUB_TOKEN");
+        let by_binding =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Binding);
+        assert_eq!(by_binding[0].value, "-");
+        assert_eq!(by_binding[1].value, "GITHUB_TOKEN");
     }
 
     #[test]
