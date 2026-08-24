@@ -231,9 +231,11 @@ its own secret names or destinations. Create
 `.stashbase/agents/coding.toml`:
 
 ```toml
+egress_hosts = ["collector.github.com"]
+
+[secrets]
 project = "my-project"
 environment = "development"
-egress_hosts = ["collector.github.com"]
 
 [secrets.GH_TOKEN]
 hosts = ["api.github.com"]
@@ -398,15 +400,17 @@ deny_hosts = ["api.stashbase.dev"]
 
 The CLI prints an explicit warning when this mode starts.
 
-An agent profile may define both a Stashbase `project`/`environment` and a
+An agent profile may define both a Stashbase `[secrets]` project/environment source and a
 local `file`. The file is a local override: its configured source names win,
 and Stashbase requests only the remaining profile sources from the API.
 
 ```toml
 # .stashbase/agents/coding.toml
+file = ".env.local"
+
+[secrets]
 project = "platform"
 environment = "development"
-file = ".env.local"
 
 [secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
@@ -456,7 +460,7 @@ isolation.
 
 #### Remote Agent Proxy sessions
 
-For a Stashbase-backed profile with both `project` and `environment`, add
+For a Stashbase-backed profile with `[secrets]` `project` and `environment`, add
 `--remote` to keep resolved credentials in the control plane:
 
 ```bash

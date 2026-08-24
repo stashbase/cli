@@ -30,7 +30,7 @@ given.
 
 For a profile with `[secrets.*]` bindings stored in Stashbase, add `--remote`
 to resolve and retain credentials only in the control plane. Secret bindings
-require both `project` and `environment`; a profile with only
+require `[secrets]` to set both `project` and `environment`; a profile with only
 `[personal_credentials.*]` bindings requires neither and must not set `file`:
 
 ```bash
@@ -70,9 +70,11 @@ Each file in `.stashbase/agents` contains the profile directly—there is no
 
 ```toml
 # .stashbase/agents/codex.toml
+egress_hosts = ["api.github.com"]
+
+[secrets]
 project = "local-agents"
 environment = "local-creds"
-egress_hosts = ["api.github.com"]
 
 [secrets.GITHUB_TOKEN]
 env = "GH_TOKEN"
@@ -253,8 +255,8 @@ For a custom deployment, deny the hostname from `STASHBASE_API_URL` instead.
 
 ## Egress-only profiles
 
-An agent profile may omit `file`, `project`, `environment`, and `secrets`
-entirely. It starts the proxy solely to enforce egress policy and grants no
+An agent profile may omit `file` and `[secrets]` entirely. It starts the proxy
+solely to enforce egress policy and grants no
 Stashbase-managed credentials—useful for Codex with an existing local login or
 for MCP-only workflows:
 
@@ -265,7 +267,7 @@ deny_hosts = ["api.stashbase.dev"]
 ```
 
 The CLI prints an egress-only warning at startup. To prevent accidental secret
-loading, this mode rejects a configured `file`, `project`, or `environment`.
+loading, this mode rejects a configured `file` or `[secrets]` source.
 
 ## Secret sources, bindings, and local overrides
 
@@ -297,7 +299,7 @@ profile fetches only `GH_TOKEN` and `OPENAI_API_KEY` with the Stashbase API's
 `only` query; it never fetches the entire environment.
 
 ```toml
-[agent_profiles.coding]
+[agent_profiles.coding.secrets]
 project = "platform"
 environment = "development"
 
@@ -357,9 +359,11 @@ The local value wins when both sources define it.
 
 ```toml
 [agent_profiles.coding]
+file = ".env.local"
+
+[agent_profiles.coding.secrets]
 project = "platform"
 environment = "development"
-file = ".env.local"
 
 [agent_profiles.coding.secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
@@ -385,8 +389,6 @@ binding, legacy host allowlist or HTTP action rules, and header representation;
 
 ```toml
 # .stashbase/agents/full-stack.toml
-project = "platform"
-environment = "development"
 file = ".env.local" # Optional local overrides for the source names below.
 egress_hosts = [
   "registry.npmjs.org",
@@ -394,6 +396,10 @@ egress_hosts = [
   "files.pythonhosted.org",
   "docs.rs",
 ]
+
+[secrets]
+project = "platform"
+environment = "development"
 
 # GitHub CLI / Copilot: remote GITHUB_TOKEN becomes GH_TOKEN for the child.
 [secrets.GH_TOKEN]
@@ -504,9 +510,11 @@ the real key.
 
 ```toml
 [agent_profiles.claude]
+egress_hosts = ["api.anthropic.com"]
+
+[agent_profiles.claude.secrets]
 project = "platform"
 environment = "development"
-egress_hosts = ["api.anthropic.com"]
 
 [agent_profiles.claude.secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
