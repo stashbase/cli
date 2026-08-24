@@ -71,8 +71,9 @@ pub struct RemoteBinding {
     /// The control plane resolves project/environment secrets or personal
     /// credentials based on this source; the CLI never receives their values.
     pub source: RemoteBindingSource,
-    #[serde(rename = "secret_name")]
-    pub from: String,
+    /// Canonical name in the selected source. This is metadata only; the CLI
+    /// never receives the resolved value.
+    pub source_name: String,
     pub hosts: Vec<String>,
     pub rules: Vec<AgentHttpRule>,
     pub header: String,
@@ -387,7 +388,7 @@ mod tests {
         session.bindings = vec![RemoteBinding {
             name: "GH_TOKEN".to_owned(),
             source: RemoteBindingSource::Secret,
-            from: "GH_TOKEN".to_owned(),
+            source_name: "GH_TOKEN".to_owned(),
             hosts: vec!["api.github.com".to_owned(), "github.com".to_owned()],
             rules: Vec::new(),
             header: "authorization".to_owned(),
@@ -408,8 +409,8 @@ mod tests {
         );
         assert!(body.get("allowed_hosts").is_none());
         assert_eq!(body["bindings"][0]["source"], "secret");
-        assert_eq!(body["bindings"][0]["secret_name"], "GH_TOKEN");
-        assert!(body["bindings"][0].get("from").is_none());
+        assert_eq!(body["bindings"][0]["source_name"], "GH_TOKEN");
+        assert!(body["bindings"][0].get("secret_name").is_none());
     }
 
     #[test]
@@ -421,7 +422,7 @@ mod tests {
         session.bindings = vec![RemoteBinding {
             name: "LINEAR_API_KEY".to_owned(),
             source: RemoteBindingSource::PersonalCredential,
-            from: "LINEAR_API_KEY".to_owned(),
+            source_name: "LINEAR_API_KEY".to_owned(),
             hosts: vec!["mcp.linear.app".to_owned()],
             rules: Vec::new(),
             header: "Authorization".to_owned(),
@@ -448,7 +449,7 @@ mod tests {
             RemoteBinding {
                 name: "GITHUB_TOKEN".to_owned(),
                 source: RemoteBindingSource::Secret,
-                from: "GITHUB_TOKEN".to_owned(),
+                source_name: "GITHUB_TOKEN".to_owned(),
                 hosts: vec!["api.github.com".to_owned()],
                 rules: Vec::new(),
                 header: "Authorization".to_owned(),
@@ -458,7 +459,7 @@ mod tests {
             RemoteBinding {
                 name: "LINEAR_API_KEY".to_owned(),
                 source: RemoteBindingSource::PersonalCredential,
-                from: "LINEAR_API_KEY".to_owned(),
+                source_name: "LINEAR_API_KEY".to_owned(),
                 hosts: vec!["mcp.linear.app".to_owned()],
                 rules: Vec::new(),
                 header: "Authorization".to_owned(),
@@ -475,7 +476,7 @@ mod tests {
 
         assert_eq!(body["bindings"][0]["source"], "secret");
         assert_eq!(body["bindings"][1]["source"], "personal_credential");
-        assert_eq!(body["bindings"][1]["secret_name"], "LINEAR_API_KEY");
+        assert_eq!(body["bindings"][1]["source_name"], "LINEAR_API_KEY");
     }
 
     #[test]

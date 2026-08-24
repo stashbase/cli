@@ -768,7 +768,7 @@ pub async fn handle_cli(args: Cli) {
                             crate::api::remote_proxy::RemoteBinding {
                                 name: name.clone(),
                                 source,
-                                from: secret.from.clone().unwrap_or_else(|| name.clone()),
+                                source_name: secret.from.clone().unwrap_or_else(|| name.clone()),
                                 hosts: secret.hosts.clone(),
                                 rules: secret
                                     .rules
@@ -1904,7 +1904,7 @@ mod tests {
         let binding = |source| RemoteBinding {
             name: "LINEAR_API_KEY".to_owned(),
             source,
-            from: "LINEAR_API_KEY".to_owned(),
+            source_name: "LINEAR_API_KEY".to_owned(),
             hosts: vec!["mcp.linear.app".to_owned()],
             rules: Vec::new(),
             header: "Authorization".to_owned(),
@@ -1945,7 +1945,7 @@ mod tests {
         let binding = |name: &str, source, placeholder: &str| RemoteBinding {
             name: name.to_owned(),
             source,
-            from: name.to_owned(),
+            source_name: name.to_owned(),
             hosts: Vec::new(),
             rules: Vec::new(),
             header: "Authorization".to_owned(),
