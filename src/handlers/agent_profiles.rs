@@ -122,7 +122,7 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
     let mut effective = profile.clone();
     effective.egress_hosts = effective.egress_hosts.take().map(normalize_values);
     effective.deny_hosts = effective.deny_hosts.take().map(normalize_values);
-    for (name, secret) in &mut effective.secrets {
+    for (name, secret) in &mut effective.secrets.bindings {
         secret.from.get_or_insert_with(|| name.clone());
         secret.env.get_or_insert_with(|| name.clone());
         secret
@@ -277,21 +277,22 @@ mod tests {
 
     #[test]
     fn toml_highlighting_preserves_plain_output_when_color_is_disabled() {
-        let toml = "project = \"local\"\n[secrets.GITHUB_TOKEN]\n";
+        let toml = "[secrets]\nproject = \"local\"\n[secrets.GITHUB_TOKEN]\n";
         assert_eq!(colorize_toml(toml, false), toml);
     }
 
     #[test]
     fn toml_highlighting_colors_headers_and_keys() {
-        let output = colorize_toml("project = \"local\"\n[secrets.GITHUB_TOKEN]\n", true);
+        let output = colorize_toml(
+            "[secrets]\nproject = \"local\"\n[secrets.GITHUB_TOKEN]\n",
+            true,
+        );
         assert!(output.contains("\u{1b}["));
     }
 
     #[test]
     fn effective_profile_resolves_defaults_and_normalizes_rules() {
         let profile = AgentProfile {
-            project: None,
-            environment: None,
             file: None,
             egress_hosts: Some(vec!["API.GITHUB.COM.".to_owned()]),
             deny_hosts: None,
@@ -311,7 +312,8 @@ mod tests {
                     header: None,
                     value_template: None,
                 },
-            )]),
+            )])
+            .into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
@@ -330,8 +332,6 @@ mod tests {
     #[test]
     fn effective_profile_uses_plain_value_default_for_non_authorization_headers() {
         let profile = AgentProfile {
-            project: None,
-            environment: None,
             file: None,
             egress_hosts: None,
             deny_hosts: None,
@@ -346,7 +346,8 @@ mod tests {
                     header: Some("x-api-key".to_owned()),
                     value_template: None,
                 },
-            )]),
+            )])
+            .into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };

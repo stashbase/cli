@@ -1,18 +1,20 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 
 use serde::{Deserialize, Serialize};
 
 /// A trusted, user-configured capability profile for a local coding agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentProfile {
-    pub project: Option<String>,
-    pub environment: Option<String>,
     pub file: Option<String>,
     pub egress_hosts: Option<Vec<String>>,
     /// Destinations denied after both secret and ordinary egress rules are evaluated.
     pub deny_hosts: Option<Vec<String>>,
     #[serde(default)]
-    pub secrets: HashMap<String, AgentSecretProfile>,
+    pub secrets: AgentSecretsProfile,
     /// Personal credentials are private to the authenticated account and are
     /// resolved only by Remote Agent sessions. The CLI never reads or persists
     /// their values.
@@ -21,6 +23,40 @@ pub struct AgentProfile {
     /// Optional local-only regression cases for this profile's HTTP policy.
     #[serde(default)]
     pub policy_tests: Vec<AgentPolicyTestCase>,
+}
+
+/// Project/environment-backed secret bindings. Personal credentials deliberately
+/// live outside this table because they are owned by the authenticated account.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentSecretsProfile {
+    pub project: Option<String>,
+    pub environment: Option<String>,
+    #[serde(flatten)]
+    pub bindings: HashMap<String, AgentSecretProfile>,
+}
+
+impl Deref for AgentSecretsProfile {
+    type Target = HashMap<String, AgentSecretProfile>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.bindings
+    }
+}
+
+impl DerefMut for AgentSecretsProfile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bindings
+    }
+}
+
+impl From<HashMap<String, AgentSecretProfile>> for AgentSecretsProfile {
+    fn from(bindings: HashMap<String, AgentSecretProfile>) -> Self {
+        Self {
+            project: None,
+            environment: None,
+            bindings,
+        }
+    }
 }
 
 /// A declarative expected HTTP credential decision. These are evaluated only by

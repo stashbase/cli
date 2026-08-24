@@ -50,7 +50,7 @@ mod tests {
     fn parses_agent_profile_with_secret_host_allowlist() {
         let config: Config = toml::from_str(
             r#"
-                [agent_profiles.coding]
+                [agent_profiles.coding.secrets]
                 project = "project"
                 environment = "development"
 
@@ -66,7 +66,7 @@ mod tests {
         .unwrap();
 
         let profile = &config.agent_profiles.unwrap()["coding"];
-        assert_eq!(profile.project.as_deref(), Some("project"));
+        assert_eq!(profile.secrets.project.as_deref(), Some("project"));
         assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
         assert_eq!(
             profile.secrets["GH_TOKEN"].from.as_deref(),
@@ -85,6 +85,19 @@ mod tests {
             profile.secrets["GH_TOKEN"].value_template.as_deref(),
             Some("Token {secret}")
         );
+    }
+
+    #[test]
+    fn rejects_top_level_project_and_environment_in_agent_profiles() {
+        let error = toml::from_str::<AgentProfile>(
+            r#"
+                project = "project"
+                environment = "development"
+            "#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field"), "{error}");
     }
 
     #[test]
@@ -111,7 +124,7 @@ mod tests {
     fn parses_agent_profile_with_http_action_rules() {
         let config: Config = toml::from_str(
             r#"
-                [agent_profiles.coding]
+                [agent_profiles.coding.secrets]
                 project = "project"
                 environment = "development"
 
@@ -134,7 +147,7 @@ mod tests {
     fn parses_agent_profile_with_personal_credentials() {
         let config: Config = toml::from_str(
             r#"
-                [agent_profiles.coding]
+                [agent_profiles.coding.secrets]
                 project = "project"
                 environment = "development"
 
@@ -200,7 +213,7 @@ mod tests {
 
         let profile = &config.agent_profiles.unwrap()["local"];
         assert_eq!(profile.file.as_deref(), Some("/tmp/agent.env"));
-        assert!(profile.project.is_none());
+        assert!(profile.secrets.project.is_none());
         assert_eq!(
             profile.egress_hosts.as_ref().unwrap(),
             &vec!["registry.npmjs.org".to_owned()]

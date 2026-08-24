@@ -588,20 +588,20 @@ pub async fn handle_cli(args: Cli) {
                     let valid_source = if personal_credentials_only {
                         profile.file.is_none()
                             && matches!(
-                                (&profile.project, &profile.environment),
+                                (&profile.secrets.project, &profile.secrets.environment),
                                 (None, None) | (Some(_), Some(_))
                             )
                     } else {
                         matches!(
-                            (&profile.file, &profile.project, &profile.environment),
+                            (&profile.file, &profile.secrets.project, &profile.secrets.environment),
                             (Some(_), None, None)
                                 | (None, Some(_), Some(_))
                                 | (Some(_), Some(_), Some(_))
                         )
                     };
-                    if egress_only && !matches!((&profile.file, &profile.project, &profile.environment), (None, None, None)) {
+                    if egress_only && !matches!((&profile.file, &profile.secrets.project, &profile.secrets.environment), (None, None, None)) {
                         eprintln!(
-                            "Egress-only agent profile '{}' must not define 'file', 'project', or 'environment'.",
+                            "Egress-only agent profile '{}' must not define 'file' or a [secrets] source.",
                             agent_run.profile
                         );
                         return Ok(());
@@ -742,10 +742,10 @@ pub async fn handle_cli(args: Cli) {
                             (None, None)
                         } else {
                             let (Some(project), Some(environment)) =
-                                (profile.project.clone(), profile.environment.clone())
+                                (profile.secrets.project.clone(), profile.secrets.environment.clone())
                             else {
                                 anyhow::bail!(
-                                    "--remote requires both 'project' and 'environment' when using [secrets.*] bindings."
+                                    "--remote requires [secrets] to set both 'project' and 'environment' when using [secrets.*] bindings."
                                 );
                             };
                             (Some(project), Some(environment))
@@ -948,8 +948,8 @@ pub async fn handle_cli(args: Cli) {
                     }
                     let args = HandleRunArgs {
                         api_key,
-                        project: profile.project,
-                        environment: profile.environment,
+                        project: profile.secrets.project,
+                        environment: profile.secrets.environment,
                         command: agent_run.command,
                         proxy: true,
                         proxy_port: agent_run.proxy_port,

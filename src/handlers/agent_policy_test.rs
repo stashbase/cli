@@ -323,8 +323,6 @@ mod tests {
 
     fn profile() -> AgentProfile {
         AgentProfile {
-            project: None,
-            environment: None,
             file: None,
             egress_hosts: Some(vec!["api.github.com".to_owned()]),
             deny_hosts: None,
@@ -344,7 +342,8 @@ mod tests {
                     header: None,
                     value_template: None,
                 },
-            )]),
+            )])
+            .into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         }

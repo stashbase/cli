@@ -153,11 +153,11 @@ fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
     if profile.file.is_some()
         || (profile.secrets.is_empty() && profile.personal_credentials.is_empty())
         || (needs_project_environment
-            && (profile.project.is_none() || profile.environment.is_none()))
+            && (profile.secrets.project.is_none() || profile.secrets.environment.is_none()))
     {
         checks.push(fail(
             "Remote session profile",
-            "--remote requires [secrets.*] bindings to set both 'project' and 'environment', or supports personal-credential-only bindings without a local file. Egress-only profiles are not supported."
+            "--remote requires [secrets] to set both 'project' and 'environment' when [secrets.*] bindings are used, or supports personal-credential-only bindings without a local file. Egress-only profiles are not supported."
                 .to_owned(),
         ));
     } else {
@@ -231,18 +231,26 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let valid_source = if personal_credentials_only {
         profile.file.is_none()
             && matches!(
-                (&profile.project, &profile.environment),
+                (&profile.secrets.project, &profile.secrets.environment),
                 (None, None) | (Some(_), Some(_))
             )
     } else {
         matches!(
-            (&profile.file, &profile.project, &profile.environment),
+            (
+                &profile.file,
+                &profile.secrets.project,
+                &profile.secrets.environment
+            ),
             (Some(_), None, None) | (None, Some(_), Some(_)) | (Some(_), Some(_), Some(_))
         )
     };
     if egress_only {
         if matches!(
-            (&profile.file, &profile.project, &profile.environment),
+            (
+                &profile.file,
+                &profile.secrets.project,
+                &profile.secrets.environment
+            ),
             (None, None, None)
         ) {
             checks.push(ok(
@@ -253,8 +261,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         } else {
             checks.push(fail(
                 "Profile mode",
-                "An egress-only profile must not define 'file', 'project', or 'environment'."
-                    .to_owned(),
+                "An egress-only profile must not define 'file' or a [secrets] source.".to_owned(),
             ));
         }
     } else if valid_source {
@@ -263,7 +270,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             if personal_credentials_only {
                 "Personal credentials: remote Agent Proxy only".to_owned()
             } else {
-                match (&profile.file, &profile.project) {
+                match (&profile.file, &profile.secrets.project) {
                     (Some(file), Some(_)) => format!("Local file '{file}' with remote fallback"),
                     (Some(file), None) => format!("Local file '{file}'"),
                     (None, Some(_)) => "Remote project and environment".to_owned(),
@@ -275,18 +282,18 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         checks.push(fail(
             "Secret source",
             if personal_credentials_only {
-                "Personal credentials cannot use 'file' and, when set, require both 'project' and 'environment'."
+                "Personal credentials cannot use 'file' and, when [secrets] is set, require both 'project' and 'environment'."
                     .to_owned()
             } else {
-                "Set 'file', both 'project' and 'environment', or both sources together."
+                "Set 'file', both [secrets] 'project' and 'environment', or both sources together."
                     .to_owned()
             },
         ));
     }
 
     for (name, value) in [
-        ("project", profile.project.as_deref()),
-        ("environment", profile.environment.as_deref()),
+        ("project", profile.secrets.project.as_deref()),
+        ("environment", profile.secrets.environment.as_deref()),
         ("file", profile.file.as_deref()),
     ] {
         if value.is_some_and(|value| value.trim().is_empty()) {
@@ -827,23 +834,25 @@ mod tests {
     #[test]
     fn requires_templates_to_contain_the_secret_marker() {
         let profile = AgentProfile {
-            project: Some("project".to_owned()),
-            environment: Some("development".to_owned()),
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            secrets: HashMap::from([(
-                "API_KEY".to_owned(),
-                crate::models::agent::AgentSecretProfile {
-                    hosts: vec!["api.example.com".to_owned()],
-                    rules: Vec::new(),
-                    from: None,
-                    env: None,
-                    placeholder: None,
-                    header: Some("x-api-key".to_owned()),
-                    value_template: Some("static-value".to_owned()),
-                },
-            )]),
+            secrets: crate::models::agent::AgentSecretsProfile {
+                project: Some("project".to_owned()),
+                environment: Some("development".to_owned()),
+                bindings: HashMap::from([(
+                    "API_KEY".to_owned(),
+                    crate::models::agent::AgentSecretProfile {
+                        hosts: vec!["api.example.com".to_owned()],
+                        rules: Vec::new(),
+                        from: None,
+                        env: None,
+                        placeholder: None,
+                        header: Some("x-api-key".to_owned()),
+                        value_template: Some("static-value".to_owned()),
+                    },
+                )]),
+            },
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
@@ -855,12 +864,10 @@ mod tests {
     #[test]
     fn rejects_an_egress_only_profile_with_a_secret_source() {
         let profile = AgentProfile {
-            project: None,
-            environment: None,
             file: Some(".env.agent".to_owned()),
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
-            secrets: HashMap::new(),
+            secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
@@ -873,12 +880,10 @@ mod tests {
     #[test]
     fn accepts_personal_credential_only_profile_without_project_environment_or_file() {
         let profile = AgentProfile {
-            project: None,
-            environment: None,
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            secrets: HashMap::new(),
+            secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
                 "LINEAR_API_KEY".to_owned(),
                 crate::models::agent::AgentSecretProfile {
@@ -905,37 +910,39 @@ mod tests {
     #[test]
     fn run_validation_rejects_duplicate_remote_placeholders() {
         let profile = AgentProfile {
-            project: Some("project".to_owned()),
-            environment: Some("development".to_owned()),
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            secrets: HashMap::from([
-                (
-                    "FIRST_KEY".to_owned(),
-                    crate::models::agent::AgentSecretProfile {
-                        hosts: vec!["first.example.com".to_owned()],
-                        rules: Vec::new(),
-                        from: None,
-                        env: None,
-                        placeholder: Some("shared-placeholder".to_owned()),
-                        header: None,
-                        value_template: None,
-                    },
-                ),
-                (
-                    "SECOND_KEY".to_owned(),
-                    crate::models::agent::AgentSecretProfile {
-                        hosts: vec!["second.example.com".to_owned()],
-                        rules: Vec::new(),
-                        from: None,
-                        env: None,
-                        placeholder: Some("shared-placeholder".to_owned()),
-                        header: None,
-                        value_template: None,
-                    },
-                ),
-            ]),
+            secrets: crate::models::agent::AgentSecretsProfile {
+                project: Some("project".to_owned()),
+                environment: Some("development".to_owned()),
+                bindings: HashMap::from([
+                    (
+                        "FIRST_KEY".to_owned(),
+                        crate::models::agent::AgentSecretProfile {
+                            hosts: vec!["first.example.com".to_owned()],
+                            rules: Vec::new(),
+                            from: None,
+                            env: None,
+                            placeholder: Some("shared-placeholder".to_owned()),
+                            header: None,
+                            value_template: None,
+                        },
+                    ),
+                    (
+                        "SECOND_KEY".to_owned(),
+                        crate::models::agent::AgentSecretProfile {
+                            hosts: vec!["second.example.com".to_owned()],
+                            rules: Vec::new(),
+                            from: None,
+                            env: None,
+                            placeholder: Some("shared-placeholder".to_owned()),
+                            header: None,
+                            value_template: None,
+                        },
+                    ),
+                ]),
+            },
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         };
@@ -958,12 +965,14 @@ mod tests {
             value_template: None,
         };
         let profile = AgentProfile {
-            project: Some("project".to_owned()),
-            environment: Some("development".to_owned()),
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            secrets: HashMap::from([("API_KEY".to_owned(), binding.clone())]),
+            secrets: crate::models::agent::AgentSecretsProfile {
+                project: Some("project".to_owned()),
+                environment: Some("development".to_owned()),
+                bindings: HashMap::from([("API_KEY".to_owned(), binding.clone())]),
+            },
             personal_credentials: HashMap::from([("API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
         };
