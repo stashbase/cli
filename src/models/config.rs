@@ -60,30 +60,38 @@ mod tests {
                 env = "GH_TOKEN"
                 placeholder = "example-placeholder"
                 header = "x-api-key"
-                value_template = "Token {secret}"
+                value_template = "Token {value}"
             "#,
         )
         .unwrap();
 
         let profile = &config.agent_profiles.unwrap()["coding"];
         assert_eq!(profile.secrets.project.as_deref(), Some("project"));
-        assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
         assert_eq!(
-            profile.secrets["GH_TOKEN"].from.as_deref(),
+            profile.secrets.bindings["GH_TOKEN"].hosts,
+            ["api.github.com"]
+        );
+        assert_eq!(
+            profile.secrets.bindings["GH_TOKEN"].from.as_deref(),
             Some("GITHUB_TOKEN")
         );
-        assert_eq!(profile.secrets["GH_TOKEN"].env.as_deref(), Some("GH_TOKEN"));
         assert_eq!(
-            profile.secrets["GH_TOKEN"].placeholder.as_deref(),
+            profile.secrets.bindings["GH_TOKEN"].env.as_deref(),
+            Some("GH_TOKEN")
+        );
+        assert_eq!(
+            profile.secrets.bindings["GH_TOKEN"].placeholder.as_deref(),
             Some("example-placeholder")
         );
         assert_eq!(
-            profile.secrets["GH_TOKEN"].header.as_deref(),
+            profile.secrets.bindings["GH_TOKEN"].header.as_deref(),
             Some("x-api-key")
         );
         assert_eq!(
-            profile.secrets["GH_TOKEN"].value_template.as_deref(),
-            Some("Token {secret}")
+            profile.secrets.bindings["GH_TOKEN"]
+                .value_template
+                .as_deref(),
+            Some("Token {value}")
         );
     }
 
@@ -138,7 +146,7 @@ mod tests {
         )
         .unwrap();
 
-        let rule = &config.agent_profiles.unwrap()["coding"].secrets["GH_TOKEN"].rules[0];
+        let rule = &config.agent_profiles.unwrap()["coding"].secrets.bindings["GH_TOKEN"].rules[0];
         assert_eq!(rule.methods, ["get"]);
         assert_eq!(rule.paths, ["/repos/*"]);
     }
@@ -163,7 +171,7 @@ mod tests {
         .unwrap();
 
         let profile = &config.agent_profiles.unwrap()["coding"];
-        assert!(profile.secrets.is_empty());
+        assert!(profile.secrets.bindings.is_empty());
         assert_eq!(
             profile.personal_credentials["LINEAR_API_KEY"]
                 .env
@@ -231,7 +239,7 @@ mod tests {
         .unwrap();
 
         assert!(profile.file.is_none());
-        assert!(profile.secrets.is_empty());
+        assert!(profile.secrets.bindings.is_empty());
         assert_eq!(
             profile.deny_hosts.as_ref(),
             Some(&vec!["api.stashbase.dev".to_owned()])
@@ -252,7 +260,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(profile.file.as_deref(), Some(".env.agent"));
-        assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
+        assert_eq!(
+            profile.secrets.bindings["GH_TOKEN"].hosts,
+            ["api.github.com"]
+        );
     }
 }
 

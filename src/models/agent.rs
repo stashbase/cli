@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    ops::{Deref, DerefMut},
-};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +16,7 @@ pub struct AgentProfile {
     /// resolved only by Remote Agent sessions. The CLI never reads or persists
     /// their values.
     #[serde(default, alias = "credentials")]
-    pub personal_credentials: HashMap<String, AgentSecretProfile>,
+    pub personal_credentials: HashMap<String, AgentBindingProfile>,
     /// Optional local-only regression cases for this profile's HTTP policy.
     #[serde(default)]
     pub policy_tests: Vec<AgentPolicyTestCase>,
@@ -32,25 +29,11 @@ pub struct AgentSecretsProfile {
     pub project: Option<String>,
     pub environment: Option<String>,
     #[serde(flatten)]
-    pub bindings: HashMap<String, AgentSecretProfile>,
+    pub bindings: HashMap<String, AgentBindingProfile>,
 }
 
-impl Deref for AgentSecretsProfile {
-    type Target = HashMap<String, AgentSecretProfile>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.bindings
-    }
-}
-
-impl DerefMut for AgentSecretsProfile {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.bindings
-    }
-}
-
-impl From<HashMap<String, AgentSecretProfile>> for AgentSecretsProfile {
-    fn from(bindings: HashMap<String, AgentSecretProfile>) -> Self {
+impl From<HashMap<String, AgentBindingProfile>> for AgentSecretsProfile {
+    fn from(bindings: HashMap<String, AgentBindingProfile>) -> Self {
         Self {
             project: None,
             environment: None,
@@ -89,7 +72,7 @@ impl std::fmt::Display for AgentPolicyTestExpectation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentSecretProfile {
+pub struct AgentBindingProfile {
     /// Legacy credential host allowlist, used when `rules` is empty.
     #[serde(default)]
     pub hosts: Vec<String>,
@@ -105,8 +88,8 @@ pub struct AgentSecretProfile {
     pub placeholder: Option<String>,
     /// Request header that carries this credential. Defaults to Authorization.
     pub header: Option<String>,
-    /// Template for the header value. `{secret}` is replaced only inside the proxy.
-    /// Defaults to `Bearer {secret}` for Authorization and `{secret}` for other headers.
+    /// Template for the header value. `{value}` is replaced only inside the proxy.
+    /// Defaults to `Bearer {value}` for Authorization and `{value}` for other headers.
     pub value_template: Option<String>,
 }
 

@@ -630,7 +630,7 @@ impl SecretInjection {
     pub fn bearer() -> Self {
         Self {
             header: "authorization".to_owned(),
-            value_template: "Bearer {secret}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
         }
     }
 }
@@ -2396,7 +2396,7 @@ fn replace_placeholder(
         let Ok(header_name) = HeaderName::from_bytes(injection.header.as_bytes()) else {
             continue;
         };
-        let expected = injection.value_template.replace("{secret}", placeholder);
+        let expected = injection.value_template.replace("{value}", placeholder);
         let matches_placeholder = request
             .headers()
             .get(&header_name)
@@ -2423,7 +2423,7 @@ fn replace_placeholder(
         if state.remote.is_some() {
             return Ok(Some(secret_name_from_placeholder(placeholder)));
         }
-        let value = injection.value_template.replace("{secret}", secret);
+        let value = injection.value_template.replace("{value}", secret);
         if let Ok(value) = HeaderValue::from_str(&value) {
             request.headers_mut().insert(header_name, value);
         }
@@ -2560,9 +2560,9 @@ fn normalize_injections(
         .map(|(name, injection)| {
             let header = HeaderName::from_bytes(injection.header.as_bytes())
                 .with_context(|| format!("invalid credential header for secret '{name}'"))?;
-            if !injection.value_template.contains("{secret}") {
+            if !injection.value_template.contains("{value}") {
                 anyhow::bail!(
-                    "credential value template for secret '{name}' must contain '{{secret}}'"
+                    "credential value template for binding '{name}' must contain '{{value}}'"
                 );
             }
             let placeholder = remote_placeholders
@@ -2735,7 +2735,7 @@ mod tests {
             "ANTHROPIC_API_KEY".to_owned(),
             SecretInjection {
                 header: "x-api-key".to_owned(),
-                value_template: "{secret}".to_owned(),
+                value_template: "{value}".to_owned(),
             },
         )]);
         let placeholders = HashMap::from([(
@@ -2858,7 +2858,7 @@ mod tests {
                 "ANTHROPIC_API_KEY".to_owned(),
                 SecretInjection {
                     header: "x-api-key".to_owned(),
-                    value_template: "{secret}".to_owned(),
+                    value_template: "{value}".to_owned(),
                 },
             )]),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
@@ -4103,7 +4103,7 @@ mod tests {
                     "ANTHROPIC_API_KEY".to_owned(),
                     SecretInjection {
                         header: header_name.to_string(),
-                        value_template: "{secret}".to_owned(),
+                        value_template: "{value}".to_owned(),
                     },
                 )]),
                 allowed_egress_hosts: HashSet::new(),

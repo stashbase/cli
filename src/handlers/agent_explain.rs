@@ -119,6 +119,7 @@ pub fn handle_agent_explain_command(
     ) {
         for (name, secret) in profile
             .secrets
+            .bindings
             .iter()
             .chain(profile.personal_credentials.iter())
         {

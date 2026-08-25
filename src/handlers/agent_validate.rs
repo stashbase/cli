@@ -149,9 +149,9 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
 
 fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
-    let needs_project_environment = !profile.secrets.is_empty();
+    let needs_project_environment = !profile.secrets.bindings.is_empty();
     if profile.file.is_some()
-        || (profile.secrets.is_empty() && profile.personal_credentials.is_empty())
+        || (profile.secrets.bindings.is_empty() && profile.personal_credentials.is_empty())
         || (needs_project_environment
             && (profile.secrets.project.is_none() || profile.secrets.environment.is_none()))
     {
@@ -225,9 +225,10 @@ fn print_report(profile: String, checks: Vec<Check>, json_format: bool) -> Resul
 
 fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
-    let egress_only = profile.secrets.is_empty() && profile.personal_credentials.is_empty();
+    let egress_only =
+        profile.secrets.bindings.is_empty() && profile.personal_credentials.is_empty();
     let personal_credentials_only =
-        profile.secrets.is_empty() && !profile.personal_credentials.is_empty();
+        profile.secrets.bindings.is_empty() && !profile.personal_credentials.is_empty();
     let valid_source = if personal_credentials_only {
         profile.file.is_none()
             && matches!(
@@ -326,7 +327,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut child_envs: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut placeholders: HashMap<&str, Vec<&str>> = HashMap::new();
-    for name in profile.secrets.keys() {
+    for name in profile.secrets.bindings.keys() {
         if profile.personal_credentials.contains_key(name) {
             checks.push(fail(
                 "Credential bindings",
@@ -336,6 +337,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     }
     for (target, secret) in profile
         .secrets
+        .bindings
         .iter()
         .chain(profile.personal_credentials.iter())
     {
@@ -410,11 +412,11 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         if secret
             .value_template
             .as_deref()
-            .is_some_and(|template| !template.contains("{secret}"))
+            .is_some_and(|template| !template.contains("{value}"))
         {
             checks.push(fail(
-                format!("Secret '{target}' value_template"),
-                "Must contain '{secret}' so the proxy can inject the credential.".to_owned(),
+                format!("Binding '{target}' value_template"),
+                "Must contain '{value}' so the proxy can inject the credential.".to_owned(),
             ));
         }
     }
@@ -491,7 +493,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             "Profile policy",
             format!(
                 "{} secret binding(s), {} egress host rule(s), and {} denied host rule(s) are valid.",
-                profile.secrets.len() + profile.personal_credentials.len(),
+                profile.secrets.bindings.len() + profile.personal_credentials.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
                 profile.deny_hosts.as_ref().map_or(0, Vec::len)
             ),
@@ -832,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn requires_templates_to_contain_the_secret_marker() {
+    fn requires_templates_to_contain_the_value_marker() {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
@@ -842,7 +844,7 @@ mod tests {
                 environment: Some("development".to_owned()),
                 bindings: HashMap::from([(
                     "API_KEY".to_owned(),
-                    crate::models::agent::AgentSecretProfile {
+                    crate::models::agent::AgentBindingProfile {
                         hosts: vec!["api.example.com".to_owned()],
                         rules: Vec::new(),
                         from: None,
@@ -859,6 +861,37 @@ mod tests {
         assert!(validate_profile(&profile)
             .iter()
             .any(|check| check.status == Status::Fail && check.name.contains("value_template")));
+    }
+
+    #[test]
+    fn rejects_legacy_secret_template_marker() {
+        let profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            secrets: crate::models::agent::AgentSecretsProfile {
+                project: Some("project".to_owned()),
+                environment: Some("development".to_owned()),
+                bindings: HashMap::from([(
+                    "API_KEY".to_owned(),
+                    crate::models::agent::AgentBindingProfile {
+                        hosts: vec!["api.example.com".to_owned()],
+                        rules: Vec::new(),
+                        from: None,
+                        env: None,
+                        placeholder: None,
+                        header: Some("Authorization".to_owned()),
+                        value_template: Some("Bearer {secret}".to_owned()),
+                    },
+                )]),
+            },
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+        };
+
+        assert!(validate_profile(&profile)
+            .iter()
+            .any(|check| { check.status == Status::Fail && check.message.contains("{value}") }));
     }
 
     #[test]
@@ -886,7 +919,7 @@ mod tests {
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
                 "LINEAR_API_KEY".to_owned(),
-                crate::models::agent::AgentSecretProfile {
+                crate::models::agent::AgentBindingProfile {
                     hosts: vec!["mcp.linear.app".to_owned()],
                     rules: Vec::new(),
                     from: None,
@@ -919,7 +952,7 @@ mod tests {
                 bindings: HashMap::from([
                     (
                         "FIRST_KEY".to_owned(),
-                        crate::models::agent::AgentSecretProfile {
+                        crate::models::agent::AgentBindingProfile {
                             hosts: vec!["first.example.com".to_owned()],
                             rules: Vec::new(),
                             from: None,
@@ -931,7 +964,7 @@ mod tests {
                     ),
                     (
                         "SECOND_KEY".to_owned(),
-                        crate::models::agent::AgentSecretProfile {
+                        crate::models::agent::AgentBindingProfile {
                             hosts: vec!["second.example.com".to_owned()],
                             rules: Vec::new(),
                             from: None,
@@ -955,7 +988,7 @@ mod tests {
 
     #[test]
     fn run_validation_rejects_binding_name_shared_by_secret_and_credential() {
-        let binding = crate::models::agent::AgentSecretProfile {
+        let binding = crate::models::agent::AgentBindingProfile {
             hosts: vec!["api.example.com".to_owned()],
             rules: Vec::new(),
             from: None,

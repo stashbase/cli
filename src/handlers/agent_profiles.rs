@@ -41,7 +41,7 @@ fn handle_list(
         .map(|(name, (profile, source))| ProfileSummary {
             name,
             source,
-            secret_bindings: profile.secrets.len(),
+            secret_bindings: profile.secrets.bindings.len(),
             egress_hosts_configured: profile.egress_hosts.is_some(),
         })
         .collect::<Vec<_>>();
@@ -133,9 +133,9 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
             .get_or_insert_with(|| "Authorization".to_owned());
         secret.value_template.get_or_insert_with(|| {
             if header.eq_ignore_ascii_case("authorization") {
-                "Bearer {secret}".to_owned()
+                "Bearer {value}".to_owned()
             } else {
-                "{secret}".to_owned()
+                "{value}".to_owned()
             }
         });
         if secret.rules.is_empty() {
@@ -158,9 +158,9 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
             .get_or_insert_with(|| "Authorization".to_owned());
         credential.value_template.get_or_insert_with(|| {
             if header.eq_ignore_ascii_case("authorization") {
-                "Bearer {secret}".to_owned()
+                "Bearer {value}".to_owned()
             } else {
-                "{secret}".to_owned()
+                "{value}".to_owned()
             }
         });
         if credential.rules.is_empty() {
@@ -271,7 +271,7 @@ fn source_label(source: AgentProfileSource) -> &'static str {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::models::agent::{AgentHttpRule, AgentHttpRuleEffect, AgentSecretProfile};
+    use crate::models::agent::{AgentBindingProfile, AgentHttpRule, AgentHttpRuleEffect};
 
     use super::{colorize_toml, effective_profile, AgentProfile};
 
@@ -298,7 +298,7 @@ mod tests {
             deny_hosts: None,
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
-                AgentSecretProfile {
+                AgentBindingProfile {
                     hosts: Vec::new(),
                     rules: vec![AgentHttpRule {
                         effect: AgentHttpRuleEffect::Allow,
@@ -319,11 +319,11 @@ mod tests {
         };
 
         let effective = effective_profile(&profile);
-        let secret = &effective.secrets["GITHUB_TOKEN"];
+        let secret = &effective.secrets.bindings["GITHUB_TOKEN"];
         assert_eq!(secret.from.as_deref(), Some("GITHUB_TOKEN"));
         assert_eq!(secret.env.as_deref(), Some("GITHUB_TOKEN"));
         assert_eq!(secret.header.as_deref(), Some("Authorization"));
-        assert_eq!(secret.value_template.as_deref(), Some("Bearer {secret}"));
+        assert_eq!(secret.value_template.as_deref(), Some("Bearer {value}"));
         assert_eq!(secret.rules[0].hosts, ["api.github.com"]);
         assert_eq!(secret.rules[0].methods, ["GET"]);
         assert_eq!(secret.rules[0].paths, ["/user"]);
@@ -337,7 +337,7 @@ mod tests {
             deny_hosts: None,
             secrets: HashMap::from([(
                 "API_KEY".to_owned(),
-                AgentSecretProfile {
+                AgentBindingProfile {
                     hosts: vec!["API.EXAMPLE.COM.".to_owned()],
                     rules: Vec::new(),
                     from: None,
@@ -352,8 +352,8 @@ mod tests {
             policy_tests: Vec::new(),
         };
 
-        let secret = &effective_profile(&profile).secrets["API_KEY"];
+        let secret = &effective_profile(&profile).secrets.bindings["API_KEY"];
         assert_eq!(secret.hosts, ["api.example.com"]);
-        assert_eq!(secret.value_template.as_deref(), Some("{secret}"));
+        assert_eq!(secret.value_template.as_deref(), Some("{value}"));
     }
 }

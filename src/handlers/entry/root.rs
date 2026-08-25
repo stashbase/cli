@@ -179,7 +179,7 @@ fn codex_mcp_binding_header_overrides(
                 return None;
             }
             let placeholder = format!("${{{env_name}}}");
-            let value = binding.value_template.replace("{secret}", &placeholder);
+            let value = binding.value_template.replace("{value}", &placeholder);
             Some(format!(
                 "mcp_servers.{server_name}.http_headers.{}={}",
                 binding.header,
@@ -198,14 +198,80 @@ fn is_toml_bare_key(value: &str) -> bool {
 
 fn secret_child_name(
     name: &str,
-    secret: &crate::models::agent::AgentSecretProfile,
+    binding: &crate::models::agent::AgentBindingProfile,
     is_remote: bool,
 ) -> String {
     if is_remote {
         name.to_owned()
     } else {
-        secret.env.clone().unwrap_or_else(|| name.to_owned())
+        binding.env.clone().unwrap_or_else(|| name.to_owned())
     }
+}
+
+/// Compiles every configured source into the single binding representation used
+/// by the session request, MCP setup, and audit metadata.
+fn remote_bindings(
+    profile: &crate::models::agent::AgentProfile,
+) -> Vec<crate::api::remote_proxy::RemoteBinding> {
+    let build_binding =
+        |name: &String, binding: &crate::models::agent::AgentBindingProfile, source| {
+            let header = binding
+                .header
+                .clone()
+                .unwrap_or_else(|| "authorization".to_owned());
+            let value_template = binding.value_template.clone().unwrap_or_else(|| {
+                if header.eq_ignore_ascii_case("authorization") {
+                    "Bearer {value}".to_owned()
+                } else {
+                    "{value}".to_owned()
+                }
+            });
+            crate::api::remote_proxy::RemoteBinding {
+                name: name.clone(),
+                source,
+                source_name: binding.from.clone().unwrap_or_else(|| name.clone()),
+                hosts: binding.hosts.clone(),
+                rules: binding
+                    .rules
+                    .iter()
+                    .cloned()
+                    .map(|mut rule| {
+                        rule.methods = rule
+                            .methods
+                            .into_iter()
+                            .map(|method| method.trim().to_ascii_uppercase())
+                            .collect();
+                        rule
+                    })
+                    .collect(),
+                header,
+                placeholder: binding
+                    .placeholder
+                    .clone()
+                    .unwrap_or_else(|| format!("${{STASHBASE_{name}}}")),
+                value_template,
+            }
+        };
+
+    profile
+        .secrets
+        .bindings
+        .iter()
+        .map(|(name, binding)| {
+            build_binding(
+                name,
+                binding,
+                crate::api::remote_proxy::RemoteBindingSource::Secret,
+            )
+        })
+        .chain(profile.personal_credentials.iter().map(|(name, binding)| {
+            build_binding(
+                name,
+                binding,
+                crate::api::remote_proxy::RemoteBindingSource::PersonalCredential,
+            )
+        }))
+        .collect()
 }
 
 /// Builds metadata-only audit labels for the binding names a proxy records.
@@ -581,9 +647,9 @@ pub async fn handle_cli(args: Cli) {
                         print_agent_egress_warnings(&profile);
                     }
 
-                    let egress_only = profile.secrets.is_empty()
+                    let egress_only = profile.secrets.bindings.is_empty()
                         && profile.personal_credentials.is_empty();
-                    let personal_credentials_only = profile.secrets.is_empty()
+                    let personal_credentials_only = profile.secrets.bindings.is_empty()
                         && !profile.personal_credentials.is_empty();
                     let valid_source = if personal_credentials_only {
                         profile.file.is_none()
@@ -627,13 +693,14 @@ pub async fn handle_cli(args: Cli) {
                     }
                     let secret_bindings = profile
                         .secrets
+                        .bindings
                         .iter()
                         .map(|(name, secret)| {
                             let child_name = secret_child_name(name, secret, is_remote);
                             (secret.from.clone().unwrap_or_else(|| name.clone()), child_name)
                         })
                         .collect::<HashMap<_, _>>();
-                    if secret_bindings.len() != profile.secrets.len() {
+                    if secret_bindings.len() != profile.secrets.bindings.len() {
                         eprintln!(
                             "Agent profile '{}' maps more than one binding to the same source secret.",
                             agent_run.profile
@@ -644,6 +711,7 @@ pub async fn handle_cli(args: Cli) {
                     let policy = ProxyPolicy {
                         secret_policies: profile
                             .secrets
+                            .bindings
                             .iter()
                             .chain(profile.personal_credentials.iter())
                             .map(|(name, secret)| {
@@ -662,6 +730,7 @@ pub async fn handle_cli(args: Cli) {
                             .collect::<HashMap<_, _>>(),
                         secret_injections: profile
                             .secrets
+                            .bindings
                             .iter()
                             .chain(profile.personal_credentials.iter())
                             .filter_map(|(name, secret)| {
@@ -673,9 +742,9 @@ pub async fn handle_cli(args: Cli) {
                                     .clone()
                                     .unwrap_or_else(|| "authorization".to_owned());
                                 let default_template = if header.eq_ignore_ascii_case("authorization") {
-                                    "Bearer {secret}"
+                                    "Bearer {value}"
                                 } else {
-                                    "{secret}"
+                                    "{value}"
                                 };
                                 Some((
                                     secret_child_name(name, secret, is_remote),
@@ -733,12 +802,12 @@ pub async fn handle_cli(args: Cli) {
                     }
                     if agent_run.remote {
                         if profile.file.is_some()
-                            || (profile.secrets.is_empty()
+                            || (profile.secrets.bindings.is_empty()
                                 && profile.personal_credentials.is_empty())
                         {
                             anyhow::bail!("--remote requires Stashbase-managed secret or personal credential bindings and does not support local-file or egress-only profiles.");
                         }
-                        let (project, environment) = if profile.secrets.is_empty() {
+                        let (project, environment) = if profile.secrets.bindings.is_empty() {
                             (None, None)
                         } else {
                             let (Some(project), Some(environment)) =
@@ -760,55 +829,7 @@ pub async fn handle_cli(args: Cli) {
                             .into_iter()
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
-                        let build_binding = |name: &String, secret: &crate::models::agent::AgentSecretProfile, source| {
-                            let header = secret.header.clone().unwrap_or_else(|| "authorization".to_owned());
-                            let value_template = secret.value_template.clone().unwrap_or_else(|| {
-                                if header.eq_ignore_ascii_case("authorization") { "Bearer {secret}".to_owned() } else { "{secret}".to_owned() }
-                            });
-                            crate::api::remote_proxy::RemoteBinding {
-                                name: name.clone(),
-                                source,
-                                source_name: secret.from.clone().unwrap_or_else(|| name.clone()),
-                                hosts: secret.hosts.clone(),
-                                rules: secret
-                                    .rules
-                                    .iter()
-                                    .cloned()
-                                    .map(|mut rule| {
-                                        rule.methods = rule
-                                            .methods
-                                            .into_iter()
-                                            .map(|method| method.trim().to_ascii_uppercase())
-                                            .collect();
-                                        rule
-                                    })
-                                    .collect(),
-                                header,
-                                placeholder: secret
-                                    .placeholder
-                                    .clone()
-                                    .unwrap_or_else(|| format!("${{STASHBASE_{name}}}")),
-                                value_template,
-                            }
-                        };
-                        let bindings = profile
-                            .secrets
-                            .iter()
-                            .map(|(name, secret)| {
-                                build_binding(
-                                    name,
-                                    secret,
-                                    crate::api::remote_proxy::RemoteBindingSource::Secret,
-                                )
-                            })
-                            .chain(profile.personal_credentials.iter().map(|(name, credential)| {
-                                build_binding(
-                                    name,
-                                    credential,
-                                    crate::api::remote_proxy::RemoteBindingSource::PersonalCredential,
-                                )
-                            }))
-                            .collect::<Vec<_>>();
+                        let bindings = remote_bindings(&profile);
                         let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {
                             api_key: api_key.clone(),
                             project_identifier: project,
@@ -858,6 +879,7 @@ pub async fn handle_cli(args: Cli) {
                         }
                         let child_env: HashMap<String, String> = profile
                             .secrets
+                            .bindings
                             .iter()
                             .chain(profile.personal_credentials.iter())
                             .map(|(name, secret)| {
@@ -1533,6 +1555,7 @@ fn print_agent_egress_warnings(profile: &crate::models::agent::AgentProfile) {
     });
     let secret_allows_api = profile
         .secrets
+        .bindings
         .values()
         .chain(profile.personal_credentials.values())
         .any(|secret| {
@@ -1842,12 +1865,12 @@ mod tests {
     use super::{
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
         directory_profile_git_warning, ensure_replacement_session_is_compatible,
-        infer_remote_agent_type, remote_session_rotation_delay_for,
+        infer_remote_agent_type, remote_bindings, remote_session_rotation_delay_for,
         remote_session_transport_identity, secret_child_name, summarize_audit_events,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
-    use crate::models::agent::AgentSecretProfile;
+    use crate::models::agent::{AgentBindingProfile, AgentProfile, AgentSecretsProfile};
     use std::{
         collections::HashMap,
         fs,
@@ -1871,7 +1894,7 @@ mod tests {
 
     #[test]
     fn local_secret_binding_uses_the_configured_child_environment_name() {
-        let secret = AgentSecretProfile {
+        let secret = AgentBindingProfile {
             hosts: Vec::new(),
             rules: Vec::new(),
             from: None,
@@ -1909,7 +1932,7 @@ mod tests {
             rules: Vec::new(),
             header: "Authorization".to_owned(),
             placeholder: "${STASHBASE_LINEAR_API_KEY}".to_owned(),
-            value_template: "Bearer {secret}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
         };
         let child_env = HashMap::from([("LINEAR_API_KEY".to_owned(), "LINEAR_API_KEY".to_owned())]);
         let secret = binding(RemoteBindingSource::Secret);
@@ -1941,6 +1964,48 @@ mod tests {
     }
 
     #[test]
+    fn remote_bindings_compile_mixed_sources_with_value_templates() {
+        let binding = |from: Option<&str>| AgentBindingProfile {
+            hosts: vec!["api.example.com".to_owned()],
+            rules: Vec::new(),
+            from: from.map(str::to_owned),
+            env: None,
+            placeholder: None,
+            header: None,
+            value_template: None,
+        };
+        let profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            secrets: AgentSecretsProfile {
+                project: Some("project".to_owned()),
+                environment: Some("environment".to_owned()),
+                bindings: HashMap::from([("GITHUB_TOKEN".to_owned(), binding(None))]),
+            },
+            personal_credentials: HashMap::from([(
+                "LINEAR_API_KEY".to_owned(),
+                binding(Some("linear-token")),
+            )]),
+            policy_tests: Vec::new(),
+        };
+
+        let bindings = remote_bindings(&profile);
+        assert!(bindings.iter().any(|binding| {
+            binding.name == "GITHUB_TOKEN"
+                && binding.source == RemoteBindingSource::Secret
+                && binding.source_name == "GITHUB_TOKEN"
+                && binding.value_template == "Bearer {value}"
+        }));
+        assert!(bindings.iter().any(|binding| {
+            binding.name == "LINEAR_API_KEY"
+                && binding.source == RemoteBindingSource::PersonalCredential
+                && binding.source_name == "linear-token"
+                && binding.value_template == "Bearer {value}"
+        }));
+    }
+
+    #[test]
     fn audit_binding_sources_classifies_mixed_bindings_and_custom_placeholders() {
         let binding = |name: &str, source, placeholder: &str| RemoteBinding {
             name: name.to_owned(),
@@ -1950,7 +2015,7 @@ mod tests {
             rules: Vec::new(),
             header: "Authorization".to_owned(),
             placeholder: placeholder.to_owned(),
-            value_template: "Bearer {secret}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
         };
         let sources = audit_binding_sources(&[
             binding(

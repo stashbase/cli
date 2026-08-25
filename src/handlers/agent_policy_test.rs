@@ -172,6 +172,7 @@ fn evaluate_case(
     }
     let Some(secret) = profile
         .secrets
+        .bindings
         .get(&test.secret)
         .or_else(|| profile.personal_credentials.get(&test.secret))
     else {
@@ -315,7 +316,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::models::agent::{
-        AgentHttpRule, AgentHttpRuleEffect, AgentPolicyTestExpectation, AgentSecretProfile,
+        AgentBindingProfile, AgentHttpRule, AgentHttpRuleEffect, AgentPolicyTestExpectation,
     };
     use uuid::Uuid;
 
@@ -328,7 +329,7 @@ mod tests {
             deny_hosts: None,
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
-                AgentSecretProfile {
+                AgentBindingProfile {
                     hosts: Vec::new(),
                     rules: vec![AgentHttpRule {
                         effect: AgentHttpRuleEffect::Allow,
@@ -429,11 +430,17 @@ mod tests {
         let mut legacy = profile();
         legacy
             .secrets
+            .bindings
             .get_mut("GITHUB_TOKEN")
             .unwrap()
             .rules
             .clear();
-        legacy.secrets.get_mut("GITHUB_TOKEN").unwrap().hosts = vec!["api.github.com".to_owned()];
+        legacy
+            .secrets
+            .bindings
+            .get_mut("GITHUB_TOKEN")
+            .unwrap()
+            .hosts = vec!["api.github.com".to_owned()];
         let result = evaluate_case(
             &legacy,
             &AgentPolicyTestCase {
@@ -452,6 +459,7 @@ mod tests {
         let mut explicit_deny = profile();
         explicit_deny
             .secrets
+            .bindings
             .get_mut("GITHUB_TOKEN")
             .unwrap()
             .rules

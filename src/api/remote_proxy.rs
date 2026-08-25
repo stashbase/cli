@@ -393,7 +393,7 @@ mod tests {
             rules: Vec::new(),
             header: "authorization".to_owned(),
             placeholder: "${STASHBASE_GH_TOKEN}".to_owned(),
-            value_template: "Bearer {secret}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
         }];
         let request = create_session_http_request(&client, &session)
             .build()
@@ -427,7 +427,7 @@ mod tests {
             rules: Vec::new(),
             header: "Authorization".to_owned(),
             placeholder: "${LINEAR_API_KEY}".to_owned(),
-            value_template: "Bearer {secret}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
         }];
         let request = create_session_http_request(&client, &session)
             .build()
@@ -454,7 +454,7 @@ mod tests {
                 rules: Vec::new(),
                 header: "Authorization".to_owned(),
                 placeholder: "{{GITHUB_TOKEN}}".to_owned(),
-                value_template: "Bearer {secret}".to_owned(),
+                value_template: "Bearer {value}".to_owned(),
             },
             RemoteBinding {
                 name: "LINEAR_API_KEY".to_owned(),
@@ -464,7 +464,7 @@ mod tests {
                 rules: Vec::new(),
                 header: "Authorization".to_owned(),
                 placeholder: "{{LINEAR_API_KEY}}".to_owned(),
-                value_template: "Bearer {secret}".to_owned(),
+                value_template: "Bearer {value}".to_owned(),
             },
         ];
         let request = create_session_http_request(&client, &session)
