@@ -79,7 +79,7 @@ environment = "local-creds"
 [secrets.GITHUB_TOKEN]
 env = "GH_TOKEN"
 header = "Authorization"
-value_template = "Bearer {secret}"
+value_template = "Bearer {value}"
 ```
 
 The name after `secrets.` selects the secret from the configured project and
@@ -160,7 +160,7 @@ secrets, or create a remote session.
 
 By default, the proxy exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
-another HTTP header; the default value template is `{secret}` for a custom
+another HTTP header; the default value template is `{value}` for a custom
 header. The three destination controls are intentionally separate:
 
 - When configured, `egress_hosts` controls where the agent may connect,
@@ -202,7 +202,7 @@ egress_hosts = ["api.github.com"]
 from = "GITHUB_TOKEN"
 env = "GITHUB_TOKEN"
 header = "Authorization"
-value_template = "Bearer {secret}"
+value_template = "Bearer {value}"
 
 [[secrets.github.rules]]
 effect = "allow"

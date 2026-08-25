@@ -288,7 +288,7 @@ connection; use `--sandbox` on supported platforms when direct network egress mu
 
 By default, a secret is exchanged from `Authorization: Bearer <placeholder>`.
 For providers with a different credential header, set `header` and optionally
-`value_template` (which must contain `{secret}`):
+`value_template` (which must contain `{value}`):
 
 ```toml
 # .stashbase/agents/claude.toml
