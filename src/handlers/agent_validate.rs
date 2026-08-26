@@ -492,7 +492,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         checks.push(ok(
             "Profile policy",
             format!(
-                "{} secret binding(s), {} egress host rule(s), and {} denied host rule(s) are valid.",
+                "{} binding(s), {} egress host rule(s), and {} denied host rule(s) are valid.",
                 profile.secrets.bindings.len() + profile.personal_credentials.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
                 profile.deny_hosts.as_ref().map_or(0, Vec::len)

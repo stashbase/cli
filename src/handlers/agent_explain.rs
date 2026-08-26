@@ -269,7 +269,7 @@ fn print_human_report(report: &ExplainReport) {
             ConnectionDecision::AllowedByEgressHosts | ConnectionDecision::NoEgressRestriction
         )
     {
-        println!("Credentials: no Stashbase-managed secrets are configured");
+        println!("Credentials: no bindings are configured");
     }
     for credential in &report.credentials {
         let outcome = match credential.decision {

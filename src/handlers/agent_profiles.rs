@@ -41,7 +41,7 @@ fn handle_list(
         .map(|(name, (profile, source))| ProfileSummary {
             name,
             source,
-            secret_bindings: profile.secrets.bindings.len(),
+            binding_count: binding_count(&profile),
             egress_hosts_configured: profile.egress_hosts.is_some(),
         })
         .collect::<Vec<_>>();
@@ -58,15 +58,11 @@ fn handle_list(
         println!("Available agent profiles:");
         for profile in report {
             println!(
-                "- {} ({}, {} secret binding{}, {} egress_hosts)",
+                "- {} ({}, {} binding{}, {} egress_hosts)",
                 profile.name,
                 profile.source,
-                profile.secret_bindings,
-                if profile.secret_bindings == 1 {
-                    ""
-                } else {
-                    "s"
-                },
+                profile.binding_count,
+                if profile.binding_count == 1 { "" } else { "s" },
                 if profile.egress_hosts_configured {
                     "configured"
                 } else {
@@ -248,8 +244,12 @@ fn profiles_for_source(
 struct ProfileSummary {
     name: String,
     source: String,
-    secret_bindings: usize,
+    binding_count: usize,
     egress_hosts_configured: bool,
+}
+
+fn binding_count(profile: &AgentProfile) -> usize {
+    profile.secrets.bindings.len() + profile.personal_credentials.len()
 }
 
 #[derive(Serialize)]
@@ -273,7 +273,7 @@ mod tests {
 
     use crate::models::agent::{AgentBindingProfile, AgentHttpRule, AgentHttpRuleEffect};
 
-    use super::{colorize_toml, effective_profile, AgentProfile};
+    use super::{binding_count, colorize_toml, effective_profile, AgentProfile};
 
     #[test]
     fn toml_highlighting_preserves_plain_output_when_color_is_disabled() {
@@ -355,5 +355,28 @@ mod tests {
         let secret = &effective_profile(&profile).secrets.bindings["API_KEY"];
         assert_eq!(secret.hosts, ["api.example.com"]);
         assert_eq!(secret.value_template.as_deref(), Some("{value}"));
+    }
+
+    #[test]
+    fn binding_count_includes_secrets_and_personal_credentials() {
+        let binding = AgentBindingProfile {
+            hosts: Vec::new(),
+            rules: Vec::new(),
+            from: None,
+            env: None,
+            placeholder: None,
+            header: None,
+            value_template: None,
+        };
+        let profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            secrets: HashMap::from([("GITHUB_TOKEN".to_owned(), binding.clone())]).into(),
+            personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),
+            policy_tests: Vec::new(),
+        };
+
+        assert_eq!(binding_count(&profile), 2);
     }
 }
