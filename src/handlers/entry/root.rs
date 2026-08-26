@@ -696,9 +696,16 @@ pub async fn handle_cli(args: Cli) {
 
                     let is_remote = agent_run.remote;
                     if !is_remote && !profile.personal_credentials.is_empty() {
-                        anyhow::bail!(
-                            "Personal credential bindings are supported only with --remote; local agent runs continue to use [secrets.*] sources."
+                        let error = InputValidationError::Run(
+                            crate::models::validation::RunInputValidationError::PersonalCredentialsRequireRemote,
                         );
+                        eprintln!(
+                            "\n{}",
+                            error
+                                .format_error_output(raw_output)
+                                .unwrap_or_else(|_| "Error formatting validation error".to_owned())
+                        );
+                        std::process::exit(1);
                     }
                     let secret_bindings = profile
                         .secrets
