@@ -101,7 +101,12 @@ pub struct ProxyAuditLogEvent {
     pub action: String,
     pub destination_host: Option<String>,
     pub method: Option<String>,
-    pub secret_name: Option<String>,
+    #[serde(default)]
+    pub binding_name: Option<String>,
+    /// Binding origin, such as `secret` or `personal_credential`. This is
+    /// metadata only; audit logs never contain binding values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_source: Option<String>,
     pub response_status: Option<u16>,
     pub duration_ms: Option<u64>,
     /// Bytes actually relayed from the child to the destination.
@@ -152,6 +157,7 @@ pub struct ProxyAuditLog {
     profile: String,
     policy_fingerprint: String,
     profile_provenance: Option<ProfileAuditProvenance>,
+    binding_sources: Arc<HashMap<String, String>>,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
@@ -221,6 +227,7 @@ impl ProxyAuditLog {
             profile: profile.to_owned(),
             policy_fingerprint,
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path),
             file: Arc::new(Mutex::new(file)),
         })
@@ -240,6 +247,12 @@ impl ProxyAuditLog {
 
     pub fn with_profile_provenance(mut self, profile_provenance: ProfileAuditProvenance) -> Self {
         self.profile_provenance = Some(profile_provenance);
+        self
+    }
+
+    /// Adds non-sensitive binding origin metadata for remote audit events.
+    pub fn with_binding_sources(mut self, binding_sources: HashMap<String, String>) -> Self {
+        self.binding_sources = Arc::new(binding_sources);
         self
     }
 
@@ -311,7 +324,10 @@ impl ProxyAuditLog {
             action: action.to_owned(),
             destination_host: host.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
-            secret_name: secret_name.map(str::to_owned),
+            binding_name: secret_name.map(str::to_owned),
+            binding_source: secret_name
+                .and_then(|name| self.binding_sources.get(name))
+                .cloned(),
             response_status: status.map(|status| status.as_u16()),
             duration_ms: duration.and_then(|duration| u64::try_from(duration.as_millis()).ok()),
             request_bytes,
@@ -614,7 +630,7 @@ impl SecretInjection {
     pub fn bearer() -> Self {
         Self {
             header: "authorization".to_owned(),
-            value_template: "Bearer {secret}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
         }
     }
 }
@@ -2380,7 +2396,7 @@ fn replace_placeholder(
         let Ok(header_name) = HeaderName::from_bytes(injection.header.as_bytes()) else {
             continue;
         };
-        let expected = injection.value_template.replace("{secret}", placeholder);
+        let expected = injection.value_template.replace("{value}", placeholder);
         let matches_placeholder = request
             .headers()
             .get(&header_name)
@@ -2407,7 +2423,7 @@ fn replace_placeholder(
         if state.remote.is_some() {
             return Ok(Some(secret_name_from_placeholder(placeholder)));
         }
-        let value = injection.value_template.replace("{secret}", secret);
+        let value = injection.value_template.replace("{value}", secret);
         if let Ok(value) = HeaderValue::from_str(&value) {
             request.headers_mut().insert(header_name, value);
         }
@@ -2544,9 +2560,9 @@ fn normalize_injections(
         .map(|(name, injection)| {
             let header = HeaderName::from_bytes(injection.header.as_bytes())
                 .with_context(|| format!("invalid credential header for secret '{name}'"))?;
-            if !injection.value_template.contains("{secret}") {
+            if !injection.value_template.contains("{value}") {
                 anyhow::bail!(
-                    "credential value template for secret '{name}' must contain '{{secret}}'"
+                    "credential value template for binding '{name}' must contain '{{value}}'"
                 );
             }
             let placeholder = remote_placeholders
@@ -2719,7 +2735,7 @@ mod tests {
             "ANTHROPIC_API_KEY".to_owned(),
             SecretInjection {
                 header: "x-api-key".to_owned(),
-                value_template: "{secret}".to_owned(),
+                value_template: "{value}".to_owned(),
             },
         )]);
         let placeholders = HashMap::from([(
@@ -2842,7 +2858,7 @@ mod tests {
                 "ANTHROPIC_API_KEY".to_owned(),
                 SecretInjection {
                     header: "x-api-key".to_owned(),
-                    value_template: "{secret}".to_owned(),
+                    value_template: "{value}".to_owned(),
                 },
             )]),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
@@ -3182,6 +3198,10 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::from([(
+                "EXAMPLE_API_KEY".to_owned(),
+                "personal_credential".to_owned(),
+            )])),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -3205,6 +3225,7 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("api.example.com"));
         assert!(content.contains("EXAMPLE_API_KEY"));
+        assert!(content.contains("personal_credential"));
         assert!(content.contains("policy-fingerprint"));
         assert!(!content.contains("real-secret-value"));
         fs::remove_file(path).unwrap();
@@ -3219,6 +3240,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -3276,6 +3298,7 @@ mod tests {
                 modified_at: "2026-08-12T00:00:00+00:00".to_owned(),
                 sha256: "profile-file-sha256".to_owned(),
             }),
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -3354,7 +3377,8 @@ mod tests {
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             method: Some("POST".to_owned()),
-            secret_name: Some("GH_TOKEN".to_owned()),
+            binding_name: Some("GH_TOKEN".to_owned()),
+            binding_source: None,
             response_status: Some(200),
             duration_ms: Some(42),
             request_bytes: Some(10),
@@ -4030,6 +4054,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -4078,7 +4103,7 @@ mod tests {
                     "ANTHROPIC_API_KEY".to_owned(),
                     SecretInjection {
                         header: header_name.to_string(),
-                        value_template: "{secret}".to_owned(),
+                        value_template: "{value}".to_owned(),
                     },
                 )]),
                 allowed_egress_hosts: HashSet::new(),

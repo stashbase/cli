@@ -441,7 +441,7 @@ mod tests {
             .unwrap();
         assert_eq!(loaded.source, "./.stashbase/agents/codex.toml");
         assert_eq!(
-            loaded.profile.secrets["GITHUB_TOKEN"].hosts,
+            loaded.profile.secrets.bindings["GITHUB_TOKEN"].hosts,
             ["api.github.com"]
         );
         fs::remove_dir_all(directory).unwrap();

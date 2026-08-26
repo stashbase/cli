@@ -50,7 +50,7 @@ mod tests {
     fn parses_agent_profile_with_secret_host_allowlist() {
         let config: Config = toml::from_str(
             r#"
-                [agent_profiles.coding]
+                [agent_profiles.coding.secrets]
                 project = "project"
                 environment = "development"
 
@@ -60,31 +60,52 @@ mod tests {
                 env = "GH_TOKEN"
                 placeholder = "example-placeholder"
                 header = "x-api-key"
-                value_template = "Token {secret}"
+                value_template = "Token {value}"
             "#,
         )
         .unwrap();
 
         let profile = &config.agent_profiles.unwrap()["coding"];
-        assert_eq!(profile.project.as_deref(), Some("project"));
-        assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
+        assert_eq!(profile.secrets.project.as_deref(), Some("project"));
         assert_eq!(
-            profile.secrets["GH_TOKEN"].from.as_deref(),
+            profile.secrets.bindings["GH_TOKEN"].hosts,
+            ["api.github.com"]
+        );
+        assert_eq!(
+            profile.secrets.bindings["GH_TOKEN"].from.as_deref(),
             Some("GITHUB_TOKEN")
         );
-        assert_eq!(profile.secrets["GH_TOKEN"].env.as_deref(), Some("GH_TOKEN"));
         assert_eq!(
-            profile.secrets["GH_TOKEN"].placeholder.as_deref(),
+            profile.secrets.bindings["GH_TOKEN"].env.as_deref(),
+            Some("GH_TOKEN")
+        );
+        assert_eq!(
+            profile.secrets.bindings["GH_TOKEN"].placeholder.as_deref(),
             Some("example-placeholder")
         );
         assert_eq!(
-            profile.secrets["GH_TOKEN"].header.as_deref(),
+            profile.secrets.bindings["GH_TOKEN"].header.as_deref(),
             Some("x-api-key")
         );
         assert_eq!(
-            profile.secrets["GH_TOKEN"].value_template.as_deref(),
-            Some("Token {secret}")
+            profile.secrets.bindings["GH_TOKEN"]
+                .value_template
+                .as_deref(),
+            Some("Token {value}")
         );
+    }
+
+    #[test]
+    fn rejects_top_level_project_and_environment_in_agent_profiles() {
+        let error = toml::from_str::<AgentProfile>(
+            r#"
+                project = "project"
+                environment = "development"
+            "#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field"), "{error}");
     }
 
     #[test]
@@ -111,7 +132,7 @@ mod tests {
     fn parses_agent_profile_with_http_action_rules() {
         let config: Config = toml::from_str(
             r#"
-                [agent_profiles.coding]
+                [agent_profiles.coding.secrets]
                 project = "project"
                 environment = "development"
 
@@ -125,9 +146,42 @@ mod tests {
         )
         .unwrap();
 
-        let rule = &config.agent_profiles.unwrap()["coding"].secrets["GH_TOKEN"].rules[0];
+        let rule = &config.agent_profiles.unwrap()["coding"].secrets.bindings["GH_TOKEN"].rules[0];
         assert_eq!(rule.methods, ["get"]);
         assert_eq!(rule.paths, ["/repos/*"]);
+    }
+
+    #[test]
+    fn parses_agent_profile_with_personal_credentials() {
+        let config: Config = toml::from_str(
+            r#"
+                [agent_profiles.coding.secrets]
+                project = "project"
+                environment = "development"
+
+                [agent_profiles.coding.personal_credentials.LINEAR_API_KEY]
+                env = "LINEAR_API_KEY"
+                [[agent_profiles.coding.personal_credentials.LINEAR_API_KEY.rules]]
+                effect = "allow"
+                hosts = ["mcp.linear.app"]
+                methods = ["GET", "POST"]
+                paths = ["/mcp"]
+            "#,
+        )
+        .unwrap();
+
+        let profile = &config.agent_profiles.unwrap()["coding"];
+        assert!(profile.secrets.bindings.is_empty());
+        assert_eq!(
+            profile.personal_credentials["LINEAR_API_KEY"]
+                .env
+                .as_deref(),
+            Some("LINEAR_API_KEY")
+        );
+        assert_eq!(
+            profile.personal_credentials["LINEAR_API_KEY"].rules[0].methods,
+            ["GET", "POST"]
+        );
     }
 
     #[test]
@@ -167,7 +221,7 @@ mod tests {
 
         let profile = &config.agent_profiles.unwrap()["local"];
         assert_eq!(profile.file.as_deref(), Some("/tmp/agent.env"));
-        assert!(profile.project.is_none());
+        assert!(profile.secrets.project.is_none());
         assert_eq!(
             profile.egress_hosts.as_ref().unwrap(),
             &vec!["registry.npmjs.org".to_owned()]
@@ -185,7 +239,7 @@ mod tests {
         .unwrap();
 
         assert!(profile.file.is_none());
-        assert!(profile.secrets.is_empty());
+        assert!(profile.secrets.bindings.is_empty());
         assert_eq!(
             profile.deny_hosts.as_ref(),
             Some(&vec!["api.stashbase.dev".to_owned()])
@@ -206,7 +260,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(profile.file.as_deref(), Some(".env.agent"));
-        assert_eq!(profile.secrets["GH_TOKEN"].hosts, ["api.github.com"]);
+        assert_eq!(
+            profile.secrets.bindings["GH_TOKEN"].hosts,
+            ["api.github.com"]
+        );
     }
 }
 

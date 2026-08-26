@@ -117,7 +117,12 @@ pub fn handle_agent_explain_command(
         report.connection,
         ConnectionDecision::AllowedByEgressHosts | ConnectionDecision::NoEgressRestriction
     ) {
-        for (name, secret) in &profile.secrets {
+        for (name, secret) in profile
+            .secrets
+            .bindings
+            .iter()
+            .chain(profile.personal_credentials.iter())
+        {
             let secret_policy = if secret.rules.is_empty() {
                 SecretHttpPolicy::LegacyHosts(secret.hosts.iter().cloned().collect::<HashSet<_>>())
             } else {
@@ -264,7 +269,7 @@ fn print_human_report(report: &ExplainReport) {
             ConnectionDecision::AllowedByEgressHosts | ConnectionDecision::NoEgressRestriction
         )
     {
-        println!("Credentials: no Stashbase-managed secrets are configured");
+        println!("Credentials: no bindings are configured");
     }
     for credential in &report.credentials {
         let outcome = match credential.decision {

@@ -28,16 +28,20 @@ given.
 
 ## Remote Agent Proxy sessions
 
-For a project/environment-backed profile whose secrets are stored in Stashbase,
-add `--remote` to resolve and retain credentials only in the control plane:
+For a profile with `[secrets.*]` bindings stored in Stashbase, add `--remote`
+to resolve and retain credentials only in the control plane. Secret bindings
+require `[secrets]` to set both `project` and `environment`; a profile with only
+`[personal_credentials.*]` bindings requires neither and must not set `file`:
 
 ```bash
 stashbase agent run --remote --profile coding -- codex
 ```
 
 The CLI authenticates normally, creates one short-lived scoped session, and
-passes only `${STASHBASE_SECRET_NAME}` placeholders to the child. The opaque
-session token is memory-only and revoked when the child exits.
+passes only opaque placeholders to the child. The session token is memory-only
+and revoked when the child exits. Personal credentials remain private to the
+authenticated account: the CLI never fetches, prints, exports, or stores their
+values.
 
 The child uses a temporary localhost proxy through its normal `HTTP_PROXY` and
 `HTTPS_PROXY` settings. That relay attaches the session token to the remote
@@ -66,14 +70,16 @@ Each file in `.stashbase/agents` contains the profile directly—there is no
 
 ```toml
 # .stashbase/agents/codex.toml
+egress_hosts = ["api.github.com"]
+
+[secrets]
 project = "local-agents"
 environment = "local-creds"
-egress_hosts = ["api.github.com"]
 
 [secrets.GITHUB_TOKEN]
 env = "GH_TOKEN"
 header = "Authorization"
-value_template = "Bearer {secret}"
+value_template = "Bearer {value}"
 ```
 
 The name after `secrets.` selects the secret from the configured project and
@@ -154,7 +160,7 @@ secrets, or create a remote session.
 
 By default, the proxy exchanges placeholders in an exact
 `Authorization: Bearer <placeholder>` request header. Set `header` to support
-another HTTP header; the default value template is `{secret}` for a custom
+another HTTP header; the default value template is `{value}` for a custom
 header. The three destination controls are intentionally separate:
 
 - When configured, `egress_hosts` controls where the agent may connect,
@@ -196,7 +202,7 @@ egress_hosts = ["api.github.com"]
 from = "GITHUB_TOKEN"
 env = "GITHUB_TOKEN"
 header = "Authorization"
-value_template = "Bearer {secret}"
+value_template = "Bearer {value}"
 
 [[secrets.github.rules]]
 effect = "allow"
@@ -249,8 +255,8 @@ For a custom deployment, deny the hostname from `STASHBASE_API_URL` instead.
 
 ## Egress-only profiles
 
-An agent profile may omit `file`, `project`, `environment`, and `secrets`
-entirely. It starts the proxy solely to enforce egress policy and grants no
+An agent profile may omit `file` and `[secrets]` entirely. It starts the proxy
+solely to enforce egress policy and grants no
 Stashbase-managed credentials—useful for Codex with an existing local login or
 for MCP-only workflows:
 
@@ -261,16 +267,39 @@ deny_hosts = ["api.stashbase.dev"]
 ```
 
 The CLI prints an egress-only warning at startup. To prevent accidental secret
-loading, this mode rejects a configured `file`, `project`, or `environment`.
+loading, this mode rejects a configured `file` or `[secrets]` source.
 
 ## Secret sources, bindings, and local overrides
+
+## Personal credentials
+
+Personal credentials are private to your account and available only to your
+Agent Proxy sessions. They are not fetched, printed, exported, or stored by the
+CLI. Configure them for a Remote Agent session with
+`[personal_credentials.<NAME>]`; they use the same HTTP policy and injection
+fields as `[secrets.<NAME>]`.
+
+```toml
+[personal_credentials.LINEAR_API_KEY]
+env = "LINEAR_API_KEY"
+
+[[personal_credentials.LINEAR_API_KEY.rules]]
+effect = "allow"
+hosts = ["mcp.linear.app"]
+methods = ["GET", "POST"]
+paths = ["/mcp"]
+```
+
+For Codex MCP servers using `bearer_token_env_var = "LINEAR_API_KEY"`, the
+Remote Agent launch supplies `Authorization = "Bearer ${LINEAR_API_KEY}"`.
+The value remains an opaque proxy placeholder, never the personal credential.
 
 Without `from`, each secret-table key is also its remote source name. This
 profile fetches only `GH_TOKEN` and `OPENAI_API_KEY` with the Stashbase API's
 `only` query; it never fetches the entire environment.
 
 ```toml
-[agent_profiles.coding]
+[agent_profiles.coding.secrets]
 project = "platform"
 environment = "development"
 
@@ -330,9 +359,11 @@ The local value wins when both sources define it.
 
 ```toml
 [agent_profiles.coding]
+file = ".env.local"
+
+[agent_profiles.coding.secrets]
 project = "platform"
 environment = "development"
-file = ".env.local"
 
 [agent_profiles.coding.secrets.GH_TOKEN]
 from = "GITHUB_TOKEN"
@@ -358,8 +389,6 @@ binding, legacy host allowlist or HTTP action rules, and header representation;
 
 ```toml
 # .stashbase/agents/full-stack.toml
-project = "platform"
-environment = "development"
 file = ".env.local" # Optional local overrides for the source names below.
 egress_hosts = [
   "registry.npmjs.org",
@@ -367,6 +396,10 @@ egress_hosts = [
   "files.pythonhosted.org",
   "docs.rs",
 ]
+
+[secrets]
+project = "platform"
+environment = "development"
 
 # GitHub CLI / Copilot: remote GITHUB_TOKEN becomes GH_TOKEN for the child.
 [secrets.GH_TOKEN]
@@ -477,9 +510,11 @@ the real key.
 
 ```toml
 [agent_profiles.claude]
+egress_hosts = ["api.anthropic.com"]
+
+[agent_profiles.claude.secrets]
 project = "platform"
 environment = "development"
-egress_hosts = ["api.anthropic.com"]
 
 [agent_profiles.claude.secrets.ANTHROPIC_API_KEY]
 hosts = ["api.anthropic.com"]
@@ -686,10 +721,12 @@ It also reports total uploaded and downloaded HTTP bytes for the matching
 completed events. Byte counts are metadata and may reveal rough response size,
 so they should be handled as local audit data.
 
-Pass `--by host`, `--by action`, or `--by secret` to add a transfer and outcome
-table for that dimension. `--by secret` deliberately displays configured secret
-binding names, never secret values; use it only where those names are suitable
-for the local audit audience.
+Pass `--by host`, `--by action`, or `--by binding` to add a transfer and outcome
+table for that dimension. `--by binding` displays configured binding names,
+never credential values; use it only where those names are suitable for the
+local audit audience. Individual audit events also include the metadata source
+(`secret` or `personal_credential`).
+`--by secret` remains a compatibility alias for `--by binding`.
 It summarizes the newest matching events up to `--limit` (default: 1,000), not
 all historical audit data. JSON output includes the selected `limit` and, when
 provided, the original `since` window.

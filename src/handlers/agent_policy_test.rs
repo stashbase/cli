@@ -170,9 +170,14 @@ fn evaluate_case(
     if !test.path.starts_with('/') {
         bail!("Policy test '{name}' path must begin with '/'.");
     }
-    let Some(secret) = profile.secrets.get(&test.secret) else {
+    let Some(secret) = profile
+        .secrets
+        .bindings
+        .get(&test.secret)
+        .or_else(|| profile.personal_credentials.get(&test.secret))
+    else {
         bail!(
-            "Policy test '{name}' refers to unknown secret binding '{}'.",
+            "Policy test '{name}' refers to unknown secret or credential binding '{}'.",
             test.secret
         );
     };
@@ -311,7 +316,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::models::agent::{
-        AgentHttpRule, AgentHttpRuleEffect, AgentPolicyTestExpectation, AgentSecretProfile,
+        AgentBindingProfile, AgentHttpRule, AgentHttpRuleEffect, AgentPolicyTestExpectation,
     };
     use uuid::Uuid;
 
@@ -319,14 +324,12 @@ mod tests {
 
     fn profile() -> AgentProfile {
         AgentProfile {
-            project: None,
-            environment: None,
             file: None,
             egress_hosts: Some(vec!["api.github.com".to_owned()]),
             deny_hosts: None,
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
-                AgentSecretProfile {
+                AgentBindingProfile {
                     hosts: Vec::new(),
                     rules: vec![AgentHttpRule {
                         effect: AgentHttpRuleEffect::Allow,
@@ -340,7 +343,9 @@ mod tests {
                     header: None,
                     value_template: None,
                 },
-            )]),
+            )])
+            .into(),
+            personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
         }
     }
@@ -425,11 +430,17 @@ mod tests {
         let mut legacy = profile();
         legacy
             .secrets
+            .bindings
             .get_mut("GITHUB_TOKEN")
             .unwrap()
             .rules
             .clear();
-        legacy.secrets.get_mut("GITHUB_TOKEN").unwrap().hosts = vec!["api.github.com".to_owned()];
+        legacy
+            .secrets
+            .bindings
+            .get_mut("GITHUB_TOKEN")
+            .unwrap()
+            .hosts = vec!["api.github.com".to_owned()];
         let result = evaluate_case(
             &legacy,
             &AgentPolicyTestCase {
@@ -448,6 +459,7 @@ mod tests {
         let mut explicit_deny = profile();
         explicit_deny
             .secrets
+            .bindings
             .get_mut("GITHUB_TOKEN")
             .unwrap()
             .rules

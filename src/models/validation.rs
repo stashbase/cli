@@ -198,6 +198,7 @@ pub enum PushPullInputValidationError {
 pub enum RunInputValidationError {
     NoCmdProvided,
     NoSecretsToFetch,
+    PersonalCredentialsRequireRemote,
 }
 
 impl fmt::Display for CmdArgInputValidationError {
@@ -994,6 +995,12 @@ impl RunInputValidationError {
             RunInputValidationError::NoSecretsToFetch => (
                 "No secrets to fetch.",
                 Some("'set' secrets option overrides all secrets from option 'only'."),
+            ),
+            RunInputValidationError::PersonalCredentialsRequireRemote => (
+                "Personal credential bindings require Remote Agent execution.",
+                Some(
+                    "Add '--remote' or remove [personal_credentials.*] bindings from the profile.",
+                ),
             ),
         }
     }
