@@ -309,6 +309,15 @@ fn audit_binding_sources(
         .collect()
 }
 
+/// Returns the canonical source variables that must be removed from the child
+/// environment before binding placeholders are installed.
+fn remote_source_env_names(bindings: &[crate::api::remote_proxy::RemoteBinding]) -> Vec<String> {
+    bindings
+        .iter()
+        .map(|binding| binding.source_name.clone())
+        .collect()
+}
+
 #[tokio::main()]
 pub async fn handle_cli(args: Cli) {
     if let EntityType::Generate(cmd) = args.entity_type {
@@ -889,7 +898,7 @@ pub async fn handle_cli(args: Cli) {
                                 )
                             })
                             .collect();
-                        let source_env_names = child_env.keys().cloned().collect();
+                        let source_env_names = remote_source_env_names(&bindings);
                         let command = match remote_codex_command_with_mcp_binding_headers(
                             &agent_run.command,
                             &bindings,
@@ -1866,7 +1875,8 @@ mod tests {
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
         directory_profile_git_warning, ensure_replacement_session_is_compatible,
         infer_remote_agent_type, remote_bindings, remote_session_rotation_delay_for,
-        remote_session_transport_identity, secret_child_name, summarize_audit_events,
+        remote_session_transport_identity, remote_source_env_names, secret_child_name,
+        summarize_audit_events,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
@@ -2034,6 +2044,37 @@ mod tests {
         assert_eq!(sources["LINEAR_API_KEY"], "personal_credential");
         assert_eq!(sources["LINEAR_PROXY_TOKEN"], "personal_credential");
         assert!(!sources.values().any(|value| value.contains("secret-value")));
+    }
+
+    #[test]
+    fn remote_child_cleanup_uses_canonical_binding_source_names() {
+        let bindings = vec![
+            RemoteBinding {
+                name: "GH_TOKEN".to_owned(),
+                source: RemoteBindingSource::Secret,
+                source_name: "GITHUB_TOKEN".to_owned(),
+                hosts: Vec::new(),
+                rules: Vec::new(),
+                header: "Authorization".to_owned(),
+                placeholder: "${GH_TOKEN}".to_owned(),
+                value_template: "Bearer {value}".to_owned(),
+            },
+            RemoteBinding {
+                name: "LINEAR_API_KEY".to_owned(),
+                source: RemoteBindingSource::PersonalCredential,
+                source_name: "linear-token".to_owned(),
+                hosts: Vec::new(),
+                rules: Vec::new(),
+                header: "Authorization".to_owned(),
+                placeholder: "${LINEAR_API_KEY}".to_owned(),
+                value_template: "Bearer {value}".to_owned(),
+            },
+        ];
+
+        assert_eq!(
+            remote_source_env_names(&bindings),
+            ["GITHUB_TOKEN", "linear-token"]
+        );
     }
 
     #[test]
