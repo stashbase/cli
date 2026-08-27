@@ -14,6 +14,11 @@ const PROFILE_TEMPLATE: &str = r#"# Stashbase Agent Proxy profile.
 # Add only destinations the agent genuinely needs to contact.
 egress_hosts = []
 
+# Optional: deny ordinary PATH-based command execution inside the agent.
+# These wrappers also affect commands spawned by the agent.
+# [commands]
+# denied = ["ssh", "sudo"]
+
 # Replace SECRET_NAME with the Stashbase secret to grant.
 [secrets.SECRET_NAME]
 

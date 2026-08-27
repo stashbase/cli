@@ -786,6 +786,12 @@ pub async fn handle_cli(args: Cli) {
                             .unwrap_or_default()
                             .into_iter()
                             .collect(),
+                        denied_commands: profile
+                            .commands
+                            .denied
+                            .iter()
+                            .map(|command| command.trim().to_ascii_lowercase())
+                            .collect(),
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                     };
@@ -1995,6 +2001,7 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
+            commands: Default::default(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("environment".to_owned()),

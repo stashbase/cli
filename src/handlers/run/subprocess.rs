@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::process::ExitStatus;
 
 use anyhow::Result;
@@ -48,8 +50,43 @@ pub async fn run_command(
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
 ) -> Result<ExitStatus> {
+    run_command_with_denied_commands(
+        command,
+        args,
+        env_vars,
+        env_removals,
+        sandbox,
+        proxy_mode,
+        restrict_stashbase_credentials,
+        &[],
+        None,
+    )
+    .await
+}
+
+pub async fn run_command_with_denied_commands(
+    command: &str,
+    args: Vec<String>,
+    mut env_vars: HashMap<String, String>,
+    env_removals: Vec<String>,
+    sandbox: bool,
+    proxy_mode: bool,
+    restrict_stashbase_credentials: bool,
+    denied_commands: &[String],
+    audit_log: Option<super::proxy::ProxyAuditLog>,
+) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
-    let (program, launcher_args) = sandbox_command(command, sandbox, &env_vars)?;
+    let _command_wrappers = CommandWrappers::create(denied_commands)?;
+    if let Some(wrappers) = &_command_wrappers {
+        let inherited_path = env::var_os("PATH").unwrap_or_default();
+        let path = std::env::join_paths(
+            std::iter::once(wrappers.path.clone().into_os_string())
+                .chain(std::env::split_paths(&inherited_path).map(|path| path.into_os_string())),
+        )?;
+        env_vars.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+    }
+    let (program, launcher_args) =
+        sandbox_command_with_denied_commands(command, sandbox, &env_vars, denied_commands)?;
     let cmd: Expression = cmd(program, launcher_args)
         .before_spawn(move |cmd| {
             // Agent profiles may rename a project secret for the child process.
@@ -94,12 +131,35 @@ pub async fn run_command(
     // .env("--color", "always");
 
     // `unchecked` lets us drain output before returning the child's exact status.
+    // Keep stdout attached to the terminal. Interactive agents such as Codex
+    // require this; command-denial wrappers emit their structured diagnostic
+    // directly on stderr.
     let mut reader = cmd.stdout_to_stderr().unchecked().reader()?;
     {
         let mut lines = BufReader::new(&mut reader).lines();
         loop {
             match lines.next() {
-                Some(line) => println!("{}", line?),
+                Some(line) => {
+                    let line = line?;
+                    if let Some(command) = line.strip_prefix("STASHBASE_COMMAND_DENIED:") {
+                        let id = audit_log
+                            .as_ref()
+                            .map(|audit_log| audit_log.record_command_denied(command));
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "error": {
+                                    "code": "command_denied",
+                                    "message": "Command denied by agent policy",
+                                    "command": command,
+                                    "id": id,
+                                }
+                            })
+                        );
+                        continue;
+                    }
+                    println!("{}", line);
+                }
                 None => break,
             }
         }
@@ -111,22 +171,106 @@ pub async fn run_command(
     Ok(output.status)
 }
 
+/// A deliberately small first version of command enforcement. The wrappers
+/// shadow normal PATH lookups for descendants of the agent and fail closed.
+/// Absolute executable paths and shell built-ins are outside this layer.
+struct CommandWrappers {
+    path: PathBuf,
+}
+
+impl CommandWrappers {
+    fn create(commands: &[String]) -> Result<Option<Self>> {
+        let commands = commands
+            .iter()
+            .map(|command| command.trim())
+            .filter(|command| {
+                !command.is_empty()
+                    && command.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || "._+-".contains(character)
+                    })
+            })
+            .collect::<Vec<_>>();
+        if commands.is_empty() {
+            return Ok(None);
+        }
+
+        let path =
+            env::temp_dir().join(format!("stashbase-command-policy-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&path)?;
+        let result = (|| {
+            for command in commands {
+                #[cfg(windows)]
+                let wrapper = path.join(format!("{command}.cmd"));
+                #[cfg(not(windows))]
+                let wrapper = path.join(command);
+                #[cfg(windows)]
+                let contents = format!(
+                    "@echo {{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}} 1>&2\r\n@echo Stashbase agent policy denied command: {command} 1>&2\r\n@exit /b 126\r\n"
+                );
+                #[cfg(not(windows))]
+                let contents = format!(
+                    "#!/bin/sh\nprintf '%s\\n' '{{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}}' >&2\nprintf '%s\\n' 'Stashbase agent policy denied command: {command}' >&2\nexit 126\n"
+                );
+                fs::write(&wrapper, contents)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700))?;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })();
+        if let Err(error) = result {
+            let _ = fs::remove_dir_all(&path);
+            return Err(error);
+        }
+        Ok(Some(Self { path }))
+    }
+}
+
+impl Drop for CommandWrappers {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 fn sandbox_command(
     command: &str,
     sandbox: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<(String, Vec<String>)> {
+    sandbox_command_with_denied_commands(command, sandbox, env_vars, &[])
+}
+
+fn sandbox_command_with_denied_commands(
+    command: &str,
+    sandbox: bool,
+    env_vars: &HashMap<String, String>,
+    denied_commands: &[String],
+) -> Result<(String, Vec<String>)> {
     if !sandbox {
+        #[cfg(not(target_os = "macos"))]
         return Ok((command.to_owned(), Vec::new()));
+        #[cfg(target_os = "macos")]
+        if denied_commands.is_empty() {
+            return Ok((command.to_owned(), Vec::new()));
+        }
     }
 
     #[cfg(target_os = "macos")]
     {
-        let proxy_port = env_vars
-            .get("HTTPS_PROXY")
-            .and_then(|url| url.rsplit_once(':').map(|(_, port)| port))
-            .filter(|port| port.parse::<u16>().is_ok())
-            .ok_or_else(|| anyhow::anyhow!("--sandbox requires a localhost HTTPS_PROXY"))?;
+        let network_rules = if sandbox {
+            let proxy_port = env_vars
+                .get("HTTPS_PROXY")
+                .and_then(|url| url.rsplit_once(':').map(|(_, port)| port))
+                .filter(|port| port.parse::<u16>().is_ok())
+                .ok_or_else(|| anyhow::anyhow!("--sandbox requires a localhost HTTPS_PROXY"))?;
+            format!(
+                "(deny network-inbound)\n            (deny network-outbound)\n            (allow network-outbound (remote ip \"localhost:{proxy_port}\"))"
+            )
+        } else {
+            String::new()
+        };
 
         // The agent can only make network connections to this command's loopback proxy.
         // `allow default` keeps language runtimes usable; direct outbound and inbound
@@ -135,10 +279,10 @@ fn sandbox_command(
             r#"
             (version 1)
             (allow default)
-            (deny network-inbound)
-            (deny network-outbound)
-            (allow network-outbound (remote ip "localhost:{proxy_port}"))
-        "#
+            {network_rules}
+            {}
+        "#,
+            denied_process_exec_rules(env_vars, denied_commands)
         );
         return Ok((
             "/usr/bin/sandbox-exec".to_owned(),
@@ -177,6 +321,32 @@ fn sandbox_command(
     }
 }
 
+#[cfg(target_os = "macos")]
+fn denied_process_exec_rules(
+    env_vars: &HashMap<String, String>,
+    denied_commands: &[String],
+) -> String {
+    let Some(path) = env_vars.get("PATH") else {
+        return String::new();
+    };
+    let mut rules = Vec::new();
+    for command in denied_commands {
+        for directory in std::env::split_paths(path) {
+            let candidate = directory.join(command);
+            if candidate.is_file() {
+                let escaped = candidate
+                    .to_string_lossy()
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"");
+                rules.push(format!("(deny process-exec (literal \"{escaped}\"))"));
+            }
+        }
+    }
+    rules.sort();
+    rules.dedup();
+    rules.join("\n            ")
+}
+
 #[cfg(target_os = "linux")]
 fn command_in_path(command: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|path| {
@@ -186,7 +356,10 @@ fn command_in_path(command: &str) -> bool {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{run_command, sandbox_command};
+    use super::{
+        run_command, run_command_with_denied_commands, sandbox_command,
+        sandbox_command_with_denied_commands,
+    };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
 
@@ -210,6 +383,25 @@ mod tests {
         .unwrap();
 
         assert_eq!(status.code(), Some(7));
+    }
+
+    #[tokio::test]
+    async fn denied_commands_are_shadowed_for_child_processes() {
+        let status = super::run_command_with_denied_commands(
+            "sh",
+            vec!["-c".to_owned(), "blocked-tool".to_owned()],
+            HashMap::new(),
+            Vec::new(),
+            false,
+            false,
+            false,
+            &["blocked-tool".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status.code(), Some(126));
     }
 
     #[tokio::test]
@@ -384,6 +576,43 @@ mod tests {
             .status()
             .unwrap();
         assert!(!denied.success());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_sandbox_denies_blocked_executables_by_absolute_path() {
+        let env_vars = HashMap::from([
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            (
+                "HTTPS_PROXY".to_owned(),
+                "http://127.0.0.1:49152".to_owned(),
+            ),
+        ]);
+        let (_, args) =
+            sandbox_command_with_denied_commands("/bin/sh", true, &env_vars, &["curl".to_owned()])
+                .unwrap();
+        let profile = &args[1];
+        assert!(profile.contains("(deny process-exec (literal \"/usr/bin/curl\"))"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn macos_command_policy_blocks_absolute_child_execution_without_network_sandbox() {
+        let status = run_command_with_denied_commands(
+            "/bin/sh",
+            vec!["-c".to_owned(), "/usr/bin/curl --version".to_owned()],
+            HashMap::new(),
+            Vec::new(),
+            false,
+            false,
+            false,
+            &["curl".to_owned()],
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(!status.success());
     }
 
     #[cfg(target_os = "linux")]

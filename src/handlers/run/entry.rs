@@ -53,6 +53,8 @@ pub async fn handle_remote_agent_run(
 ) -> anyhow::Result<()> {
     let cmd = command.first().context("no command provided")?.clone();
     let args = command.into_iter().skip(1).collect();
+    let denied_commands = policy.denied_commands.iter().cloned().collect::<Vec<_>>();
+    let command_audit_log = audit_log.clone();
     let proxy =
         super::proxy::Proxy::start_remote_with_port(remote, policy, audit_log, proxy_port).await?;
     let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
@@ -64,7 +66,7 @@ pub async fn handle_remote_agent_run(
         );
         eprintln!("Remote agent proxy session active");
     }
-    let result = subprocess::run_command(
+    let result = subprocess::run_command_with_denied_commands(
         &cmd,
         args,
         proxy.child_env().clone(),
@@ -72,6 +74,8 @@ pub async fn handle_remote_agent_run(
         sandbox,
         true,
         true,
+        &denied_commands,
+        command_audit_log,
     )
     .await;
     proxy.stop().await;
@@ -1088,10 +1092,15 @@ async fn handle_run(
     let restrict_stashbase_credentials = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.strict_deny);
+    let denied_commands = proxy_policy
+        .as_ref()
+        .map(|policy| policy.denied_commands.iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
+        let command_audit_log = audit_log.clone();
         let proxy = super::proxy::Proxy::start_with_port(
             secrets_hash_map,
             proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
@@ -1107,7 +1116,7 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let result = subprocess::run_command(
+        let result = subprocess::run_command_with_denied_commands(
             &cmd,
             args,
             proxy.child_env().clone(),
@@ -1115,6 +1124,8 @@ async fn handle_run(
             sandbox,
             true,
             restrict_stashbase_credentials,
+            &denied_commands,
+            command_audit_log,
         )
         .await;
         proxy.stop().await;

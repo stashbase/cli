@@ -839,6 +839,7 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
+            commands: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -869,6 +870,7 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
+            commands: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -900,6 +902,7 @@ mod tests {
             file: Some(".env.agent".to_owned()),
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
+            commands: Default::default(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
@@ -916,6 +919,7 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
+            commands: Default::default(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
                 "LINEAR_API_KEY".to_owned(),
@@ -946,6 +950,7 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
+            commands: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -1001,6 +1006,7 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
+            commands: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
