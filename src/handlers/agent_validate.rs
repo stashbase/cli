@@ -488,18 +488,44 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
     }
 
+    let mut seen_commands = HashSet::new();
+    for command in &profile.commands.denied {
+        if !valid_command_name(command) {
+            checks.push(fail(
+                "Denied command",
+                format!(
+                    "'{command}' must be a plain executable name using only letters, digits, '.', '_', '+', or '-'."
+                ),
+            ));
+        } else if !seen_commands.insert(command.to_ascii_lowercase()) {
+            checks.push(warn(
+                "Denied command",
+                format!("Duplicate denied command '{command}'."),
+            ));
+        }
+    }
+
     if !checks.iter().any(|check| check.status == Status::Fail) {
         checks.push(ok(
             "Profile policy",
             format!(
-                "{} binding(s), {} egress host rule(s), and {} denied host rule(s) are valid.",
+                "{} binding(s), {} egress host rule(s), {} denied host rule(s), and {} denied command rule(s) are valid.",
                 profile.secrets.bindings.len() + profile.personal_credentials.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
-                profile.deny_hosts.as_ref().map_or(0, Vec::len)
+                profile.deny_hosts.as_ref().map_or(0, Vec::len),
+                profile.commands.denied.len()
             ),
         ));
     }
     checks
+}
+
+fn valid_command_name(command: &str) -> bool {
+    !command.is_empty()
+        && command == command.trim()
+        && command
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "._+-".contains(character))
 }
 
 fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: &mut Vec<Check>) {
@@ -802,6 +828,15 @@ mod tests {
         assert!(valid_http_method("PROPFIND"));
         assert!(valid_http_method("custom-method"));
         assert!(!valid_http_method("GET /"));
+    }
+
+    #[test]
+    fn validates_denied_command_names() {
+        assert!(valid_command_name("curl"));
+        assert!(valid_command_name("node-20"));
+        assert!(!valid_command_name(" /usr/bin/curl"));
+        assert!(!valid_command_name("curl --version"));
+        assert!(!valid_command_name(""));
     }
 
     #[test]

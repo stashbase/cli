@@ -76,14 +76,20 @@ pub async fn run_command_with_denied_commands(
     audit_log: Option<super::proxy::ProxyAuditLog>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
-    let _command_wrappers = CommandWrappers::create(denied_commands)?;
-    if let Some(wrappers) = &_command_wrappers {
+    let command_wrappers = CommandWrappers::create(denied_commands)?;
+    if let Some(wrappers) = &command_wrappers {
         let inherited_path = env::var_os("PATH").unwrap_or_default();
         let path = std::env::join_paths(
             std::iter::once(wrappers.path.clone().into_os_string())
                 .chain(std::env::split_paths(&inherited_path).map(|path| path.into_os_string())),
         )?;
         env_vars.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+        if let Some(event_path) = &wrappers.event_path {
+            env_vars.insert(
+                "STASHBASE_COMMAND_EVENT_FILE".to_owned(),
+                event_path.to_string_lossy().into_owned(),
+            );
+        }
     }
     let (program, launcher_args) =
         sandbox_command_with_denied_commands(command, sandbox, &env_vars, denied_commands)?;
@@ -168,6 +174,19 @@ pub async fn run_command_with_denied_commands(
     let output = reader
         .try_wait()?
         .expect("reader reached EOF after child exit");
+    if let (Some(wrappers), Some(audit_log)) = (&command_wrappers, &audit_log) {
+        if let Some(event_path) = &wrappers.event_path {
+            if let Ok(events) = fs::read_to_string(event_path) {
+                for command in events
+                    .lines()
+                    .map(str::trim)
+                    .filter(|command| !command.is_empty())
+                {
+                    audit_log.record_command_denied(command);
+                }
+            }
+        }
+    }
     Ok(output.status)
 }
 
@@ -176,6 +195,7 @@ pub async fn run_command_with_denied_commands(
 /// Absolute executable paths and shell built-ins are outside this layer.
 struct CommandWrappers {
     path: PathBuf,
+    event_path: Option<PathBuf>,
 }
 
 impl CommandWrappers {
@@ -197,6 +217,8 @@ impl CommandWrappers {
         let path =
             env::temp_dir().join(format!("stashbase-command-policy-{}", uuid::Uuid::new_v4()));
         fs::create_dir(&path)?;
+        let event_path = path.join("events");
+        fs::write(&event_path, "")?;
         let result = (|| {
             for command in commands {
                 #[cfg(windows)]
@@ -205,11 +227,11 @@ impl CommandWrappers {
                 let wrapper = path.join(command);
                 #[cfg(windows)]
                 let contents = format!(
-                    "@echo {{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}} 1>&2\r\n@echo Stashbase agent policy denied command: {command} 1>&2\r\n@exit /b 126\r\n"
+                    "@>>\"%STASHBASE_COMMAND_EVENT_FILE%\" echo {command}\r\n@echo {{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}} 1>&2\r\n@echo Stashbase agent policy denied command: {command} 1>&2\r\n@exit /b 126\r\n"
                 );
                 #[cfg(not(windows))]
                 let contents = format!(
-                    "#!/bin/sh\nprintf '%s\\n' '{{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}}' >&2\nprintf '%s\\n' 'Stashbase agent policy denied command: {command}' >&2\nexit 126\n"
+                    "#!/bin/sh\nprintf '%s\\n' '{command}' >> \"$STASHBASE_COMMAND_EVENT_FILE\"\nprintf '%s\\n' '{{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}}' >&2\nprintf '%s\\n' 'Stashbase agent policy denied command: {command}' >&2\nexit 126\n"
                 );
                 fs::write(&wrapper, contents)?;
                 #[cfg(unix)]
@@ -224,7 +246,10 @@ impl CommandWrappers {
             let _ = fs::remove_dir_all(&path);
             return Err(error);
         }
-        Ok(Some(Self { path }))
+        Ok(Some(Self {
+            path,
+            event_path: Some(event_path),
+        }))
     }
 }
 
@@ -234,6 +259,7 @@ impl Drop for CommandWrappers {
     }
 }
 
+#[cfg(test)]
 fn sandbox_command(
     command: &str,
     sandbox: bool,
@@ -249,7 +275,11 @@ fn sandbox_command_with_denied_commands(
     denied_commands: &[String],
 ) -> Result<(String, Vec<String>)> {
     if !sandbox {
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(target_os = "linux"))]
+        if denied_commands.is_empty() || !command_in_path("systemd-run") {
+            return Ok((command.to_owned(), Vec::new()));
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         return Ok((command.to_owned(), Vec::new()));
         #[cfg(target_os = "macos")]
         if denied_commands.is_empty() {
@@ -293,26 +323,33 @@ fn sandbox_command_with_denied_commands(
     #[cfg(target_os = "linux")]
     {
         if !command_in_path("systemd-run") {
-            anyhow::bail!(
-                "--sandbox on Linux requires systemd-run and an active systemd user session"
-            )
+            if sandbox {
+                anyhow::bail!(
+                    "--sandbox on Linux requires systemd-run and an active systemd user session"
+                )
+            }
+            return Ok((command.to_owned(), Vec::new()));
         }
         // systemd applies these cgroup IP rules only to the child command. The
         // parent-owned proxy remains outside the scope and can forward approved
         // requests to the internet, while the child can reach only 127.0.0.1.
-        return Ok((
-            "systemd-run".to_owned(),
-            vec![
-                "--user".to_owned(),
-                "--scope".to_owned(),
-                "--quiet".to_owned(),
+        let mut args = vec![
+            "--user".to_owned(),
+            "--scope".to_owned(),
+            "--quiet".to_owned(),
+        ];
+        if sandbox {
+            args.extend([
                 "--property=IPAddressDeny=any".to_owned(),
                 "--property=IPAddressAllow=127.0.0.1".to_owned(),
                 "--property=IPAddressAllow=::1".to_owned(),
-                "--".to_owned(),
-                command.to_owned(),
-            ],
-        ));
+            ]);
+        }
+        for path in linux_denied_exec_paths(env_vars, denied_commands) {
+            args.push(format!("--property=NoExecPaths={path}"));
+        }
+        args.extend(["--".to_owned(), command.to_owned()]);
+        return Ok(("systemd-run".to_owned(), args));
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -345,6 +382,28 @@ fn denied_process_exec_rules(
     rules.sort();
     rules.dedup();
     rules.join("\n            ")
+}
+
+#[cfg(target_os = "linux")]
+fn linux_denied_exec_paths(
+    env_vars: &HashMap<String, String>,
+    denied_commands: &[String],
+) -> Vec<String> {
+    let Some(path) = env_vars.get("PATH") else {
+        return Vec::new();
+    };
+    let mut paths = denied_commands
+        .iter()
+        .flat_map(|command| {
+            std::env::split_paths(path)
+                .map(|directory| directory.join(command))
+                .filter(|candidate| candidate.is_file())
+        })
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 #[cfg(target_os = "linux")]

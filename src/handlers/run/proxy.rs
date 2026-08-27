@@ -100,6 +100,9 @@ pub struct ProxyAuditLogEvent {
     pub profile_file_sha256: Option<String>,
     pub action: String,
     pub destination_host: Option<String>,
+    /// Present only for command-policy events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
     pub method: Option<String>,
     #[serde(default)]
     pub binding_name: Option<String>,
@@ -336,7 +339,14 @@ impl ProxyAuditLog {
                 })
                 .flatten(),
             action: action.to_owned(),
-            destination_host: host.map(str::to_owned),
+            destination_host: (action != "command_denied")
+                .then(|| host)
+                .flatten()
+                .map(str::to_owned),
+            command: (action == "command_denied")
+                .then(|| host)
+                .flatten()
+                .map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
             binding_name: secret_name.map(str::to_owned),
             binding_source: secret_name
@@ -3402,6 +3412,7 @@ mod tests {
             profile_file_sha256: None,
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
+            command: None,
             method: Some("POST".to_owned()),
             binding_name: Some("GH_TOKEN".to_owned()),
             binding_source: None,
