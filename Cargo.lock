@@ -2392,6 +2392,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ignore",
+ "libc",
  "linked-hash-map",
  "linked_hash_set",
  "log",

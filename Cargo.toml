@@ -19,6 +19,7 @@ duct = "1.1.0"
 env_logger = "0.11.8"
 git2 = "0.21.0"
 ignore = "0.4.25"
+libc = "0.2.180"
 linked-hash-map = "0.5.6"
 linked_hash_set = "0.1.5"
 log = { version = "0.4.28", features = ["release_max_level_info"] }
