@@ -328,6 +328,7 @@ mod tests {
             egress_hosts: Some(vec!["api.github.com".to_owned()]),
             deny_hosts: None,
             commands: Default::default(),
+            filesystem: Default::default(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
                 AgentBindingProfile {

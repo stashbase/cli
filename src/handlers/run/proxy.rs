@@ -565,6 +565,8 @@ pub struct ProxyPolicy {
     pub denied_hosts: HashSet<String>,
     /// Executable names denied by the child command wrapper layer.
     pub denied_commands: HashSet<String>,
+    pub denied_read_paths: Vec<String>,
+    pub denied_write_paths: Vec<String>,
     /// Whether credential-bearing requests must also satisfy egress policy.
     pub egress_hosts_configured: bool,
     pub strict_deny: bool,
@@ -669,6 +671,8 @@ impl ProxyPolicy {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: false,
         }
@@ -698,6 +702,8 @@ impl ProxyPolicy {
             .collect::<Vec<_>>();
         denied_commands.sort();
         lines.push(format!("deny_commands={}", denied_commands.join(",")));
+        lines.push(format!("deny_read={}", self.denied_read_paths.join(",")));
+        lines.push(format!("deny_write={}", self.denied_write_paths.join(",")));
 
         let mut secret_policies = self.secret_policies.iter().collect::<Vec<_>>();
         secret_policies.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -2898,6 +2904,8 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         };
@@ -3021,6 +3029,8 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         }
@@ -3450,6 +3460,8 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -3488,6 +3500,8 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         }
@@ -3594,6 +3608,8 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -3676,6 +3692,8 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -3713,6 +3731,8 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         };
@@ -3736,6 +3756,8 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         };
@@ -3794,6 +3816,8 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -4153,6 +4177,8 @@ mod tests {
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
                 denied_commands: HashSet::new(),
+                denied_read_paths: Vec::new(),
+                denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
                 strict_deny: true,
             },
@@ -4187,6 +4213,8 @@ mod tests {
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
                 denied_commands: HashSet::new(),
+                denied_read_paths: Vec::new(),
+                denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
                 strict_deny: true,
             },
@@ -4222,6 +4250,8 @@ mod tests {
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 denied_hosts: HashSet::new(),
                 denied_commands: HashSet::new(),
+                denied_read_paths: Vec::new(),
+                denied_write_paths: Vec::new(),
                 egress_hosts_configured: true,
                 strict_deny: true,
             },

@@ -297,6 +297,7 @@ mod tests {
             egress_hosts: Some(vec!["API.GITHUB.COM.".to_owned()]),
             deny_hosts: None,
             commands: Default::default(),
+            filesystem: Default::default(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
                 AgentBindingProfile {
@@ -337,6 +338,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             commands: Default::default(),
+            filesystem: Default::default(),
             secrets: HashMap::from([(
                 "API_KEY".to_owned(),
                 AgentBindingProfile {
@@ -375,6 +377,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             commands: Default::default(),
+            filesystem: Default::default(),
             secrets: HashMap::from([("GITHUB_TOKEN".to_owned(), binding.clone())]).into(),
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),

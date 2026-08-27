@@ -59,6 +59,8 @@ pub async fn run_command(
         proxy_mode,
         restrict_stashbase_credentials,
         &[],
+        &[],
+        &[],
         None,
     )
     .await
@@ -73,6 +75,8 @@ pub async fn run_command_with_denied_commands(
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
     denied_commands: &[String],
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
     audit_log: Option<super::proxy::ProxyAuditLog>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
@@ -91,8 +95,14 @@ pub async fn run_command_with_denied_commands(
             );
         }
     }
-    let (program, launcher_args) =
-        sandbox_command_with_denied_commands(command, sandbox, &env_vars, denied_commands)?;
+    let (program, launcher_args) = sandbox_command_with_denied_commands(
+        command,
+        sandbox,
+        &env_vars,
+        denied_commands,
+        denied_read_paths,
+        denied_write_paths,
+    )?;
     let cmd: Expression = cmd(program, launcher_args)
         .before_spawn(move |cmd| {
             // Agent profiles may rename a project secret for the child process.
@@ -159,6 +169,22 @@ pub async fn run_command_with_denied_commands(
                                     "message": "Command denied by agent policy",
                                     "command": command,
                                     "id": id,
+                                }
+                            })
+                        );
+                        continue;
+                    }
+                    if let Some((path, operation)) =
+                        filesystem_denial_from_line(&line, denied_read_paths, denied_write_paths)
+                    {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "error": {
+                                    "code": "filesystem_denied",
+                                    "message": "Filesystem access denied by agent policy",
+                                    "path": path,
+                                    "operation": operation,
                                 }
                             })
                         );
@@ -265,7 +291,7 @@ fn sandbox_command(
     sandbox: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<(String, Vec<String>)> {
-    sandbox_command_with_denied_commands(command, sandbox, env_vars, &[])
+    sandbox_command_with_denied_commands(command, sandbox, env_vars, &[], &[], &[])
 }
 
 fn sandbox_command_with_denied_commands(
@@ -273,16 +299,31 @@ fn sandbox_command_with_denied_commands(
     sandbox: bool,
     env_vars: &HashMap<String, String>,
     denied_commands: &[String],
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
 ) -> Result<(String, Vec<String>)> {
     if !sandbox {
         #[cfg(all(target_os = "linux"))]
-        if denied_commands.is_empty() || !command_in_path("systemd-run") {
+        if denied_commands.is_empty()
+            && denied_read_paths.is_empty()
+            && denied_write_paths.is_empty()
+        {
+            return Ok((command.to_owned(), Vec::new()));
+        }
+        #[cfg(all(target_os = "linux"))]
+        if !command_in_path("systemd-run") {
+            if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
+                anyhow::bail!("filesystem restrictions on Linux require systemd-run and an active systemd user session");
+            }
             return Ok((command.to_owned(), Vec::new()));
         }
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         return Ok((command.to_owned(), Vec::new()));
         #[cfg(target_os = "macos")]
-        if denied_commands.is_empty() {
+        if denied_commands.is_empty()
+            && denied_read_paths.is_empty()
+            && denied_write_paths.is_empty()
+        {
             return Ok((command.to_owned(), Vec::new()));
         }
     }
@@ -313,6 +354,7 @@ fn sandbox_command_with_denied_commands(
             {}
         "#,
             denied_process_exec_rules(env_vars, denied_commands)
+                + &denied_file_rules(denied_read_paths, denied_write_paths)
         );
         return Ok((
             "/usr/bin/sandbox-exec".to_owned(),
@@ -327,6 +369,9 @@ fn sandbox_command_with_denied_commands(
                 anyhow::bail!(
                     "--sandbox on Linux requires systemd-run and an active systemd user session"
                 )
+            }
+            if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
+                anyhow::bail!("filesystem restrictions on Linux require systemd-run and an active systemd user session");
             }
             return Ok((command.to_owned(), Vec::new()));
         }
@@ -347,6 +392,12 @@ fn sandbox_command_with_denied_commands(
         }
         for path in linux_denied_exec_paths(env_vars, denied_commands) {
             args.push(format!("--property=NoExecPaths={path}"));
+        }
+        for path in resolve_policy_paths(denied_read_paths) {
+            args.push(format!("--property=InaccessiblePaths={path}"));
+        }
+        for path in resolve_policy_paths(denied_write_paths) {
+            args.push(format!("--property=ReadOnlyPaths={path}"));
         }
         args.extend(["--".to_owned(), command.to_owned()]);
         return Ok(("systemd-run".to_owned(), args));
@@ -384,6 +435,100 @@ fn denied_process_exec_rules(
     rules.join("\n            ")
 }
 
+#[cfg(target_os = "macos")]
+fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
+    let mut rules = Vec::new();
+    for path in resolve_policy_paths(deny_read) {
+        let escaped = escape_sbpl_path(&path);
+        let matcher = if PathBuf::from(&path).is_file() {
+            "literal"
+        } else {
+            "subpath"
+        };
+        rules.push(format!("(deny file-read* ({matcher} \"{escaped}\"))"));
+    }
+    for path in resolve_policy_paths(deny_write) {
+        let escaped = escape_sbpl_path(&path);
+        let matcher = if PathBuf::from(&path).is_file() {
+            "literal"
+        } else {
+            "subpath"
+        };
+        rules.push(format!("(deny file-write* ({matcher} \"{escaped}\"))"));
+    }
+    rules.sort();
+    rules.dedup();
+    if rules.is_empty() {
+        String::new()
+    } else {
+        format!("\n            {}", rules.join("\n            "))
+    }
+}
+
+fn resolve_policy_paths(paths: &[String]) -> Vec<String> {
+    let home = env::var_os("HOME").map(PathBuf::from);
+    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut resolved = paths
+        .iter()
+        .map(|path| {
+            let path = path.trim();
+            let path = if path == "~" {
+                home.clone().unwrap_or_else(|| PathBuf::from(path))
+            } else if let Some(rest) = path.strip_prefix("~/") {
+                home.clone()
+                    .unwrap_or_else(|| PathBuf::from("~"))
+                    .join(rest)
+            } else {
+                PathBuf::from(path)
+            };
+            if path.is_absolute() {
+                path
+            } else {
+                current_dir.join(path)
+            }
+        })
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    resolved.sort();
+    resolved.dedup();
+    resolved
+}
+
+fn filesystem_denial_from_line(
+    line: &str,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> Option<(String, &'static str)> {
+    if !line.contains("Operation not permitted") && !line.contains("Permission denied") {
+        return None;
+    }
+
+    let matches_path = |configured: &str| {
+        let configured = configured.trim();
+        let resolved = resolve_policy_paths(&[configured.to_owned()]);
+        line.contains(configured)
+            || resolved.iter().any(|path| line.contains(path))
+            || PathBuf::from(configured)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| line.contains(name))
+    };
+
+    let read_match = denied_read_paths.iter().find(|path| matches_path(path));
+    let write_match = denied_write_paths.iter().find(|path| matches_path(path));
+    match (read_match, write_match) {
+        (Some(path), Some(_)) => Some((path.trim().to_owned(), "read/write")),
+        (Some(path), None) => Some((path.trim().to_owned(), "read")),
+        (None, Some(path)) => Some((path.trim().to_owned(), "write")),
+        (None, None) => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn escape_sbpl_path(path: &str) -> String {
+    path.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 #[cfg(target_os = "linux")]
 fn linux_denied_exec_paths(
     env_vars: &HashMap<String, String>,
@@ -416,8 +561,8 @@ fn command_in_path(command: &str) -> bool {
 #[cfg(all(test, unix))]
 mod tests {
     use super::{
-        run_command, run_command_with_denied_commands, sandbox_command,
-        sandbox_command_with_denied_commands,
+        filesystem_denial_from_line, run_command, run_command_with_denied_commands,
+        sandbox_command, sandbox_command_with_denied_commands,
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -425,6 +570,16 @@ mod tests {
     fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn parses_structured_filesystem_denial() {
+        let denial = filesystem_denial_from_line(
+            "cat: .env: Operation not permitted",
+            &[".env".to_owned()],
+            &[],
+        );
+        assert_eq!(denial, Some((".env".to_owned(), "read")));
     }
 
     #[tokio::test]
@@ -455,6 +610,8 @@ mod tests {
             false,
             false,
             &["blocked-tool".to_owned()],
+            &[],
+            &[],
             None,
         )
         .await
@@ -647,9 +804,15 @@ mod tests {
                 "http://127.0.0.1:49152".to_owned(),
             ),
         ]);
-        let (_, args) =
-            sandbox_command_with_denied_commands("/bin/sh", true, &env_vars, &["curl".to_owned()])
-                .unwrap();
+        let (_, args) = sandbox_command_with_denied_commands(
+            "/bin/sh",
+            true,
+            &env_vars,
+            &["curl".to_owned()],
+            &[],
+            &[],
+        )
+        .unwrap();
         let profile = &args[1];
         assert!(profile.contains("(deny process-exec (literal \"/usr/bin/curl\"))"));
     }
@@ -666,12 +829,31 @@ mod tests {
             false,
             false,
             &["curl".to_owned()],
+            &[],
+            &[],
             None,
         )
         .await
         .unwrap();
 
         assert!(!status.success());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_filesystem_policy_generates_file_read_rule() {
+        let (program, args) = sandbox_command_with_denied_commands(
+            "/bin/sh",
+            false,
+            &HashMap::new(),
+            &[],
+            &["/tmp/private-agent-file".to_owned()],
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(program, "/usr/bin/sandbox-exec");
+        assert!(args[1].contains("(deny file-read* (subpath \"/tmp/private-agent-file\"))"));
     }
 
     #[cfg(target_os = "linux")]

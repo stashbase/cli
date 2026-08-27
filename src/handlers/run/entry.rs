@@ -54,6 +54,8 @@ pub async fn handle_remote_agent_run(
     let cmd = command.first().context("no command provided")?.clone();
     let args = command.into_iter().skip(1).collect();
     let denied_commands = policy.denied_commands.iter().cloned().collect::<Vec<_>>();
+    let denied_read_paths = policy.denied_read_paths.clone();
+    let denied_write_paths = policy.denied_write_paths.clone();
     let command_audit_log = audit_log.clone();
     let proxy =
         super::proxy::Proxy::start_remote_with_port(remote, policy, audit_log, proxy_port).await?;
@@ -75,6 +77,8 @@ pub async fn handle_remote_agent_run(
         true,
         true,
         &denied_commands,
+        &denied_read_paths,
+        &denied_write_paths,
         command_audit_log,
     )
     .await;
@@ -1096,6 +1100,14 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.denied_commands.iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
+    let denied_read_paths = proxy_policy
+        .as_ref()
+        .map(|policy| policy.denied_read_paths.clone())
+        .unwrap_or_default();
+    let denied_write_paths = proxy_policy
+        .as_ref()
+        .map(|policy| policy.denied_write_paths.clone())
+        .unwrap_or_default();
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
@@ -1125,6 +1137,8 @@ async fn handle_run(
             true,
             restrict_stashbase_credentials,
             &denied_commands,
+            &denied_read_paths,
+            &denied_write_paths,
             command_audit_log,
         )
         .await;

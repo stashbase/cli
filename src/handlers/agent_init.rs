@@ -19,6 +19,11 @@ egress_hosts = []
 # [commands]
 # denied = ["ssh", "sudo"]
 
+# Optional: protect sensitive files from agent reads and writes.
+# [filesystem]
+# deny_read = ["~/.ssh", "~/.aws", ".env"]
+# deny_write = ["~/.ssh", "~/.aws", ".git"]
+
 # Replace SECRET_NAME with the Stashbase secret to grant.
 [secrets.SECRET_NAME]
 
