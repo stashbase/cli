@@ -97,6 +97,10 @@ descendants:
 ```toml
 [commands]
 denied = ["ssh", "sudo", "docker"]
+
+[filesystem]
+deny_read = ["~/.ssh", "~/.aws", ".env"]
+deny_write = ["~/.ssh", "~/.aws", ".git"]
 ```
 
 Denied commands exit with status 126 and emit a structured
@@ -106,6 +110,23 @@ denied, even without `--sandbox`, so absolute paths are covered too. On Linux
 with a systemd user session, `NoExecPaths` also enforces resolved executable
 paths for descendants; otherwise the policy falls back to normal `PATH`
 wrappers. Shell built-ins remain outside the policy.
+
+Filesystem restrictions use explicit path prefixes:
+
+```toml
+[filesystem]
+deny_read = ["~/.ssh", "~/.aws", ".env"]
+deny_write = ["~/.ssh", "~/.aws", ".git"]
+```
+
+On macOS these are enforced by Seatbelt. On Linux, systemd user sessions use
+`InaccessiblePaths` for read denies and `ReadOnlyPaths` for write denies;
+otherwise filesystem restrictions are reported as unavailable rather than
+silently pretending to be enforced. Existing file descriptors and data already
+loaded into process memory are outside this policy.
+
+Blocked access is reported as a structured policy error when the denial passes
+through the agent proxy.
 
 Inspect one command without starting an agent:
 
