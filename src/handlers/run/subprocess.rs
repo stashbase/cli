@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
@@ -9,7 +11,7 @@ use duct::{cmd, Expression};
 use thiserror::Error;
 
 // use log::debug;
-use std::io::prelude::*;
+#[cfg(not(unix))]
 use std::io::BufReader;
 
 const RESTRICTED_CHILD_ENV_REMOVALS: &[&str] = &["STASHBASE_API_KEY"];
@@ -146,60 +148,36 @@ pub async fn run_command_with_denied_commands(
     // .full_env(env_vars);
     // .env("--color", "always");
 
-    // `unchecked` lets us drain output before returning the child's exact status.
-    // Keep stdout attached to the terminal. Interactive agents such as Codex
-    // require this; command-denial wrappers emit their structured diagnostic
-    // directly on stderr.
-    let mut reader = cmd.stdout_to_stderr().unchecked().reader()?;
-    {
-        let mut lines = BufReader::new(&mut reader).lines();
-        loop {
-            match lines.next() {
-                Some(line) => {
-                    let line = line?;
-                    if let Some(command) = line.strip_prefix("STASHBASE_COMMAND_DENIED:") {
-                        let id = audit_log
-                            .as_ref()
-                            .map(|audit_log| audit_log.record_command_denied(command));
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "error": {
-                                    "code": "command_denied",
-                                    "message": "Command denied by agent policy",
-                                    "command": command,
-                                    "id": id,
-                                }
-                            })
-                        );
-                        continue;
-                    }
-                    if let Some((path, operation)) =
-                        filesystem_denial_from_line(&line, denied_read_paths, denied_write_paths)
-                    {
-                        println!(
-                            "{}",
-                            serde_json::json!({
-                                "error": {
-                                    "code": "filesystem_denied",
-                                    "message": "Filesystem access denied by agent policy",
-                                    "path": path,
-                                    "operation": operation,
-                                }
-                            })
-                        );
-                        continue;
-                    }
-                    println!("{}", line);
-                }
-                None => break,
+    // Unix keeps stdout attached to the terminal while stderr is captured for
+    // policy-denial normalization. This avoids breaking interactive agents.
+    #[cfg(unix)]
+    let output = {
+        let terminal_output = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
+        if terminal_output < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let output = cmd
+            .stdout_file(terminal_output)
+            .stderr_capture()
+            .unchecked()
+            .run()?;
+        emit_child_stderr(&output.stderr, denied_read_paths, denied_write_paths)?;
+        output
+    };
+
+    #[cfg(not(unix))]
+    let output = {
+        let mut reader = cmd.stdout_to_stderr().unchecked().reader()?;
+        {
+            let mut lines = BufReader::new(&mut reader).lines();
+            while let Some(line) = lines.next() {
+                println!("{}", line?);
             }
         }
-    }
-
-    let output = reader
-        .try_wait()?
-        .expect("reader reached EOF after child exit");
+        reader
+            .try_wait()?
+            .expect("reader reached EOF after child exit")
+    };
     if let (Some(wrappers), Some(audit_log)) = (&command_wrappers, &audit_log) {
         if let Some(event_path) = &wrappers.event_path {
             if let Ok(events) = fs::read_to_string(event_path) {
@@ -492,6 +470,34 @@ fn resolve_policy_paths(paths: &[String]) -> Vec<String> {
     resolved.sort();
     resolved.dedup();
     resolved
+}
+
+#[cfg(unix)]
+fn emit_child_stderr(
+    stderr: &[u8],
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> Result<()> {
+    for line in String::from_utf8_lossy(stderr).lines() {
+        if let Some((path, operation)) =
+            filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
+        {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "error": {
+                        "code": "filesystem_denied",
+                        "message": "Filesystem access denied by agent policy",
+                        "path": path,
+                        "operation": operation,
+                    }
+                })
+            );
+        } else {
+            eprintln!("{line}");
+        }
+    }
+    Ok(())
 }
 
 fn filesystem_denial_from_line(
