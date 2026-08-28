@@ -12,7 +12,7 @@ use thiserror::Error;
 
 // use log::debug;
 #[cfg(not(unix))]
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 
 const RESTRICTED_CHILD_ENV_REMOVALS: &[&str] = &["STASHBASE_API_KEY"];
 // These settings can make a child select another proxy or skip the proxy for
