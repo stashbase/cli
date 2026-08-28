@@ -161,7 +161,12 @@ pub async fn run_command_with_denied_commands(
             .stderr_capture()
             .unchecked()
             .run()?;
-        emit_child_stderr(&output.stderr, denied_read_paths, denied_write_paths)?;
+        emit_child_stderr(
+            &output.stderr,
+            denied_read_paths,
+            denied_write_paths,
+            audit_log.as_ref(),
+        )?;
         output
     };
 
@@ -483,11 +488,14 @@ fn emit_child_stderr(
     stderr: &[u8],
     denied_read_paths: &[String],
     denied_write_paths: &[String],
+    audit_log: Option<&super::proxy::ProxyAuditLog>,
 ) -> Result<()> {
     for line in String::from_utf8_lossy(stderr).lines() {
         if let Some((path, operation)) =
             filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
         {
+            let id =
+                audit_log.map(|audit_log| audit_log.record_filesystem_denied(&path, operation));
             println!(
                 "{}",
                 serde_json::json!({
@@ -496,6 +504,7 @@ fn emit_child_stderr(
                         "message": "Filesystem access denied by agent policy",
                         "path": path,
                         "operation": operation,
+                        "id": id,
                     }
                 })
             );

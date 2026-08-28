@@ -103,6 +103,12 @@ pub struct ProxyAuditLogEvent {
     /// Present only for command-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    /// Present only for filesystem-policy events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Filesystem operation denied by policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
     pub method: Option<String>,
     #[serde(default)]
     pub binding_name: Option<String>,
@@ -262,6 +268,24 @@ impl ProxyAuditLog {
         id
     }
 
+    pub fn record_filesystem_denied(&self, path: &str, operation: &str) -> String {
+        let id = new_local_audit_event_id();
+        self.record_with_bytes(
+            "filesystem_denied",
+            Some(path),
+            None,
+            None,
+            Some(StatusCode::FORBIDDEN),
+            None,
+            Some(&id),
+            None,
+            None,
+            Some(path),
+            Some(operation),
+        );
+        id
+    }
+
     pub fn with_profile_provenance(mut self, profile_provenance: ProfileAuditProvenance) -> Self {
         self.profile_provenance = Some(profile_provenance);
         self
@@ -293,6 +317,8 @@ impl ProxyAuditLog {
             id,
             None,
             None,
+            None,
+            None,
         );
     }
 
@@ -308,6 +334,8 @@ impl ProxyAuditLog {
         id: Option<&str>,
         request_bytes: Option<u64>,
         response_bytes: Option<u64>,
+        path: Option<&str>,
+        operation: Option<&str>,
     ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
@@ -339,7 +367,7 @@ impl ProxyAuditLog {
                 })
                 .flatten(),
             action: action.to_owned(),
-            destination_host: (action != "command_denied")
+            destination_host: (action != "command_denied" && action != "filesystem_denied")
                 .then(|| host)
                 .flatten()
                 .map(str::to_owned),
@@ -347,6 +375,8 @@ impl ProxyAuditLog {
                 .then(|| host)
                 .flatten()
                 .map(str::to_owned),
+            path: path.map(str::to_owned),
+            operation: operation.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
             binding_name: secret_name.map(str::to_owned),
             binding_source: secret_name
@@ -430,6 +460,8 @@ impl AuditedResponseStream {
                 Some(&self.request_id),
                 Some(self.request_bytes.load(Ordering::Relaxed)),
                 Some(self.response_bytes),
+                None,
+                None,
             );
         }
     }
@@ -3267,12 +3299,21 @@ mod tests {
             Some(Duration::from_millis(12)),
             Some("evt_test"),
         );
+        let filesystem_event_id = audit_log.record_filesystem_denied(".env", "read");
 
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("api.example.com"));
         assert!(content.contains("EXAMPLE_API_KEY"));
         assert!(content.contains("personal_credential"));
         assert!(content.contains("policy-fingerprint"));
+        let filesystem_event = content
+            .lines()
+            .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
+            .find(|event| event.id == filesystem_event_id)
+            .unwrap();
+        assert_eq!(filesystem_event.action, "filesystem_denied");
+        assert_eq!(filesystem_event.path.as_deref(), Some(".env"));
+        assert_eq!(filesystem_event.operation.as_deref(), Some("read"));
         assert!(!content.contains("real-secret-value"));
         fs::remove_file(path).unwrap();
     }
@@ -3423,6 +3464,8 @@ mod tests {
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             command: None,
+            path: None,
+            operation: None,
             method: Some("POST".to_owned()),
             binding_name: Some("GH_TOKEN".to_owned()),
             binding_source: None,
