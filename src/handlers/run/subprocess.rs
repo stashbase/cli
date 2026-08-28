@@ -638,6 +638,36 @@ mod tests {
         assert_eq!(descendant, Some(("/tmp/private-agent".to_owned(), "write")));
     }
 
+    #[test]
+    fn classifies_exact_write_denial() {
+        let denial = filesystem_denial_from_line(
+            "echo: protected.txt: Permission denied",
+            &[],
+            &["protected.txt".to_owned()],
+        );
+        assert_eq!(denial, Some(("protected.txt".to_owned(), "write")));
+    }
+
+    #[test]
+    fn does_not_match_sibling_directory_with_shared_prefix() {
+        let denial = filesystem_denial_from_line(
+            "cat: /tmp/private-agent-other/key: Operation not permitted",
+            &["/tmp/private-agent".to_owned()],
+            &[],
+        );
+        assert_eq!(denial, None);
+    }
+
+    #[test]
+    fn ignores_permission_error_without_configured_path() {
+        let denial = filesystem_denial_from_line(
+            "cat: public.txt: Permission denied",
+            &[".env".to_owned()],
+            &[".git".to_owned()],
+        );
+        assert_eq!(denial, None);
+    }
+
     #[tokio::test]
     async fn returns_the_child_exit_status() {
         let status = run_command(
