@@ -151,7 +151,7 @@ pub async fn run_command_with_denied_commands(
     // Unix keeps stdout attached to the terminal while stderr is captured for
     // policy-denial normalization. This avoids breaking interactive agents.
     #[cfg(unix)]
-    let output = {
+    let status = {
         let terminal_output = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
         if terminal_output < 0 {
             return Err(std::io::Error::last_os_error().into());
@@ -167,11 +167,11 @@ pub async fn run_command_with_denied_commands(
             denied_write_paths,
             audit_log.as_ref(),
         )?;
-        output
+        output.status
     };
 
     #[cfg(not(unix))]
-    let output = {
+    let status = {
         let mut reader = cmd.stdout_to_stderr().unchecked().reader()?;
         {
             let mut lines = BufReader::new(&mut reader).lines();
@@ -182,6 +182,8 @@ pub async fn run_command_with_denied_commands(
         reader
             .try_wait()?
             .expect("reader reached EOF after child exit")
+            .status
+            .clone()
     };
     if let (Some(wrappers), Some(audit_log)) = (&command_wrappers, &audit_log) {
         if let Some(event_path) = &wrappers.event_path {
@@ -196,7 +198,7 @@ pub async fn run_command_with_denied_commands(
             }
         }
     }
-    Ok(output.status)
+    Ok(status)
 }
 
 /// A deliberately small first version of command enforcement. The wrappers
