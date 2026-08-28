@@ -296,6 +296,12 @@ fn sandbox_command_with_denied_commands(
             return Ok((command.to_owned(), Vec::new()));
         }
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
+        if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
+            anyhow::bail!(
+                "filesystem restrictions require macOS Seatbelt or Linux systemd user support"
+            );
+        }
+        #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         return Ok((command.to_owned(), Vec::new()));
         #[cfg(target_os = "macos")]
         if denied_commands.is_empty()
