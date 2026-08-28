@@ -14,6 +14,7 @@ use crate::{
             normalize_request_path, SecretAuthorizationDecision, SecretHttpPolicy,
         },
         agent_validate::ensure_profile_is_valid_for_run,
+        run::subprocess::systemd_run_available,
     },
     models::config::Config,
     utils::output::get_formatted_json_string,
@@ -232,8 +233,10 @@ pub fn handle_agent_command_explain_command(
         .denied
         .iter()
         .any(|value| value.eq_ignore_ascii_case(executable));
+    let os_level_command_enforcement =
+        cfg!(target_os = "macos") || (cfg!(target_os = "linux") && systemd_run_available());
     let enforcement = if denied {
-        if cfg!(target_os = "macos") {
+        if os_level_command_enforcement {
             "os_process_exec"
         } else {
             "path_wrapper"
@@ -247,7 +250,7 @@ pub fn handle_agent_command_explain_command(
         "command": executable,
         "decision": if denied { "deny" } else { "allow" },
         "enforcement": enforcement,
-        "limitations": if denied && !cfg!(target_os = "macos") { Some("Absolute executable paths are not covered on this platform.") } else { None::<&str> },
+        "limitations": if denied && !os_level_command_enforcement { Some("Absolute executable paths are not covered on this platform.") } else { None::<&str> },
     });
     if !silent {
         println!();

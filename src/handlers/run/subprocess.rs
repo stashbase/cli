@@ -596,6 +596,17 @@ fn command_in_path(command: &str) -> bool {
     })
 }
 
+pub(crate) fn systemd_run_available() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        command_in_path("systemd-run")
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::{
