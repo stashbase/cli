@@ -579,7 +579,7 @@ fn linux_denied_exec_paths(
         .iter()
         .flat_map(|command| {
             std::env::split_paths(path)
-                .map(|directory| directory.join(command))
+                .map(move |directory| directory.join(command))
                 .filter(|candidate| candidate.is_file())
         })
         .map(|path| path.to_string_lossy().into_owned())
@@ -609,10 +609,9 @@ pub(crate) fn systemd_run_available() -> bool {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{
-        filesystem_denial_from_line, run_command, run_command_with_denied_commands,
-        sandbox_command, sandbox_command_with_denied_commands,
-    };
+    use super::{filesystem_denial_from_line, run_command, sandbox_command};
+    #[cfg(target_os = "macos")]
+    use super::{run_command_with_denied_commands, sandbox_command_with_denied_commands};
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
 
