@@ -72,6 +72,9 @@ Each file in `.stashbase/agents` contains the profile directly—there is no
 # .stashbase/agents/codex.toml
 egress_hosts = ["api.github.com"]
 
+[commands]
+denied = ["ssh", "sudo"]
+
 [secrets]
 project = "local-agents"
 environment = "local-creds"
@@ -87,6 +90,54 @@ environment. `env` names the environment variable exposed to the child, so the
 profile above makes the `GITHUB_TOKEN` secret available as `GH_TOKEN`. The
 source name is removed from the child environment, preventing a parent process
 variable such as `GITHUB_TOKEN` from bypassing the profile's chosen name.
+
+Command restrictions can shadow normal `PATH` lookups for the agent and its
+descendants:
+
+```toml
+[commands]
+denied = ["ssh", "sudo", "docker"]
+
+[filesystem]
+deny_read = ["~/.ssh", "~/.aws", ".env"]
+deny_write = ["~/.ssh", "~/.aws", ".git"]
+```
+
+Denied commands exit with status 126 and emit a structured
+`{"error":{"code":"command_denied",...}}` diagnostic on stderr. On macOS,
+command restrictions use the OS process sandbox whenever any commands are
+denied, even without `--sandbox`, so absolute paths are covered too. On Linux
+with a systemd user session, `NoExecPaths` also enforces resolved executable
+paths for descendants; otherwise the policy falls back to normal `PATH`
+wrappers. Shell built-ins remain outside the policy.
+
+Filesystem restrictions use explicit path prefixes:
+
+```toml
+[filesystem]
+deny_read = ["~/.ssh", "~/.aws", ".env"]
+deny_write = ["~/.ssh", "~/.aws", ".git"]
+```
+
+On macOS these are enforced by Seatbelt. On Linux, systemd user sessions use
+`InaccessiblePaths` for read denies and `ReadOnlyPaths` for write denies;
+otherwise filesystem restrictions are reported as unavailable rather than
+silently pretending to be enforced. Existing file descriptors and data already
+loaded into process memory are outside this policy.
+
+Blocked access is reported as a structured policy error when the denial passes
+through the agent proxy.
+
+Inspect one command without starting an agent:
+
+```bash
+stashbase agent command --profile coding --command curl
+stashbase agent command --profile coding --command curl --json
+```
+
+The report identifies whether the command is denied and whether enforcement is
+OS-level or the PATH-wrapper fallback. Audit summaries can group denials with
+`stashbase agent logs summary --by command`.
 
 Validate a profile before granting it secrets—locally or in CI:
 

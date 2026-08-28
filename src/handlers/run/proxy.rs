@@ -100,6 +100,15 @@ pub struct ProxyAuditLogEvent {
     pub profile_file_sha256: Option<String>,
     pub action: String,
     pub destination_host: Option<String>,
+    /// Present only for command-policy events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    /// Present only for filesystem-policy events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Filesystem operation denied by policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
     pub method: Option<String>,
     #[serde(default)]
     pub binding_name: Option<String>,
@@ -245,6 +254,38 @@ impl ProxyAuditLog {
         &self.policy_fingerprint
     }
 
+    pub fn record_command_denied(&self, command: &str) -> String {
+        let id = new_local_audit_event_id();
+        self.record(
+            "command_denied",
+            Some(command),
+            None,
+            None,
+            Some(StatusCode::FORBIDDEN),
+            None,
+            Some(&id),
+        );
+        id
+    }
+
+    pub fn record_filesystem_denied(&self, path: &str, operation: &str) -> String {
+        let id = new_local_audit_event_id();
+        self.record_with_bytes(
+            "filesystem_denied",
+            Some(path),
+            None,
+            None,
+            Some(StatusCode::FORBIDDEN),
+            None,
+            Some(&id),
+            None,
+            None,
+            Some(path),
+            Some(operation),
+        );
+        id
+    }
+
     pub fn with_profile_provenance(mut self, profile_provenance: ProfileAuditProvenance) -> Self {
         self.profile_provenance = Some(profile_provenance);
         self
@@ -276,6 +317,8 @@ impl ProxyAuditLog {
             id,
             None,
             None,
+            None,
+            None,
         );
     }
 
@@ -291,6 +334,8 @@ impl ProxyAuditLog {
         id: Option<&str>,
         request_bytes: Option<u64>,
         response_bytes: Option<u64>,
+        path: Option<&str>,
+        operation: Option<&str>,
     ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
@@ -322,7 +367,16 @@ impl ProxyAuditLog {
                 })
                 .flatten(),
             action: action.to_owned(),
-            destination_host: host.map(str::to_owned),
+            destination_host: (action != "command_denied" && action != "filesystem_denied")
+                .then(|| host)
+                .flatten()
+                .map(str::to_owned),
+            command: (action == "command_denied")
+                .then(|| host)
+                .flatten()
+                .map(str::to_owned),
+            path: path.map(str::to_owned),
+            operation: operation.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
             binding_name: secret_name.map(str::to_owned),
             binding_source: secret_name
@@ -406,6 +460,8 @@ impl AuditedResponseStream {
                 Some(&self.request_id),
                 Some(self.request_bytes.load(Ordering::Relaxed)),
                 Some(self.response_bytes),
+                None,
+                None,
             );
         }
     }
@@ -539,6 +595,10 @@ pub struct ProxyPolicy {
     pub secret_injections: HashMap<String, SecretInjection>,
     pub allowed_egress_hosts: HashSet<String>,
     pub denied_hosts: HashSet<String>,
+    /// Executable names denied by the child command wrapper layer.
+    pub denied_commands: HashSet<String>,
+    pub denied_read_paths: Vec<String>,
+    pub denied_write_paths: Vec<String>,
     /// Whether credential-bearing requests must also satisfy egress policy.
     pub egress_hosts_configured: bool,
     pub strict_deny: bool,
@@ -642,6 +702,9 @@ impl ProxyPolicy {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: false,
         }
@@ -664,6 +727,15 @@ impl ProxyPolicy {
             .collect::<Vec<_>>();
         denied.sort();
         lines.push(format!("deny={}", denied.join(",")));
+        let mut denied_commands = self
+            .denied_commands
+            .iter()
+            .map(|command| command.trim().to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        denied_commands.sort();
+        lines.push(format!("deny_commands={}", denied_commands.join(",")));
+        lines.push(format!("deny_read={}", self.denied_read_paths.join(",")));
+        lines.push(format!("deny_write={}", self.denied_write_paths.join(",")));
 
         let mut secret_policies = self.secret_policies.iter().collect::<Vec<_>>();
         secret_policies.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -2863,6 +2935,9 @@ mod tests {
             )]),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         };
@@ -2985,6 +3060,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         }
@@ -3221,12 +3299,21 @@ mod tests {
             Some(Duration::from_millis(12)),
             Some("evt_test"),
         );
+        let filesystem_event_id = audit_log.record_filesystem_denied(".env", "read");
 
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("api.example.com"));
         assert!(content.contains("EXAMPLE_API_KEY"));
         assert!(content.contains("personal_credential"));
         assert!(content.contains("policy-fingerprint"));
+        let filesystem_event = content
+            .lines()
+            .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
+            .find(|event| event.id == filesystem_event_id)
+            .unwrap();
+        assert_eq!(filesystem_event.action, "filesystem_denied");
+        assert_eq!(filesystem_event.path.as_deref(), Some(".env"));
+        assert_eq!(filesystem_event.operation.as_deref(), Some("read"));
         assert!(!content.contains("real-secret-value"));
         fs::remove_file(path).unwrap();
     }
@@ -3376,6 +3463,9 @@ mod tests {
             profile_file_sha256: None,
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
+            command: None,
+            path: None,
+            operation: None,
             method: Some("POST".to_owned()),
             binding_name: Some("GH_TOKEN".to_owned()),
             binding_source: None,
@@ -3412,6 +3502,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -3449,6 +3542,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         }
@@ -3554,6 +3650,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -3635,6 +3734,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -3671,6 +3773,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         };
@@ -3693,6 +3798,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
         };
@@ -3750,6 +3858,9 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
+            denied_commands: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
         };
@@ -4108,6 +4219,9 @@ mod tests {
                 )]),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
+                denied_commands: HashSet::new(),
+                denied_read_paths: Vec::new(),
+                denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
                 strict_deny: true,
             },
@@ -4141,6 +4255,9 @@ mod tests {
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
+                denied_commands: HashSet::new(),
+                denied_read_paths: Vec::new(),
+                denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
                 strict_deny: true,
             },
@@ -4175,6 +4292,9 @@ mod tests {
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 denied_hosts: HashSet::new(),
+                denied_commands: HashSet::new(),
+                denied_read_paths: Vec::new(),
+                denied_write_paths: Vec::new(),
                 egress_hosts_configured: true,
                 strict_deny: true,
             },
