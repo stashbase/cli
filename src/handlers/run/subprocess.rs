@@ -517,8 +517,30 @@ fn filesystem_denial_from_line(
 
     let matches_path = |configured: &str| {
         let configured = configured.trim();
-        let resolved = resolve_policy_paths(&[configured.to_owned()]);
-        line.contains(configured) || resolved.iter().any(|path| line.contains(path))
+        let Some(denied_path) = resolve_policy_paths(&[configured.to_owned()])
+            .into_iter()
+            .next()
+            .map(PathBuf::from)
+        else {
+            return false;
+        };
+        line.split_whitespace().any(|token| {
+            let token = token
+                .trim_matches(|character| matches!(character, '\'' | '"' | '(' | '[' | '{'))
+                .trim_end_matches([':', ',', ')', ']', '}']);
+            if token.is_empty() {
+                return false;
+            }
+            let candidate = PathBuf::from(token);
+            let candidate = if candidate.is_absolute() {
+                candidate
+            } else {
+                env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(candidate)
+            };
+            candidate == denied_path || candidate.starts_with(&denied_path)
+        })
     };
 
     let read_match = denied_read_paths.iter().find(|path| matches_path(path));
@@ -597,6 +619,23 @@ mod tests {
             &[],
         );
         assert_eq!(denial, None);
+    }
+
+    #[test]
+    fn matches_normalized_relative_paths_and_denied_directory_descendants() {
+        let relative = filesystem_denial_from_line(
+            "cat: ./.env: Operation not permitted",
+            &[".env".to_owned()],
+            &[],
+        );
+        assert_eq!(relative, Some((".env".to_owned(), "read")));
+
+        let descendant = filesystem_denial_from_line(
+            "cat: /tmp/private-agent/keys/id_ed25519: Permission denied",
+            &[],
+            &["/tmp/private-agent".to_owned()],
+        );
+        assert_eq!(descendant, Some(("/tmp/private-agent".to_owned(), "write")));
     }
 
     #[tokio::test]
