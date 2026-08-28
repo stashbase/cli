@@ -287,10 +287,10 @@ fn sandbox_command_with_denied_commands(
 ) -> Result<(String, Vec<String>)> {
     if !sandbox {
         #[cfg(all(target_os = "linux"))]
-        if denied_commands.is_empty()
-            && denied_read_paths.is_empty()
-            && denied_write_paths.is_empty()
-        {
+        if denied_read_paths.is_empty() && denied_write_paths.is_empty() {
+            // Command denials are enforced by the PATH-prepended wrappers in
+            // run_command_with_denied_commands. Avoid systemd-run for that
+            // layer: CI runners may not support all service properties.
             return Ok((command.to_owned(), Vec::new()));
         }
         #[cfg(all(target_os = "linux"))]
@@ -353,6 +353,7 @@ fn sandbox_command_with_denied_commands(
 
     #[cfg(target_os = "linux")]
     {
+        let _ = denied_commands;
         if !command_in_path("systemd-run") {
             if sandbox {
                 anyhow::bail!(
@@ -378,9 +379,6 @@ fn sandbox_command_with_denied_commands(
                 "--property=IPAddressAllow=127.0.0.1".to_owned(),
                 "--property=IPAddressAllow=::1".to_owned(),
             ]);
-        }
-        for path in linux_denied_exec_paths(env_vars, denied_commands) {
-            args.push(format!("--property=NoExecPaths={path}"));
         }
         for path in resolve_policy_paths(denied_read_paths) {
             args.push(format!("--property=InaccessiblePaths={path}"));
@@ -565,28 +563,6 @@ fn filesystem_denial_from_line(
 #[cfg(target_os = "macos")]
 fn escape_sbpl_path(path: &str) -> String {
     path.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-#[cfg(target_os = "linux")]
-fn linux_denied_exec_paths(
-    env_vars: &HashMap<String, String>,
-    denied_commands: &[String],
-) -> Vec<String> {
-    let Some(path) = env_vars.get("PATH") else {
-        return Vec::new();
-    };
-    let mut paths = denied_commands
-        .iter()
-        .flat_map(|command| {
-            std::env::split_paths(path)
-                .map(move |directory| directory.join(command))
-                .filter(|candidate| candidate.is_file())
-        })
-        .map(|path| path.to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths.dedup();
-    paths
 }
 
 #[cfg(target_os = "linux")]
