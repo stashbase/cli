@@ -518,12 +518,7 @@ fn filesystem_denial_from_line(
     let matches_path = |configured: &str| {
         let configured = configured.trim();
         let resolved = resolve_policy_paths(&[configured.to_owned()]);
-        line.contains(configured)
-            || resolved.iter().any(|path| line.contains(path))
-            || PathBuf::from(configured)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| line.contains(name))
+        line.contains(configured) || resolved.iter().any(|path| line.contains(path))
     };
 
     let read_match = denied_read_paths.iter().find(|path| matches_path(path));
@@ -592,6 +587,16 @@ mod tests {
             &[],
         );
         assert_eq!(denial, Some((".env".to_owned(), "read")));
+    }
+
+    #[test]
+    fn ignores_unrelated_permission_errors_with_matching_basename() {
+        let denial = filesystem_denial_from_line(
+            "tool: /tmp/other/.env: Permission denied",
+            &["/tmp/project/.env".to_owned()],
+            &[],
+        );
+        assert_eq!(denial, None);
     }
 
     #[tokio::test]
