@@ -296,17 +296,22 @@ fn sandbox_command_with_denied_commands(
             return Ok((command.to_owned(), Vec::new()));
         }
         #[cfg(all(target_os = "linux"))]
-        if !command_in_path("systemd-run") {
-            if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
-                anyhow::bail!("filesystem restrictions on Linux require systemd-run and an active systemd user session");
+        if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
+            #[cfg(target_os = "linux")]
+            {
+                if systemd_filesystem_enforcement_error().is_some() {
+                    if let Some(error) = bubblewrap_enforcement_error() {
+                        anyhow::bail!(error);
+                    }
+                    return Ok(bubblewrap_command(
+                        command,
+                        denied_read_paths,
+                        denied_write_paths,
+                    ));
+                }
             }
-            return Ok((command.to_owned(), Vec::new()));
-        }
-        #[cfg(all(target_os = "linux"))]
-        if let Some(error) = filesystem_enforcement_error() {
-            if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
-                anyhow::bail!(error);
-            }
+            #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+            anyhow::bail!("filesystem restrictions require macOS Seatbelt or Linux filesystem sandbox support");
         }
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
@@ -363,31 +368,24 @@ fn sandbox_command_with_denied_commands(
     {
         let _ = denied_commands;
         if sandbox {
-            if let Some(error) = filesystem_enforcement_error() {
+            if let Some(error) = systemd_filesystem_enforcement_error() {
                 anyhow::bail!(error);
             }
         }
-        if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
-            if let Some(error) = filesystem_enforcement_error() {
+        if !sandbox
+            && (!denied_read_paths.is_empty() || !denied_write_paths.is_empty())
+            && systemd_filesystem_enforcement_error().is_some()
+        {
+            if let Some(error) = bubblewrap_enforcement_error() {
                 anyhow::bail!(error);
             }
+            return Ok(bubblewrap_command(
+                command,
+                denied_read_paths,
+                denied_write_paths,
+            ));
         }
-        if !command_in_path("systemd-run") {
-            if sandbox {
-                anyhow::bail!(
-                    "--sandbox on Linux requires systemd-run and an active systemd user session"
-                )
-            }
-            if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
-                if let Some(error) = bubblewrap_enforcement_error() {
-                    anyhow::bail!(error);
-                }
-                return Ok(bubblewrap_command(
-                    command,
-                    denied_read_paths,
-                    denied_write_paths,
-                ));
-            }
+        if !sandbox && denied_read_paths.is_empty() && denied_write_paths.is_empty() {
             return Ok((command.to_owned(), Vec::new()));
         }
         // systemd applies these cgroup IP rules only to the child command. The
@@ -600,7 +598,7 @@ fn command_in_path(command: &str) -> bool {
 pub(crate) fn systemd_run_available() -> bool {
     #[cfg(target_os = "linux")]
     {
-        filesystem_enforcement_error().is_none()
+        systemd_filesystem_enforcement_error().is_none()
     }
     #[cfg(not(target_os = "linux"))]
     {
