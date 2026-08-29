@@ -17,7 +17,10 @@ use serde::Serialize;
 
 use crate::{
     cmd::agent::AgentDoctorCommand,
-    handlers::run::proxy::{Proxy, ProxyPolicy},
+    handlers::run::{
+        proxy::{Proxy, ProxyPolicy},
+        subprocess::filesystem_enforcement_error,
+    },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
 
@@ -58,6 +61,14 @@ pub async fn handle_agent_doctor_command(
         None => checks.push(fail(
             format!("Executable `{tool}`"),
             "Not found in PATH. Install it or pass its executable name.".to_owned(),
+        )),
+    }
+
+    match filesystem_enforcement_error() {
+        Some(error) => checks.push(fail("Filesystem enforcement", error)),
+        None => checks.push(ok(
+            "Filesystem enforcement",
+            "The filesystem policy backend is available for agent profiles.".to_owned(),
         )),
     }
 
