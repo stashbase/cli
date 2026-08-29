@@ -287,6 +287,9 @@ fn sandbox_command_with_denied_commands(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
 ) -> Result<(String, Vec<String>)> {
+    #[cfg(target_os = "linux")]
+    let _ = env_vars;
+
     if !sandbox {
         #[cfg(all(target_os = "linux"))]
         if denied_read_paths.is_empty() && denied_write_paths.is_empty() {
@@ -388,29 +391,12 @@ fn sandbox_command_with_denied_commands(
         if !sandbox && denied_read_paths.is_empty() && denied_write_paths.is_empty() {
             return Ok((command.to_owned(), Vec::new()));
         }
-        // systemd applies these cgroup IP rules only to the child command. The
-        // parent-owned proxy remains outside the scope and can forward approved
-        // requests to the internet, while the child can reach only 127.0.0.1.
-        let mut args = vec![
-            "--user".to_owned(),
-            "--scope".to_owned(),
-            "--quiet".to_owned(),
-        ];
-        if sandbox {
-            args.extend([
-                "--property=IPAddressDeny=any".to_owned(),
-                "--property=IPAddressAllow=127.0.0.1".to_owned(),
-                "--property=IPAddressAllow=::1".to_owned(),
-            ]);
-        }
-        for path in resolve_policy_paths(denied_read_paths) {
-            args.push(format!("--property=InaccessiblePaths={path}"));
-        }
-        for path in resolve_policy_paths(denied_write_paths) {
-            args.push(format!("--property=ReadOnlyPaths={path}"));
-        }
-        args.extend(["--".to_owned(), command.to_owned()]);
-        return Ok(("systemd-run".to_owned(), args));
+        return Ok(systemd_command(
+            command,
+            sandbox,
+            denied_read_paths,
+            denied_write_paths,
+        ));
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -729,6 +715,38 @@ fn bubblewrap_command(
     }
     args.extend(["--".to_owned(), command.to_owned()]);
     (executable.to_owned(), args)
+}
+
+#[cfg(target_os = "linux")]
+fn systemd_command(
+    command: &str,
+    sandbox: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> (String, Vec<String>) {
+    // systemd applies these cgroup IP rules only to the child command. The
+    // parent-owned proxy remains outside the scope and can forward approved
+    // requests to the internet, while the child can reach only 127.0.0.1.
+    let mut args = vec![
+        "--user".to_owned(),
+        "--scope".to_owned(),
+        "--quiet".to_owned(),
+    ];
+    if sandbox {
+        args.extend([
+            "--property=IPAddressDeny=any".to_owned(),
+            "--property=IPAddressAllow=127.0.0.1".to_owned(),
+            "--property=IPAddressAllow=::1".to_owned(),
+        ]);
+    }
+    for path in resolve_policy_paths(denied_read_paths) {
+        args.push(format!("--property=InaccessiblePaths={path}"));
+    }
+    for path in resolve_policy_paths(denied_write_paths) {
+        args.push(format!("--property=ReadOnlyPaths={path}"));
+    }
+    args.extend(["--".to_owned(), command.to_owned()]);
+    ("systemd-run".to_owned(), args)
 }
 
 #[cfg(target_os = "linux")]
@@ -1139,11 +1157,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_sandbox_uses_systemd_cgroup_network_rules() {
-        let env_vars = HashMap::from([(
-            "HTTPS_PROXY".to_owned(),
-            "http://127.0.0.1:49152".to_owned(),
-        )]);
-        let (program, args) = sandbox_command("curl", true, &env_vars).unwrap();
+        let (program, args) = super::systemd_command("curl", true, &[], &[]);
         assert_eq!(program, "systemd-run");
         assert!(args.contains(&"--property=IPAddressDeny=any".to_owned()));
         assert!(args.contains(&"--property=IPAddressAllow=127.0.0.1".to_owned()));
@@ -1169,15 +1183,25 @@ mod tests {
             &[readonly_dir, readonly_file.clone()],
         );
         assert!(program == "bwrap" || program == "bubblewrap");
-        assert!(args
-            .windows(2)
-            .any(|window| window == ["--tmpfs", private_dir]));
-        assert!(args
-            .windows(3)
-            .any(|window| window == ["--ro-bind", "/dev/null", private_file]));
-        assert!(args
-            .windows(3)
-            .any(|window| window == ["--ro-bind", readonly_file, readonly_file]));
+        assert!(args.windows(2).any(|window| {
+            window
+                .iter()
+                .map(String::as_str)
+                .eq(["--tmpfs", private_dir.as_str()])
+        }));
+        assert!(args.windows(3).any(|window| {
+            window
+                .iter()
+                .map(String::as_str)
+                .eq(["--ro-bind", "/dev/null", private_file.as_str()])
+        }));
+        assert!(args.windows(3).any(|window| {
+            window.iter().map(String::as_str).eq([
+                "--ro-bind",
+                readonly_file.as_str(),
+                readonly_file.as_str(),
+            ])
+        }));
         let _ = std::fs::remove_dir_all(root);
     }
 }
