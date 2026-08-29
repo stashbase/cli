@@ -428,7 +428,7 @@ pub async fn handle_cli(args: Cli) {
                     eprintln!("{}", json_str);
                 }
             }
-            return;
+            std::process::exit(1);
         }
 
         // Local commands such as `agent logs` do not need Stashbase authentication.
