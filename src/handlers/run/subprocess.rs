@@ -737,7 +737,7 @@ fn systemd_filesystem_enforcement_error() -> Option<String> {
         return Some("systemd-run is not available".to_owned());
     }
     let probe = std::process::Command::new("systemd-run")
-        .args(["--user", "--scope", "--quiet", "--wait", "--", "/bin/true"])
+        .args(["--user", "--scope", "--quiet", "--", "/bin/true"])
         .output();
     match probe {
         Ok(output) if output.status.success() => None,
@@ -1153,26 +1153,31 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn bubblewrap_maps_read_and_write_denies_to_mounts() {
+        let root =
+            std::env::temp_dir().join(format!("stashbase-bwrap-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("private-dir")).unwrap();
+        std::fs::create_dir_all(root.join("readonly-dir")).unwrap();
+        std::fs::write(root.join("private-file"), b"private").unwrap();
+        std::fs::write(root.join("readonly-file"), b"readonly").unwrap();
+        let private_dir = root.join("private-dir").to_string_lossy().into_owned();
+        let private_file = root.join("private-file").to_string_lossy().into_owned();
+        let readonly_dir = root.join("readonly-dir").to_string_lossy().into_owned();
+        let readonly_file = root.join("readonly-file").to_string_lossy().into_owned();
         let (program, args) = super::bubblewrap_command(
             "sh",
-            &[
-                "/tmp/private-dir".to_owned(),
-                "/tmp/private-file".to_owned(),
-            ],
-            &[
-                "/tmp/readonly-dir".to_owned(),
-                "/tmp/readonly-file".to_owned(),
-            ],
+            &[private_dir.clone(), private_file.clone()],
+            &[readonly_dir, readonly_file.clone()],
         );
         assert!(program == "bwrap" || program == "bubblewrap");
         assert!(args
             .windows(2)
-            .any(|window| { window == ["--tmpfs", "/tmp/private-dir"] }));
+            .any(|window| window == ["--tmpfs", private_dir]));
         assert!(args
             .windows(3)
-            .any(|window| { window == ["--ro-bind", "/dev/null", "/tmp/private-file"] }));
+            .any(|window| window == ["--ro-bind", "/dev/null", private_file]));
         assert!(args
             .windows(3)
-            .any(|window| { window == ["--ro-bind", "/tmp/readonly-file", "/tmp/readonly-file"] }));
+            .any(|window| window == ["--ro-bind", readonly_file, readonly_file]));
+        let _ = std::fs::remove_dir_all(root);
     }
 }
