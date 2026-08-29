@@ -118,6 +118,7 @@ pub async fn handle_agent_validate_command(
     }
 
     checks.extend(validate_profile(&profile));
+    checks.extend(validate_runtime_requirements(&profile));
     if command.remote {
         checks.extend(validate_remote_profile(&profile));
     }
@@ -130,6 +131,7 @@ pub async fn handle_agent_validate_command(
 pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
     let failures = validate_profile(profile)
         .into_iter()
+        .chain(validate_runtime_requirements(profile))
         .filter(|check| check.status == Status::Fail)
         .map(|check| format!("{}: {}", check.name, check.message))
         .collect::<Vec<_>>();
@@ -145,6 +147,23 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+fn validate_runtime_requirements(profile: &AgentProfile) -> Vec<Check> {
+    if profile.filesystem.deny_read.is_empty() && profile.filesystem.deny_write.is_empty() {
+        return Vec::new();
+    }
+
+    match crate::handlers::run::subprocess::filesystem_enforcement_error() {
+        Some(error) => vec![fail(
+            "Filesystem enforcement",
+            format!("this profile cannot run here: {error}"),
+        )],
+        None => vec![ok(
+            "Filesystem enforcement",
+            "Enforcement backend is available for this filesystem policy.".to_owned(),
+        )],
+    }
 }
 
 fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {

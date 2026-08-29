@@ -302,6 +302,12 @@ fn sandbox_command_with_denied_commands(
             }
             return Ok((command.to_owned(), Vec::new()));
         }
+        #[cfg(all(target_os = "linux"))]
+        if let Some(error) = filesystem_enforcement_error() {
+            if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
+                anyhow::bail!(error);
+            }
+        }
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
             anyhow::bail!(
@@ -356,6 +362,16 @@ fn sandbox_command_with_denied_commands(
     #[cfg(target_os = "linux")]
     {
         let _ = denied_commands;
+        if sandbox {
+            if let Some(error) = filesystem_enforcement_error() {
+                anyhow::bail!(error);
+            }
+        }
+        if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
+            if let Some(error) = filesystem_enforcement_error() {
+                anyhow::bail!(error);
+            }
+        }
         if !command_in_path("systemd-run") {
             if sandbox {
                 anyhow::bail!(
@@ -577,11 +593,50 @@ fn command_in_path(command: &str) -> bool {
 pub(crate) fn systemd_run_available() -> bool {
     #[cfg(target_os = "linux")]
     {
-        command_in_path("systemd-run")
+        filesystem_enforcement_error().is_none()
     }
     #[cfg(not(target_os = "linux"))]
     {
         false
+    }
+}
+
+/// Checks the backend used to enforce filesystem restrictions, including the
+/// user service manager connection required by `systemd-run --user`.
+pub(crate) fn filesystem_enforcement_error() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        if !command_in_path("systemd-run") {
+            return Some(
+                "filesystem restrictions cannot run here: enforcement backend `systemd-run --user` is not available in PATH"
+                    .to_owned(),
+            );
+        }
+
+        let probe = std::process::Command::new("systemd-run")
+            .args(["--user", "--scope", "--quiet", "--wait", "--", "/bin/true"])
+            .output();
+        match probe {
+            Ok(output) if output.status.success() => None,
+            Ok(output) => {
+                let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+                Some(format!(
+                    "filesystem restrictions cannot run here: enforcement backend `systemd-run --user` could not connect to an active systemd user session{}",
+                    if detail.is_empty() { String::new() } else { format!(": {detail}") }
+                ))
+            }
+            Err(error) => Some(format!(
+                "filesystem restrictions cannot run here: enforcement backend `systemd-run --user` could not be probed: {error}"
+            )),
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        None
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        Some("filesystem restrictions cannot run here: no supported enforcement backend (expected macOS Seatbelt or Linux `systemd-run --user`)".to_owned())
     }
 }
 
