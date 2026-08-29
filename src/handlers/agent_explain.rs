@@ -14,7 +14,7 @@ use crate::{
             normalize_request_path, SecretAuthorizationDecision, SecretHttpPolicy,
         },
         agent_validate::ensure_profile_is_valid_for_run,
-        run::subprocess::systemd_run_available,
+        run::subprocess::{filesystem_backend_for_policy, systemd_run_available},
     },
     models::config::Config,
     utils::output::get_formatted_json_string,
@@ -96,6 +96,10 @@ pub fn handle_agent_explain_command(
         }),
         connection: ConnectionDecision::NoEgressRestriction,
         credentials: Vec::new(),
+        filesystem_backend: filesystem_backend_for_policy(
+            &profile.filesystem.deny_read,
+            &profile.filesystem.deny_write,
+        ),
     };
     if profile.deny_hosts.as_deref().is_some_and(|hosts| {
         hosts
@@ -250,6 +254,10 @@ pub fn handle_agent_command_explain_command(
         "command": executable,
         "decision": if denied { "deny" } else { "allow" },
         "enforcement": enforcement,
+        "filesystem_backend": filesystem_backend_for_policy(
+            &profile.filesystem.deny_read,
+            &profile.filesystem.deny_write,
+        ),
         "limitations": if denied && !os_level_command_enforcement { Some("Absolute executable paths are not covered on this platform.") } else { None::<&str> },
     });
     if !silent {
@@ -277,6 +285,7 @@ struct ExplainReport {
     request: ExplainRequest,
     connection: ConnectionDecision,
     credentials: Vec<ExplainCredential>,
+    filesystem_backend: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     verbose: Option<ExplainVerboseRequest>,
 }
@@ -341,6 +350,7 @@ impl From<SecretAuthorizationDecision> for ExplainCredentialDecision {
 fn print_human_report(report: &ExplainReport) {
     println!("Agent policy explanation: `{}`", report.profile);
     println!("Profile source: {}", report.source);
+    println!("Filesystem enforcement: {}", report.filesystem_backend);
     println!(
         "Request: {} https://{}{}",
         report.request.method, report.request.host, report.request.path

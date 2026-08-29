@@ -379,7 +379,14 @@ fn sandbox_command_with_denied_commands(
                 )
             }
             if !denied_read_paths.is_empty() || !denied_write_paths.is_empty() {
-                anyhow::bail!("filesystem restrictions on Linux require systemd-run and an active systemd user session");
+                if let Some(error) = bubblewrap_enforcement_error() {
+                    anyhow::bail!(error);
+                }
+                return Ok(bubblewrap_command(
+                    command,
+                    denied_read_paths,
+                    denied_write_paths,
+                ));
             }
             return Ok((command.to_owned(), Vec::new()));
         }
@@ -601,33 +608,160 @@ pub(crate) fn systemd_run_available() -> bool {
     }
 }
 
+/// Returns the backend that will enforce a non-empty profile denylist.
+pub(crate) fn filesystem_backend() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        if systemd_filesystem_enforcement_error().is_none() {
+            return "systemd-run --user (denylist-compatible)".to_owned();
+        }
+        if bubblewrap_enforcement_error().is_none() {
+            return "bubblewrap (denylist-compatible)".to_owned();
+        }
+        "unavailable (systemd-run and bubblewrap are unavailable)".to_owned()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "macOS Seatbelt (sandbox-exec)".to_owned()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        "unavailable".to_owned()
+    }
+}
+
+pub(crate) fn filesystem_backend_for_policy(
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> String {
+    if denied_read_paths.is_empty() && denied_write_paths.is_empty() {
+        "none (no filesystem deny rules)".to_owned()
+    } else {
+        filesystem_backend()
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn bubblewrap_enforcement_error() -> Option<String> {
+    if !command_in_path("bwrap") && !command_in_path("bubblewrap") {
+        return Some(
+            "filesystem restrictions cannot run here: neither `systemd-run --user` nor bubblewrap is available"
+                .to_owned(),
+        );
+    }
+    let executable = if command_in_path("bwrap") {
+        "bwrap"
+    } else {
+        "bubblewrap"
+    };
+    let probe = std::process::Command::new(executable)
+        .args([
+            "--die-with-parent",
+            "--ro-bind",
+            "/",
+            "/",
+            "--proc",
+            "/proc",
+            "--dev-bind",
+            "/dev",
+            "/dev",
+            "--",
+            "/bin/true",
+        ])
+        .output();
+    match probe {
+        Ok(output) if output.status.success() => None,
+        Ok(output) => {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            Some(format!(
+                "filesystem restrictions cannot run here: bubblewrap could not create a usable mount namespace{}",
+                if detail.is_empty() { String::new() } else { format!(": {detail}") }
+            ))
+        }
+        Err(error) => Some(format!(
+            "filesystem restrictions cannot run here: bubblewrap could not be probed: {error}"
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn bubblewrap_command(
+    command: &str,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> (String, Vec<String>) {
+    let executable = if command_in_path("bwrap") {
+        "bwrap"
+    } else {
+        "bubblewrap"
+    };
+    let mut args = vec![
+        "--die-with-parent".to_owned(),
+        "--bind".to_owned(),
+        "/".to_owned(),
+        "/".to_owned(),
+        "--proc".to_owned(),
+        "/proc".to_owned(),
+        "--dev-bind".to_owned(),
+        "/dev".to_owned(),
+        "/dev".to_owned(),
+        "--chdir".to_owned(),
+        env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("/"))
+            .to_string_lossy()
+            .into_owned(),
+    ];
+    let read_paths = resolve_policy_paths(denied_read_paths);
+    for path in &read_paths {
+        if PathBuf::from(path).is_dir() {
+            args.extend(["--tmpfs".to_owned(), path.clone()]);
+        } else {
+            args.extend(["--ro-bind".to_owned(), "/dev/null".to_owned(), path.clone()]);
+        }
+    }
+    for path in resolve_policy_paths(denied_write_paths) {
+        if read_paths.iter().any(|read| {
+            let read = PathBuf::from(read);
+            let path = PathBuf::from(&path);
+            path == read || path.starts_with(read)
+        }) {
+            continue;
+        }
+        args.extend(["--ro-bind".to_owned(), path.clone(), path]);
+    }
+    args.extend(["--".to_owned(), command.to_owned()]);
+    (executable.to_owned(), args)
+}
+
+#[cfg(target_os = "linux")]
+fn systemd_filesystem_enforcement_error() -> Option<String> {
+    if !command_in_path("systemd-run") {
+        return Some("systemd-run is not available".to_owned());
+    }
+    let probe = std::process::Command::new("systemd-run")
+        .args(["--user", "--scope", "--quiet", "--wait", "--", "/bin/true"])
+        .output();
+    match probe {
+        Ok(output) if output.status.success() => None,
+        Ok(output) => Some(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
+        Err(error) => Some(error.to_string()),
+    }
+}
+
 /// Checks the backend used to enforce filesystem restrictions, including the
 /// user service manager connection required by `systemd-run --user`.
 pub(crate) fn filesystem_enforcement_error() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
-        if !command_in_path("systemd-run") {
-            return Some(
-                "filesystem restrictions cannot run here: enforcement backend `systemd-run --user` is not available in PATH"
-                    .to_owned(),
-            );
-        }
-
-        let probe = std::process::Command::new("systemd-run")
-            .args(["--user", "--scope", "--quiet", "--wait", "--", "/bin/true"])
-            .output();
-        match probe {
-            Ok(output) if output.status.success() => None,
-            Ok(output) => {
-                let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-                Some(format!(
-                    "filesystem restrictions cannot run here: enforcement backend `systemd-run --user` could not connect to an active systemd user session{}",
-                    if detail.is_empty() { String::new() } else { format!(": {detail}") }
-                ))
-            }
-            Err(error) => Some(format!(
-                "filesystem restrictions cannot run here: enforcement backend `systemd-run --user` could not be probed: {error}"
-            )),
+        if systemd_filesystem_enforcement_error().is_none()
+            || bubblewrap_enforcement_error().is_none()
+        {
+            None
+        } else {
+            Some(format!(
+                "filesystem restrictions cannot run here: {}",
+                filesystem_backend()
+            ))
         }
     }
     #[cfg(target_os = "macos")]
@@ -642,7 +776,9 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{filesystem_denial_from_line, run_command, sandbox_command};
+    use super::{
+        filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
+    };
     #[cfg(target_os = "macos")]
     use super::{run_command_with_denied_commands, sandbox_command_with_denied_commands};
     use std::collections::HashMap;
@@ -661,6 +797,14 @@ mod tests {
             &[],
         );
         assert_eq!(denial, Some((".env".to_owned(), "read")));
+    }
+
+    #[test]
+    fn backend_selection_does_not_claim_a_filesystem_backend_without_rules() {
+        assert_eq!(
+            filesystem_backend_for_policy(&[], &[]),
+            "none (no filesystem deny rules)"
+        );
     }
 
     #[test]
@@ -1006,5 +1150,31 @@ mod tests {
         assert!(args.contains(&"--property=IPAddressDeny=any".to_owned()));
         assert!(args.contains(&"--property=IPAddressAllow=127.0.0.1".to_owned()));
         assert_eq!(args.last(), Some(&"curl".to_owned()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn bubblewrap_maps_read_and_write_denies_to_mounts() {
+        let (program, args) = super::bubblewrap_command(
+            "sh",
+            &[
+                "/tmp/private-dir".to_owned(),
+                "/tmp/private-file".to_owned(),
+            ],
+            &[
+                "/tmp/readonly-dir".to_owned(),
+                "/tmp/readonly-file".to_owned(),
+            ],
+        );
+        assert!(program == "bwrap" || program == "bubblewrap");
+        assert!(args
+            .windows(2)
+            .any(|window| { window == ["--tmpfs", "/tmp/private-dir"] }));
+        assert!(args
+            .windows(3)
+            .any(|window| { window == ["--ro-bind", "/dev/null", "/tmp/private-file"] }));
+        assert!(args
+            .windows(3)
+            .any(|window| { window == ["--ro-bind", "/tmp/readonly-file", "/tmp/readonly-file"] }));
     }
 }

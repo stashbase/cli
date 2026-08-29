@@ -150,18 +150,25 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
 }
 
 fn validate_runtime_requirements(profile: &AgentProfile) -> Vec<Check> {
+    let backend = crate::handlers::run::subprocess::filesystem_backend_for_policy(
+        &profile.filesystem.deny_read,
+        &profile.filesystem.deny_write,
+    );
     if profile.filesystem.deny_read.is_empty() && profile.filesystem.deny_write.is_empty() {
-        return Vec::new();
+        return vec![ok(
+            "Filesystem enforcement",
+            format!("Selected backend: {backend}."),
+        )];
     }
 
     match crate::handlers::run::subprocess::filesystem_enforcement_error() {
         Some(error) => vec![fail(
             "Filesystem enforcement",
-            format!("this profile cannot run here: {error}"),
+            format!("Selected backend: {backend}; this profile cannot run here: {error}"),
         )],
         None => vec![ok(
             "Filesystem enforcement",
-            "Enforcement backend is available for this filesystem policy.".to_owned(),
+            format!("Selected backend: {backend}."),
         )],
     }
 }
