@@ -19,7 +19,7 @@ use crate::{
     cmd::agent::AgentDoctorCommand,
     handlers::run::{
         proxy::{Proxy, ProxyPolicy},
-        subprocess::filesystem_enforcement_error,
+        subprocess::{filesystem_backend, filesystem_enforcement_error},
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
@@ -65,10 +65,13 @@ pub async fn handle_agent_doctor_command(
     }
 
     match filesystem_enforcement_error() {
-        Some(error) => checks.push(fail("Filesystem enforcement", error)),
+        Some(error) => checks.push(fail(
+            "Filesystem enforcement",
+            format!("Selected backend: {}; {error}", filesystem_backend()),
+        )),
         None => checks.push(ok(
             "Filesystem enforcement",
-            "The filesystem policy backend is available for agent profiles.".to_owned(),
+            format!("Selected backend: {}.", filesystem_backend()),
         )),
     }
 
