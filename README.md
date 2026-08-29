@@ -297,6 +297,15 @@ Filesystem enforcement uses the supported macOS or Linux process sandbox; see
 the [agent-profile cookbook](docs/agent-profiles.md) for platform requirements
 and limitations.
 
+On Linux, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
+`ReadOnlyPaths`. If the systemd user session is unavailable, it probes and can
+use `bubblewrap` to create a private mount namespace: read-denied directories
+are overlaid with `tmpfs`, read-denied files with `/dev/null`, and write-denied
+paths are remounted read-only. If neither backend can be probed, validation and
+launch fail closed. Bubblewrap namespace restrictions are inherited by
+descendant processes. Existing file descriptors and data already loaded into
+memory are outside this policy.
+
 Proxy mode clears inherited `NO_PROXY`, `ALL_PROXY`, and npm proxy override
 variables before applying its own proxy settings, preventing common accidental
 proxy bypasses. This does not stop a tool from deliberately creating a direct
