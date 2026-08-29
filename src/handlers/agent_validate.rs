@@ -155,7 +155,10 @@ fn validate_runtime_requirements(profile: &AgentProfile) -> Vec<Check> {
     }
 
     match crate::handlers::run::subprocess::filesystem_enforcement_error() {
-        Some(error) => vec![fail("Filesystem enforcement", error)],
+        Some(error) => vec![fail(
+            "Filesystem enforcement",
+            format!("this profile cannot run here: {error}"),
+        )],
         None => vec![ok(
             "Filesystem enforcement",
             "Enforcement backend is available for this filesystem policy.".to_owned(),
