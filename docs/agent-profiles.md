@@ -119,11 +119,16 @@ deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
 ```
 
-On macOS these are enforced by Seatbelt. On Linux, systemd user sessions use
-`InaccessiblePaths` for read denies and `ReadOnlyPaths` for write denies;
-otherwise filesystem restrictions are reported as unavailable rather than
-silently pretending to be enforced. Existing file descriptors and data already
-loaded into process memory are outside this policy.
+On macOS these are enforced by Seatbelt. On Linux, profiles therefore prefer
+`systemd-run --user`, with `InaccessiblePaths` for read denies and
+`ReadOnlyPaths` for write denies. If its user session is unavailable, the CLI
+probes `bubblewrap`, which uses a private mount namespace: read-denied
+directories are overlaid with `tmpfs`, read-denied files with `/dev/null`, and
+write-denied paths are mounted read-only. If neither backend can be probed,
+validation and launch fail closed; the CLI never silently falls back to weaker
+enforcement. Bubblewrap restrictions are inherited by descendants.
+Existing file descriptors and data already loaded into process memory are
+outside this policy.
 
 Blocked access is reported as a structured policy error when the denial passes
 through the agent proxy.
