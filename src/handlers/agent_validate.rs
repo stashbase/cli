@@ -531,6 +531,50 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
     }
 
+    let mut seen_argument_rules = HashSet::new();
+    for rule in &profile.commands.denied_with_args {
+        if !valid_command_name(&rule.program) {
+            checks.push(fail(
+                "Argument-denied command",
+                format!("'{}' must use a plain executable name.", rule.program),
+            ));
+        }
+        if matches!(
+            rule.match_mode,
+            crate::models::agent::AgentArgumentMatch::Contains
+        ) && rule.args.is_empty()
+        {
+            checks.push(fail(
+                "Argument-denied command",
+                format!(
+                    "The contains rule for '{}' must specify at least one argument.",
+                    rule.program
+                ),
+            ));
+        }
+        if rule.args.iter().any(|arg| arg.contains(['\n', '\r', '\0'])) {
+            checks.push(fail(
+                "Argument-denied command",
+                format!(
+                    "Arguments for '{}' must not contain newlines or NUL bytes.",
+                    rule.program
+                ),
+            ));
+        }
+        let key = format!(
+            "{}:{:?}:{:?}",
+            rule.program.to_ascii_lowercase(),
+            rule.match_mode,
+            rule.args
+        );
+        if !seen_argument_rules.insert(key) {
+            checks.push(warn(
+                "Argument-denied command",
+                format!("Duplicate argument-denied rule for '{}'.", rule.program),
+            ));
+        }
+    }
+
     for (kind, paths) in [
         ("read", &profile.filesystem.deny_read),
         ("write", &profile.filesystem.deny_write),
@@ -561,7 +605,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 profile.secrets.bindings.len() + profile.personal_credentials.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
                 profile.deny_hosts.as_ref().map_or(0, Vec::len),
-                profile.commands.denied.len(),
+                profile.commands.denied.len() + profile.commands.denied_with_args.len(),
                 profile.filesystem.deny_read.len() + profile.filesystem.deny_write.len()
             ),
         ));

@@ -10,6 +10,8 @@ use anyhow::Result;
 use duct::{cmd, Expression};
 use thiserror::Error;
 
+use crate::models::agent::{AgentArgumentDeniedRule, AgentArgumentMatch};
+
 // use log::debug;
 #[cfg(not(unix))]
 use std::io::{BufRead, BufReader};
@@ -63,6 +65,7 @@ pub async fn run_command(
         &[],
         &[],
         &[],
+        &[],
         None,
     )
     .await
@@ -77,12 +80,13 @@ pub async fn run_command_with_denied_commands(
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
     denied_commands: &[String],
+    argument_denied_commands: &[AgentArgumentDeniedRule],
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     audit_log: Option<super::proxy::ProxyAuditLog>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
-    let command_wrappers = CommandWrappers::create(denied_commands)?;
+    let command_wrappers = CommandWrappers::create(denied_commands, argument_denied_commands)?;
     if let Some(wrappers) = &command_wrappers {
         let inherited_path = env::var_os("PATH").unwrap_or_default();
         let path = std::env::join_paths(
@@ -209,11 +213,78 @@ struct CommandWrappers {
     event_path: Option<PathBuf>,
 }
 
+#[cfg(not(windows))]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(not(windows))]
+fn unix_command_wrapper(
+    command: &str,
+    blanket_commands: &[String],
+    argument_rules: &[AgentArgumentDeniedRule],
+) -> String {
+    let mut script = String::from("#!/bin/sh\n");
+    let denied = || {
+        format!(
+            "printf '%s %s\\n' {} \"$*\" >> \"$STASHBASE_COMMAND_EVENT_FILE\"\nprintf '%s\\n' {} >&2\nprintf '%s\\n' {} >&2\nexit 126\n",
+            shell_quote(command),
+            shell_quote(&format!("{{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}}")),
+            shell_quote(&format!("Stashbase agent policy denied command: {command}"))
+        )
+    };
+    if blanket_commands.iter().any(|denied| denied == command) {
+        script.push_str(&denied());
+        return script;
+    }
+
+    script.push_str("has_arg() { needle=$1; shift; for arg do [ \"$arg\" = \"$needle\" ] && return 0; done; return 1; }\n");
+    for rule in argument_rules
+        .iter()
+        .filter(|rule| rule.program.trim() == command)
+    {
+        let condition =
+            match rule.match_mode {
+                AgentArgumentMatch::Contains => rule
+                    .args
+                    .iter()
+                    .map(|arg| format!("has_arg {} \"$@\"", shell_quote(arg)))
+                    .collect::<Vec<_>>()
+                    .join(" && "),
+                AgentArgumentMatch::Exact => {
+                    let mut parts = vec![format!("[ \"$#\" -eq {} ]", rule.args.len())];
+                    parts.extend(rule.args.iter().enumerate().map(|(index, arg)| {
+                        format!("[ \"${}\" = {} ]", index + 1, shell_quote(arg))
+                    }));
+                    parts.join(" && ")
+                }
+            };
+        script.push_str(&format!("if {condition}; then\n{}fi\n", denied()));
+    }
+
+    // The wrapper directory is prepended to PATH after this script is created.
+    // Resolve the original executable using the inherited PATH to avoid recursion.
+    let original_path = env::var("PATH").unwrap_or_default();
+    script.push_str(&format!(
+        "real=$(PATH={} command -v {}) || exit 127\nexec \"$real\" \"$@\"\n",
+        shell_quote(&original_path),
+        shell_quote(command)
+    ));
+    script
+}
+
 impl CommandWrappers {
-    fn create(commands: &[String]) -> Result<Option<Self>> {
-        let commands = commands
+    fn create(
+        commands: &[String],
+        argument_rules: &[AgentArgumentDeniedRule],
+    ) -> Result<Option<Self>> {
+        let blanket_commands = commands
             .iter()
-            .map(|command| command.trim())
+            .map(|command| command.trim().to_owned())
+            .collect::<Vec<_>>();
+        let mut commands = commands
+            .iter()
+            .map(|command| command.trim().to_owned())
             .filter(|command| {
                 !command.is_empty()
                     && command.chars().all(|character| {
@@ -221,6 +292,19 @@ impl CommandWrappers {
                     })
             })
             .collect::<Vec<_>>();
+        commands.extend(
+            argument_rules
+                .iter()
+                .map(|rule| rule.program.trim().to_owned())
+                .filter(|program| {
+                    !program.is_empty()
+                        && program.chars().all(|character| {
+                            character.is_ascii_alphanumeric() || "._+-".contains(character)
+                        })
+                }),
+        );
+        commands.sort_unstable();
+        commands.dedup();
         if commands.is_empty() {
             return Ok(None);
         }
@@ -231,7 +315,7 @@ impl CommandWrappers {
         let event_path = path.join("events");
         fs::write(&event_path, "")?;
         let result = (|| {
-            for command in commands {
+            for command in &commands {
                 #[cfg(windows)]
                 let wrapper = path.join(format!("{command}.cmd"));
                 #[cfg(not(windows))]
@@ -241,9 +325,7 @@ impl CommandWrappers {
                     "@>>\"%STASHBASE_COMMAND_EVENT_FILE%\" echo {command}\r\n@echo {{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}} 1>&2\r\n@echo Stashbase agent policy denied command: {command} 1>&2\r\n@exit /b 126\r\n"
                 );
                 #[cfg(not(windows))]
-                let contents = format!(
-                    "#!/bin/sh\nprintf '%s\\n' '{command}' >> \"$STASHBASE_COMMAND_EVENT_FILE\"\nprintf '%s\\n' '{{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}}' >&2\nprintf '%s\\n' 'Stashbase agent policy denied command: {command}' >&2\nexit 126\n"
-                );
+                let contents = unix_command_wrapper(&command, &blanket_commands, argument_rules);
                 fs::write(&wrapper, contents)?;
                 #[cfg(unix)]
                 {
@@ -792,6 +874,8 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use crate::models::agent::{AgentArgumentDeniedRule, AgentArgumentMatch};
+
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
     };
@@ -908,6 +992,117 @@ mod tests {
             false,
             false,
             &["blocked-tool".to_owned()],
+            &[],
+            &[],
+            &[],
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status.code(), Some(126));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn argument_denied_commands_match_child_argv_tokens() {
+        let status = super::run_command_with_denied_commands(
+            "sh",
+            vec!["-c".to_owned(), "git push origin main --force".to_owned()],
+            HashMap::new(),
+            Vec::new(),
+            false,
+            false,
+            false,
+            &[],
+            &[AgentArgumentDeniedRule {
+                program: "git".to_owned(),
+                args: vec!["push".to_owned(), "--force".to_owned()],
+                match_mode: AgentArgumentMatch::Contains,
+            }],
+            &[],
+            &[],
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status.code(), Some(126));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn argument_denied_commands_accept_different_argv() {
+        let status = super::run_command_with_denied_commands(
+            "sh",
+            vec!["-c".to_owned(), "git --version".to_owned()],
+            HashMap::new(),
+            Vec::new(),
+            false,
+            false,
+            false,
+            &[],
+            &[AgentArgumentDeniedRule {
+                program: "git".to_owned(),
+                args: vec!["push".to_owned(), "--force".to_owned()],
+                match_mode: AgentArgumentMatch::Exact,
+            }],
+            &[],
+            &[],
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(status.success());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn exact_argument_denial_does_not_match_extra_arguments() {
+        let status = super::run_command_with_denied_commands(
+            "sh",
+            vec!["-c".to_owned(), "git push origin main --force".to_owned()],
+            HashMap::new(),
+            Vec::new(),
+            false,
+            false,
+            false,
+            &[],
+            &[AgentArgumentDeniedRule {
+                program: "git".to_owned(),
+                args: vec!["push".to_owned(), "--force".to_owned()],
+                match_mode: AgentArgumentMatch::Exact,
+            }],
+            &[],
+            &[],
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Git itself rejects this outside a repository; the wrapper must not
+        // turn it into a policy denial because the argv is not an exact match.
+        assert_ne!(status.code(), Some(126));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn argument_denied_commands_handle_shell_sensitive_argument_values() {
+        let status = super::run_command_with_denied_commands(
+            "sh",
+            vec!["-c".to_owned(), "env printf \"it's ok\"".to_owned()],
+            HashMap::new(),
+            Vec::new(),
+            false,
+            false,
+            false,
+            &[],
+            &[AgentArgumentDeniedRule {
+                program: "printf".to_owned(),
+                args: vec!["it's ok".to_owned()],
+                match_mode: AgentArgumentMatch::Contains,
+            }],
             &[],
             &[],
             None,
@@ -1127,6 +1322,7 @@ mod tests {
             false,
             false,
             &["curl".to_owned()],
+            &[],
             &[],
             &[],
             None,

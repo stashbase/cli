@@ -35,6 +35,28 @@ pub struct AgentCommandsProfile {
     /// Executable names to shadow with denying wrappers in the child PATH.
     #[serde(default)]
     pub denied: Vec<String>,
+    /// Executable/argv patterns denied by the command wrapper layer.
+    #[serde(default)]
+    pub denied_with_args: Vec<AgentArgumentDeniedRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentArgumentDeniedRule {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    #[serde(rename = "match")]
+    pub match_mode: AgentArgumentMatch,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentArgumentMatch {
+    #[default]
+    Exact,
+    Contains,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

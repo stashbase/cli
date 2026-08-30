@@ -18,6 +18,11 @@ egress_hosts = []
 # These wrappers also affect commands spawned by the agent.
 # [commands]
 # denied = ["ssh", "sudo"]
+# Argument-aware rules apply to normal PATH execution.
+# [[commands.denied_with_args]]
+# program = "git"
+# args = ["push", "--force"]
+# match = "contains"
 
 # Optional: protect sensitive files from agent reads and writes.
 # [filesystem]
