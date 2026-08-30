@@ -278,7 +278,7 @@ stashbase agent explain --profile coding \
 `agent run` always uses proxy mode, exposes only placeholders to the child,
 suppresses secret printing, and strictly denies HTTP(S) destinations outside the
 profile. A placeholder can only be exchanged for its mapped secret at one of
-that secret's configured hosts. The agent command deliberately has no `--set`,
+that secret's configured hosts. The agent run deliberately has no `--set`,
 `--file`, `--only`, or host-override options.
 
 Profiles can also restrict filesystem access for local agent runs:

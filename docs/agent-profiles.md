@@ -115,17 +115,6 @@ outside this policy.
 Blocked access is reported as a structured policy error when the denial passes
 through the agent proxy.
 
-Inspect one command without starting an agent:
-
-```bash
-stashbase agent command --profile coding --command curl
-stashbase agent command --profile coding --command curl --json
-```
-
-The report identifies whether the command is denied and whether enforcement is
-OS-level or the PATH-wrapper fallback. Audit summaries can group denials with
-`stashbase agent logs summary --by command`.
-
 Validate a profile before granting it secrets—locally or in CI:
 
 ```bash
