@@ -254,20 +254,6 @@ impl ProxyAuditLog {
         &self.policy_fingerprint
     }
 
-    pub fn record_command_denied(&self, command: &str) -> String {
-        let id = new_local_audit_event_id();
-        self.record(
-            "command_denied",
-            Some(command),
-            None,
-            None,
-            Some(StatusCode::FORBIDDEN),
-            None,
-            Some(&id),
-        );
-        id
-    }
-
     pub fn record_filesystem_denied(&self, path: &str, operation: &str) -> String {
         let id = new_local_audit_event_id();
         self.record_with_bytes(

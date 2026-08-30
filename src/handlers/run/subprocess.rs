@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::env;
-use std::fs;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
@@ -52,7 +51,7 @@ pub async fn run_command(
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
 ) -> Result<ExitStatus> {
-    run_command_with_denied_commands(
+    run_command_with_filesystem_policy(
         command,
         args,
         env_vars,
@@ -62,46 +61,28 @@ pub async fn run_command(
         restrict_stashbase_credentials,
         &[],
         &[],
-        &[],
         None,
     )
     .await
 }
 
-pub async fn run_command_with_denied_commands(
+pub async fn run_command_with_filesystem_policy(
     command: &str,
     args: Vec<String>,
-    mut env_vars: HashMap<String, String>,
+    env_vars: HashMap<String, String>,
     env_removals: Vec<String>,
     sandbox: bool,
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
-    denied_commands: &[String],
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     audit_log: Option<super::proxy::ProxyAuditLog>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
-    let command_wrappers = CommandWrappers::create(denied_commands)?;
-    if let Some(wrappers) = &command_wrappers {
-        let inherited_path = env::var_os("PATH").unwrap_or_default();
-        let path = std::env::join_paths(
-            std::iter::once(wrappers.path.clone().into_os_string())
-                .chain(std::env::split_paths(&inherited_path).map(|path| path.into_os_string())),
-        )?;
-        env_vars.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
-        if let Some(event_path) = &wrappers.event_path {
-            env_vars.insert(
-                "STASHBASE_COMMAND_EVENT_FILE".to_owned(),
-                event_path.to_string_lossy().into_owned(),
-            );
-        }
-    }
-    let (program, launcher_args) = sandbox_command_with_denied_commands(
+    let (program, launcher_args) = sandbox_command_with_filesystem_policy(
         command,
         sandbox,
         &env_vars,
-        denied_commands,
         denied_read_paths,
         denied_write_paths,
     )?;
@@ -185,89 +166,7 @@ pub async fn run_command_with_denied_commands(
             .status
             .clone()
     };
-    if let (Some(wrappers), Some(audit_log)) = (&command_wrappers, &audit_log) {
-        if let Some(event_path) = &wrappers.event_path {
-            if let Ok(events) = fs::read_to_string(event_path) {
-                for command in events
-                    .lines()
-                    .map(str::trim)
-                    .filter(|command| !command.is_empty())
-                {
-                    audit_log.record_command_denied(command);
-                }
-            }
-        }
-    }
     Ok(status)
-}
-
-/// A deliberately small first version of command enforcement. The wrappers
-/// shadow normal PATH lookups for descendants of the agent and fail closed.
-/// Absolute executable paths and shell built-ins are outside this layer.
-struct CommandWrappers {
-    path: PathBuf,
-    event_path: Option<PathBuf>,
-}
-
-impl CommandWrappers {
-    fn create(commands: &[String]) -> Result<Option<Self>> {
-        let commands = commands
-            .iter()
-            .map(|command| command.trim())
-            .filter(|command| {
-                !command.is_empty()
-                    && command.chars().all(|character| {
-                        character.is_ascii_alphanumeric() || "._+-".contains(character)
-                    })
-            })
-            .collect::<Vec<_>>();
-        if commands.is_empty() {
-            return Ok(None);
-        }
-
-        let path =
-            env::temp_dir().join(format!("stashbase-command-policy-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&path)?;
-        let event_path = path.join("events");
-        fs::write(&event_path, "")?;
-        let result = (|| {
-            for command in commands {
-                #[cfg(windows)]
-                let wrapper = path.join(format!("{command}.cmd"));
-                #[cfg(not(windows))]
-                let wrapper = path.join(command);
-                #[cfg(windows)]
-                let contents = format!(
-                    "@>>\"%STASHBASE_COMMAND_EVENT_FILE%\" echo {command}\r\n@echo {{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}} 1>&2\r\n@echo Stashbase agent policy denied command: {command} 1>&2\r\n@exit /b 126\r\n"
-                );
-                #[cfg(not(windows))]
-                let contents = format!(
-                    "#!/bin/sh\nprintf '%s\\n' '{command}' >> \"$STASHBASE_COMMAND_EVENT_FILE\"\nprintf '%s\\n' '{{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}}' >&2\nprintf '%s\\n' 'Stashbase agent policy denied command: {command}' >&2\nexit 126\n"
-                );
-                fs::write(&wrapper, contents)?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700))?;
-                }
-            }
-            Ok::<_, anyhow::Error>(())
-        })();
-        if let Err(error) = result {
-            let _ = fs::remove_dir_all(&path);
-            return Err(error);
-        }
-        Ok(Some(Self {
-            path,
-            event_path: Some(event_path),
-        }))
-    }
-}
-
-impl Drop for CommandWrappers {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }
 
 #[cfg(test)]
@@ -276,14 +175,13 @@ fn sandbox_command(
     sandbox: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<(String, Vec<String>)> {
-    sandbox_command_with_denied_commands(command, sandbox, env_vars, &[], &[], &[])
+    sandbox_command_with_filesystem_policy(command, sandbox, env_vars, &[], &[])
 }
 
-fn sandbox_command_with_denied_commands(
+fn sandbox_command_with_filesystem_policy(
     command: &str,
     sandbox: bool,
     env_vars: &HashMap<String, String>,
-    denied_commands: &[String],
     denied_read_paths: &[String],
     denied_write_paths: &[String],
 ) -> Result<(String, Vec<String>)> {
@@ -293,9 +191,6 @@ fn sandbox_command_with_denied_commands(
     if !sandbox {
         #[cfg(all(target_os = "linux"))]
         if denied_read_paths.is_empty() && denied_write_paths.is_empty() {
-            // Command denials are enforced by the PATH-prepended wrappers in
-            // run_command_with_denied_commands. Avoid systemd-run for that
-            // layer: CI runners may not support all service properties.
             return Ok((command.to_owned(), Vec::new()));
         }
         #[cfg(all(target_os = "linux"))]
@@ -325,10 +220,7 @@ fn sandbox_command_with_denied_commands(
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         return Ok((command.to_owned(), Vec::new()));
         #[cfg(target_os = "macos")]
-        if denied_commands.is_empty()
-            && denied_read_paths.is_empty()
-            && denied_write_paths.is_empty()
-        {
+        if denied_read_paths.is_empty() && denied_write_paths.is_empty() {
             return Ok((command.to_owned(), Vec::new()));
         }
     }
@@ -358,8 +250,7 @@ fn sandbox_command_with_denied_commands(
             {network_rules}
             {}
         "#,
-            denied_process_exec_rules(env_vars, denied_commands)
-                + &denied_file_rules(denied_read_paths, denied_write_paths)
+            denied_file_rules(denied_read_paths, denied_write_paths)
         );
         return Ok((
             "/usr/bin/sandbox-exec".to_owned(),
@@ -369,7 +260,6 @@ fn sandbox_command_with_denied_commands(
 
     #[cfg(target_os = "linux")]
     {
-        let _ = denied_commands;
         if sandbox {
             if let Some(error) = systemd_filesystem_enforcement_error() {
                 anyhow::bail!(error);
@@ -405,32 +295,25 @@ fn sandbox_command_with_denied_commands(
     }
 }
 
-#[cfg(target_os = "macos")]
-fn denied_process_exec_rules(
+#[cfg(test)]
+fn sandbox_command_with_denied_commands(
+    command: &str,
+    sandbox: bool,
     env_vars: &HashMap<String, String>,
-    denied_commands: &[String],
-) -> String {
-    let Some(path) = env_vars.get("PATH") else {
-        return String::new();
-    };
-    let mut rules = Vec::new();
-    for command in denied_commands {
-        for directory in std::env::split_paths(path) {
-            let candidate = directory.join(command);
-            if candidate.is_file() {
-                let escaped = candidate
-                    .to_string_lossy()
-                    .replace('\\', "\\\\")
-                    .replace('"', "\\\"");
-                rules.push(format!("(deny process-exec (literal \"{escaped}\"))"));
-            }
-        }
-    }
-    rules.sort();
-    rules.dedup();
-    rules.join("\n            ")
+    _denied_commands: &[String],
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> Result<(String, Vec<String>)> {
+    sandbox_command_with_filesystem_policy(
+        command,
+        sandbox,
+        env_vars,
+        denied_read_paths,
+        denied_write_paths,
+    )
 }
 
+#[cfg(target_os = "macos")]
 #[cfg(target_os = "macos")]
 fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
     let mut rules = Vec::new();
@@ -781,11 +664,11 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[cfg(target_os = "macos")]
+    use super::sandbox_command_with_filesystem_policy;
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
     };
-    #[cfg(target_os = "macos")]
-    use super::{run_command_with_denied_commands, sandbox_command_with_denied_commands};
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
 
@@ -884,27 +767,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(status.code(), Some(7));
-    }
-
-    #[tokio::test]
-    async fn denied_commands_are_shadowed_for_child_processes() {
-        let status = super::run_command_with_denied_commands(
-            "sh",
-            vec!["-c".to_owned(), "blocked-tool".to_owned()],
-            HashMap::new(),
-            Vec::new(),
-            false,
-            false,
-            false,
-            &["blocked-tool".to_owned()],
-            &[],
-            &[],
-            None,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(status.code(), Some(126));
     }
 
     #[tokio::test]
