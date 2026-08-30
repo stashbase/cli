@@ -278,6 +278,13 @@ impl CommandWrappers {
         commands: &[String],
         argument_rules: &[AgentArgumentDeniedRule],
     ) -> Result<Option<Self>> {
+        #[cfg(windows)]
+        if !argument_rules.is_empty() {
+            anyhow::bail!(
+                "Argument-aware command denials are not supported on Windows; use commands.denied for blanket executable denials."
+            );
+        }
+
         let blanket_commands = commands
             .iter()
             .map(|command| command.trim().to_owned())

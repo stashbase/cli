@@ -532,6 +532,13 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     }
 
     let mut seen_argument_rules = HashSet::new();
+    #[cfg(windows)]
+    if !profile.commands.denied_with_args.is_empty() {
+        checks.push(fail(
+            "Argument-denied command",
+            "Argument-aware command denials are not supported on Windows; use commands.denied for blanket executable denials.".to_owned(),
+        ));
+    }
     for rule in &profile.commands.denied_with_args {
         if !valid_command_name(&rule.program) {
             checks.push(fail(
@@ -888,7 +895,40 @@ fn fail(name: impl Into<String>, message: String) -> Check {
 
 #[cfg(test)]
 mod tests {
+    use crate::models::agent::{
+        AgentArgumentDeniedRule, AgentArgumentMatch, AgentCommandsProfile, AgentFilesystemProfile,
+        AgentSecretsProfile,
+    };
+
     use super::*;
+
+    fn profile_with_command_rules(rules: Vec<AgentArgumentDeniedRule>) -> AgentProfile {
+        AgentProfile {
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            commands: AgentCommandsProfile {
+                denied: Vec::new(),
+                denied_with_args: rules,
+            },
+            filesystem: AgentFilesystemProfile::default(),
+            secrets: AgentSecretsProfile::default(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+        }
+    }
+
+    fn argument_rule(
+        program: &str,
+        args: Vec<&str>,
+        match_mode: AgentArgumentMatch,
+    ) -> AgentArgumentDeniedRule {
+        AgentArgumentDeniedRule {
+            program: program.to_owned(),
+            args: args.into_iter().map(str::to_owned).collect(),
+            match_mode,
+        }
+    }
 
     #[test]
     fn accepts_exact_hosts_and_subdomain_wildcards() {
@@ -937,6 +977,74 @@ mod tests {
         assert!(!valid_command_name(" /usr/bin/curl"));
         assert!(!valid_command_name("curl --version"));
         assert!(!valid_command_name(""));
+    }
+
+    #[test]
+    fn rejects_invalid_argument_denied_program_names() {
+        let checks = validate_profile(&profile_with_command_rules(vec![argument_rule(
+            "/usr/bin/git",
+            vec!["push"],
+            AgentArgumentMatch::Exact,
+        )]));
+
+        assert!(checks.iter().any(|check| {
+            check.status == Status::Fail
+                && check.name == "Argument-denied command"
+                && check.message.contains("plain executable name")
+        }));
+    }
+
+    #[test]
+    fn rejects_empty_contains_argument_denial_rules() {
+        let checks = validate_profile(&profile_with_command_rules(vec![argument_rule(
+            "git",
+            Vec::new(),
+            AgentArgumentMatch::Contains,
+        )]));
+
+        assert!(checks.iter().any(|check| {
+            check.status == Status::Fail && check.message.contains("at least one argument")
+        }));
+    }
+
+    #[test]
+    fn rejects_newline_and_nul_argument_values() {
+        let checks = validate_profile(&profile_with_command_rules(vec![
+            argument_rule("git", vec!["push\n--force"], AgentArgumentMatch::Contains),
+            argument_rule("git", vec!["push\0"], AgentArgumentMatch::Contains),
+        ]));
+
+        assert_eq!(
+            checks
+                .iter()
+                .filter(|check| {
+                    check.status == Status::Fail && check.message.contains("newlines or NUL bytes")
+                })
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn warns_for_duplicate_argument_denial_rules() {
+        let rule = argument_rule("git", vec!["push", "--force"], AgentArgumentMatch::Contains);
+        let checks = validate_profile(&profile_with_command_rules(vec![rule.clone(), rule]));
+
+        assert!(checks.iter().any(|check| {
+            check.status == Status::Warn && check.message.contains("Duplicate argument-denied")
+        }));
+    }
+
+    #[test]
+    fn warns_for_case_insensitive_duplicate_argument_denial_programs() {
+        let checks = validate_profile(&profile_with_command_rules(vec![
+            argument_rule("Git", vec!["push"], AgentArgumentMatch::Exact),
+            argument_rule("git", vec!["push"], AgentArgumentMatch::Exact),
+        ]));
+
+        assert!(checks.iter().any(|check| {
+            check.status == Status::Warn && check.message.contains("Duplicate argument-denied")
+        }));
     }
 
     #[test]

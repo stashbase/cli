@@ -120,7 +120,8 @@ Filesystem restrictions use explicit path prefixes:
 
 Argument-aware command rules are enforced by the generated `PATH` wrappers.
 They are intended for ordinary command lookup and do not cover shell built-ins
-or absolute executable paths.
+or absolute executable paths. They are currently unsupported on Windows; use
+`commands.denied` there for blanket executable denials.
 
 ```toml
 [filesystem]
