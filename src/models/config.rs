@@ -44,7 +44,74 @@ impl OutputFormatConfig {
 #[cfg(test)]
 mod tests {
     use super::Config;
-    use crate::models::agent::AgentProfile;
+    use crate::models::agent::{AgentArgumentMatch, AgentProfile};
+
+    #[test]
+    fn parses_agent_profile_with_argument_aware_command_denials() {
+        let config: Config = toml::from_str(
+            r#"
+                [agent_profiles.coding.commands]
+                denied = ["ssh"]
+
+                [[agent_profiles.coding.commands.denied_with_args]]
+                program = "git"
+                args = ["push", "--force"]
+                match = "contains"
+
+                [[agent_profiles.coding.commands.denied_with_args]]
+                program = "npm"
+                args = ["publish"]
+                match = "exact"
+            "#,
+        )
+        .unwrap();
+
+        let profile = &config.agent_profiles.unwrap()["coding"];
+        assert_eq!(profile.commands.denied, ["ssh"]);
+        assert_eq!(profile.commands.denied_with_args.len(), 2);
+        assert_eq!(
+            profile.commands.denied_with_args[0].match_mode,
+            AgentArgumentMatch::Contains
+        );
+        assert_eq!(
+            profile.commands.denied_with_args[1].match_mode,
+            AgentArgumentMatch::Exact
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_argument_aware_command_denial_match() {
+        let error = toml::from_str::<AgentProfile>(
+            r#"
+                [commands]
+                [[commands.denied_with_args]]
+                program = "git"
+                args = ["push"]
+                match = "prefix"
+            "#,
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("expected `exact` or `contains`"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_argument_aware_command_denial_fields() {
+        let error = toml::from_str::<AgentProfile>(
+            r#"
+                [[commands.denied_with_args]]
+                program = "git"
+                args = ["push"]
+                unexpected = true
+            "#,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field"), "{error}");
+    }
 
     #[test]
     fn parses_agent_profile_with_secret_host_allowlist() {

@@ -51,7 +51,7 @@ pub struct AgentArgumentDeniedRule {
     pub match_mode: AgentArgumentMatch,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentArgumentMatch {
     #[default]
