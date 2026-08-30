@@ -287,6 +287,11 @@ Profiles can also restrict commands and filesystem access for local agent runs:
 [commands]
 denied = ["sudo", "ssh", "docker"]
 
+[[commands.denied_with_args]]
+program = "git"
+args = ["push", "--force"]
+match = "contains"
+
 [filesystem]
 deny_read = [".env", "~/.ssh"]
 deny_write = [".git", "~/.ssh"]
