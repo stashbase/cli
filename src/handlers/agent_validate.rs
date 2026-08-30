@@ -896,13 +896,13 @@ fn fail(name: impl Into<String>, message: String) -> Check {
 #[cfg(test)]
 mod tests {
     use crate::models::agent::{
-        AgentArgumentDeniedRule, AgentArgumentMatch, AgentCommandsProfile, AgentFilesystemProfile,
+        AgentArgumentMatch, AgentCommandDenyRule, AgentCommandsProfile, AgentFilesystemProfile,
         AgentSecretsProfile,
     };
 
     use super::*;
 
-    fn profile_with_command_rules(rules: Vec<AgentArgumentDeniedRule>) -> AgentProfile {
+    fn profile_with_command_rules(rules: Vec<AgentCommandDenyRule>) -> AgentProfile {
         AgentProfile {
             file: None,
             egress_hosts: None,
@@ -922,8 +922,8 @@ mod tests {
         program: &str,
         args: Vec<&str>,
         match_mode: AgentArgumentMatch,
-    ) -> AgentArgumentDeniedRule {
-        AgentArgumentDeniedRule {
+    ) -> AgentCommandDenyRule {
+        AgentCommandDenyRule {
             program: program.to_owned(),
             args: args.into_iter().map(str::to_owned).collect(),
             match_mode,

@@ -63,7 +63,7 @@ use crate::{
         evaluate_secret_authorization, host_matches, normalize_secret_http_policy,
         SecretAuthorizationDecision, SecretHttpPolicy,
     },
-    models::agent::AgentArgumentDeniedRule,
+    models::agent::AgentCommandDenyRule,
     REQUEST_TIMEOUT_SECS,
 };
 
@@ -656,7 +656,7 @@ pub struct ProxyPolicy {
     /// Executable names denied by the child command wrapper layer.
     pub denied_commands: HashSet<String>,
     /// Executable/argv patterns denied by the child command wrapper layer.
-    pub argument_denied_commands: Vec<AgentArgumentDeniedRule>,
+    pub denied_with_args_commands: Vec<AgentCommandDenyRule>,
     pub denied_read_paths: Vec<String>,
     pub denied_write_paths: Vec<String>,
     /// Whether credential-bearing requests must also satisfy egress policy.
@@ -763,7 +763,7 @@ impl ProxyPolicy {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -796,7 +796,7 @@ impl ProxyPolicy {
         denied_commands.sort();
         lines.push(format!("deny_commands={}", denied_commands.join(",")));
         let mut argument_denied = self
-            .argument_denied_commands
+            .denied_with_args_commands
             .iter()
             .map(|rule| {
                 let mut args = rule.args.clone();
@@ -2778,7 +2778,7 @@ fn full_body(body: Bytes) -> ProxyBody {
 
 #[cfg(test)]
 mod tests {
-    use crate::models::agent::{AgentArgumentDeniedRule, AgentArgumentMatch};
+    use crate::models::agent::{AgentArgumentMatch, AgentCommandDenyRule};
 
     use super::*;
     use futures_util::{stream, StreamExt};
@@ -3021,7 +3021,7 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3147,7 +3147,7 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3611,7 +3611,7 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3652,7 +3652,7 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3686,14 +3686,14 @@ mod tests {
     #[test]
     fn policy_fingerprint_normalizes_argument_denial_rules() {
         let mut left = ProxyPolicy::permissive();
-        left.argument_denied_commands = vec![AgentArgumentDeniedRule {
+        left.denied_with_args_commands = vec![AgentCommandDenyRule {
             program: " GIT ".to_owned(),
             args: vec!["--force".to_owned(), "push".to_owned(), "push".to_owned()],
             match_mode: AgentArgumentMatch::Contains,
         }];
 
         let mut right = ProxyPolicy::permissive();
-        right.argument_denied_commands = vec![AgentArgumentDeniedRule {
+        right.denied_with_args_commands = vec![AgentCommandDenyRule {
             program: "git".to_owned(),
             args: vec!["push".to_owned(), "--force".to_owned()],
             match_mode: AgentArgumentMatch::Contains,
@@ -3780,7 +3780,7 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3865,7 +3865,7 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3905,7 +3905,7 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3931,7 +3931,7 @@ mod tests {
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3992,7 +3992,7 @@ mod tests {
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
             denied_commands: HashSet::new(),
-            argument_denied_commands: Vec::new(),
+            denied_with_args_commands: Vec::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -4354,7 +4354,7 @@ mod tests {
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
                 denied_commands: HashSet::new(),
-                argument_denied_commands: Vec::new(),
+                denied_with_args_commands: Vec::new(),
                 denied_read_paths: Vec::new(),
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
@@ -4391,7 +4391,7 @@ mod tests {
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
                 denied_commands: HashSet::new(),
-                argument_denied_commands: Vec::new(),
+                denied_with_args_commands: Vec::new(),
                 denied_read_paths: Vec::new(),
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
@@ -4429,7 +4429,7 @@ mod tests {
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 denied_hosts: HashSet::new(),
                 denied_commands: HashSet::new(),
-                argument_denied_commands: Vec::new(),
+                denied_with_args_commands: Vec::new(),
                 denied_read_paths: Vec::new(),
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: true,

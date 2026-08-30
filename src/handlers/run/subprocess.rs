@@ -10,7 +10,7 @@ use anyhow::Result;
 use duct::{cmd, Expression};
 use thiserror::Error;
 
-use crate::models::agent::{AgentArgumentDeniedRule, AgentArgumentMatch};
+use crate::models::agent::{AgentArgumentMatch, AgentCommandDenyRule};
 
 // use log::debug;
 #[cfg(not(unix))]
@@ -80,13 +80,13 @@ pub async fn run_command_with_denied_commands(
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
     denied_commands: &[String],
-    argument_denied_commands: &[AgentArgumentDeniedRule],
+    denied_with_args_commands: &[AgentCommandDenyRule],
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     audit_log: Option<super::proxy::ProxyAuditLog>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
-    let command_wrappers = CommandWrappers::create(denied_commands, argument_denied_commands)?;
+    let command_wrappers = CommandWrappers::create(denied_commands, denied_with_args_commands)?;
     if let Some(wrappers) = &command_wrappers {
         let inherited_path = env::var_os("PATH").unwrap_or_default();
         let path = std::env::join_paths(
@@ -252,7 +252,7 @@ fn shell_quote(value: &str) -> String {
 fn unix_command_wrapper(
     command: &str,
     blanket_commands: &[String],
-    argument_rules: &[AgentArgumentDeniedRule],
+    argument_rules: &[AgentCommandDenyRule],
 ) -> String {
     let mut script = String::from("#!/bin/sh\n");
     let denied = |rule: &str| {
@@ -316,7 +316,7 @@ fn unix_command_wrapper(
 impl CommandWrappers {
     fn create(
         commands: &[String],
-        argument_rules: &[AgentArgumentDeniedRule],
+        argument_rules: &[AgentCommandDenyRule],
     ) -> Result<Option<Self>> {
         #[cfg(windows)]
         if !argument_rules.is_empty() {
@@ -921,7 +921,7 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use crate::models::agent::{AgentArgumentDeniedRule, AgentArgumentMatch};
+    use crate::models::agent::{AgentArgumentMatch, AgentCommandDenyRule};
 
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
@@ -1062,7 +1062,7 @@ mod tests {
             false,
             false,
             &[],
-            &[AgentArgumentDeniedRule {
+            &[AgentCommandDenyRule {
                 program: "git".to_owned(),
                 args: vec!["push".to_owned(), "--force".to_owned()],
                 match_mode: AgentArgumentMatch::Contains,
@@ -1089,7 +1089,7 @@ mod tests {
             false,
             false,
             &[],
-            &[AgentArgumentDeniedRule {
+            &[AgentCommandDenyRule {
                 program: "git".to_owned(),
                 args: vec!["push".to_owned(), "--force".to_owned()],
                 match_mode: AgentArgumentMatch::Exact,
@@ -1116,7 +1116,7 @@ mod tests {
             false,
             false,
             &[],
-            &[AgentArgumentDeniedRule {
+            &[AgentCommandDenyRule {
                 program: "git".to_owned(),
                 args: vec!["push".to_owned(), "--force".to_owned()],
                 match_mode: AgentArgumentMatch::Exact,
@@ -1145,7 +1145,7 @@ mod tests {
             false,
             false,
             &[],
-            &[AgentArgumentDeniedRule {
+            &[AgentCommandDenyRule {
                 program: "printf".to_owned(),
                 args: vec!["it's ok".to_owned()],
                 match_mode: AgentArgumentMatch::Contains,

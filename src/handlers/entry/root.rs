@@ -796,7 +796,7 @@ pub async fn handle_cli(args: Cli) {
                             .iter()
                             .map(|command| command.trim().to_ascii_lowercase())
                             .collect(),
-                        argument_denied_commands: profile.commands.denied_with_args.clone(),
+                        denied_with_args_commands: profile.commands.denied_with_args.clone(),
                         denied_read_paths: profile.filesystem.deny_read.clone(),
                         denied_write_paths: profile.filesystem.deny_write.clone(),
                         egress_hosts_configured: profile.egress_hosts.is_some(),

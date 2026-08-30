@@ -54,7 +54,7 @@ pub async fn handle_remote_agent_run(
     let cmd = command.first().context("no command provided")?.clone();
     let args = command.into_iter().skip(1).collect();
     let denied_commands = policy.denied_commands.iter().cloned().collect::<Vec<_>>();
-    let argument_denied_commands = policy.argument_denied_commands.clone();
+    let denied_with_args_commands = policy.denied_with_args_commands.clone();
     let denied_read_paths = policy.denied_read_paths.clone();
     let denied_write_paths = policy.denied_write_paths.clone();
     let command_audit_log = audit_log.clone();
@@ -78,7 +78,7 @@ pub async fn handle_remote_agent_run(
         true,
         true,
         &denied_commands,
-        &argument_denied_commands,
+        &denied_with_args_commands,
         &denied_read_paths,
         &denied_write_paths,
         command_audit_log,
@@ -1102,9 +1102,9 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.denied_commands.iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    let argument_denied_commands = proxy_policy
+    let denied_with_args_commands = proxy_policy
         .as_ref()
-        .map(|policy| policy.argument_denied_commands.clone())
+        .map(|policy| policy.denied_with_args_commands.clone())
         .unwrap_or_default();
     let denied_read_paths = proxy_policy
         .as_ref()
@@ -1143,7 +1143,7 @@ async fn handle_run(
             true,
             restrict_stashbase_credentials,
             &denied_commands,
-            &argument_denied_commands,
+            &denied_with_args_commands,
             &denied_read_paths,
             &denied_write_paths,
             command_audit_log,

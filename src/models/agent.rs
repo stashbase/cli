@@ -37,12 +37,12 @@ pub struct AgentCommandsProfile {
     pub denied: Vec<String>,
     /// Executable/argv patterns denied by the command wrapper layer.
     #[serde(default)]
-    pub denied_with_args: Vec<AgentArgumentDeniedRule>,
+    pub denied_with_args: Vec<AgentCommandDenyRule>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AgentArgumentDeniedRule {
+pub struct AgentCommandDenyRule {
     pub program: String,
     #[serde(default)]
     pub args: Vec<String>,
