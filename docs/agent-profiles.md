@@ -98,6 +98,11 @@ descendants:
 [commands]
 denied = ["ssh", "sudo", "docker"]
 
+[[commands.denied_with_args]]
+program = "git"
+args = ["push", "--force"]
+match = "contains"
+
 [filesystem]
 deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
@@ -112,6 +117,10 @@ paths for descendants; otherwise the policy falls back to normal `PATH`
 wrappers. Shell built-ins remain outside the policy.
 
 Filesystem restrictions use explicit path prefixes:
+
+Argument-aware command rules are enforced by the generated `PATH` wrappers.
+They are intended for ordinary command lookup and do not cover shell built-ins
+or absolute executable paths.
 
 ```toml
 [filesystem]
