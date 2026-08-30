@@ -24,7 +24,6 @@ use crate::{
     config::{config, secure_store},
     handlers::{
         agent_doctor::handle_agent_doctor_command,
-        agent_explain::handle_agent_command_explain_command,
         agent_explain::handle_agent_explain_command,
         agent_init::handle_agent_init_command,
         agent_policy::SecretHttpPolicy,
@@ -548,9 +547,6 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Explain(agent_explain) => {
                     handle_agent_explain_command(agent_explain, &config, silent, raw_output)
                 }
-                AgentSubcommand::Command(agent_command) => {
-                    handle_agent_command_explain_command(agent_command, &config, silent, raw_output)
-                }
                 AgentSubcommand::Policy(agent_policy) => match agent_policy.subcommand {
                     crate::cmd::agent::AgentPolicySubcommand::Test(agent_policy_test) => {
                         match handle_agent_policy_test_command(
@@ -789,12 +785,6 @@ pub async fn handle_cli(args: Cli) {
                             .clone()
                             .unwrap_or_default()
                             .into_iter()
-                            .collect(),
-                        denied_commands: profile
-                            .commands
-                            .denied
-                            .iter()
-                            .map(|command| command.trim().to_ascii_lowercase())
                             .collect(),
                         denied_read_paths: profile.filesystem.deny_read.clone(),
                         denied_write_paths: profile.filesystem.deny_write.clone(),
@@ -1386,7 +1376,6 @@ fn summarize_audit_events(
                 event
                     .destination_host
                     .as_ref()
-                    .or(event.command.as_ref())
                     .cloned()
                     .unwrap_or_else(|| "-".to_owned()),
             ))
@@ -1491,7 +1480,6 @@ fn audit_group_by_name(group_by: AgentAuditGroupBy) -> &'static str {
         AgentAuditGroupBy::Host => "host",
         AgentAuditGroupBy::Action => "action",
         AgentAuditGroupBy::Binding => "binding",
-        AgentAuditGroupBy::Command => "command",
     }
 }
 
@@ -1505,7 +1493,6 @@ fn summarize_audit_groups(
             AgentAuditGroupBy::Host => event.destination_host.as_deref(),
             AgentAuditGroupBy::Action => Some(event.action.as_str()),
             AgentAuditGroupBy::Binding => event.binding_name.as_deref(),
-            AgentAuditGroupBy::Command => event.command.as_deref(),
         }
         .unwrap_or("-")
         .to_owned();
@@ -1640,7 +1627,6 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
     }
 
     let host = event.destination_host.as_deref().unwrap_or("-");
-    let command = event.command.as_deref().unwrap_or("-");
     let binding = event.binding_name.as_deref().unwrap_or("-");
     let status = event
         .response_status
@@ -1659,8 +1645,8 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} command={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
-        event.timestamp, event.id, event.profile, event.action, host, command,
+        "{}  id={} profile={} action={} host={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        event.timestamp, event.id, event.profile, event.action, host,
         binding, event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
     );
@@ -2012,7 +1998,6 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -2177,7 +2162,6 @@ mod tests {
             profile_file_sha256: None,
             action: action.to_owned(),
             destination_host: Some(host.to_owned()),
-            command: None,
             path: None,
             operation: None,
             method: Some("GET".to_owned()),
@@ -2227,7 +2211,6 @@ mod tests {
                 profile_file_sha256: None,
                 action: "injected".to_owned(),
                 destination_host: Some("api.github.com".to_owned()),
-                command: None,
                 path: None,
                 operation: None,
                 method: Some("POST".to_owned()),
@@ -2249,7 +2232,6 @@ mod tests {
                 profile_file_sha256: None,
                 action: "forwarded".to_owned(),
                 destination_host: Some("registry.npmjs.org".to_owned()),
-                command: None,
                 path: None,
                 operation: None,
                 method: Some("GET".to_owned()),

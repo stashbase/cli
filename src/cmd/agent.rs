@@ -18,8 +18,6 @@ pub enum AgentSubcommand {
     Validate(AgentValidateCommand),
     /// Explain how an agent profile would handle an HTTP request without loading secrets
     Explain(AgentExplainCommand),
-    /// Explain how an agent profile handles a local command
-    Command(CommandExplainCommand),
     /// Run local, declarative policy regression tests without loading secrets or making requests
     Policy(AgentPolicyCommand),
     /// List and inspect available agent profiles without loading secrets
@@ -195,28 +193,6 @@ pub struct AgentExplainCommand {
 }
 
 #[derive(Debug, Args)]
-#[command(
-    override_usage = "agent command --profile <PROFILE> --command <COMMAND> [--profile-source <auto|global|directory>]"
-)]
-pub struct CommandExplainCommand {
-    /// Agent profile to evaluate
-    #[arg(long)]
-    pub profile: String,
-
-    /// Where to load the agent profile from
-    #[arg(long, value_enum, default_value = "auto")]
-    pub profile_source: AgentProfileSource,
-
-    /// Explicit direct profile file
-    #[arg(long, conflicts_with = "profile_source")]
-    pub policy_file: Option<PathBuf>,
-
-    /// Executable name to evaluate
-    #[arg(long)]
-    pub command: String,
-}
-
-#[derive(Debug, Args)]
 pub struct AgentPolicyCommand {
     #[command(subcommand)]
     pub subcommand: AgentPolicySubcommand,
@@ -361,7 +337,7 @@ pub struct AgentLogsSummaryCommand {
     #[arg(long)]
     pub id: Option<String>,
 
-    /// Group matching events by host, proxy action, credential binding, or command
+    /// Group matching events by host, proxy action, or credential binding
     #[arg(long = "by", value_enum)]
     pub group_by: Option<AgentAuditGroupBy>,
 }
@@ -375,8 +351,6 @@ pub enum AgentAuditGroupBy {
     /// Group by configured credential binding name
     #[value(alias = "secret")]
     Binding,
-    /// Group by denied command name
-    Command,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

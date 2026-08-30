@@ -136,9 +136,6 @@ impl EntityType {
                 subcommand: AgentSubcommand::Explain(_),
             }) => false,
             EntityType::Agent(AgentCommand {
-                subcommand: AgentSubcommand::Command(_),
-            }) => false,
-            EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Policy(_),
             }) => false,
             // File-only agent profiles require no Stashbase authentication.
@@ -157,26 +154,6 @@ impl EntityType {
             },
             _ => true,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cmd::agent::{AgentProfileSource, CommandExplainCommand};
-
-    #[test]
-    fn agent_command_explanation_is_local() {
-        let command = EntityType::Agent(AgentCommand {
-            subcommand: AgentSubcommand::Command(CommandExplainCommand {
-                profile: "fixture".to_owned(),
-                profile_source: AgentProfileSource::Auto,
-                policy_file: None,
-                command: "curl".to_owned(),
-            }),
-        });
-
-        assert!(!command.requires_api_key());
     }
 }
 

@@ -53,7 +53,6 @@ pub async fn handle_remote_agent_run(
 ) -> anyhow::Result<()> {
     let cmd = command.first().context("no command provided")?.clone();
     let args = command.into_iter().skip(1).collect();
-    let denied_commands = policy.denied_commands.iter().cloned().collect::<Vec<_>>();
     let denied_read_paths = policy.denied_read_paths.clone();
     let denied_write_paths = policy.denied_write_paths.clone();
     let command_audit_log = audit_log.clone();
@@ -68,7 +67,7 @@ pub async fn handle_remote_agent_run(
         );
         eprintln!("Remote agent proxy session active");
     }
-    let result = subprocess::run_command_with_denied_commands(
+    let result = subprocess::run_command_with_filesystem_policy(
         &cmd,
         args,
         proxy.child_env().clone(),
@@ -76,7 +75,6 @@ pub async fn handle_remote_agent_run(
         sandbox,
         true,
         true,
-        &denied_commands,
         &denied_read_paths,
         &denied_write_paths,
         command_audit_log,
@@ -1096,10 +1094,6 @@ async fn handle_run(
     let restrict_stashbase_credentials = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.strict_deny);
-    let denied_commands = proxy_policy
-        .as_ref()
-        .map(|policy| policy.denied_commands.iter().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
     let denied_read_paths = proxy_policy
         .as_ref()
         .map(|policy| policy.denied_read_paths.clone())
@@ -1128,7 +1122,7 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let result = subprocess::run_command_with_denied_commands(
+        let result = subprocess::run_command_with_filesystem_policy(
             &cmd,
             args,
             proxy.child_env().clone(),
@@ -1136,7 +1130,6 @@ async fn handle_run(
             sandbox,
             true,
             restrict_stashbase_credentials,
-            &denied_commands,
             &denied_read_paths,
             &denied_write_paths,
             command_audit_log,
