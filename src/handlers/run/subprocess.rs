@@ -295,24 +295,6 @@ fn sandbox_command_with_filesystem_policy(
     }
 }
 
-#[cfg(test)]
-fn sandbox_command_with_denied_commands(
-    command: &str,
-    sandbox: bool,
-    env_vars: &HashMap<String, String>,
-    _denied_commands: &[String],
-    denied_read_paths: &[String],
-    denied_write_paths: &[String],
-) -> Result<(String, Vec<String>)> {
-    sandbox_command_with_filesystem_policy(
-        command,
-        sandbox,
-        env_vars,
-        denied_read_paths,
-        denied_write_paths,
-    )
-}
-
 #[cfg(target_os = "macos")]
 #[cfg(target_os = "macos")]
 fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
@@ -945,57 +927,11 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_sandbox_denies_blocked_executables_by_absolute_path() {
-        let env_vars = HashMap::from([
-            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
-            (
-                "HTTPS_PROXY".to_owned(),
-                "http://127.0.0.1:49152".to_owned(),
-            ),
-        ]);
-        let (_, args) = sandbox_command_with_denied_commands(
-            "/bin/sh",
-            true,
-            &env_vars,
-            &["curl".to_owned()],
-            &[],
-            &[],
-        )
-        .unwrap();
-        let profile = &args[1];
-        assert!(profile.contains("(deny process-exec (literal \"/usr/bin/curl\"))"));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[tokio::test]
-    async fn macos_command_policy_blocks_absolute_child_execution_without_network_sandbox() {
-        let status = run_command_with_denied_commands(
-            "/bin/sh",
-            vec!["-c".to_owned(), "/usr/bin/curl --version".to_owned()],
-            HashMap::new(),
-            Vec::new(),
-            false,
-            false,
-            false,
-            &["curl".to_owned()],
-            &[],
-            &[],
-            None,
-        )
-        .await
-        .unwrap();
-
-        assert!(!status.success());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
     fn macos_filesystem_policy_generates_file_read_rule() {
-        let (program, args) = sandbox_command_with_denied_commands(
+        let (program, args) = sandbox_command_with_filesystem_policy(
             "/bin/sh",
             false,
             &HashMap::new(),
-            &[],
             &["/tmp/private-agent-file".to_owned()],
             &[],
         )

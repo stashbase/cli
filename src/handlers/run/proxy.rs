@@ -100,9 +100,6 @@ pub struct ProxyAuditLogEvent {
     pub profile_file_sha256: Option<String>,
     pub action: String,
     pub destination_host: Option<String>,
-    /// Present only for command-policy events.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
     /// Present only for filesystem-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -353,11 +350,7 @@ impl ProxyAuditLog {
                 })
                 .flatten(),
             action: action.to_owned(),
-            destination_host: (action != "command_denied" && action != "filesystem_denied")
-                .then(|| host)
-                .flatten()
-                .map(str::to_owned),
-            command: (action == "command_denied")
+            destination_host: (action != "filesystem_denied")
                 .then(|| host)
                 .flatten()
                 .map(str::to_owned),
@@ -581,8 +574,6 @@ pub struct ProxyPolicy {
     pub secret_injections: HashMap<String, SecretInjection>,
     pub allowed_egress_hosts: HashSet<String>,
     pub denied_hosts: HashSet<String>,
-    /// Executable names denied by the child command wrapper layer.
-    pub denied_commands: HashSet<String>,
     pub denied_read_paths: Vec<String>,
     pub denied_write_paths: Vec<String>,
     /// Whether credential-bearing requests must also satisfy egress policy.
@@ -688,7 +679,6 @@ impl ProxyPolicy {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -713,13 +703,6 @@ impl ProxyPolicy {
             .collect::<Vec<_>>();
         denied.sort();
         lines.push(format!("deny={}", denied.join(",")));
-        let mut denied_commands = self
-            .denied_commands
-            .iter()
-            .map(|command| command.trim().to_ascii_lowercase())
-            .collect::<Vec<_>>();
-        denied_commands.sort();
-        lines.push(format!("deny_commands={}", denied_commands.join(",")));
         lines.push(format!("deny_read={}", self.denied_read_paths.join(",")));
         lines.push(format!("deny_write={}", self.denied_write_paths.join(",")));
 
@@ -2921,7 +2904,6 @@ mod tests {
             )]),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3046,7 +3028,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3449,7 +3430,6 @@ mod tests {
             profile_file_sha256: None,
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
-            command: None,
             path: None,
             operation: None,
             method: Some("POST".to_owned()),
@@ -3488,7 +3468,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3528,7 +3507,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3636,7 +3614,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3720,7 +3697,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -3759,7 +3735,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3784,7 +3759,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::from(["*".to_owned()]),
             denied_hosts: HashSet::from(["api.stashbase.dev".to_owned()]),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
@@ -3844,7 +3818,6 @@ mod tests {
             secret_injections: HashMap::new(),
             allowed_egress_hosts: HashSet::new(),
             denied_hosts: HashSet::new(),
-            denied_commands: HashSet::new(),
             denied_read_paths: Vec::new(),
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
@@ -4205,7 +4178,6 @@ mod tests {
                 )]),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
-                denied_commands: HashSet::new(),
                 denied_read_paths: Vec::new(),
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
@@ -4241,7 +4213,6 @@ mod tests {
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::new(),
                 denied_hosts: HashSet::new(),
-                denied_commands: HashSet::new(),
                 denied_read_paths: Vec::new(),
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
@@ -4278,7 +4249,6 @@ mod tests {
                 secret_injections: HashMap::new(),
                 allowed_egress_hosts: HashSet::from(["127.0.0.1".to_owned()]),
                 denied_hosts: HashSet::new(),
-                denied_commands: HashSet::new(),
                 denied_read_paths: Vec::new(),
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: true,
