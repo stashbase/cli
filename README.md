@@ -299,7 +299,8 @@ deny_write = [".git", "~/.ssh"]
 
 Argument-aware command rules use normal `PATH` wrappers and are currently
 unsupported on Windows; use `commands.denied` there for blanket executable
-denials.
+denials. Matching is token-based: aliases such as `-f` and variants such as
+`--force=true` require separate rules.
 
 These policy-only local profiles do not require secrets or personal credentials.
 Filesystem enforcement uses the supported macOS or Linux process sandbox; see

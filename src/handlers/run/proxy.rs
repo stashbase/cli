@@ -799,12 +799,20 @@ impl ProxyPolicy {
             .argument_denied_commands
             .iter()
             .map(|rule| {
-                format!(
-                    "{};{:?};{}",
-                    rule.program,
+                let mut args = rule.args.clone();
+                if matches!(
                     rule.match_mode,
-                    rule.args.join("\u{1f}")
-                )
+                    crate::models::agent::AgentArgumentMatch::Contains
+                ) {
+                    args.sort();
+                    args.dedup();
+                }
+                serde_json::to_string(&(
+                    rule.program.trim().to_ascii_lowercase(),
+                    rule.match_mode,
+                    args,
+                ))
+                .expect("command deny fingerprint data is serializable")
             })
             .collect::<Vec<_>>();
         argument_denied.sort();
@@ -2770,6 +2778,8 @@ fn full_body(body: Bytes) -> ProxyBody {
 
 #[cfg(test)]
 mod tests {
+    use crate::models::agent::{AgentArgumentDeniedRule, AgentArgumentMatch};
+
     use super::*;
     use futures_util::{stream, StreamExt};
     use hyper::header::{AUTHORIZATION, HOST, LOCATION, TRANSFER_ENCODING};
@@ -3671,6 +3681,25 @@ mod tests {
 
         assert_eq!(left.fingerprint(), right.fingerprint());
         assert_eq!(left.fingerprint().len(), 64);
+    }
+
+    #[test]
+    fn policy_fingerprint_normalizes_argument_denial_rules() {
+        let mut left = ProxyPolicy::permissive();
+        left.argument_denied_commands = vec![AgentArgumentDeniedRule {
+            program: " GIT ".to_owned(),
+            args: vec!["--force".to_owned(), "push".to_owned(), "push".to_owned()],
+            match_mode: AgentArgumentMatch::Contains,
+        }];
+
+        let mut right = ProxyPolicy::permissive();
+        right.argument_denied_commands = vec![AgentArgumentDeniedRule {
+            program: "git".to_owned(),
+            args: vec!["push".to_owned(), "--force".to_owned()],
+            match_mode: AgentArgumentMatch::Contains,
+        }];
+
+        assert_eq!(left.fingerprint(), right.fingerprint());
     }
 
     #[test]

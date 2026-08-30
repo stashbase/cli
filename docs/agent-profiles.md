@@ -123,6 +123,10 @@ They are intended for ordinary command lookup and do not cover shell built-ins
 or absolute executable paths. They are currently unsupported on Windows; use
 `commands.denied` there for blanket executable denials.
 
+Matching is token-based and does not parse shell syntax or command-specific
+aliases. For example, denying `--force` does not also deny `-f` or
+`--force=true`; add separate rules when those spellings should also be denied.
+
 ```toml
 [filesystem]
 deny_read = ["~/.ssh", "~/.aws", ".env"]
