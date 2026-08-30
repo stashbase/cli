@@ -191,18 +191,48 @@ pub async fn run_command_with_denied_commands(
     };
     if let (Some(wrappers), Some(audit_log)) = (&command_wrappers, &audit_log) {
         if let Some(event_path) = &wrappers.event_path {
-            if let Ok(events) = fs::read_to_string(event_path) {
-                for command in events
-                    .lines()
-                    .map(str::trim)
-                    .filter(|command| !command.is_empty())
-                {
-                    audit_log.record_command_denied(command);
+            if let Ok(events) = fs::read(event_path) {
+                for (command, args, rule) in parse_command_events(&events) {
+                    audit_log.record_command_denied(&command, args, rule);
                 }
             }
         }
     }
     Ok(status)
+}
+
+fn parse_command_events(events: &[u8]) -> Vec<(String, Vec<String>, Option<String>)> {
+    if !events.contains(&0) {
+        return String::from_utf8_lossy(events)
+            .lines()
+            .map(str::trim)
+            .filter(|command| !command.is_empty())
+            .map(|command| (command.to_owned(), Vec::new(), None))
+            .collect();
+    }
+
+    let fields = events.split(|byte| *byte == 0).collect::<Vec<_>>();
+    let mut index = 0;
+    let mut parsed = Vec::new();
+    while index + 1 < fields.len() {
+        let command = String::from_utf8_lossy(fields[index]).into_owned();
+        let Ok(argument_count) = String::from_utf8_lossy(fields[index + 1]).parse::<usize>() else {
+            break;
+        };
+        index += 2;
+        if index + argument_count >= fields.len() {
+            break;
+        }
+        let args = fields[index..index + argument_count]
+            .iter()
+            .map(|arg| String::from_utf8_lossy(arg).into_owned())
+            .collect();
+        index += argument_count;
+        let rule = String::from_utf8_lossy(fields[index]).into_owned();
+        index += 1;
+        parsed.push((command, args, (!rule.is_empty()).then_some(rule)));
+    }
+    parsed
 }
 
 /// A deliberately small first version of command enforcement. The wrappers
@@ -225,16 +255,17 @@ fn unix_command_wrapper(
     argument_rules: &[AgentArgumentDeniedRule],
 ) -> String {
     let mut script = String::from("#!/bin/sh\n");
-    let denied = || {
+    let denied = |rule: &str| {
         format!(
-            "printf '%s %s\\n' {} \"$*\" >> \"$STASHBASE_COMMAND_EVENT_FILE\"\nprintf '%s\\n' {} >&2\nprintf '%s\\n' {} >&2\nexit 126\n",
+            "printf '%s\\0%s\\0' {} \"$#\" >> \"$STASHBASE_COMMAND_EVENT_FILE\"; printf '%s\\0' \"$@\" >> \"$STASHBASE_COMMAND_EVENT_FILE\"; printf '%s\\0' {} >> \"$STASHBASE_COMMAND_EVENT_FILE\"\nprintf '%s\\n' {} >&2\nprintf '%s\\n' {} >&2\nexit 126\n",
             shell_quote(command),
+            shell_quote(rule),
             shell_quote(&format!("{{\"error\":{{\"code\":\"command_denied\",\"message\":\"Command denied by agent policy\",\"command\":\"{command}\"}}}}")),
             shell_quote(&format!("Stashbase agent policy denied command: {command}"))
         )
     };
     if blanket_commands.iter().any(|denied| denied == command) {
-        script.push_str(&denied());
+        script.push_str(&denied("denied"));
         return script;
     }
 
@@ -259,7 +290,16 @@ fn unix_command_wrapper(
                     parts.join(" && ")
                 }
             };
-        script.push_str(&format!("if {condition}; then\n{}fi\n", denied()));
+        let rule_label = format!(
+            "{} {:?} {}",
+            rule.program,
+            rule.match_mode,
+            rule.args.join(" ")
+        );
+        script.push_str(&format!(
+            "if {condition}; then\n{}fi\n",
+            denied(&rule_label)
+        ));
     }
 
     // The wrapper directory is prepended to PATH after this script is created.

@@ -1642,6 +1642,12 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
 
     let host = event.destination_host.as_deref().unwrap_or("-");
     let command = event.command.as_deref().unwrap_or("-");
+    let command_args = event
+        .command_args
+        .as_ref()
+        .map(|args| format!("{args:?}"))
+        .unwrap_or_else(|| "-".to_owned());
+    let command_rule = event.command_rule.as_deref().unwrap_or("-");
     let binding = event.binding_name.as_deref().unwrap_or("-");
     let status = event
         .response_status
@@ -1660,10 +1666,10 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} command={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        "{}  id={} profile={} action={} host={} command={} args={} rule={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
         event.timestamp, event.id, event.profile, event.action, host, command,
-        binding, event.binding_source.as_deref().unwrap_or("-"), status, duration,
-        request_bytes, response_bytes
+        command_args, command_rule, binding, event.binding_source.as_deref().unwrap_or("-"),
+        status, duration, request_bytes, response_bytes
     );
     Ok(())
 }
@@ -2179,6 +2185,8 @@ mod tests {
             action: action.to_owned(),
             destination_host: Some(host.to_owned()),
             command: None,
+            command_args: None,
+            command_rule: None,
             path: None,
             operation: None,
             method: Some("GET".to_owned()),
@@ -2229,6 +2237,8 @@ mod tests {
                 action: "injected".to_owned(),
                 destination_host: Some("api.github.com".to_owned()),
                 command: None,
+                command_args: None,
+                command_rule: None,
                 path: None,
                 operation: None,
                 method: Some("POST".to_owned()),
@@ -2251,6 +2261,8 @@ mod tests {
                 action: "forwarded".to_owned(),
                 destination_host: Some("registry.npmjs.org".to_owned()),
                 command: None,
+                command_args: None,
+                command_rule: None,
                 path: None,
                 operation: None,
                 method: Some("GET".to_owned()),

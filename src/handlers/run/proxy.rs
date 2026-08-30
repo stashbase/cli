@@ -104,6 +104,12 @@ pub struct ProxyAuditLogEvent {
     /// Present only for command-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    /// Original argv for command-policy events, excluding the executable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_args: Option<Vec<String>>,
+    /// Human-readable policy rule that matched the command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_rule: Option<String>,
     /// Present only for filesystem-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -255,9 +261,14 @@ impl ProxyAuditLog {
         &self.policy_fingerprint
     }
 
-    pub fn record_command_denied(&self, command: &str) -> String {
+    pub fn record_command_denied(
+        &self,
+        command: &str,
+        args: Vec<String>,
+        rule: Option<String>,
+    ) -> String {
         let id = new_local_audit_event_id();
-        self.record(
+        self.record_with_bytes_and_command_details(
             "command_denied",
             Some(command),
             None,
@@ -265,6 +276,12 @@ impl ProxyAuditLog {
             Some(StatusCode::FORBIDDEN),
             None,
             Some(&id),
+            None,
+            None,
+            None,
+            None,
+            Some(args),
+            rule,
         );
         id
     }
@@ -338,6 +355,40 @@ impl ProxyAuditLog {
         path: Option<&str>,
         operation: Option<&str>,
     ) {
+        self.record_with_bytes_and_command_details(
+            action,
+            host,
+            method,
+            secret_name,
+            status,
+            duration,
+            id,
+            request_bytes,
+            response_bytes,
+            path,
+            operation,
+            None,
+            None,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn record_with_bytes_and_command_details(
+        &self,
+        action: &str,
+        host: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+        id: Option<&str>,
+        request_bytes: Option<u64>,
+        response_bytes: Option<u64>,
+        path: Option<&str>,
+        operation: Option<&str>,
+        command_args: Option<Vec<String>>,
+        command_rule: Option<String>,
+    ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
@@ -376,6 +427,12 @@ impl ProxyAuditLog {
                 .then(|| host)
                 .flatten()
                 .map(str::to_owned),
+            command_args: (action == "command_denied")
+                .then_some(command_args)
+                .flatten(),
+            command_rule: (action == "command_denied")
+                .then_some(command_rule)
+                .flatten(),
             path: path.map(str::to_owned),
             operation: operation.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
@@ -3319,6 +3376,11 @@ mod tests {
             Some(Duration::from_millis(12)),
             Some("evt_test"),
         );
+        let command_event_id = audit_log.record_command_denied(
+            "git",
+            vec!["push".to_owned(), "--force".to_owned()],
+            Some("git Contains push --force".to_owned()),
+        );
         let filesystem_event_id = audit_log.record_filesystem_denied(".env", "read");
 
         let content = fs::read_to_string(&path).unwrap();
@@ -3326,6 +3388,20 @@ mod tests {
         assert!(content.contains("EXAMPLE_API_KEY"));
         assert!(content.contains("personal_credential"));
         assert!(content.contains("policy-fingerprint"));
+        let command_event = content
+            .lines()
+            .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
+            .find(|event| event.id == command_event_id)
+            .unwrap();
+        assert_eq!(command_event.command.as_deref(), Some("git"));
+        assert_eq!(
+            command_event.command_args.as_deref(),
+            Some(["push".to_owned(), "--force".to_owned()].as_slice())
+        );
+        assert_eq!(
+            command_event.command_rule.as_deref(),
+            Some("git Contains push --force")
+        );
         let filesystem_event = content
             .lines()
             .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
@@ -3484,6 +3560,8 @@ mod tests {
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             command: None,
+            command_args: None,
+            command_rule: None,
             path: None,
             operation: None,
             method: Some("POST".to_owned()),
