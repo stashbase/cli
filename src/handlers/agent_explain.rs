@@ -14,7 +14,7 @@ use crate::{
             normalize_request_path, SecretAuthorizationDecision, SecretHttpPolicy,
         },
         agent_validate::ensure_profile_is_valid_for_run,
-        run::subprocess::{filesystem_backend_for_policy, systemd_run_available},
+        run::subprocess::filesystem_backend_for_policy,
     },
     models::config::Config,
     utils::output::get_formatted_json_string,
@@ -232,33 +232,15 @@ pub fn handle_agent_command_explain_command(
         );
     };
     ensure_profile_is_valid_for_run(&profile)?;
-    let denied = profile
-        .commands
-        .denied
-        .iter()
-        .any(|value| value.eq_ignore_ascii_case(executable));
-    let os_level_command_enforcement =
-        cfg!(target_os = "macos") || (cfg!(target_os = "linux") && systemd_run_available());
-    let enforcement = if denied {
-        if os_level_command_enforcement {
-            "os_process_exec"
-        } else {
-            "path_wrapper"
-        }
-    } else {
-        "not_denied"
-    };
     let report = serde_json::json!({
         "profile": command.profile,
         "source": source,
         "command": executable,
-        "decision": if denied { "deny" } else { "allow" },
-        "enforcement": enforcement,
+        "decision": "allow",
         "filesystem_backend": filesystem_backend_for_policy(
             &profile.filesystem.deny_read,
             &profile.filesystem.deny_write,
         ),
-        "limitations": if denied && !os_level_command_enforcement { Some("Absolute executable paths are not covered on this platform.") } else { None::<&str> },
     });
     if !silent {
         println!();
@@ -270,10 +252,6 @@ pub fn handle_agent_command_explain_command(
         println!("Profile: {}", report["profile"]);
         println!("Command: {}", report["command"]);
         println!("Decision: {}", report["decision"]);
-        println!("Enforcement: {}", report["enforcement"]);
-        if let Some(limitations) = report["limitations"].as_str() {
-            println!("Note: {limitations}");
-        }
     }
     Ok(())
 }

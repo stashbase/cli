@@ -514,23 +514,6 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
     }
 
-    let mut seen_commands = HashSet::new();
-    for command in &profile.commands.denied {
-        if !valid_command_name(command) {
-            checks.push(fail(
-                "Denied command",
-                format!(
-                    "'{command}' must be a plain executable name using only letters, digits, '.', '_', '+', or '-'."
-                ),
-            ));
-        } else if !seen_commands.insert(command.to_ascii_lowercase()) {
-            checks.push(warn(
-                "Denied command",
-                format!("Duplicate denied command '{command}'."),
-            ));
-        }
-    }
-
     for (kind, paths) in [
         ("read", &profile.filesystem.deny_read),
         ("write", &profile.filesystem.deny_write),
@@ -557,24 +540,15 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         checks.push(ok(
             "Profile policy",
             format!(
-                "{} binding(s), {} egress host rule(s), {} denied host rule(s), {} denied command rule(s), and {} filesystem deny rule(s) are valid.",
+                "{} binding(s), {} egress host rule(s), {} denied host rule(s), and {} filesystem deny rule(s) are valid.",
                 profile.secrets.bindings.len() + profile.personal_credentials.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
                 profile.deny_hosts.as_ref().map_or(0, Vec::len),
-                profile.commands.denied.len(),
                 profile.filesystem.deny_read.len() + profile.filesystem.deny_write.len()
             ),
         ));
     }
     checks
-}
-
-fn valid_command_name(command: &str) -> bool {
-    !command.is_empty()
-        && command == command.trim()
-        && command
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "._+-".contains(character))
 }
 
 fn valid_filesystem_path(path: &str) -> bool {
@@ -887,15 +861,6 @@ mod tests {
     }
 
     #[test]
-    fn validates_denied_command_names() {
-        assert!(valid_command_name("curl"));
-        assert!(valid_command_name("node-20"));
-        assert!(!valid_command_name(" /usr/bin/curl"));
-        assert!(!valid_command_name("curl --version"));
-        assert!(!valid_command_name(""));
-    }
-
-    #[test]
     fn lints_duplicate_broad_and_shadowed_http_rules() {
         let allow = AgentHttpRule {
             effect: AgentHttpRuleEffect::Allow,
@@ -930,7 +895,6 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -962,7 +926,6 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -995,7 +958,6 @@ mod tests {
             file: Some(".env.agent".to_owned()),
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1013,7 +975,6 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
@@ -1045,7 +1006,6 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1102,7 +1062,6 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),

@@ -729,6 +729,7 @@ pub async fn handle_cli(args: Cli) {
                     }
 
                     let policy = ProxyPolicy {
+                        denied_commands: std::collections::HashSet::new(),
                         secret_policies: profile
                             .secrets
                             .bindings
@@ -789,12 +790,6 @@ pub async fn handle_cli(args: Cli) {
                             .clone()
                             .unwrap_or_default()
                             .into_iter()
-                            .collect(),
-                        denied_commands: profile
-                            .commands
-                            .denied
-                            .iter()
-                            .map(|command| command.trim().to_ascii_lowercase())
                             .collect(),
                         denied_read_paths: profile.filesystem.deny_read.clone(),
                         denied_write_paths: profile.filesystem.deny_write.clone(),
@@ -2012,7 +2007,6 @@ mod tests {
             file: None,
             egress_hosts: None,
             deny_hosts: None,
-            commands: Default::default(),
             filesystem: Default::default(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),

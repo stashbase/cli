@@ -10,9 +10,6 @@ pub struct AgentProfile {
     pub egress_hosts: Option<Vec<String>>,
     /// Destinations denied after both secret and ordinary egress rules are evaluated.
     pub deny_hosts: Option<Vec<String>>,
-    /// Commands that should be denied when launched through the agent's PATH.
-    #[serde(default)]
-    pub commands: AgentCommandsProfile,
     /// Filesystem paths denied to the agent process tree.
     #[serde(default)]
     pub filesystem: AgentFilesystemProfile,
@@ -26,15 +23,6 @@ pub struct AgentProfile {
     /// Optional local-only regression cases for this profile's HTTP policy.
     #[serde(default)]
     pub policy_tests: Vec<AgentPolicyTestCase>,
-}
-
-/// Local command restrictions for an agent session.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AgentCommandsProfile {
-    /// Executable names to shadow with denying wrappers in the child PATH.
-    #[serde(default)]
-    pub denied: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

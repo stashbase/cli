@@ -581,17 +581,6 @@ fn command_in_path(command: &str) -> bool {
     })
 }
 
-pub(crate) fn systemd_run_available() -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        systemd_filesystem_enforcement_error().is_none()
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        false
-    }
-}
-
 /// Returns the backend that will enforce a non-empty profile denylist.
 pub(crate) fn filesystem_backend() -> String {
     #[cfg(target_os = "linux")]
