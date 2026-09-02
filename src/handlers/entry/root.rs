@@ -790,6 +790,7 @@ pub async fn handle_cli(args: Cli) {
                         denied_write_paths: profile.filesystem.deny_write.clone(),
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
+                        mcp_rules: profile.mcp_rules.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -848,6 +849,17 @@ pub async fn handle_cli(args: Cli) {
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
                         let bindings = remote_bindings(&profile);
+                        let mcp_rules = profile
+                            .mcp_rules
+                            .iter()
+                            .cloned()
+                            .map(|rule| crate::api::remote_proxy::RemoteMcpRule {
+                                effect: rule.effect,
+                                hosts: rule.hosts,
+                                paths: rule.paths,
+                                tools: rule.tools,
+                            })
+                            .collect();
                         let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {
                             api_key: api_key.clone(),
                             project_identifier: project,
@@ -855,6 +867,7 @@ pub async fn handle_cli(args: Cli) {
                             egress_hosts,
                             deny_hosts,
                             bindings: bindings.clone(),
+                            mcp_rules,
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
                             previous_session_token: None,
                         };
@@ -1999,6 +2012,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_rules: Vec::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("environment".to_owned()),
