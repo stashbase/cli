@@ -152,6 +152,23 @@ mod tests {
     }
 
     #[test]
+    fn parses_direct_agent_profile_with_mcp_tool_rules() {
+        let profile: crate::models::agent::AgentProfile = toml::from_str(
+            r#"
+                [[mcp_rules]]
+                effect = "allow"
+                hosts = ["mcp.linear.app"]
+                paths = ["/mcp"]
+                tools = ["search_issues", "get_issue"]
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(profile.mcp_rules.len(), 1);
+        assert_eq!(profile.mcp_rules[0].tools, ["search_issues", "get_issue"]);
+    }
+
+    #[test]
     fn parses_agent_profile_with_personal_credentials() {
         let config: Config = toml::from_str(
             r#"
