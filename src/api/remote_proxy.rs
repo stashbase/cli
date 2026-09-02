@@ -81,6 +81,14 @@ pub struct RemoteBinding {
     pub value_template: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteMcpRule {
+    pub effect: crate::models::agent::AgentHttpRuleEffect,
+    pub hosts: Vec<String>,
+    pub paths: Vec<String>,
+    pub tools: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteBindingSource {
@@ -102,6 +110,7 @@ pub struct RemoteProxySessionRequest {
     pub egress_hosts: Vec<String>,
     pub deny_hosts: Vec<String>,
     pub bindings: Vec<RemoteBinding>,
+    pub mcp_rules: Vec<RemoteMcpRule>,
     /// Sent only for the initial logical agent session. The control plane keeps
     /// that value when a replacement session is issued.
     pub agent_type: Option<String>,
@@ -146,8 +155,14 @@ struct CreateSession<'a> {
     egress_hosts: &'a [String],
     deny_hosts: &'a [String],
     bindings: &'a [RemoteBinding],
+    #[serde(skip_serializing_if = "is_empty")]
+    mcp_rules: &'a [RemoteMcpRule],
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_type: Option<&'a str>,
+}
+
+fn is_empty<T>(values: &[T]) -> bool {
+    values.is_empty()
 }
 
 pub async fn create_session(
@@ -265,6 +280,7 @@ fn create_session_http_request(
             egress_hosts: &request.egress_hosts,
             deny_hosts: &request.deny_hosts,
             bindings: &request.bindings,
+            mcp_rules: &request.mcp_rules,
             agent_type: request.agent_type.as_deref(),
         });
     if let Some(previous_session_token) = &request.previous_session_token {
@@ -350,6 +366,7 @@ mod tests {
             egress_hosts: vec!["api.example.com".to_owned()],
             deny_hosts: Vec::new(),
             bindings: Vec::new(),
+            mcp_rules: Vec::new(),
             agent_type: Some("custom".to_owned()),
             previous_session_token: previous_session_token.map(str::to_owned),
         }
@@ -411,6 +428,30 @@ mod tests {
         assert_eq!(body["bindings"][0]["source"], "secret");
         assert_eq!(body["bindings"][0]["source_name"], "GH_TOKEN");
         assert!(body["bindings"][0].get("secret_name").is_none());
+    }
+
+    #[test]
+    fn session_request_serializes_mcp_tool_rules() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        session.mcp_rules = vec![RemoteMcpRule {
+            effect: crate::models::agent::AgentHttpRuleEffect::Allow,
+            hosts: vec!["mcp.linear.app".to_owned()],
+            paths: vec!["/mcp".to_owned()],
+            tools: vec!["search_issues".to_owned()],
+        }];
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+
+        assert_eq!(body["mcp_rules"][0]["effect"], "allow");
+        assert_eq!(
+            body["mcp_rules"][0]["tools"],
+            serde_json::json!(["search_issues"])
+        );
     }
 
     #[test]
