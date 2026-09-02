@@ -13,6 +13,9 @@ pub struct AgentProfile {
     /// Filesystem paths denied to the agent process tree.
     #[serde(default)]
     pub filesystem: AgentFilesystemProfile,
+    /// MCP JSON-RPC tool permissions evaluated by the Agent Proxy.
+    #[serde(default)]
+    pub mcp_rules: Vec<AgentMcpRule>,
     #[serde(default)]
     pub secrets: AgentSecretsProfile,
     /// Personal credentials are private to the authenticated account and are
@@ -23,6 +26,18 @@ pub struct AgentProfile {
     /// Optional local-only regression cases for this profile's HTTP policy.
     #[serde(default)]
     pub policy_tests: Vec<AgentPolicyTestCase>,
+}
+
+/// An MCP endpoint rule. `hosts` and `paths` identify the endpoint, while
+/// `tools` limits the tools exposed through it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentMcpRule {
+    pub effect: AgentHttpRuleEffect,
+    pub hosts: Vec<String>,
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
