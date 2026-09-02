@@ -308,13 +308,18 @@ Stashbase-managed credentials—useful for Codex with an existing local login or
 for MCP-only workflows:
 
 ```toml
-[agent_profiles.codex]
 egress_hosts = ["chatgpt.com", "mcp.context7.com", "mcp.linear.app"]
 deny_hosts = ["api.stashbase.dev"]
 ```
 
 The CLI prints an egress-only warning at startup. To prevent accidental secret
 loading, this mode rejects a configured `file` or `[secrets]` source.
+
+MCP tool rules apply to HTTP MCP transports, including Streamable HTTP. They
+work in both local and remote runs: the local proxy enforces the JSON-RPC
+request and response, while a remote run sends the same rules to the remote
+Agent Proxy for enforcement. Stdio MCP servers are not covered by these rules
+yet because their JSON-RPC traffic does not pass through the HTTP proxy.
 
 ## Secret sources, bindings, and local overrides
 
