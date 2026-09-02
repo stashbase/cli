@@ -93,6 +93,26 @@ deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
 ```
 
+MCP servers can expose many tools through one HTTP endpoint. Restrict the
+tools independently from credential injection with top-level `mcp_rules`:
+
+```toml
+[[mcp_rules]]
+effect = "allow"
+hosts = ["mcp.linear.app"]
+paths = ["/mcp"]
+tools = ["search_issues", "get_issue"]
+```
+
+The Agent Proxy must enforce this at both `tools/list` (by filtering the
+advertised tools) and `tools/call` (by rejecting calls for tools not allowed by
+the rule). An MCP rule does not grant network access or credentials by itself;
+configure `egress_hosts` and the relevant credential rules separately.
+
+Use `tools = ["*"]` to explicitly allow every tool on a matching endpoint. A
+matching `deny` rule still takes precedence, so this can be used to allow all
+tools except selected high-impact operations.
+
 Filesystem restrictions use explicit path prefixes:
 
 ```toml
