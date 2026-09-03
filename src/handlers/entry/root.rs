@@ -274,6 +274,41 @@ fn remote_bindings(
         .collect()
 }
 
+fn compiled_mcp_rules(
+    profile: &crate::models::agent::AgentProfile,
+) -> Vec<crate::models::agent::AgentMcpRule> {
+    let mut rules = profile.mcp_rules.clone();
+    for server in profile.mcp_servers.values() {
+        rules.push(crate::models::agent::AgentMcpRule {
+            effect: crate::models::agent::AgentHttpRuleEffect::Allow,
+            hosts: server.hosts.clone(),
+            paths: server.paths.clone(),
+            tools: if server.allow_tools.is_empty() {
+                vec!["*".to_owned()]
+            } else {
+                server.allow_tools.clone()
+            },
+        });
+        if !server.deny_tools.is_empty() {
+            rules.push(crate::models::agent::AgentMcpRule {
+                effect: crate::models::agent::AgentHttpRuleEffect::Deny,
+                hosts: server.hosts.clone(),
+                paths: server.paths.clone(),
+                tools: server.deny_tools.clone(),
+            });
+        }
+    }
+    for binding in profile
+        .secrets
+        .bindings
+        .values()
+        .chain(profile.personal_credentials.values())
+    {
+        rules.extend(binding.mcp_rules.clone());
+    }
+    rules
+}
+
 /// Builds metadata-only audit labels for the binding names a proxy records.
 /// Binding values and resolved credential values are intentionally absent.
 fn audit_binding_sources(
@@ -790,7 +825,7 @@ pub async fn handle_cli(args: Cli) {
                         denied_write_paths: profile.filesystem.deny_write.clone(),
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
-                        mcp_rules: profile.mcp_rules.clone(),
+                        mcp_rules: compiled_mcp_rules(&profile),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -849,10 +884,8 @@ pub async fn handle_cli(args: Cli) {
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
                         let bindings = remote_bindings(&profile);
-                        let mcp_rules = profile
-                            .mcp_rules
-                            .iter()
-                            .cloned()
+                        let mcp_rules = compiled_mcp_rules(&profile)
+                            .into_iter()
                             .map(|rule| crate::api::remote_proxy::RemoteMcpRule {
                                 effect: rule.effect,
                                 hosts: rule.hosts,
@@ -1930,6 +1963,7 @@ mod tests {
         let secret = AgentBindingProfile {
             hosts: Vec::new(),
             rules: Vec::new(),
+            mcp_rules: Vec::new(),
             from: None,
             env: Some("GH_TOKEN".to_owned()),
             placeholder: None,
@@ -2001,6 +2035,7 @@ mod tests {
         let binding = |from: Option<&str>| AgentBindingProfile {
             hosts: vec!["api.example.com".to_owned()],
             rules: Vec::new(),
+            mcp_rules: Vec::new(),
             from: from.map(str::to_owned),
             env: None,
             placeholder: None,
@@ -2013,6 +2048,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("environment".to_owned()),

@@ -314,6 +314,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
                 AgentBindingProfile {
@@ -324,6 +325,7 @@ mod tests {
                         methods: vec!["get".to_owned()],
                         paths: vec!["/repos/../user".to_owned()],
                     }],
+                    mcp_rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -355,11 +357,13 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "API_KEY".to_owned(),
                 AgentBindingProfile {
                     hosts: vec!["API.EXAMPLE.COM.".to_owned()],
                     rules: Vec::new(),
+                    mcp_rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -382,6 +386,7 @@ mod tests {
         let binding = AgentBindingProfile {
             hosts: Vec::new(),
             rules: Vec::new(),
+            mcp_rules: Vec::new(),
             from: None,
             env: None,
             placeholder: None,
@@ -394,6 +399,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::from([("GITHUB_TOKEN".to_owned(), binding.clone())]).into(),
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),

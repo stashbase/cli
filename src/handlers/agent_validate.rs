@@ -947,6 +947,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -955,6 +956,7 @@ mod tests {
                     crate::models::agent::AgentBindingProfile {
                         hosts: vec!["api.example.com".to_owned()],
                         rules: Vec::new(),
+                        mcp_rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: None,
@@ -979,6 +981,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -987,6 +990,7 @@ mod tests {
                     crate::models::agent::AgentBindingProfile {
                         hosts: vec!["api.example.com".to_owned()],
                         rules: Vec::new(),
+                        mcp_rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: None,
@@ -1012,6 +1016,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
@@ -1030,12 +1035,14 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
                 "LINEAR_API_KEY".to_owned(),
                 crate::models::agent::AgentBindingProfile {
                     hosts: vec!["mcp.linear.app".to_owned()],
                     rules: Vec::new(),
+                    mcp_rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -1062,6 +1069,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -1071,6 +1079,7 @@ mod tests {
                         crate::models::agent::AgentBindingProfile {
                             hosts: vec!["first.example.com".to_owned()],
                             rules: Vec::new(),
+                            mcp_rules: Vec::new(),
                             from: None,
                             env: None,
                             placeholder: Some("shared-placeholder".to_owned()),
@@ -1083,6 +1092,7 @@ mod tests {
                         crate::models::agent::AgentBindingProfile {
                             hosts: vec!["second.example.com".to_owned()],
                             rules: Vec::new(),
+                            mcp_rules: Vec::new(),
                             from: None,
                             env: None,
                             placeholder: Some("shared-placeholder".to_owned()),
@@ -1107,6 +1117,7 @@ mod tests {
         let binding = crate::models::agent::AgentBindingProfile {
             hosts: vec!["api.example.com".to_owned()],
             rules: Vec::new(),
+            mcp_rules: Vec::new(),
             from: None,
             env: None,
             placeholder: None,
@@ -1119,6 +1130,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),

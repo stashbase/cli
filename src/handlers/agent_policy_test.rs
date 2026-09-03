@@ -329,6 +329,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_rules: Vec::new(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
                 AgentBindingProfile {
@@ -339,6 +340,7 @@ mod tests {
                         methods: vec!["GET".to_owned()],
                         paths: vec!["/user".to_owned()],
                     }],
+                    mcp_rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
