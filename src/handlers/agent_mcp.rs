@@ -1,6 +1,10 @@
 //! Read-only inspection of configured HTTP MCP servers.
 
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -13,8 +17,9 @@ use crate::{
         secrets::SecretsFileFormat,
     },
     config::config,
+    handlers::run::proxy::{Proxy, ProxyPolicy},
     models::{
-        agent::{AgentMcpServer, AgentProfile},
+        agent::{AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile},
         config::Config,
     },
     utils::{
@@ -60,7 +65,7 @@ pub async fn handle_agent_mcp_tools_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let client = reqwest::Client::builder().build()?;
+    let (_proxy, client) = proxied_client(&profile, server).await?;
     let auth = binding_header(&profile, server)?;
     let mut spinner = (!silent).then(request_spinner);
 
@@ -163,7 +168,7 @@ pub async fn handle_agent_mcp_verify_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let client = reqwest::Client::builder().build()?;
+    let (_proxy, client) = proxied_client(&profile, server).await?;
     let auth = binding_header(&profile, server)?;
     let mut spinner = (!silent).then(request_spinner);
     let initialize = json!({
@@ -200,7 +205,6 @@ pub async fn handle_agent_mcp_verify_command(
     let configured = server
         .allow_tools
         .iter()
-        .chain(server.deny_tools.iter())
         .filter(|tool| tool.as_str() != "*")
         .collect::<HashSet<_>>();
     let missing = configured
@@ -215,6 +219,7 @@ pub async fn handle_agent_mcp_verify_command(
         "available_tools": available.iter().collect::<Vec<_>>(),
         "configured_tools": configured.iter().collect::<Vec<_>>(),
         "missing_tools": missing,
+        "policy_hidden_tools": server.deny_tools,
         "valid": missing.is_empty(),
     });
     if json_format {
@@ -230,6 +235,11 @@ pub async fn handle_agent_mcp_verify_command(
             for tool in missing {
                 println!("  - \"{tool}\"");
             }
+        }
+        if !server.deny_tools.is_empty() {
+            println!(
+                "Denied tools were not existence-checked because the proxy hides them from tools/list."
+            );
         }
     }
     Ok(!report["valid"].as_bool().unwrap_or(false))
@@ -247,6 +257,60 @@ fn mcp_url(server: &AgentMcpServer) -> Result<String> {
             format!("/{path}")
         }
     ))
+}
+
+async fn proxied_client(
+    profile: &AgentProfile,
+    server: &AgentMcpServer,
+) -> Result<(Proxy, reqwest::Client)> {
+    let mut mcp_rules = vec![AgentMcpRule {
+        effect: AgentHttpRuleEffect::Allow,
+        hosts: server.hosts.clone(),
+        paths: server.paths.clone(),
+        tools: if server.allow_tools.is_empty() {
+            vec!["*".to_owned()]
+        } else {
+            server.allow_tools.clone()
+        },
+    }];
+    if !server.deny_tools.is_empty() {
+        mcp_rules.push(AgentMcpRule {
+            effect: AgentHttpRuleEffect::Deny,
+            hosts: server.hosts.clone(),
+            paths: server.paths.clone(),
+            tools: server.deny_tools.clone(),
+        });
+    }
+    let policy = ProxyPolicy {
+        secret_policies: HashMap::new(),
+        secret_injections: HashMap::new(),
+        allowed_egress_hosts: profile
+            .egress_hosts
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
+        denied_hosts: profile
+            .deny_hosts
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
+        denied_read_paths: Vec::new(),
+        denied_write_paths: Vec::new(),
+        egress_hosts_configured: profile.egress_hosts.is_some(),
+        strict_deny: true,
+        mcp_rules,
+    };
+    let proxy = Proxy::start_with_port(HashMap::new(), policy, None, None).await?;
+    let proxy_url = proxy.child_env()["HTTPS_PROXY"].clone();
+    let ca_path = proxy.child_env()["SSL_CERT_FILE"].clone();
+    let ca = reqwest::Certificate::from_pem(&fs::read(ca_path)?)?;
+    let client = reqwest::Client::builder()
+        .proxy(reqwest::Proxy::all(proxy_url)?)
+        .add_root_certificate(ca)
+        .build()?;
+    Ok((proxy, client))
 }
 
 fn binding_header(
