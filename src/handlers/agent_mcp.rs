@@ -17,7 +17,10 @@ use crate::{
         secrets::SecretsFileFormat,
     },
     config::config,
-    handlers::run::proxy::{Proxy, ProxyPolicy},
+    handlers::{
+        agent_policy::SecretHttpPolicy,
+        run::proxy::{Proxy, ProxyPolicy, SecretInjection},
+    },
     models::{
         agent::{AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile},
         config::Config,
@@ -65,8 +68,7 @@ pub async fn handle_agent_mcp_tools_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let (_proxy, client) = proxied_client(&profile, server).await?;
-    let auth = binding_header(&profile, server)?;
+    let (_proxy, client, auth) = proxied_client(&profile, server).await?;
     let mut spinner = (!silent).then(request_spinner);
 
     let initialize = json!({
@@ -170,8 +172,7 @@ pub async fn handle_agent_mcp_verify_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let (_proxy, client) = proxied_client(&profile, server).await?;
-    let auth = binding_header(&profile, server)?;
+    let (_proxy, client, auth) = proxied_client(&profile, server).await?;
     let mut spinner = (!silent).then(request_spinner);
     let initialize = json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -262,27 +263,32 @@ pub async fn handle_agent_mcp_verify_command(
 }
 
 fn mcp_url(server: &AgentMcpServer) -> Result<String> {
-    let host = server.hosts.first().context("MCP server has no host")?;
-    let path = server.paths.first().map(String::as_str).unwrap_or("/");
-    Ok(format!(
-        "https://{}{}",
-        host.trim_end_matches('/'),
-        if path.starts_with('/') {
-            path.to_owned()
-        } else {
-            format!("/{path}")
-        }
+    let url = reqwest::Url::parse(&server.url).context("MCP server URL is invalid")?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        bail!("MCP server URL must be an absolute http:// or https:// URL");
+    }
+    Ok(url.to_string())
+}
+
+fn mcp_endpoint_parts(server: &AgentMcpServer) -> Result<(String, String)> {
+    let url = reqwest::Url::parse(&mcp_url(server)?)?;
+    Ok((
+        url.host_str()
+            .context("MCP server URL has no host")?
+            .to_owned(),
+        url.path().to_owned(),
     ))
 }
 
 async fn proxied_client(
     profile: &AgentProfile,
     server: &AgentMcpServer,
-) -> Result<(Proxy, reqwest::Client)> {
+) -> Result<(Proxy, reqwest::Client, Option<(String, String)>)> {
+    let (host, path) = mcp_endpoint_parts(server)?;
     let mut mcp_rules = vec![AgentMcpRule {
         effect: AgentHttpRuleEffect::Allow,
-        hosts: server.hosts.clone(),
-        paths: server.paths.clone(),
+        hosts: vec![host.clone()],
+        paths: vec![path.clone()],
         tools: if server.allow_tools.is_empty() {
             vec!["*".to_owned()]
         } else {
@@ -292,14 +298,16 @@ async fn proxied_client(
     if !server.deny_tools.is_empty() {
         mcp_rules.push(AgentMcpRule {
             effect: AgentHttpRuleEffect::Deny,
-            hosts: server.hosts.clone(),
-            paths: server.paths.clone(),
+            hosts: vec![host],
+            paths: vec![path],
             tools: server.deny_tools.clone(),
         });
     }
+    let (secrets, secret_policies, secret_injections, auth) =
+        inspection_binding_policy(profile, server)?;
     let policy = ProxyPolicy {
-        secret_policies: HashMap::new(),
-        secret_injections: HashMap::new(),
+        secret_policies,
+        secret_injections,
         allowed_egress_hosts: profile
             .egress_hosts
             .clone()
@@ -318,7 +326,7 @@ async fn proxied_client(
         strict_deny: true,
         mcp_rules,
     };
-    let proxy = Proxy::start_with_port(HashMap::new(), policy, None, None).await?;
+    let proxy = Proxy::start_with_port(secrets, policy, None, None).await?;
     let proxy_url = proxy.child_env()["HTTPS_PROXY"].clone();
     let ca_path = proxy.child_env()["SSL_CERT_FILE"].clone();
     let ca = reqwest::Certificate::from_pem(&fs::read(ca_path)?)?;
@@ -326,15 +334,20 @@ async fn proxied_client(
         .proxy(reqwest::Proxy::all(proxy_url)?)
         .add_root_certificate(ca)
         .build()?;
-    Ok((proxy, client))
+    Ok((proxy, client, auth))
 }
 
-fn binding_header(
+fn inspection_binding_policy(
     profile: &AgentProfile,
     server: &AgentMcpServer,
-) -> Result<Option<(String, String)>> {
+) -> Result<(
+    HashMap<String, String>,
+    HashMap<String, SecretHttpPolicy>,
+    HashMap<String, SecretInjection>,
+    Option<(String, String)>,
+)> {
     let Some(name) = server.binding.as_deref() else {
-        return Ok(None);
+        return Ok((HashMap::new(), HashMap::new(), HashMap::new(), None));
     };
     let binding = profile
         .secrets
@@ -376,7 +389,22 @@ fn binding_header(
             "{value}".to_owned()
         }
     });
-    Ok(Some((header, template.replace("{value}", &value))))
+    let secret_policy = if binding.rules.is_empty() {
+        SecretHttpPolicy::LegacyHosts(binding.hosts.iter().cloned().collect())
+    } else {
+        SecretHttpPolicy::Rules(binding.rules.clone())
+    };
+    let secret_injection = SecretInjection {
+        header: header.clone(),
+        value_template: template,
+    };
+    let placeholder = format!("**STASHBASE_{name}**");
+    Ok((
+        HashMap::from([(name.to_owned(), value)]),
+        HashMap::from([(name.to_owned(), secret_policy)]),
+        HashMap::from([(name.to_owned(), secret_injection)]),
+        Some((header, placeholder)),
+    ))
 }
 
 async fn send_mcp(

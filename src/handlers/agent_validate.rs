@@ -684,35 +684,15 @@ fn validate_mcp_server(
     checks: &mut Vec<Check>,
 ) {
     let label = format!("MCP server '{name}'");
-    if server.hosts.is_empty() {
-        checks.push(fail(
-            format!("{label} hosts"),
-            "At least one host is required.".to_owned(),
-        ));
-    }
-    if server.paths.is_empty() {
-        checks.push(fail(
-            format!("{label} paths"),
-            "At least one path is required.".to_owned(),
-        ));
-    }
-    for host in &server.hosts {
-        if let Err(reason) = validate_host(host, false) {
-            checks.push(fail(format!("{label} host"), reason));
-        }
-    }
-    for path in &server.paths {
-        if let Err(reason) = validate_path_pattern(path) {
-            checks.push(fail(format!("{label} path"), reason));
-        }
-    }
-    for host in &server.hosts {
-        for path in &server.paths {
-            let endpoint = format!(
-                "{}{}",
-                host.trim().trim_end_matches('.').to_ascii_lowercase(),
-                path.trim()
-            );
+    match reqwest::Url::parse(&server.url) {
+        Ok(url) if matches!(url.scheme(), "http" | "https") && url.host_str().is_some() => {
+            if url.path().is_empty() {
+                checks.push(fail(
+                    format!("{label} url"),
+                    "The URL must include an MCP endpoint path.".to_owned(),
+                ));
+            }
+            let endpoint = url.to_string();
             if !seen_endpoints.insert(endpoint) {
                 checks.push(warn(
                     label.clone(),
@@ -720,6 +700,10 @@ fn validate_mcp_server(
                 ));
             }
         }
+        _ => checks.push(fail(
+            format!("{label} url"),
+            "Must be an absolute http:// or https:// URL with a host.".to_owned(),
+        )),
     }
     if let Some(binding) = &server.binding {
         if !profile.secrets.bindings.contains_key(binding)

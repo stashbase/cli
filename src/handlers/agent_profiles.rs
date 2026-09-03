@@ -135,12 +135,6 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
         rule.tools.sort();
     }
     for server in effective.mcp_servers.values_mut() {
-        server.hosts = normalize_values(std::mem::take(&mut server.hosts));
-        server.paths = server
-            .paths
-            .drain(..)
-            .map(|path| crate::handlers::agent_policy::normalize_path_pattern(&path))
-            .collect();
         for tools in [&mut server.allow_tools, &mut server.deny_tools] {
             *tools = std::mem::take(tools)
                 .into_iter()

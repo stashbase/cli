@@ -24,8 +24,7 @@ egress_hosts = []
 
 # Optional named HTTP MCP server and tool allowlist.
 # [mcp_servers.example]
-# hosts = ["mcp.example.com"]
-# paths = ["/mcp"]
+# url = "https://mcp.example.com/mcp"
 # binding = "SECRET_NAME"
 # allow_tools = ["search"]
 

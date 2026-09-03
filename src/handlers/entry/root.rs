@@ -280,10 +280,13 @@ fn compiled_mcp_rules(
 ) -> Vec<crate::models::agent::AgentMcpRule> {
     let mut rules = profile.mcp_rules.clone();
     for server in profile.mcp_servers.values() {
+        let Some((host, path)) = mcp_server_endpoint(server) else {
+            continue;
+        };
         rules.push(crate::models::agent::AgentMcpRule {
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
-            hosts: server.hosts.clone(),
-            paths: server.paths.clone(),
+            hosts: vec![host.clone()],
+            paths: vec![path.clone()],
             tools: if server.allow_tools.is_empty() {
                 vec!["*".to_owned()]
             } else {
@@ -293,8 +296,8 @@ fn compiled_mcp_rules(
         if !server.deny_tools.is_empty() {
             rules.push(crate::models::agent::AgentMcpRule {
                 effect: crate::models::agent::AgentHttpRuleEffect::Deny,
-                hosts: server.hosts.clone(),
-                paths: server.paths.clone(),
+                hosts: vec![host],
+                paths: vec![path],
                 tools: server.deny_tools.clone(),
             });
         }
@@ -308,6 +311,11 @@ fn compiled_mcp_rules(
         rules.extend(binding.mcp_rules.clone());
     }
     rules
+}
+
+fn mcp_server_endpoint(server: &crate::models::agent::AgentMcpServer) -> Option<(String, String)> {
+    let url = reqwest::Url::parse(&server.url).ok()?;
+    Some((url.host_str()?.to_owned(), url.path().to_owned()))
 }
 
 /// Builds metadata-only audit labels for the binding names a proxy records.

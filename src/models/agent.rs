@@ -48,8 +48,8 @@ pub struct AgentMcpRule {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentMcpServer {
-    pub hosts: Vec<String>,
-    pub paths: Vec<String>,
+    /// The single Streamable HTTP endpoint for this MCP server.
+    pub url: String,
     #[serde(default)]
     /// Optional name from `[secrets]` or `[personal_credentials]`.
     /// `credential` remains accepted as a legacy input alias.
