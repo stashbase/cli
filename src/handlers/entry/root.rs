@@ -578,11 +578,15 @@ pub async fn handle_cli(args: Cli) {
                         handle_agent_mcp_tools_command(command, &config, raw_output, silent).await
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
-                        crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                        match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
                             command,
                             &config,
                             raw_output,
-                        )
+                        ) {
+                            Ok(true) => std::process::exit(1),
+                            Ok(false) => Ok(()),
+                            Err(error) => Err(error),
+                        }
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Verify(command) => {
                         match crate::handlers::agent_mcp::handle_agent_mcp_verify_command(
@@ -603,11 +607,15 @@ pub async fn handle_cli(args: Cli) {
                     handle_agent_mcp_tools_command(agent_mcp, &config, raw_output, silent).await
                 }
                 AgentSubcommand::McpCheck(agent_mcp) => {
-                    crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                    match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
                         agent_mcp,
                         &config,
                         raw_output,
-                    )
+                    ) {
+                        Ok(true) => std::process::exit(1),
+                        Ok(false) => Ok(()),
+                        Err(error) => Err(error),
+                    }
                 }
                 AgentSubcommand::Validate(agent_validate) => {
                     match handle_agent_validate_command(agent_validate, &config, raw_output).await {

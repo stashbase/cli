@@ -105,11 +105,13 @@ pub async fn handle_agent_mcp_tools_command(
             Some(json!({"name": name, "description": tool.get("description"), "allowed": allowed}))
         })
         .collect::<Vec<_>>();
+    let mut rows = rows;
+    rows.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
     if json_format {
         println!(
             "{}",
             get_formatted_json_string(
-                &json!({"server": command.server, "url": url, "tools": rows}),
+                &json!({"schema_version": 1, "server": command.server, "url": url, "tools": rows}),
                 true,
             )?
         );
@@ -207,19 +209,33 @@ pub async fn handle_agent_mcp_verify_command(
         .iter()
         .filter(|tool| tool.as_str() != "*")
         .collect::<HashSet<_>>();
-    let missing = configured
+    let mut missing = configured
         .iter()
         .filter(|tool| !available.contains(tool.as_str()))
         .map(|tool| (*tool).clone())
         .collect::<Vec<_>>();
+    let mut available_tools = available
+        .iter()
+        .map(|tool| (*tool).to_owned())
+        .collect::<Vec<_>>();
+    available_tools.sort();
+    let mut configured_tools = configured
+        .iter()
+        .map(|tool| (*tool).clone())
+        .collect::<Vec<_>>();
+    configured_tools.sort();
+    missing.sort();
+    let mut policy_hidden_tools = server.deny_tools.clone();
+    policy_hidden_tools.sort();
     let report = json!({
+        "schema_version": 1,
         "profile": command.profile,
         "server": command.server,
         "url": url,
-        "available_tools": available.iter().collect::<Vec<_>>(),
-        "configured_tools": configured.iter().collect::<Vec<_>>(),
+        "available_tools": available_tools,
+        "configured_tools": configured_tools,
         "missing_tools": missing,
-        "policy_hidden_tools": server.deny_tools,
+        "policy_hidden_tools": policy_hidden_tools,
         "valid": missing.is_empty(),
     });
     if json_format {
@@ -427,7 +443,7 @@ pub fn handle_agent_mcp_check_command(
     command: AgentMcpCheckCommand,
     global_config: &Config,
     json_format: bool,
-) -> Result<()> {
+) -> Result<bool> {
     let explicit = command
         .policy_file
         .as_deref()
@@ -460,6 +476,7 @@ pub fn handle_agent_mcp_check_command(
         .context("MCP server was not found in the profile")?;
     let (allowed, reason) = tool_decision(server, &command.tool);
     let report = json!({
+        "schema_version": 1,
         "profile": command.profile,
         "server": command.server,
         "tool": command.tool,
@@ -475,7 +492,7 @@ pub fn handle_agent_mcp_check_command(
         println!("Decision: {}", if allowed { "ALLOWED" } else { "DENIED" });
         println!("Reason: {reason}");
     }
-    Ok(())
+    Ok(!allowed)
 }
 
 fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
