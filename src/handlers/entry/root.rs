@@ -573,6 +573,18 @@ pub async fn handle_cli(args: Cli) {
                         Err(error) => Err(error),
                     }
                 }
+                AgentSubcommand::Mcp(agent_mcp) => match agent_mcp.subcommand {
+                    crate::cmd::agent::AgentMcpSubcommand::Tools(command) => {
+                        handle_agent_mcp_tools_command(command, &config, raw_output, silent).await
+                    }
+                    crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
+                        crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                            command,
+                            &config,
+                            raw_output,
+                        )
+                    }
+                },
                 AgentSubcommand::McpTools(agent_mcp) => {
                     handle_agent_mcp_tools_command(agent_mcp, &config, raw_output, silent).await
                 }

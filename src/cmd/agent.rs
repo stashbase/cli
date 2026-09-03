@@ -24,12 +24,30 @@ pub enum AgentSubcommand {
     Profiles(AgentProfilesCommand),
     /// Check a tool's compatibility with the temporary Agent Proxy
     Doctor(AgentDoctorCommand),
+    /// Inspect and evaluate configured HTTP MCP servers
+    Mcp(AgentMcpCommand),
     /// Inspect the tools exposed by a configured HTTP MCP server
+    #[command(hide = true)]
     McpTools(AgentMcpToolsCommand),
     /// Check whether one MCP tool is allowed by the configured policy
+    #[command(hide = true)]
     McpCheck(AgentMcpCheckCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentMcpCommand {
+    #[command(subcommand)]
+    pub subcommand: AgentMcpSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentMcpSubcommand {
+    /// Inspect the tools exposed by a configured HTTP MCP server
+    Tools(AgentMcpToolsCommand),
+    /// Check whether one MCP tool is allowed by the configured policy
+    Check(AgentMcpCheckCommand),
 }
 
 #[derive(Debug, Args)]
