@@ -16,6 +16,9 @@ pub struct AgentProfile {
     /// MCP JSON-RPC tool permissions evaluated by the Agent Proxy.
     #[serde(default)]
     pub mcp_rules: Vec<AgentMcpRule>,
+    /// Named HTTP MCP servers and their tool policies.
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, AgentMcpServer>,
     #[serde(default)]
     pub secrets: AgentSecretsProfile,
     /// Personal credentials are private to the authenticated account and are
@@ -38,6 +41,24 @@ pub struct AgentMcpRule {
     pub paths: Vec<String>,
     #[serde(default)]
     pub tools: Vec<String>,
+}
+
+/// User-facing MCP server policy. The endpoint and binding association are
+/// declared once, without mixing MCP authorization into HTTP credential rules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentMcpServer {
+    pub hosts: Vec<String>,
+    pub paths: Vec<String>,
+    #[serde(default)]
+    /// Optional name from `[secrets]` or `[personal_credentials]`.
+    /// `credential` remains accepted as a legacy input alias.
+    #[serde(alias = "credential")]
+    pub binding: Option<String>,
+    #[serde(default)]
+    pub allow_tools: Vec<String>,
+    #[serde(default)]
+    pub deny_tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -108,6 +129,9 @@ pub struct AgentBindingProfile {
     /// Credential-specific HTTP action rules. A matching deny takes precedence.
     #[serde(default)]
     pub rules: Vec<AgentHttpRule>,
+    /// MCP tool rules scoped to this credential binding.
+    #[serde(default)]
+    pub mcp_rules: Vec<AgentMcpRule>,
     /// Source secret name to request. Defaults to this profile entry's name.
     pub from: Option<String>,
     /// Environment variable exposed to the child. Defaults to this profile entry's name.
