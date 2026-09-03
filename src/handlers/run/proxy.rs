@@ -104,6 +104,9 @@ pub struct ProxyAuditLogEvent {
     /// Present only for filesystem-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// MCP tool name for MCP tool-call audit events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_tool: Option<String>,
     /// Filesystem operation denied by policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation: Option<String>,
@@ -266,6 +269,7 @@ impl ProxyAuditLog {
             None,
             Some(path),
             Some(operation),
+            None,
         );
         id
     }
@@ -303,6 +307,7 @@ impl ProxyAuditLog {
             None,
             None,
             None,
+            None,
         );
     }
 
@@ -320,6 +325,7 @@ impl ProxyAuditLog {
         response_bytes: Option<u64>,
         path: Option<&str>,
         operation: Option<&str>,
+        mcp_tool: Option<&str>,
     ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
@@ -357,6 +363,7 @@ impl ProxyAuditLog {
                 .map(str::to_owned),
             path: path.map(str::to_owned),
             operation: operation.map(str::to_owned),
+            mcp_tool: mcp_tool.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
             binding_name: secret_name.map(str::to_owned),
             binding_source: secret_name
@@ -440,6 +447,7 @@ impl AuditedResponseStream {
                 Some(&self.request_id),
                 Some(self.request_bytes.load(Ordering::Relaxed)),
                 Some(self.response_bytes),
+                None,
                 None,
                 None,
             );
@@ -1547,24 +1555,54 @@ fn proxy_request(
                     ));
                 }
             };
+            let mcp_tool = mcp_tool_name(&bytes);
             if let Err(message) =
                 authorize_mcp_request(&bytes, &state.policy, host.as_deref(), &mcp_path)
             {
-                state.record_audit_with_request(
-                    &request_id,
-                    "mcp_tool_denied",
-                    host.as_deref(),
-                    Some(&method),
-                    None,
-                    Some(StatusCode::FORBIDDEN),
-                    Some(started.elapsed()),
-                );
+                if let Some(tool) = mcp_tool.as_deref() {
+                    state.record_mcp_tool_with_request(
+                        &request_id,
+                        "mcp_tool_denied",
+                        tool,
+                        host.as_deref(),
+                        Some(&mcp_path),
+                        Some(&method),
+                        None,
+                        Some(StatusCode::FORBIDDEN),
+                        Some(started.elapsed()),
+                    );
+                } else {
+                    state.record_audit_with_request(
+                        &request_id,
+                        "mcp_tool_denied",
+                        host.as_deref(),
+                        Some(&method),
+                        None,
+                        Some(StatusCode::FORBIDDEN),
+                        Some(started.elapsed()),
+                    );
+                }
                 return Ok(proxy_error_response_with_id(
                     StatusCode::FORBIDDEN,
                     "proxy.mcp_tool_not_allowed",
                     message,
                     Some(&request_id),
                 ));
+            }
+            if mcp_method_name(&bytes).as_deref() == Some("tools/call") {
+                if let Some(tool) = mcp_tool.as_deref() {
+                    state.record_mcp_tool_with_request(
+                        &request_id,
+                        "mcp_tool_call",
+                        tool,
+                        host.as_deref(),
+                        Some(&mcp_path),
+                        Some(&method),
+                        None,
+                        None,
+                        Some(started.elapsed()),
+                    );
+                }
             }
             mcp_method = serde_json::from_slice::<serde_json::Value>(&bytes)
                 .ok()
@@ -2474,6 +2512,36 @@ impl ProxyState {
             );
         }
     }
+
+    fn record_mcp_tool_with_request(
+        &self,
+        request_id: &str,
+        action: &str,
+        tool: &str,
+        host: Option<&str>,
+        path: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+    ) {
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record_with_bytes(
+                action,
+                host,
+                method,
+                secret_name,
+                status,
+                duration,
+                Some(request_id),
+                None,
+                None,
+                path,
+                None,
+                Some(tool),
+            );
+        }
+    }
 }
 
 fn policy_allows_connect(policy: &ProxyPolicy, host: &str) -> bool {
@@ -2518,6 +2586,24 @@ fn path_matches(pattern: &str, path: &str) -> bool {
         Some(prefix) => path.starts_with(prefix),
         None => pattern == path,
     }
+}
+
+fn mcp_method_name(bytes: &[u8]) -> Option<String> {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("method")
+                .and_then(|method| method.as_str())
+                .map(str::to_owned)
+        })
+}
+
+fn mcp_tool_name(bytes: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    (value.get("method")?.as_str()? == "tools/call")
+        .then(|| value.pointer("/params/name")?.as_str().map(str::to_owned))
+        .flatten()
 }
 
 fn authorize_mcp_request(

@@ -1719,6 +1719,7 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
 
     let host = event.destination_host.as_deref().unwrap_or("-");
     let binding = event.binding_name.as_deref().unwrap_or("-");
+    let mcp_tool = event.mcp_tool.as_deref().unwrap_or("-");
     let status = event
         .response_status
         .map(|status| status.to_string())
@@ -1736,9 +1737,10 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        "{}  id={} profile={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
         event.timestamp, event.id, event.profile, event.action, host,
-        binding, event.binding_source.as_deref().unwrap_or("-"), status, duration,
+        event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
+        event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
     );
     Ok(())
