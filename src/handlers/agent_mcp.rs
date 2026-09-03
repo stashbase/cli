@@ -108,6 +108,7 @@ pub async fn handle_agent_mcp_tools_command(
         .collect::<Vec<_>>();
     let mut rows = rows;
     rows.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+    eprintln!();
     if json_format {
         println!(
             "{}",
@@ -236,6 +237,7 @@ pub async fn handle_agent_mcp_verify_command(
         "policy_hidden_tools": policy_hidden_tools,
         "valid": missing.is_empty(),
     });
+    eprintln!();
     if json_format {
         println!("{}", get_formatted_json_string(&report, true)?);
     } else {
@@ -547,6 +549,7 @@ pub fn handle_agent_mcp_check_command(
         "decision": if allowed { "allowed" } else { "denied" },
         "reason": reason,
     });
+    eprintln!();
     if json_format {
         println!("{}", get_formatted_json_string(&report, true)?);
     } else {
