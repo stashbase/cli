@@ -19,7 +19,7 @@ use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
     models::{
-        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpRule, AgentProfile},
+        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile},
         config::Config,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -518,6 +518,11 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         validate_mcp_rule(index, rule, &mut checks);
     }
 
+    let mut seen_mcp_endpoints = HashSet::new();
+    for (name, server) in &profile.mcp_servers {
+        validate_mcp_server(name, server, &profile, &mut seen_mcp_endpoints, &mut checks);
+    }
+
     for (kind, paths) in [
         ("read", &profile.filesystem.deny_read),
         ("write", &profile.filesystem.deny_write),
@@ -544,8 +549,9 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         checks.push(ok(
             "Profile policy",
             format!(
-                "{} binding(s), {} egress host rule(s), {} denied host rule(s), and {} filesystem deny rule(s) are valid.",
+                "{} binding(s), {} MCP server(s), {} egress host rule(s), {} denied host rule(s), and {} filesystem deny rule(s) are valid.",
                 profile.secrets.bindings.len() + profile.personal_credentials.len(),
+                profile.mcp_servers.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
                 profile.deny_hosts.as_ref().map_or(0, Vec::len),
                 profile.filesystem.deny_read.len() + profile.filesystem.deny_write.len()
@@ -642,6 +648,89 @@ fn validate_mcp_rule(index: usize, rule: &AgentMcpRule, checks: &mut Vec<Check>)
         } else if !seen.insert(tool) {
             checks.push(warn(
                 format!("{label} tool"),
+                format!("Duplicate tool '{tool}'."),
+            ));
+        }
+    }
+}
+
+fn validate_mcp_server(
+    name: &str,
+    server: &AgentMcpServer,
+    profile: &AgentProfile,
+    seen_endpoints: &mut HashSet<String>,
+    checks: &mut Vec<Check>,
+) {
+    let label = format!("MCP server '{name}'");
+    if server.hosts.is_empty() {
+        checks.push(fail(
+            format!("{label} hosts"),
+            "At least one host is required.".to_owned(),
+        ));
+    }
+    if server.paths.is_empty() {
+        checks.push(fail(
+            format!("{label} paths"),
+            "At least one path is required.".to_owned(),
+        ));
+    }
+    for host in &server.hosts {
+        if let Err(reason) = validate_host(host, false) {
+            checks.push(fail(format!("{label} host"), reason));
+        }
+    }
+    for path in &server.paths {
+        if let Err(reason) = validate_path_pattern(path) {
+            checks.push(fail(format!("{label} path"), reason));
+        }
+    }
+    for host in &server.hosts {
+        for path in &server.paths {
+            let endpoint = format!(
+                "{}{}",
+                host.trim().trim_end_matches('.').to_ascii_lowercase(),
+                path.trim()
+            );
+            if !seen_endpoints.insert(endpoint) {
+                checks.push(warn(
+                    label.clone(),
+                    "Duplicates another configured MCP server endpoint.".to_owned(),
+                ));
+            }
+        }
+    }
+    if let Some(binding) = &server.binding {
+        if !profile.secrets.bindings.contains_key(binding)
+            && !profile.personal_credentials.contains_key(binding)
+        {
+            checks.push(fail(
+                format!("{label} binding"),
+                format!(
+                    "Binding '{binding}' is not declared in [secrets] or [personal_credentials]."
+                ),
+            ));
+        }
+    }
+    validate_mcp_server_tools(&label, "allow_tools", &server.allow_tools, checks);
+    validate_mcp_server_tools(&label, "deny_tools", &server.deny_tools, checks);
+}
+
+fn validate_mcp_server_tools(label: &str, field: &str, tools: &[String], checks: &mut Vec<Check>) {
+    let mut seen = HashSet::new();
+    for tool in tools {
+        if tool.trim().is_empty() || tool.contains(['\r', '\n']) {
+            checks.push(fail(
+                format!("{label} {field}"),
+                "Tool names must be non-empty and cannot contain line breaks.".to_owned(),
+            ));
+        } else if tool != "*" && tool.contains(['*', '?']) {
+            checks.push(fail(
+                format!("{label} {field}"),
+                format!("Invalid wildcard in tool '{tool}'; only '*' is supported."),
+            ));
+        } else if !seen.insert(tool) {
+            checks.push(warn(
+                format!("{label} {field}"),
                 format!("Duplicate tool '{tool}'."),
             ));
         }
