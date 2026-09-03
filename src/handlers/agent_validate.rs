@@ -522,6 +522,28 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     for (name, server) in &profile.mcp_servers {
         validate_mcp_server(name, server, &profile, &mut seen_mcp_endpoints, &mut checks);
     }
+    if !profile.mcp_servers.is_empty() {
+        let mut servers = profile
+            .mcp_servers
+            .iter()
+            .map(|(name, server)| {
+                format!(
+                    "{name} ({} allowed, {} denied)",
+                    if server.allow_tools.is_empty() {
+                        "*".to_owned()
+                    } else {
+                        server.allow_tools.len().to_string()
+                    },
+                    server.deny_tools.len()
+                )
+            })
+            .collect::<Vec<_>>();
+        servers.sort();
+        checks.push(ok(
+            "MCP policy",
+            format!("Configured servers: {}.", servers.join(", ")),
+        ));
+    }
 
     for (kind, paths) in [
         ("read", &profile.filesystem.deny_read),

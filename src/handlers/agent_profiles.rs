@@ -134,6 +134,23 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
             .collect();
         rule.tools.sort();
     }
+    for server in effective.mcp_servers.values_mut() {
+        server.hosts = normalize_values(std::mem::take(&mut server.hosts));
+        server.paths = server
+            .paths
+            .drain(..)
+            .map(|path| crate::handlers::agent_policy::normalize_path_pattern(&path))
+            .collect();
+        for tools in [&mut server.allow_tools, &mut server.deny_tools] {
+            *tools = std::mem::take(tools)
+                .into_iter()
+                .map(|tool| tool.trim().to_owned())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            tools.sort();
+        }
+    }
     for (name, secret) in &mut effective.secrets.bindings {
         secret.from.get_or_insert_with(|| name.clone());
         secret.env.get_or_insert_with(|| name.clone());
