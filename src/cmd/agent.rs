@@ -26,6 +26,8 @@ pub enum AgentSubcommand {
     Doctor(AgentDoctorCommand),
     /// Inspect the tools exposed by a configured HTTP MCP server
     McpTools(AgentMcpToolsCommand),
+    /// Check whether one MCP tool is allowed by the configured policy
+    McpCheck(AgentMcpCheckCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
 }
@@ -156,6 +158,20 @@ pub struct AgentMcpToolsCommand {
     pub profile_source: AgentProfileSource,
 
     /// Explicit direct profile file
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentMcpCheckCommand {
+    #[arg(long)]
+    pub profile: String,
+    #[arg(long)]
+    pub server: String,
+    #[arg(long)]
+    pub tool: String,
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
     #[arg(long, conflicts_with = "profile_source")]
     pub policy_file: Option<PathBuf>,
 }

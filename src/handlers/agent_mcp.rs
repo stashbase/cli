@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use crate::{
     cmd::{
-        agent::{AgentMcpToolsCommand, AgentProfileSource},
+        agent::{AgentMcpCheckCommand, AgentMcpToolsCommand, AgentProfileSource},
         secrets::SecretsFileFormat,
     },
     config::config,
@@ -94,7 +94,7 @@ pub async fn handle_agent_mcp_tools_command(
         .iter()
         .filter_map(|tool| {
             let name = tool.get("name")?.as_str()?.to_owned();
-            let allowed = tool_allowed(server, &name);
+            let (allowed, _) = tool_decision(server, &name);
             Some(json!({"name": name, "description": tool.get("description"), "allowed": allowed}))
         })
         .collect::<Vec<_>>();
@@ -248,17 +248,79 @@ async fn send_mcp_notification(
     Ok(())
 }
 
-fn tool_allowed(server: &AgentMcpServer, name: &str) -> bool {
+pub fn handle_agent_mcp_check_command(
+    command: AgentMcpCheckCommand,
+    global_config: &Config,
+    json_format: bool,
+) -> Result<()> {
+    let explicit = command
+        .policy_file
+        .as_deref()
+        .map(config::get_explicit_agent_profile)
+        .transpose()?;
+    let global = global_config
+        .agent_profiles
+        .as_ref()
+        .and_then(|profiles| profiles.get(&command.profile))
+        .cloned();
+    let profile = if let Some(profile) = explicit {
+        profile.profile
+    } else {
+        match command.profile_source {
+            AgentProfileSource::Global => global.context("agent profile was not found")?,
+            AgentProfileSource::Directory => {
+                config::get_directory_agent_profile(&command.profile)?
+                    .context("agent profile was not found")?
+                    .profile
+            }
+            AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
+                .map(|p| p.profile)
+                .or(global)
+                .context("agent profile was not found")?,
+        }
+    };
+    let server = profile
+        .mcp_servers
+        .get(&command.server)
+        .context("MCP server was not found in the profile")?;
+    let (allowed, reason) = tool_decision(server, &command.tool);
+    let report = json!({
+        "profile": command.profile,
+        "server": command.server,
+        "tool": command.tool,
+        "allowed": allowed,
+        "decision": if allowed { "allowed" } else { "denied" },
+        "reason": reason,
+    });
+    if json_format {
+        println!("{}", get_formatted_json_string(&report, true)?);
+    } else {
+        println!("MCP server: {}", command.server);
+        println!("Tool: {}", command.tool);
+        println!("Decision: {}", if allowed { "ALLOWED" } else { "DENIED" });
+        println!("Reason: {reason}");
+    }
+    Ok(())
+}
+
+fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
     if server
         .deny_tools
         .iter()
         .any(|tool| tool == "*" || tool == name)
     {
-        return false;
+        return (false, "matched deny_tools");
     }
-    server.allow_tools.is_empty()
-        || server
-            .allow_tools
-            .iter()
-            .any(|tool| tool == "*" || tool == name)
+    if server.allow_tools.is_empty() {
+        return (true, "allow_tools is empty; all tools are allowed");
+    }
+    if server
+        .allow_tools
+        .iter()
+        .any(|tool| tool == "*" || tool == name)
+    {
+        (true, "matched allow_tools")
+    } else {
+        (false, "not present in allow_tools")
+    }
 }

@@ -576,6 +576,13 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::McpTools(agent_mcp) => {
                     handle_agent_mcp_tools_command(agent_mcp, &config, raw_output, silent).await
                 }
+                AgentSubcommand::McpCheck(agent_mcp) => {
+                    crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                        agent_mcp,
+                        &config,
+                        raw_output,
+                    )
+                }
                 AgentSubcommand::Validate(agent_validate) => {
                     match handle_agent_validate_command(agent_validate, &config, raw_output).await {
                         Ok(true) => std::process::exit(1),
