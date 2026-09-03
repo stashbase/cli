@@ -13,9 +13,6 @@ pub struct AgentProfile {
     /// Filesystem paths denied to the agent process tree.
     #[serde(default)]
     pub filesystem: AgentFilesystemProfile,
-    /// MCP JSON-RPC tool permissions evaluated by the Agent Proxy.
-    #[serde(default)]
-    pub mcp_rules: Vec<AgentMcpRule>,
     /// Named HTTP MCP servers and their tool policies.
     #[serde(default)]
     pub mcp_servers: HashMap<String, AgentMcpServer>,
@@ -129,9 +126,6 @@ pub struct AgentBindingProfile {
     /// Credential-specific HTTP action rules. A matching deny takes precedence.
     #[serde(default)]
     pub rules: Vec<AgentHttpRule>,
-    /// MCP tool rules scoped to this credential binding.
-    #[serde(default)]
-    pub mcp_rules: Vec<AgentMcpRule>,
     /// Source secret name to request. Defaults to this profile entry's name.
     pub from: Option<String>,
     /// Environment variable exposed to the child. Defaults to this profile entry's name.

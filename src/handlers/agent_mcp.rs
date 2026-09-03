@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use spinoff::Spinner;
 
 use crate::{
     cmd::{
@@ -69,7 +70,7 @@ pub async fn handle_agent_mcp_tools_command(
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
     let (_proxy, client, auth) = proxied_client(&profile, server).await?;
-    let mut spinner = (!silent).then(request_spinner);
+    let mut spinner = SpinnerGuard::new(!silent);
 
     let initialize = json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -89,9 +90,7 @@ pub async fn handle_agent_mcp_tools_command(
     .await?;
     let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
     let (response, _) = send_mcp(&client, &url, &auth, list, session.as_deref()).await?;
-    if let Some(spinner) = spinner.as_mut() {
-        spinner.stop_and_persist("", "");
-    }
+    spinner.finish();
     if let Some(error) = response.get("error") {
         bail!("MCP tools/list failed: {error}");
     }
@@ -173,7 +172,7 @@ pub async fn handle_agent_mcp_verify_command(
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
     let (_proxy, client, auth) = proxied_client(&profile, server).await?;
-    let mut spinner = (!silent).then(request_spinner);
+    let mut spinner = SpinnerGuard::new(!silent);
     let initialize = json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
@@ -192,9 +191,7 @@ pub async fn handle_agent_mcp_verify_command(
     .await?;
     let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
     let (response, _) = send_mcp(&client, &url, &auth, list, session.as_deref()).await?;
-    if let Some(spinner) = spinner.as_mut() {
-        spinner.stop_and_persist("", "");
-    }
+    spinner.finish();
     if let Some(error) = response.get("error") {
         bail!("MCP tools/list failed: {error}");
     }
@@ -268,6 +265,27 @@ fn mcp_url(server: &AgentMcpServer) -> Result<String> {
         bail!("MCP server URL must be an absolute http:// or https:// URL");
     }
     Ok(url.to_string())
+}
+
+struct SpinnerGuard(Option<Spinner>);
+
+impl SpinnerGuard {
+    fn new(enabled: bool) -> Self {
+        Self(enabled.then(request_spinner))
+    }
+
+    fn finish(&mut self) {
+        if let Some(spinner) = self.0.as_mut() {
+            spinner.stop_and_persist("", "");
+        }
+        self.0 = None;
+    }
+}
+
+impl Drop for SpinnerGuard {
+    fn drop(&mut self) {
+        self.finish();
+    }
 }
 
 fn mcp_endpoint_parts(server: &AgentMcpServer) -> Result<(String, String)> {
@@ -396,14 +414,15 @@ fn inspection_binding_policy(
     };
     let secret_injection = SecretInjection {
         header: header.clone(),
-        value_template: template,
+        value_template: template.clone(),
     };
     let placeholder = format!("**STASHBASE_{name}**");
+    let placeholder_value = template.replace("{value}", &placeholder);
     Ok((
         HashMap::from([(name.to_owned(), value)]),
         HashMap::from([(name.to_owned(), secret_policy)]),
         HashMap::from([(name.to_owned(), secret_injection)]),
-        Some((header, placeholder)),
+        Some((header, placeholder_value)),
     ))
 }
 

@@ -118,22 +118,6 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
     let mut effective = profile.clone();
     effective.egress_hosts = effective.egress_hosts.take().map(normalize_values);
     effective.deny_hosts = effective.deny_hosts.take().map(normalize_values);
-    for rule in &mut effective.mcp_rules {
-        rule.hosts = normalize_values(std::mem::take(&mut rule.hosts));
-        rule.paths = rule
-            .paths
-            .drain(..)
-            .map(|path| crate::handlers::agent_policy::normalize_path_pattern(&path))
-            .collect();
-        rule.tools = rule
-            .tools
-            .drain(..)
-            .map(|tool| tool.trim().to_owned())
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .collect();
-        rule.tools.sort();
-    }
     for server in effective.mcp_servers.values_mut() {
         for tools in [&mut server.allow_tools, &mut server.deny_tools] {
             *tools = std::mem::take(tools)
@@ -324,7 +308,6 @@ mod tests {
             egress_hosts: Some(vec!["API.GITHUB.COM.".to_owned()]),
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
@@ -336,7 +319,6 @@ mod tests {
                         methods: vec!["get".to_owned()],
                         paths: vec!["/repos/../user".to_owned()],
                     }],
-                    mcp_rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -367,14 +349,12 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "API_KEY".to_owned(),
                 AgentBindingProfile {
                     hosts: vec!["API.EXAMPLE.COM.".to_owned()],
                     rules: Vec::new(),
-                    mcp_rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -397,7 +377,6 @@ mod tests {
         let binding = AgentBindingProfile {
             hosts: Vec::new(),
             rules: Vec::new(),
-            mcp_rules: Vec::new(),
             from: None,
             env: None,
             placeholder: None,
@@ -409,7 +388,6 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([("GITHUB_TOKEN".to_owned(), binding.clone())]).into(),
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),

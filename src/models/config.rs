@@ -152,20 +152,24 @@ mod tests {
     }
 
     #[test]
-    fn parses_direct_agent_profile_with_mcp_tool_rules() {
+    fn parses_direct_agent_profile_with_mcp_server() {
         let profile: crate::models::agent::AgentProfile = toml::from_str(
             r#"
-                [[mcp_rules]]
-                effect = "allow"
-                hosts = ["mcp.linear.app"]
-                paths = ["/mcp"]
-                tools = ["search_issues", "get_issue"]
+                [mcp_servers.linear]
+                url = "https://mcp.linear.app/mcp"
+                allow_tools = ["search_issues", "get_issue"]
             "#,
         )
         .unwrap();
 
-        assert_eq!(profile.mcp_rules.len(), 1);
-        assert_eq!(profile.mcp_rules[0].tools, ["search_issues", "get_issue"]);
+        assert_eq!(
+            profile.mcp_servers["linear"].url,
+            "https://mcp.linear.app/mcp"
+        );
+        assert_eq!(
+            profile.mcp_servers["linear"].allow_tools,
+            ["search_issues", "get_issue"]
+        );
     }
 
     #[test]

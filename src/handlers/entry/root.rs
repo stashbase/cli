@@ -278,7 +278,7 @@ fn remote_bindings(
 fn compiled_mcp_rules(
     profile: &crate::models::agent::AgentProfile,
 ) -> Vec<crate::models::agent::AgentMcpRule> {
-    let mut rules = profile.mcp_rules.clone();
+    let mut rules = Vec::new();
     for server in profile.mcp_servers.values() {
         let Some((host, path)) = mcp_server_endpoint(server) else {
             continue;
@@ -301,14 +301,6 @@ fn compiled_mcp_rules(
                 tools: server.deny_tools.clone(),
             });
         }
-    }
-    for binding in profile
-        .secrets
-        .bindings
-        .values()
-        .chain(profile.personal_credentials.values())
-    {
-        rules.extend(binding.mcp_rules.clone());
     }
     rules
 }
@@ -2016,7 +2008,6 @@ mod tests {
         let secret = AgentBindingProfile {
             hosts: Vec::new(),
             rules: Vec::new(),
-            mcp_rules: Vec::new(),
             from: None,
             env: Some("GH_TOKEN".to_owned()),
             placeholder: None,
@@ -2088,7 +2079,6 @@ mod tests {
         let binding = |from: Option<&str>| AgentBindingProfile {
             hosts: vec!["api.example.com".to_owned()],
             rules: Vec::new(),
-            mcp_rules: Vec::new(),
             from: from.map(str::to_owned),
             env: None,
             placeholder: None,
@@ -2100,7 +2090,6 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),

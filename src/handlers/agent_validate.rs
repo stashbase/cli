@@ -19,7 +19,7 @@ use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
     models::{
-        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile},
+        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile},
         config::Config,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -514,10 +514,6 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
     }
 
-    for (index, rule) in profile.mcp_rules.iter().enumerate() {
-        validate_mcp_rule(index, rule, &mut checks);
-    }
-
     let mut seen_mcp_endpoints = HashSet::new();
     for (name, server) in &profile.mcp_servers {
         validate_mcp_server(name, server, &profile, &mut seen_mcp_endpoints, &mut checks);
@@ -626,52 +622,6 @@ fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: 
     for path in &rule.paths {
         if let Err(reason) = validate_path_pattern(path) {
             checks.push(fail(format!("{label} path"), reason));
-        }
-    }
-}
-
-fn validate_mcp_rule(index: usize, rule: &AgentMcpRule, checks: &mut Vec<Check>) {
-    let label = format!("MCP rule {}", index + 1);
-    if rule.hosts.is_empty() {
-        checks.push(fail(
-            format!("{label} hosts"),
-            "At least one host is required.".to_owned(),
-        ));
-    }
-    if rule.paths.is_empty() {
-        checks.push(fail(
-            format!("{label} paths"),
-            "At least one path is required.".to_owned(),
-        ));
-    }
-    if rule.tools.is_empty() {
-        checks.push(fail(
-            format!("{label} tools"),
-            "At least one tool is required.".to_owned(),
-        ));
-    }
-    for host in &rule.hosts {
-        if let Err(reason) = validate_host(host, false) {
-            checks.push(fail(format!("{label} host"), reason));
-        }
-    }
-    for path in &rule.paths {
-        if let Err(reason) = validate_path_pattern(path) {
-            checks.push(fail(format!("{label} path"), reason));
-        }
-    }
-    let mut seen = HashSet::new();
-    for tool in &rule.tools {
-        if tool.trim().is_empty() || tool.contains(['\r', '\n']) {
-            checks.push(fail(
-                format!("{label} tool"),
-                "Tool names must be non-empty and cannot contain line breaks.".to_owned(),
-            ));
-        } else if !seen.insert(tool) {
-            checks.push(warn(
-                format!("{label} tool"),
-                format!("Duplicate tool '{tool}'."),
-            ));
         }
     }
 }
@@ -1041,7 +991,6 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1051,7 +1000,6 @@ mod tests {
                     crate::models::agent::AgentBindingProfile {
                         hosts: vec!["api.example.com".to_owned()],
                         rules: Vec::new(),
-                        mcp_rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: None,
@@ -1075,7 +1023,6 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1085,7 +1032,6 @@ mod tests {
                     crate::models::agent::AgentBindingProfile {
                         hosts: vec!["api.example.com".to_owned()],
                         rules: Vec::new(),
-                        mcp_rules: Vec::new(),
                         from: None,
                         env: None,
                         placeholder: None,
@@ -1110,7 +1056,6 @@ mod tests {
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1129,7 +1074,6 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
@@ -1137,7 +1081,6 @@ mod tests {
                 crate::models::agent::AgentBindingProfile {
                     hosts: vec!["mcp.linear.app".to_owned()],
                     rules: Vec::new(),
-                    mcp_rules: Vec::new(),
                     from: None,
                     env: None,
                     placeholder: None,
@@ -1163,7 +1106,6 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1174,7 +1116,6 @@ mod tests {
                         crate::models::agent::AgentBindingProfile {
                             hosts: vec!["first.example.com".to_owned()],
                             rules: Vec::new(),
-                            mcp_rules: Vec::new(),
                             from: None,
                             env: None,
                             placeholder: Some("shared-placeholder".to_owned()),
@@ -1187,7 +1128,6 @@ mod tests {
                         crate::models::agent::AgentBindingProfile {
                             hosts: vec!["second.example.com".to_owned()],
                             rules: Vec::new(),
-                            mcp_rules: Vec::new(),
                             from: None,
                             env: None,
                             placeholder: Some("shared-placeholder".to_owned()),
@@ -1212,7 +1152,6 @@ mod tests {
         let binding = crate::models::agent::AgentBindingProfile {
             hosts: vec!["api.example.com".to_owned()],
             rules: Vec::new(),
-            mcp_rules: Vec::new(),
             from: None,
             env: None,
             placeholder: None,
@@ -1224,7 +1163,6 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
-            mcp_rules: Vec::new(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
