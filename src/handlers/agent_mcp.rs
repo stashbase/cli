@@ -261,8 +261,15 @@ pub async fn handle_agent_mcp_verify_command(
 
 fn mcp_url(server: &AgentMcpServer) -> Result<String> {
     let url = reqwest::Url::parse(&server.url).context("MCP server URL is invalid")?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        bail!("MCP server URL must be an absolute http:// or https:// URL");
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || url.fragment().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        bail!(
+            "MCP server URL must be an absolute http:// or https:// URL with a host and no userinfo or fragment"
+        );
     }
     Ok(url.to_string())
 }

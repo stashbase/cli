@@ -635,7 +635,13 @@ fn validate_mcp_server(
 ) {
     let label = format!("MCP server '{name}'");
     match reqwest::Url::parse(&server.url) {
-        Ok(url) if matches!(url.scheme(), "http" | "https") && url.host_str().is_some() => {
+        Ok(url)
+            if matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.fragment().is_none()
+                && url.username().is_empty()
+                && url.password().is_none() =>
+        {
             if url.path().is_empty() {
                 checks.push(fail(
                     format!("{label} url"),
@@ -652,7 +658,8 @@ fn validate_mcp_server(
         }
         _ => checks.push(fail(
             format!("{label} url"),
-            "Must be an absolute http:// or https:// URL with a host.".to_owned(),
+            "Must be an absolute http:// or https:// URL with a host and no userinfo or fragment."
+                .to_owned(),
         )),
     }
     if let Some(binding) = &server.binding {
