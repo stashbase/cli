@@ -394,8 +394,10 @@ struct AuditedResponseStream {
     request_id: String,
     action: &'static str,
     host: Option<String>,
+    path: Option<String>,
     method: Method,
     secret_name: Option<String>,
+    mcp_tool: Option<String>,
     status: StatusCode,
     started: Instant,
     recorded: bool,
@@ -410,8 +412,10 @@ impl AuditedResponseStream {
         request_id: String,
         action: &'static str,
         host: Option<String>,
+        path: Option<String>,
         method: Method,
         secret_name: Option<String>,
+        mcp_tool: Option<String>,
         status: StatusCode,
         started: Instant,
     ) -> Self {
@@ -423,8 +427,10 @@ impl AuditedResponseStream {
             request_id,
             action,
             host,
+            path,
             method,
             secret_name,
+            mcp_tool,
             status,
             started,
             recorded: false,
@@ -447,9 +453,9 @@ impl AuditedResponseStream {
                 Some(&self.request_id),
                 Some(self.request_bytes.load(Ordering::Relaxed)),
                 Some(self.response_bytes),
+                self.path.as_deref(),
                 None,
-                None,
-                None,
+                self.mcp_tool.as_deref(),
             );
         }
     }
@@ -1538,6 +1544,7 @@ fn proxy_request(
         let mcp_path = request.uri().path().to_owned();
         let mcp_rule = matching_mcp_rule(&state.policy, host.as_deref(), &method, &mcp_path);
         let mut mcp_method = None;
+        let mut mcp_tool_for_audit = None;
         // `Incoming` is converted into a data stream without collecting it. Reqwest
         // applies chunked transfer encoding when no content length is available, so
         // streaming uploads retain their incremental delivery to the upstream.
@@ -1589,21 +1596,6 @@ fn proxy_request(
                     Some(&request_id),
                 ));
             }
-            if mcp_method_name(&bytes).as_deref() == Some("tools/call") {
-                if let Some(tool) = mcp_tool.as_deref() {
-                    state.record_mcp_tool_with_request(
-                        &request_id,
-                        "mcp_tool_call",
-                        tool,
-                        host.as_deref(),
-                        Some(&mcp_path),
-                        Some(&method),
-                        None,
-                        None,
-                        Some(started.elapsed()),
-                    );
-                }
-            }
             mcp_method = serde_json::from_slice::<serde_json::Value>(&bytes)
                 .ok()
                 .and_then(|value| {
@@ -1612,6 +1604,9 @@ fn proxy_request(
                         .and_then(serde_json::Value::as_str)
                         .map(str::to_owned)
                 });
+            if mcp_method.as_deref() == Some("tools/call") {
+                mcp_tool_for_audit = mcp_tool;
+            }
             request_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
             reqwest::Body::from(bytes)
         } else {
@@ -1757,15 +1752,22 @@ fn proxy_request(
                 } else {
                     "forwarded"
                 };
+                let audit_action = if mcp_tool_for_audit.is_some() {
+                    "mcp_tool_call"
+                } else {
+                    action
+                };
                 let body = StreamBody::new(AuditedResponseStream::new(
                     upstream.bytes_stream(),
                     request_bytes,
                     state.audit_log.clone(),
                     request_id,
-                    action,
+                    audit_action,
                     host.clone(),
+                    mcp_tool_for_audit.as_ref().map(|_| mcp_path.clone()),
                     method.clone(),
                     secret_name.clone(),
+                    mcp_tool_for_audit,
                     status,
                     started,
                 ))
@@ -2586,17 +2588,6 @@ fn path_matches(pattern: &str, path: &str) -> bool {
         Some(prefix) => path.starts_with(prefix),
         None => pattern == path,
     }
-}
-
-fn mcp_method_name(bytes: &[u8]) -> Option<String> {
-    serde_json::from_slice::<serde_json::Value>(bytes)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("method")
-                .and_then(|method| method.as_str())
-                .map(str::to_owned)
-        })
 }
 
 fn mcp_tool_name(bytes: &[u8]) -> Option<String> {
@@ -3653,8 +3644,10 @@ mod tests {
             "evt_test".to_owned(),
             "injected",
             Some("api.example.com".to_owned()),
+            Some("/mcp".to_owned()),
             Method::POST,
             Some("EXAMPLE_API_KEY".to_owned()),
+            Some("list_issues".to_owned()),
             StatusCode::OK,
             Instant::now(),
         );
@@ -3677,6 +3670,8 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(event.request_bytes, Some(7));
         assert_eq!(event.response_bytes, Some(5));
+        assert_eq!(event.path.as_deref(), Some("/mcp"));
+        assert_eq!(event.mcp_tool.as_deref(), Some("list_issues"));
         fs::remove_file(path).unwrap();
     }
 
@@ -3773,6 +3768,7 @@ mod tests {
             destination_host: Some("api.github.com".to_owned()),
             path: None,
             operation: None,
+            mcp_tool: None,
             method: Some("POST".to_owned()),
             binding_name: Some("GH_TOKEN".to_owned()),
             binding_source: None,
