@@ -48,6 +48,8 @@ pub enum AgentMcpSubcommand {
     Tools(AgentMcpToolsCommand),
     /// Check whether one MCP tool is allowed by the configured policy
     Check(AgentMcpCheckCommand),
+    /// Verify configured MCP tool names against the server's tools/list response
+    Verify(AgentMcpVerifyCommand),
 }
 
 #[derive(Debug, Args)]
@@ -188,6 +190,18 @@ pub struct AgentMcpCheckCommand {
     pub server: String,
     #[arg(long)]
     pub tool: String,
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentMcpVerifyCommand {
+    #[arg(long)]
+    pub profile: String,
+    #[arg(long)]
+    pub server: String,
     #[arg(long, value_enum, default_value = "auto")]
     pub profile_source: AgentProfileSource,
     #[arg(long, conflicts_with = "profile_source")]

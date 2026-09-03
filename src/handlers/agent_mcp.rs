@@ -1,13 +1,15 @@
 //! Read-only inspection of configured HTTP MCP servers.
 
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use crate::{
     cmd::{
-        agent::{AgentMcpCheckCommand, AgentMcpToolsCommand, AgentProfileSource},
+        agent::{
+            AgentMcpCheckCommand, AgentMcpToolsCommand, AgentMcpVerifyCommand, AgentProfileSource,
+        },
         secrets::SecretsFileFormat,
     },
     config::config,
@@ -122,6 +124,115 @@ pub async fn handle_agent_mcp_tools_command(
         }
     }
     Ok(())
+}
+
+pub async fn handle_agent_mcp_verify_command(
+    command: AgentMcpVerifyCommand,
+    global_config: &Config,
+    json_format: bool,
+    silent: bool,
+) -> Result<bool> {
+    let explicit = command
+        .policy_file
+        .as_deref()
+        .map(config::get_explicit_agent_profile)
+        .transpose()?;
+    let global = global_config
+        .agent_profiles
+        .as_ref()
+        .and_then(|profiles| profiles.get(&command.profile))
+        .cloned();
+    let profile = if let Some(profile) = explicit {
+        profile.profile
+    } else {
+        match command.profile_source {
+            AgentProfileSource::Global => global.context("agent profile was not found")?,
+            AgentProfileSource::Directory => {
+                config::get_directory_agent_profile(&command.profile)?
+                    .context("agent profile was not found")?
+                    .profile
+            }
+            AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
+                .map(|p| p.profile)
+                .or(global)
+                .context("agent profile was not found")?,
+        }
+    };
+    let server = profile
+        .mcp_servers
+        .get(&command.server)
+        .context("MCP server was not found in the profile")?;
+    let url = mcp_url(server)?;
+    let client = reqwest::Client::builder().build()?;
+    let auth = binding_header(&profile, server)?;
+    let mut spinner = (!silent).then(request_spinner);
+    let initialize = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
+    });
+    let (initialize_response, session) = send_mcp(&client, &url, &auth, initialize, None).await?;
+    if let Some(error) = initialize_response.get("error") {
+        bail!("MCP initialize failed: {error}");
+    }
+    send_mcp_notification(
+        &client,
+        &url,
+        &auth,
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        session.as_deref(),
+    )
+    .await?;
+    let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
+    let (response, _) = send_mcp(&client, &url, &auth, list, session.as_deref()).await?;
+    if let Some(spinner) = spinner.as_mut() {
+        spinner.stop_and_persist("", "");
+    }
+    if let Some(error) = response.get("error") {
+        bail!("MCP tools/list failed: {error}");
+    }
+    let available = response
+        .pointer("/result/tools")
+        .and_then(Value::as_array)
+        .context("MCP tools/list returned no tools array")?
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect::<HashSet<_>>();
+    let configured = server
+        .allow_tools
+        .iter()
+        .chain(server.deny_tools.iter())
+        .filter(|tool| tool.as_str() != "*")
+        .collect::<HashSet<_>>();
+    let missing = configured
+        .iter()
+        .filter(|tool| !available.contains(tool.as_str()))
+        .map(|tool| (*tool).clone())
+        .collect::<Vec<_>>();
+    let report = json!({
+        "profile": command.profile,
+        "server": command.server,
+        "url": url,
+        "available_tools": available.iter().collect::<Vec<_>>(),
+        "configured_tools": configured.iter().collect::<Vec<_>>(),
+        "missing_tools": missing,
+        "valid": missing.is_empty(),
+    });
+    if json_format {
+        println!("{}", get_formatted_json_string(&report, true)?);
+    } else {
+        println!("MCP server: {}", command.server);
+        if missing.is_empty() {
+            println!("Tool verification: PASSED");
+            println!("All configured tool names are available.");
+        } else {
+            println!("Tool verification: FAILED");
+            println!("Missing configured tools ({}):", missing.len());
+            for tool in missing {
+                println!("  - \"{tool}\"");
+            }
+        }
+    }
+    Ok(!report["valid"].as_bool().unwrap_or(false))
 }
 
 fn mcp_url(server: &AgentMcpServer) -> Result<String> {
