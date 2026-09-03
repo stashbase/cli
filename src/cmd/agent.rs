@@ -24,6 +24,8 @@ pub enum AgentSubcommand {
     Profiles(AgentProfilesCommand),
     /// Check a tool's compatibility with the temporary Agent Proxy
     Doctor(AgentDoctorCommand),
+    /// Inspect the tools exposed by a configured HTTP MCP server
+    McpTools(AgentMcpToolsCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
 }
@@ -134,6 +136,28 @@ pub struct AgentDoctorCommand {
 
     /// Executable to check (for example: curl, gh, node, copilot, or codex)
     pub tool: String,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    override_usage = "agent mcp-tools --profile <PROFILE> --server <SERVER> [--profile-source <auto|global|directory>]"
+)]
+pub struct AgentMcpToolsCommand {
+    /// Agent profile containing the MCP server configuration
+    #[arg(long)]
+    pub profile: String,
+
+    /// Named entry under [mcp_servers]
+    #[arg(long)]
+    pub server: String,
+
+    /// Where to load the agent profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
+
+    /// Explicit direct profile file
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
