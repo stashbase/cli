@@ -52,6 +52,12 @@ pub struct AgentMcpServer {
     /// `credential` remains accepted as a legacy input alias.
     #[serde(alias = "credential")]
     pub binding: Option<String>,
+    /// Optional MCP-specific credential header override.
+    #[serde(default)]
+    pub header: Option<String>,
+    /// Optional MCP-specific credential value template override.
+    #[serde(default)]
+    pub value_template: Option<String>,
     #[serde(default)]
     pub allow_tools: Vec<String>,
     #[serde(default)]

@@ -26,6 +26,8 @@ egress_hosts = []
 # [mcp_servers.example]
 # url = "https://mcp.example.com/mcp"
 # binding = "SECRET_NAME"
+# header = "X-API-Key"
+# value_template = "{value}"
 # allow_tools = ["search"]
 
 # Example: permit one read-only HTTP action for this credential.

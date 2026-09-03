@@ -667,6 +667,22 @@ fn validate_mcp_server(
             ));
         }
     }
+    if let Some(header) = &server.header {
+        if HeaderName::from_bytes(header.as_bytes()).is_err() {
+            checks.push(fail(
+                format!("{label} header"),
+                format!("'{header}' is not a valid HTTP header name."),
+            ));
+        }
+    }
+    if let Some(template) = &server.value_template {
+        if !template.contains("{value}") {
+            checks.push(fail(
+                format!("{label} value_template"),
+                "Must contain '{value}' so the proxy can inject the credential.".to_owned(),
+            ));
+        }
+    }
     validate_mcp_server_tools(&label, "allow_tools", &server.allow_tools, checks);
     validate_mcp_server_tools(&label, "deny_tools", &server.deny_tools, checks);
 }

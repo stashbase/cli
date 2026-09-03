@@ -396,17 +396,22 @@ fn inspection_binding_policy(
         .context(format!(
             "MCP binding '{name}' is not available in ${env_name} or the profile file"
         ))?;
-    let header = binding
+    let header = server
         .header
         .clone()
+        .or_else(|| binding.header.clone())
         .unwrap_or_else(|| "Authorization".to_owned());
-    let template = binding.value_template.clone().unwrap_or_else(|| {
-        if header.eq_ignore_ascii_case("authorization") {
-            "Bearer {value}".to_owned()
-        } else {
-            "{value}".to_owned()
-        }
-    });
+    let template = server
+        .value_template
+        .clone()
+        .or_else(|| binding.value_template.clone())
+        .unwrap_or_else(|| {
+            if header.eq_ignore_ascii_case("authorization") {
+                "Bearer {value}".to_owned()
+            } else {
+                "{value}".to_owned()
+            }
+        });
     let secret_policy = if binding.rules.is_empty() {
         SecretHttpPolicy::LegacyHosts(binding.hosts.iter().cloned().collect())
     } else {
