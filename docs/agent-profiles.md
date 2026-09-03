@@ -93,25 +93,74 @@ deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
 ```
 
-MCP servers can expose many tools through one HTTP endpoint. Restrict the
-tools independently from credential injection with top-level `mcp_rules`:
+MCP servers can expose many tools through one HTTP endpoint. Define each server
+at the profile root and reference its credential binding explicitly. This keeps
+HTTP credential authorization and MCP tool authorization distinct:
 
 ```toml
-[[mcp_rules]]
+[secrets.LINEAR_API_KEY]
+env = "LINEAR_API_KEY"
+
+[[secrets.LINEAR_API_KEY.rules]]
 effect = "allow"
 hosts = ["mcp.linear.app"]
+methods = ["GET", "POST"]
 paths = ["/mcp"]
-tools = ["search_issues", "get_issue"]
+
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+binding = "LINEAR_API_KEY"
+allow_tools = ["search_issues", "get_issue"]
 ```
 
-The Agent Proxy must enforce this at both `tools/list` (by filtering the
-advertised tools) and `tools/call` (by rejecting calls for tools not allowed by
-the rule). An MCP rule does not grant network access or credentials by itself;
-configure `egress_hosts` and the relevant credential rules separately.
+When an MCP server uses a different authentication scheme than the binding's
+normal HTTP destinations, override it on the MCP server:
+
+```toml
+[mcp_servers.example]
+url = "https://mcp.example.com/mcp"
+binding = "SHARED_TOKEN"
+header = "X-API-Key"
+value_template = "{value}"
+```
+
+The HTTP rule controls endpoint access and credential injection. The MCP server
+entry controls tool access. The Agent Proxy must enforce the MCP rule at
+both `tools/list` (by filtering advertised tools) and `tools/call` (by
+rejecting unauthorized calls).
 
 Use `tools = ["*"]` to explicitly allow every tool on a matching endpoint. A
 matching `deny` rule still takes precedence, so this can be used to allow all
 tools except selected high-impact operations.
+
+To inspect a configured HTTP MCP server, use:
+
+```bash
+stashbase agent mcp tools --profile linear --server linear
+```
+
+The command performs the MCP handshake and `tools/list`, then marks each
+returned tool according to `allow_tools` and `deny_tools`. It can read a local
+secret binding from the configured environment or profile file; personal
+credentials remain unavailable to the local CLI.
+
+To check one tool without contacting the server or invoking the tool, use:
+
+```bash
+stashbase agent mcp check --profile linear --server linear --tool save_issue
+```
+
+This reports whether the tool is allowed and explains whether the decision came
+from `allow_tools`, `deny_tools`, or the default allow-all behavior.
+
+To verify that configured tool names still exist on the server, use:
+
+```bash
+stashbase agent mcp verify --profile linear --server linear
+```
+
+This contacts the server, compares `allow_tools` and `deny_tools` with
+`tools/list`, and exits unsuccessfully when a configured tool is missing.
 
 Filesystem restrictions use explicit path prefixes:
 
