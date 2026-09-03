@@ -323,13 +323,13 @@ async fn proxied_client(
     if !server.deny_tools.is_empty() {
         mcp_rules.push(AgentMcpRule {
             effect: AgentHttpRuleEffect::Deny,
-            hosts: vec![host],
+            hosts: vec![host.clone()],
             paths: vec![path],
             tools: server.deny_tools.clone(),
         });
     }
     let (secrets, secret_policies, secret_injections, auth) =
-        inspection_binding_policy(profile, server)?;
+        inspection_binding_policy(profile, server, &host)?;
     let policy = ProxyPolicy {
         secret_policies,
         secret_injections,
@@ -365,6 +365,7 @@ async fn proxied_client(
 fn inspection_binding_policy(
     profile: &AgentProfile,
     server: &AgentMcpServer,
+    endpoint_host: &str,
 ) -> Result<(
     HashMap<String, String>,
     HashMap<String, SecretHttpPolicy>,
@@ -420,7 +421,10 @@ fn inspection_binding_policy(
             }
         });
     let secret_policy = if binding.rules.is_empty() {
-        SecretHttpPolicy::LegacyHosts(binding.hosts.iter().cloned().collect())
+        // A named MCP binding is implicitly authorized for its configured MCP
+        // endpoint. This keeps MCP authentication self-contained instead of
+        // requiring a duplicate secret HTTP rule for the same host.
+        SecretHttpPolicy::LegacyHosts(HashSet::from([endpoint_host.to_owned()]))
     } else {
         SecretHttpPolicy::Rules(binding.rules.clone())
     };
