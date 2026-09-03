@@ -57,7 +57,9 @@ use crate::{
     },
     models::{config::Config, validation::InputValidationError},
     utils::{
-        env::get_stashbase_api_key, output::ColorizeIfColoredOutput, tables::build::build_table,
+        env::get_stashbase_api_key,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        tables::build::build_table,
     },
     REQUEST_ABORTED,
 };
@@ -1302,7 +1304,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     if !command.follow {
         let events = read_local_proxy_audit_logs(command.limit, since, &filter)?;
         if json {
-            println!("{}", serde_json::to_string_pretty(&events)?);
+            println!("{}", get_formatted_json_string(&events, true)?);
         } else {
             for event in &events {
                 print_audit_event(event, false)?;
@@ -1713,7 +1715,7 @@ fn parse_audit_duration(value: &str) -> anyhow::Result<Duration> {
 
 fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<()> {
     if json {
-        println!("{}", serde_json::to_string(event)?);
+        println!("{}", get_formatted_json_string(event, true)?);
         return Ok(());
     }
 
