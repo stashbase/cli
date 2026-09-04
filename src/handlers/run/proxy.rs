@@ -1717,6 +1717,7 @@ fn proxy_request(
                         .and_then(|value| value.to_str().ok())
                         .is_some_and(|value| {
                             value.to_ascii_lowercase().contains("application/json")
+                                || value.to_ascii_lowercase().contains("text/event-stream")
                         });
                 if mcp_list_response {
                     let response_bytes = match upstream.bytes().await {
@@ -3049,6 +3050,85 @@ mod tests {
             .proxy(reqwest::Proxy::all(&proxy.child_env()["HTTP_PROXY"]).unwrap())
             .build()
             .unwrap()
+    }
+
+    fn mcp_test_policy() -> ProxyPolicy {
+        ProxyPolicy {
+            secret_policies: HashMap::new(),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+            mcp_rules: vec![
+                AgentMcpRule {
+                    effect: AgentHttpRuleEffect::Allow,
+                    hosts: vec!["mcp.example.com".to_owned()],
+                    paths: vec!["/mcp".to_owned()],
+                    tools: vec!["*".to_owned()],
+                },
+                AgentMcpRule {
+                    effect: AgentHttpRuleEffect::Deny,
+                    hosts: vec!["mcp.example.com".to_owned()],
+                    paths: vec!["/mcp".to_owned()],
+                    tools: vec!["list_projects".to_owned()],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn mcp_tools_list_hides_denied_tools_for_fresh_sessions() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"tools": [
+                {"name": "list_projects"},
+                {"name": "list_project_labels"}
+            ]}
+        });
+        let filtered = filter_mcp_tools_list_response(
+            serde_json::to_string(&body).unwrap().as_bytes(),
+            &mcp_test_policy(),
+            Some("mcp.example.com"),
+            "/mcp",
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&filtered).unwrap();
+        let names = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["list_project_labels"]);
+    }
+
+    #[test]
+    fn mcp_sse_tools_list_hides_denied_tools_for_fresh_sessions() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"tools": [
+                {"name": "list_projects"},
+                {"name": "list_project_labels"}
+            ]}
+        });
+        let sse = format!("event: message\ndata: {}\n\n", body);
+        let filtered = filter_mcp_tools_list_response(
+            sse.as_bytes(),
+            &mcp_test_policy(),
+            Some("mcp.example.com"),
+            "/mcp",
+        )
+        .unwrap();
+
+        let text = String::from_utf8(filtered.to_vec()).unwrap();
+        assert!(!text.contains("list_projects"));
+        assert!(text.contains("list_project_labels"));
     }
 
     #[test]
