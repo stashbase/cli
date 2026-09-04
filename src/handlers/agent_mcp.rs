@@ -135,6 +135,7 @@ pub async fn handle_agent_mcp_tools_command(
                     "schema_version": 1,
                     "server": command.server,
                     "url": url,
+                    "binding": server.binding,
                     "tools": rows,
                     "policy_hidden_tools": policy_hidden_tools,
                 }),
@@ -144,6 +145,7 @@ pub async fn handle_agent_mcp_tools_command(
     } else {
         println!("MCP server: {}", command.server);
         println!("Endpoint: {url}");
+        println!("Binding: {}", server.binding.as_deref().unwrap_or("none"));
         let allowed = rows
             .iter()
             .filter(|row| row["allowed"].as_bool() == Some(true))
