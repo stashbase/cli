@@ -137,12 +137,14 @@ To inspect a configured HTTP MCP server, use:
 
 ```bash
 stashbase agent mcp tools --profile linear --server linear
+stashbase agent mcp tools --remote --profile linear --server linear
 ```
 
 The command performs the MCP handshake and `tools/list`, then marks each
 returned tool according to `allow_tools` and `deny_tools`. It can read a local
-secret binding from the configured environment or profile file; personal
-credentials remain unavailable to the local CLI.
+secret binding from the configured environment, profile file, or configured
+project/environment. With `--remote`, the binding is resolved by the remote
+Agent Proxy instead. Personal credentials require `--remote`.
 
 To check one tool without contacting the server or invoking the tool, use:
 
@@ -157,6 +159,7 @@ To verify that configured tool names still exist on the server, use:
 
 ```bash
 stashbase agent mcp verify --profile linear --server linear
+stashbase agent mcp verify --remote --profile linear --server linear
 ```
 
 This contacts the server, compares `allow_tools` and `deny_tools` with
