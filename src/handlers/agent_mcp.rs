@@ -275,8 +275,6 @@ pub async fn handle_agent_mcp_verify_command(
         .collect::<Vec<_>>();
     configured_tools.sort();
     missing.sort();
-    let mut policy_hidden_tools = server.deny_tools.clone();
-    policy_hidden_tools.sort();
     let report = json!({
         "schema_version": 1,
         "profile": command.profile,
@@ -285,7 +283,6 @@ pub async fn handle_agent_mcp_verify_command(
         "available_tools": available_tools,
         "configured_tools": configured_tools,
         "missing_tools": missing,
-        "policy_hidden_tools": policy_hidden_tools,
         "valid": missing.is_empty(),
     });
     if json_format {
