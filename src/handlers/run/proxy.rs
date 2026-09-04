@@ -1540,6 +1540,11 @@ fn proxy_request(
             }
         };
         let method = request.method().clone();
+        let mcp_inspection = request
+            .headers()
+            .get("x-stashbase-mcp-inspection")
+            .is_some_and(|value| value == "1");
+        request.headers_mut().remove("x-stashbase-mcp-inspection");
         let mut headers = request.headers().clone();
         let mcp_path = request.uri().path().to_owned();
         let mcp_rule = matching_mcp_rule(&state.policy, host.as_deref(), &method, &mcp_path);
@@ -1712,6 +1717,7 @@ fn proxy_request(
                 let mut headers = upstream.headers().clone();
                 let mcp_list_response = mcp_method.as_deref() == Some("tools/list")
                     && mcp_rule.is_some()
+                    && !mcp_inspection
                     && headers
                         .get(CONTENT_TYPE)
                         .and_then(|value| value.to_str().ok())

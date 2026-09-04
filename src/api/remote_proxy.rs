@@ -184,10 +184,17 @@ pub async fn create_session(
     let client = reqwest::Client::builder()
         .user_agent(client::CLI_USER_AGENT)
         .build()?;
-    let response = create_session_http_request(&client, request)
-        .send()
-        .await
-        .context("failed to create remote Agent Proxy session")?;
+    let response = match create_session_http_request(&client, request).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            let output_error = if error.is_timeout() {
+                OutputError::request_timed_out()
+            } else {
+                OutputError::cannot_connect()
+            };
+            bail!(output_error.format_error_output(json_format)?);
+        }
+    };
     if !response.status().is_success() {
         let status = response.status();
         let error_response = response.json::<ApiErrorResponse>().await.ok();

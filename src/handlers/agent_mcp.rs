@@ -73,11 +73,19 @@ pub async fn handle_agent_mcp_tools_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let (_proxy, client, auth) = if command.remote {
-        remote_proxied_client(&profile, server, api_key, json_format).await?
+    let inspection = if command.remote {
+        remote_proxied_client(&profile, server, api_key, json_format).await
     } else {
-        let (proxy, client, auth) = proxied_client(&profile, server, api_key, json_format).await?;
-        (proxy, client, auth)
+        proxied_client(&profile, server, api_key, json_format).await
+    };
+    let (_proxy, client, auth) = match inspection {
+        Ok(value) => value,
+        Err(error) => {
+            if !silent {
+                eprintln!();
+            }
+            return Err(error);
+        }
     };
     let mut spinner = SpinnerGuard::new(!silent);
 
@@ -111,34 +119,50 @@ pub async fn handle_agent_mcp_tools_command(
         .iter()
         .filter_map(|tool| {
             let name = tool.get("name")?.as_str()?.to_owned();
-            let (allowed, _) = tool_decision(server, &name);
-            Some(json!({"name": name, "description": tool.get("description"), "allowed": allowed}))
+            let (allowed, reason) = tool_decision(server, &name);
+            Some(json!({"name": name, "description": tool.get("description"), "allowed": allowed, "reason": reason}))
         })
         .collect::<Vec<_>>();
     let mut rows = rows;
     rows.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
-    eprintln!();
+    let mut policy_hidden_tools = server.deny_tools.clone();
+    policy_hidden_tools.sort();
     if json_format {
         println!(
             "{}",
             get_formatted_json_string(
-                &json!({"schema_version": 1, "server": command.server, "url": url, "tools": rows}),
+                &json!({
+                    "schema_version": 1,
+                    "server": command.server,
+                    "url": url,
+                    "tools": rows,
+                    "policy_hidden_tools": policy_hidden_tools,
+                }),
                 true,
             )?
         );
     } else {
         println!("MCP server: {}", command.server);
         println!("Endpoint: {url}");
-        for row in rows {
-            println!(
-                "{} {}",
-                if row["allowed"].as_bool().unwrap_or(false) {
-                    "✓"
-                } else {
-                    "✗"
-                },
-                row["name"]
-            );
+        println!();
+        println!("Allowed tools:");
+        for row in rows
+            .iter()
+            .filter(|row| row["allowed"].as_bool() == Some(true))
+        {
+            println!("- {}", row["name"]);
+        }
+        println!();
+        println!("Denied tools:");
+        for row in rows
+            .iter()
+            .filter(|row| row["allowed"].as_bool() != Some(true))
+        {
+            if row["reason"] == "not present in allow_tools" {
+                println!("- {}", row["name"]);
+            } else {
+                println!("- {}  ({})", row["name"], row["reason"]);
+            }
         }
     }
     Ok(())
@@ -182,11 +206,19 @@ pub async fn handle_agent_mcp_verify_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let (_proxy, client, auth) = if command.remote {
-        remote_proxied_client(&profile, server, api_key, json_format).await?
+    let inspection = if command.remote {
+        remote_proxied_client(&profile, server, api_key, json_format).await
     } else {
-        let (proxy, client, auth) = proxied_client(&profile, server, api_key, json_format).await?;
-        (proxy, client, auth)
+        proxied_client(&profile, server, api_key, json_format).await
+    };
+    let (_proxy, client, auth) = match inspection {
+        Ok(value) => value,
+        Err(error) => {
+            if !silent {
+                eprintln!();
+            }
+            return Err(error);
+        }
     };
     let mut spinner = SpinnerGuard::new(!silent);
     let initialize = json!({
@@ -252,7 +284,6 @@ pub async fn handle_agent_mcp_verify_command(
         "policy_hidden_tools": policy_hidden_tools,
         "valid": missing.is_empty(),
     });
-    eprintln!();
     if json_format {
         println!("{}", get_formatted_json_string(&report, true)?);
     } else {
@@ -682,6 +713,7 @@ async fn send_mcp(
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
         .header("mcp-protocol-version", "2025-03-26")
+        .header("x-stashbase-mcp-inspection", "1")
         .json(&body);
     if let Some((header, value)) = auth {
         request = request.header(header, value);
@@ -719,6 +751,7 @@ async fn send_mcp_notification(
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
         .header("mcp-protocol-version", "2025-03-26")
+        .header("x-stashbase-mcp-inspection", "1")
         .json(&body);
     if let Some((header, value)) = auth {
         request = request.header(header, value);
@@ -775,7 +808,6 @@ pub fn handle_agent_mcp_check_command(
         "decision": if allowed { "allowed" } else { "denied" },
         "reason": reason,
     });
-    eprintln!();
     if json_format {
         println!("{}", get_formatted_json_string(&report, true)?);
     } else {
