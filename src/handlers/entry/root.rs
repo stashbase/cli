@@ -213,7 +213,7 @@ fn secret_child_name(
 
 /// Compiles every configured source into the single binding representation used
 /// by the session request, MCP setup, and audit metadata.
-fn remote_bindings(
+pub(crate) fn remote_bindings(
     profile: &crate::models::agent::AgentProfile,
 ) -> Vec<crate::api::remote_proxy::RemoteBinding> {
     let build_binding =
@@ -277,7 +277,7 @@ fn remote_bindings(
         .collect()
 }
 
-fn compiled_mcp_rules(
+pub(crate) fn compiled_mcp_rules(
     profile: &crate::models::agent::AgentProfile,
 ) -> Vec<crate::models::agent::AgentMcpRule> {
     let mut rules = Vec::new();
@@ -577,7 +577,7 @@ pub async fn handle_cli(args: Cli) {
                 }
                 AgentSubcommand::Mcp(agent_mcp) => match agent_mcp.subcommand {
                     crate::cmd::agent::AgentMcpSubcommand::Tools(command) => {
-                        handle_agent_mcp_tools_command(command, &config, raw_output, silent).await
+                        handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
                         match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
@@ -595,6 +595,7 @@ pub async fn handle_cli(args: Cli) {
                             command,
                             &config,
                             raw_output,
+                            Some(api_key.as_str()),
                             silent,
                         )
                         .await
@@ -606,7 +607,7 @@ pub async fn handle_cli(args: Cli) {
                     }
                 },
                 AgentSubcommand::McpTools(agent_mcp) => {
-                    handle_agent_mcp_tools_command(agent_mcp, &config, raw_output, silent).await
+                    handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await
                 }
                 AgentSubcommand::McpCheck(agent_mcp) => {
                     match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
@@ -949,6 +950,7 @@ pub async fn handle_cli(args: Cli) {
                             bindings: bindings.clone(),
                             mcp_rules,
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
+                            session_purpose: None,
                             previous_session_token: None,
                         };
                         let session = crate::api::remote_proxy::create_session(&session_request, raw_output)
@@ -1770,7 +1772,7 @@ fn format_bytes(bytes: u64) -> String {
 const REMOTE_SESSION_ROTATE_EARLY: Duration = Duration::from_secs(120);
 const REMOTE_SESSION_ROTATION_RETRY: Duration = Duration::from_secs(15);
 
-fn remote_session_state(
+pub(crate) fn remote_session_state(
     session: &crate::api::remote_proxy::RemoteProxySession,
 ) -> anyhow::Result<crate::handlers::run::proxy::RemoteProxySessionState> {
     let expires_at = DateTime::parse_from_rfc3339(&session.expires_at)
@@ -1787,7 +1789,7 @@ fn remote_session_state(
 
 /// Forward-proxy sessions need the public interception CA before the child is
 /// spawned. Custom-header sessions do not use a TLS-intercepting proxy.
-fn provision_remote_session_ca(
+pub(crate) fn provision_remote_session_ca(
     session: &crate::api::remote_proxy::RemoteProxySession,
 ) -> anyhow::Result<Option<std::path::PathBuf>> {
     if session.protocol == "http/1.1-forward-proxy-tls-intercept" {

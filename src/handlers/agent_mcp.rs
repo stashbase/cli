@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     path::Path,
+    sync::{Arc, RwLock},
 };
 
 use anyhow::{bail, Context, Result};
@@ -11,6 +12,7 @@ use serde_json::{json, Value};
 use spinoff::Spinner;
 
 use crate::{
+    api::secrets,
     cmd::{
         agent::{
             AgentMcpCheckCommand, AgentMcpToolsCommand, AgentMcpVerifyCommand, AgentProfileSource,
@@ -20,7 +22,8 @@ use crate::{
     config::config,
     handlers::{
         agent_policy::SecretHttpPolicy,
-        run::proxy::{Proxy, ProxyPolicy, SecretInjection},
+        entry::root::{provision_remote_session_ca, remote_bindings, remote_session_state},
+        run::proxy::{Proxy, ProxyPolicy, RemoteProxyConfig, RemoteProxyProtocol, SecretInjection},
     },
     models::{
         agent::{AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile},
@@ -35,6 +38,7 @@ use crate::{
 pub async fn handle_agent_mcp_tools_command(
     command: AgentMcpToolsCommand,
     global_config: &Config,
+    api_key: Option<&str>,
     json_format: bool,
     silent: bool,
 ) -> Result<()> {
@@ -69,7 +73,12 @@ pub async fn handle_agent_mcp_tools_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let (_proxy, client, auth) = proxied_client(&profile, server).await?;
+    let (_proxy, client, auth) = if command.remote {
+        remote_proxied_client(&profile, server, api_key, json_format).await?
+    } else {
+        let (proxy, client, auth) = proxied_client(&profile, server, api_key, json_format).await?;
+        (proxy, client, auth)
+    };
     let mut spinner = SpinnerGuard::new(!silent);
 
     let initialize = json!({
@@ -139,6 +148,7 @@ pub async fn handle_agent_mcp_verify_command(
     command: AgentMcpVerifyCommand,
     global_config: &Config,
     json_format: bool,
+    api_key: Option<&str>,
     silent: bool,
 ) -> Result<bool> {
     let explicit = command
@@ -172,7 +182,12 @@ pub async fn handle_agent_mcp_verify_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
-    let (_proxy, client, auth) = proxied_client(&profile, server).await?;
+    let (_proxy, client, auth) = if command.remote {
+        remote_proxied_client(&profile, server, api_key, json_format).await?
+    } else {
+        let (proxy, client, auth) = proxied_client(&profile, server, api_key, json_format).await?;
+        (proxy, client, auth)
+    };
     let mut spinner = SpinnerGuard::new(!silent);
     let initialize = json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -310,6 +325,8 @@ fn mcp_endpoint_parts(server: &AgentMcpServer) -> Result<(String, String)> {
 async fn proxied_client(
     profile: &AgentProfile,
     server: &AgentMcpServer,
+    api_key: Option<&str>,
+    json_format: bool,
 ) -> Result<(Proxy, reqwest::Client, Option<(String, String)>)> {
     let (host, path) = mcp_endpoint_parts(server)?;
     let mut mcp_rules = vec![AgentMcpRule {
@@ -331,7 +348,7 @@ async fn proxied_client(
         });
     }
     let (secrets, secret_policies, secret_injections, auth) =
-        inspection_binding_policy(profile, server, &host)?;
+        inspection_binding_policy(profile, server, &host, api_key, json_format).await?;
     let policy = ProxyPolicy {
         secret_policies,
         secret_injections,
@@ -351,7 +368,7 @@ async fn proxied_client(
         denied_write_paths: Vec::new(),
         egress_hosts_configured: profile.egress_hosts.is_some(),
         strict_deny: true,
-        mcp_rules,
+        mcp_rules: mcp_rules.clone(),
     };
     let proxy = Proxy::start_with_port(secrets, policy, None, None).await?;
     let proxy_url = proxy.child_env()["HTTPS_PROXY"].clone();
@@ -364,10 +381,186 @@ async fn proxied_client(
     Ok((proxy, client, auth))
 }
 
-fn inspection_binding_policy(
+async fn remote_proxied_client(
+    profile: &AgentProfile,
+    server: &AgentMcpServer,
+    api_key: Option<&str>,
+    json_format: bool,
+) -> Result<(Proxy, reqwest::Client, Option<(String, String)>)> {
+    if profile.file.is_some() {
+        bail!("--remote MCP inspection does not support local profile secret files");
+    }
+    let api_key = api_key.context("--remote MCP inspection requires a Stashbase API key")?;
+    let (host, _path) = mcp_endpoint_parts(server)?;
+    let all_bindings = remote_bindings(profile);
+    let bindings = server
+        .binding
+        .as_ref()
+        .map(|name| {
+            all_bindings
+                .iter()
+                .filter(|binding| &binding.name == name)
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut mcp_rules = vec![crate::api::remote_proxy::RemoteMcpRule {
+        effect: AgentHttpRuleEffect::Allow,
+        hosts: vec![host.clone()],
+        paths: vec![_path.clone()],
+        tools: if server.allow_tools.is_empty() {
+            vec!["*".to_owned()]
+        } else {
+            server.allow_tools.clone()
+        },
+    }];
+    if !server.deny_tools.is_empty() {
+        mcp_rules.push(crate::api::remote_proxy::RemoteMcpRule {
+            effect: AgentHttpRuleEffect::Deny,
+            hosts: vec![host.clone()],
+            paths: vec![_path],
+            tools: server.deny_tools.clone(),
+        });
+    }
+    let request = crate::api::remote_proxy::RemoteProxySessionRequest {
+        api_key: api_key.to_owned(),
+        project_identifier: profile.secrets.project.clone(),
+        environment_identifier: profile.secrets.environment.clone(),
+        egress_hosts: profile.egress_hosts.clone().unwrap_or_default(),
+        deny_hosts: profile.deny_hosts.clone().unwrap_or_default(),
+        bindings: bindings.clone(),
+        mcp_rules: mcp_rules.clone(),
+        agent_type: None,
+        session_purpose: Some("mcp_inspection".to_owned()),
+        previous_session_token: None,
+    };
+    let session = crate::api::remote_proxy::create_session(&request, json_format).await?;
+    let protocol = match session.protocol.as_str() {
+        "http/1.1-custom" => RemoteProxyProtocol::Custom,
+        "http/1.1-forward-proxy-tls-intercept" => RemoteProxyProtocol::ForwardProxyTlsIntercept,
+        value => bail!("Agent Proxy returned an unsupported protocol: {value}"),
+    };
+    let ca_file = provision_remote_session_ca(&session)?;
+    let state = remote_session_state(&session)?;
+    let placeholders = bindings
+        .iter()
+        .map(|binding| (binding.name.clone(), binding.placeholder.clone()))
+        .collect();
+    let child_env = bindings
+        .iter()
+        .map(|binding| (binding.name.clone(), binding.name.clone()))
+        .collect();
+    let secret_policies = server
+        .binding
+        .as_ref()
+        .map(|binding_name| {
+            HashMap::from([(
+                binding_name.clone(),
+                SecretHttpPolicy::LegacyHosts(HashSet::from([host.clone()])),
+            )])
+        })
+        .unwrap_or_default();
+    let secret_injections = server
+        .binding
+        .as_ref()
+        .and_then(|binding_name| {
+            bindings
+                .iter()
+                .find(|binding| &binding.name == binding_name)
+        })
+        .map(|binding| {
+            HashMap::from([(
+                binding.name.clone(),
+                SecretInjection {
+                    header: server
+                        .header
+                        .clone()
+                        .unwrap_or_else(|| binding.header.clone()),
+                    value_template: server
+                        .value_template
+                        .clone()
+                        .unwrap_or_else(|| binding.value_template.clone()),
+                },
+            )])
+        })
+        .unwrap_or_default();
+    let policy = ProxyPolicy {
+        secret_policies,
+        secret_injections,
+        allowed_egress_hosts: profile
+            .egress_hosts
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
+        denied_hosts: profile
+            .deny_hosts
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
+        denied_read_paths: Vec::new(),
+        denied_write_paths: Vec::new(),
+        egress_hosts_configured: profile.egress_hosts.is_some(),
+        strict_deny: true,
+        mcp_rules: mcp_rules
+            .iter()
+            .map(|rule| AgentMcpRule {
+                effect: rule.effect.clone(),
+                hosts: rule.hosts.clone(),
+                paths: rule.paths.clone(),
+                tools: rule.tools.clone(),
+            })
+            .collect(),
+    };
+    let proxy = Proxy::start_remote_with_port(
+        RemoteProxyConfig {
+            proxy_url: session.proxy_url,
+            session: Arc::new(RwLock::new(state)),
+            placeholders,
+            child_env,
+            protocol,
+            ca_file,
+        },
+        policy,
+        None,
+        None,
+    )
+    .await?;
+    let ca =
+        reqwest::Certificate::from_pem(&fs::read(proxy.child_env()["SSL_CERT_FILE"].clone())?)?;
+    let client = reqwest::Client::builder()
+        .proxy(reqwest::Proxy::all(
+            proxy.child_env()["HTTPS_PROXY"].clone(),
+        )?)
+        .add_root_certificate(ca)
+        .build()?;
+    let auth = server.binding.as_ref().and_then(|binding_name| {
+        bindings
+            .iter()
+            .find(|binding| &binding.name == binding_name)
+            .map(|binding| {
+                let header = server
+                    .header
+                    .clone()
+                    .unwrap_or_else(|| binding.header.clone());
+                let value = server
+                    .value_template
+                    .clone()
+                    .unwrap_or_else(|| binding.value_template.clone())
+                    .replace("{value}", &binding.placeholder);
+                (header, value)
+            })
+    });
+    Ok((proxy, client, auth))
+}
+
+async fn inspection_binding_policy(
     profile: &AgentProfile,
     server: &AgentMcpServer,
     endpoint_host: &str,
+    api_key: Option<&str>,
+    json_format: bool,
 ) -> Result<(
     HashMap<String, String>,
     HashMap<String, SecretHttpPolicy>,
@@ -384,28 +577,61 @@ fn inspection_binding_policy(
         .or_else(|| profile.personal_credentials.get(name))
         .context(format!("MCP binding '{name}' was not found"))?;
     if profile.personal_credentials.contains_key(name) {
-        bail!("MCP binding '{name}' is a personal credential and cannot be read by the local CLI");
+        bail!("MCP binding '{name}' is a personal credential and requires --remote");
     }
     let env_name = binding.env.as_deref().unwrap_or(name);
-    let value = std::env::var(env_name)
-        .ok()
-        .or_else(|| {
-            profile
-                .file
-                .as_deref()
-                .and_then(|file| {
-                    read_secrets_from_file(Path::new(file), &SecretsFileFormat::Dotenv).ok()
-                })
-                .and_then(|items| {
-                    items
-                        .into_iter()
-                        .find(|item| item.name == env_name)
-                        .map(|item| item.value)
-                })
-        })
-        .context(format!(
+    let local_value = std::env::var(env_name).ok().or_else(|| {
+        profile
+            .file
+            .as_deref()
+            .and_then(|file| {
+                read_secrets_from_file(Path::new(file), &SecretsFileFormat::Dotenv).ok()
+            })
+            .and_then(|items| {
+                items
+                    .into_iter()
+                    .find(|item| item.name == env_name)
+                    .map(|item| item.value)
+            })
+    });
+    let value = if let Some(value) = local_value {
+        value
+    } else if let (Some(api_key), Some(project), Some(environment)) = (
+        api_key,
+        profile.secrets.project.clone(),
+        profile.secrets.environment.clone(),
+    ) {
+        let response = secrets::pull(
+            api_key.to_owned(),
+            Some(project),
+            Some(environment),
+            vec![binding.from.clone().unwrap_or_else(|| name.to_owned())],
+            Vec::new(),
+            false,
+            false,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let values = match response {
+            crate::models::api_client::GetRequestApiResponse::Ok(data) => serde_json::from_str::<
+                Vec<crate::models::secrets::SecretWithoutComment>,
+            >(&data.text)?,
+            crate::models::api_client::GetRequestApiResponse::Err(error) => {
+                bail!(error.format_error_output(json_format)?)
+            }
+        };
+        values
+            .into_iter()
+            .find(|secret| secret.name == binding.from.as_deref().unwrap_or(name))
+            .map(|secret| secret.value)
+            .context(format!(
+                "MCP binding '{name}' was not found in the configured project/environment"
+            ))?
+    } else {
+        return Err(anyhow::anyhow!(format!(
             "MCP binding '{name}' is not available in ${env_name} or the profile file"
-        ))?;
+        )));
+    };
     let header = server
         .header
         .clone()

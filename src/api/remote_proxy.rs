@@ -114,6 +114,8 @@ pub struct RemoteProxySessionRequest {
     /// Sent only for the initial logical agent session. The control plane keeps
     /// that value when a replacement session is issued.
     pub agent_type: Option<String>,
+    /// Optional dashboard classification for short-lived non-agent sessions.
+    pub session_purpose: Option<String>,
     /// Present only while rotating an existing logical agent session.
     pub previous_session_token: Option<String>,
 }
@@ -122,6 +124,7 @@ impl RemoteProxySessionRequest {
     pub fn replacement(&self, previous_session_token: String) -> Self {
         let mut request = self.clone();
         request.agent_type = None;
+        request.session_purpose = None;
         request.previous_session_token = Some(previous_session_token);
         request
     }
@@ -159,6 +162,8 @@ struct CreateSession<'a> {
     mcp_rules: &'a [RemoteMcpRule],
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_type: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_purpose: Option<&'a str>,
 }
 
 fn is_empty<T>(values: &[T]) -> bool {
@@ -282,6 +287,7 @@ fn create_session_http_request(
             bindings: &request.bindings,
             mcp_rules: &request.mcp_rules,
             agent_type: request.agent_type.as_deref(),
+            session_purpose: request.session_purpose.as_deref(),
         });
     if let Some(previous_session_token) = &request.previous_session_token {
         session_request =
@@ -368,6 +374,7 @@ mod tests {
             bindings: Vec::new(),
             mcp_rules: Vec::new(),
             agent_type: Some("custom".to_owned()),
+            session_purpose: None,
             previous_session_token: previous_session_token.map(str::to_owned),
         }
     }
@@ -434,6 +441,7 @@ mod tests {
     fn session_request_serializes_mcp_tool_rules() {
         let client = reqwest::Client::new();
         let mut session = session_request(None);
+        session.session_purpose = Some("mcp_inspection".to_owned());
         session.mcp_rules = vec![RemoteMcpRule {
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: vec!["mcp.linear.app".to_owned()],
@@ -448,6 +456,7 @@ mod tests {
                 .unwrap();
 
         assert_eq!(body["mcp_rules"][0]["effect"], "allow");
+        assert_eq!(body["session_purpose"], "mcp_inspection");
         assert_eq!(
             body["mcp_rules"][0]["tools"],
             serde_json::json!(["search_issues"])

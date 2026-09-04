@@ -180,6 +180,10 @@ pub struct AgentMcpToolsCommand {
     /// Explicit direct profile file
     #[arg(long, conflicts_with = "profile_source")]
     pub policy_file: Option<PathBuf>,
+
+    /// Resolve MCP bindings through a short-lived remote Agent Proxy session
+    #[arg(long)]
+    pub remote: bool,
 }
 
 #[derive(Debug, Args)]
@@ -206,6 +210,10 @@ pub struct AgentMcpVerifyCommand {
     pub profile_source: AgentProfileSource,
     #[arg(long, conflicts_with = "profile_source")]
     pub policy_file: Option<PathBuf>,
+
+    /// Resolve MCP bindings through a short-lived remote Agent Proxy session
+    #[arg(long)]
+    pub remote: bool,
 }
 
 #[derive(Debug, Args)]
