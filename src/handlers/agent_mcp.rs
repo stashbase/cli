@@ -144,24 +144,26 @@ pub async fn handle_agent_mcp_tools_command(
     } else {
         println!("MCP server: {}", command.server);
         println!("Endpoint: {url}");
-        println!();
-        println!("Allowed tools:");
-        for row in rows
+        let allowed = rows
             .iter()
             .filter(|row| row["allowed"].as_bool() == Some(true))
-        {
-            println!("- {}", row["name"]);
-        }
-        println!();
-        println!("Denied tools:");
-        for row in rows
+            .collect::<Vec<_>>();
+        let denied = rows
             .iter()
             .filter(|row| row["allowed"].as_bool() != Some(true))
-        {
-            if row["reason"] == "not present in allow_tools" {
+            .collect::<Vec<_>>();
+        if !allowed.is_empty() {
+            println!();
+            println!("Allowed tools:");
+            for row in allowed {
                 println!("- {}", row["name"]);
-            } else {
-                println!("- {}  ({})", row["name"], row["reason"]);
+            }
+        }
+        if !denied.is_empty() {
+            println!();
+            println!("Denied tools:");
+            for row in denied {
+                println!("- {}", row["name"]);
             }
         }
     }
