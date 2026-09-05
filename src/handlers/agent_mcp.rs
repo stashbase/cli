@@ -393,11 +393,7 @@ async fn proxied_client(
         effect: AgentHttpRuleEffect::Allow,
         hosts: vec![host.clone()],
         paths: vec![path.clone()],
-        tools: if server.allow_tools.is_empty() {
-            vec!["*".to_owned()]
-        } else {
-            server.allow_tools.clone()
-        },
+        tools: server.allow_tools.clone(),
     }];
     if !server.deny_tools.is_empty() {
         mcp_rules.push(AgentMcpRule {
@@ -449,9 +445,16 @@ async fn remote_proxied_client(
     json_format: bool,
 ) -> Result<(Proxy, reqwest::Client, Option<(String, String)>)> {
     if profile.file.is_some() {
-        bail!("--remote MCP inspection does not support local profile secret files");
+        bail!(
+            "Remote MCP inspection cannot use a local profile secret file.\n\n\
+             Hint: remove 'file' from the profile, use a project/environment binding, \
+             or run the command without '--remote'."
+        );
     }
-    let api_key = api_key.context("--remote MCP inspection requires a Stashbase API key")?;
+    let api_key = api_key.context(
+        "Remote MCP inspection requires a Stashbase API key.\n\n\
+         Hint: run 'stashbase config api-key set' or run the command without '--remote'.",
+    )?;
     let (host, _path) = mcp_endpoint_parts(server)?;
     let all_bindings = remote_bindings(profile);
     let bindings = server
@@ -469,11 +472,7 @@ async fn remote_proxied_client(
         effect: AgentHttpRuleEffect::Allow,
         hosts: vec![host.clone()],
         paths: vec![_path.clone()],
-        tools: if server.allow_tools.is_empty() {
-            vec!["*".to_owned()]
-        } else {
-            server.allow_tools.clone()
-        },
+        tools: server.allow_tools.clone(),
     }];
     if !server.deny_tools.is_empty() {
         mcp_rules.push(crate::api::remote_proxy::RemoteMcpRule {
@@ -940,7 +939,7 @@ fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
         return (false, "matched deny_tools");
     }
     if server.allow_tools.is_empty() {
-        return (true, "allow_tools is empty; all tools are allowed");
+        return (false, "allow_tools is empty; no tools are allowed");
     }
     if server
         .allow_tools
@@ -970,10 +969,10 @@ mod tests {
     }
 
     #[test]
-    fn tool_decision_defaults_to_allow_all() {
+    fn tool_decision_defaults_to_deny_all() {
         assert_eq!(
             tool_decision(&server(&[], &[]), "read_file"),
-            (true, "allow_tools is empty; all tools are allowed")
+            (false, "allow_tools is empty; no tools are allowed")
         );
     }
 

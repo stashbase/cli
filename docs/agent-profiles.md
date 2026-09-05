@@ -134,6 +134,8 @@ rejecting unauthorized calls).
 Use `allow_tools = ["*"]` to explicitly allow every tool on a matching endpoint. A
 matching `deny` rule still takes precedence, so this can be used to allow all
 tools except selected high-impact operations.
+An omitted or empty `allow_tools` list allows no tools. This makes broad MCP
+access an explicit choice in the profile.
 
 To inspect a configured HTTP MCP server, use:
 
@@ -155,7 +157,7 @@ stashbase agent mcp check --profile linear --server linear --tool save_issue
 ```
 
 This reports whether the tool is allowed and explains whether the decision came
-from `allow_tools`, `deny_tools`, or the default allow-all behavior.
+from `allow_tools`, `deny_tools`, or the default deny-all behavior.
 
 To verify that configured tool names still exist on the server, use:
 

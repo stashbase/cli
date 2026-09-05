@@ -289,11 +289,7 @@ pub(crate) fn compiled_mcp_rules(
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: vec![host.clone()],
             paths: vec![path.clone()],
-            tools: if server.allow_tools.is_empty() {
-                vec!["*".to_owned()]
-            } else {
-                server.allow_tools.clone()
-            },
+            tools: server.allow_tools.clone(),
         });
         if !server.deny_tools.is_empty() {
             rules.push(crate::models::agent::AgentMcpRule {

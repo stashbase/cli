@@ -525,11 +525,7 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             .map(|(name, server)| {
                 format!(
                     "{name} ({} allowed, {} denied)",
-                    if server.allow_tools.is_empty() {
-                        "*".to_owned()
-                    } else {
-                        server.allow_tools.len().to_string()
-                    },
+                    server.allow_tools.len(),
                     server.deny_tools.len()
                 )
             })
