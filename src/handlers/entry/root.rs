@@ -26,6 +26,7 @@ use crate::{
         agent_doctor::handle_agent_doctor_command,
         agent_explain::handle_agent_explain_command,
         agent_init::handle_agent_init_command,
+        agent_mcp::{handle_agent_mcp_configure_command, handle_agent_mcp_tools_command},
         agent_policy::SecretHttpPolicy,
         agent_policy_test::handle_agent_policy_test_command,
         agent_profiles::handle_agent_profiles_command,
@@ -56,7 +57,9 @@ use crate::{
     },
     models::{config::Config, validation::InputValidationError},
     utils::{
-        env::get_stashbase_api_key, output::ColorizeIfColoredOutput, tables::build::build_table,
+        env::get_stashbase_api_key,
+        output::{get_formatted_json_string, ColorizeIfColoredOutput},
+        tables::build::build_table,
     },
     REQUEST_ABORTED,
 };
@@ -210,7 +213,7 @@ fn secret_child_name(
 
 /// Compiles every configured source into the single binding representation used
 /// by the session request, MCP setup, and audit metadata.
-fn remote_bindings(
+pub(crate) fn remote_bindings(
     profile: &crate::models::agent::AgentProfile,
 ) -> Vec<crate::api::remote_proxy::RemoteBinding> {
     let build_binding =
@@ -272,6 +275,37 @@ fn remote_bindings(
             )
         }))
         .collect()
+}
+
+pub(crate) fn compiled_mcp_rules(
+    profile: &crate::models::agent::AgentProfile,
+) -> Vec<crate::models::agent::AgentMcpRule> {
+    let mut rules = Vec::new();
+    for server in profile.mcp_servers.values() {
+        let Some((host, path)) = mcp_server_endpoint(server) else {
+            continue;
+        };
+        rules.push(crate::models::agent::AgentMcpRule {
+            effect: crate::models::agent::AgentHttpRuleEffect::Allow,
+            hosts: vec![host.clone()],
+            paths: vec![path.clone()],
+            tools: server.allow_tools.clone(),
+        });
+        if !server.deny_tools.is_empty() {
+            rules.push(crate::models::agent::AgentMcpRule {
+                effect: crate::models::agent::AgentHttpRuleEffect::Deny,
+                hosts: vec![host],
+                paths: vec![path],
+                tools: server.deny_tools.clone(),
+            });
+        }
+    }
+    rules
+}
+
+fn mcp_server_endpoint(server: &crate::models::agent::AgentMcpServer) -> Option<(String, String)> {
+    let url = reqwest::Url::parse(&server.url).ok()?;
+    Some((url.host_str()?.to_owned(), url.path().to_owned()))
 }
 
 /// Builds metadata-only audit labels for the binding names a proxy records.
@@ -537,6 +571,54 @@ pub async fn handle_cli(args: Cli) {
                         Err(error) => Err(error),
                     }
                 }
+                AgentSubcommand::Mcp(agent_mcp) => match agent_mcp.subcommand {
+                    crate::cmd::agent::AgentMcpSubcommand::Tools(command) => {
+                        handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await
+                    }
+                    crate::cmd::agent::AgentMcpSubcommand::Configure(command) => {
+                        handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await
+                    }
+                    crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
+                        match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                            command,
+                            &config,
+                            raw_output,
+                        ) {
+                            Ok(true) => std::process::exit(1),
+                            Ok(false) => Ok(()),
+                            Err(error) => Err(error),
+                        }
+                    }
+                    crate::cmd::agent::AgentMcpSubcommand::Verify(command) => {
+                        match crate::handlers::agent_mcp::handle_agent_mcp_verify_command(
+                            command,
+                            &config,
+                            raw_output,
+                            Some(api_key.as_str()),
+                            silent,
+                        )
+                        .await
+                        {
+                            Ok(true) => std::process::exit(1),
+                            Ok(false) => Ok(()),
+                            Err(error) => Err(error),
+                        }
+                    }
+                },
+                AgentSubcommand::McpTools(agent_mcp) => {
+                    handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await
+                }
+                AgentSubcommand::McpCheck(agent_mcp) => {
+                    match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                        agent_mcp,
+                        &config,
+                        raw_output,
+                    ) {
+                        Ok(true) => std::process::exit(1),
+                        Ok(false) => Ok(()),
+                        Err(error) => Err(error),
+                    }
+                }
                 AgentSubcommand::Validate(agent_validate) => {
                     match handle_agent_validate_command(agent_validate, &config, raw_output).await {
                         Ok(true) => std::process::exit(1),
@@ -790,6 +872,7 @@ pub async fn handle_cli(args: Cli) {
                         denied_write_paths: profile.filesystem.deny_write.clone(),
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
+                        mcp_rules: compiled_mcp_rules(&profile),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -848,6 +931,15 @@ pub async fn handle_cli(args: Cli) {
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
                         let bindings = remote_bindings(&profile);
+                        let mcp_rules = compiled_mcp_rules(&profile)
+                            .into_iter()
+                            .map(|rule| crate::api::remote_proxy::RemoteMcpRule {
+                                effect: rule.effect,
+                                hosts: rule.hosts,
+                                paths: rule.paths,
+                                tools: rule.tools,
+                            })
+                            .collect();
                         let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {
                             api_key: api_key.clone(),
                             project_identifier: project,
@@ -855,7 +947,9 @@ pub async fn handle_cli(args: Cli) {
                             egress_hosts,
                             deny_hosts,
                             bindings: bindings.clone(),
+                            mcp_rules,
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
+                            session_purpose: None,
                             previous_session_token: None,
                         };
                         let session = crate::api::remote_proxy::create_session(&session_request, raw_output)
@@ -1211,7 +1305,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     if !command.follow {
         let events = read_local_proxy_audit_logs(command.limit, since, &filter)?;
         if json {
-            println!("{}", serde_json::to_string_pretty(&events)?);
+            println!("{}", get_formatted_json_string(&events, true)?);
         } else {
             for event in &events {
                 print_audit_event(event, false)?;
@@ -1622,12 +1716,13 @@ fn parse_audit_duration(value: &str) -> anyhow::Result<Duration> {
 
 fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<()> {
     if json {
-        println!("{}", serde_json::to_string(event)?);
+        println!("{}", get_formatted_json_string(event, true)?);
         return Ok(());
     }
 
     let host = event.destination_host.as_deref().unwrap_or("-");
     let binding = event.binding_name.as_deref().unwrap_or("-");
+    let mcp_tool = event.mcp_tool.as_deref().unwrap_or("-");
     let status = event
         .response_status
         .map(|status| status.to_string())
@@ -1645,9 +1740,10 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        "{}  id={} profile={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
         event.timestamp, event.id, event.profile, event.action, host,
-        binding, event.binding_source.as_deref().unwrap_or("-"), status, duration,
+        event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
+        event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
     );
     Ok(())
@@ -1675,7 +1771,7 @@ fn format_bytes(bytes: u64) -> String {
 const REMOTE_SESSION_ROTATE_EARLY: Duration = Duration::from_secs(120);
 const REMOTE_SESSION_ROTATION_RETRY: Duration = Duration::from_secs(15);
 
-fn remote_session_state(
+pub(crate) fn remote_session_state(
     session: &crate::api::remote_proxy::RemoteProxySession,
 ) -> anyhow::Result<crate::handlers::run::proxy::RemoteProxySessionState> {
     let expires_at = DateTime::parse_from_rfc3339(&session.expires_at)
@@ -1692,7 +1788,7 @@ fn remote_session_state(
 
 /// Forward-proxy sessions need the public interception CA before the child is
 /// spawned. Custom-header sessions do not use a TLS-intercepting proxy.
-fn provision_remote_session_ca(
+pub(crate) fn provision_remote_session_ca(
     session: &crate::api::remote_proxy::RemoteProxySession,
 ) -> anyhow::Result<Option<std::path::PathBuf>> {
     if session.protocol == "http/1.1-forward-proxy-tls-intercept" {
@@ -1999,6 +2095,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("environment".to_owned()),
@@ -2164,6 +2261,7 @@ mod tests {
             destination_host: Some(host.to_owned()),
             path: None,
             operation: None,
+            mcp_tool: None,
             method: Some("GET".to_owned()),
             binding_name: Some("GITHUB_TOKEN".to_owned()),
             binding_source: None,
@@ -2213,6 +2311,7 @@ mod tests {
                 destination_host: Some("api.github.com".to_owned()),
                 path: None,
                 operation: None,
+                mcp_tool: None,
                 method: Some("POST".to_owned()),
                 binding_name: Some("GITHUB_TOKEN".to_owned()),
                 binding_source: None,
@@ -2234,6 +2333,7 @@ mod tests {
                 destination_host: Some("registry.npmjs.org".to_owned()),
                 path: None,
                 operation: None,
+                mcp_tool: None,
                 method: Some("GET".to_owned()),
                 binding_name: None,
                 binding_source: None,

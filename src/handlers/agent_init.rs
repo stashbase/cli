@@ -22,6 +22,14 @@ egress_hosts = []
 # Replace SECRET_NAME with the Stashbase secret to grant.
 [secrets.SECRET_NAME]
 
+# Optional named HTTP MCP server and tool allowlist.
+# [mcp_servers.example]
+# url = "https://mcp.example.com/mcp"
+# binding = "SECRET_NAME"
+# header = "X-API-Key"
+# value_template = "{value}"
+# allow_tools = ["search"]
+
 # Example: permit one read-only HTTP action for this credential.
 [[secrets.SECRET_NAME.rules]]
 effect = "allow"

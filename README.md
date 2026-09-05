@@ -154,7 +154,7 @@ stashbase run --file .env.production -- npm run dev
 stashbase run --file secrets.yaml -- npm run dev
 ```
 
-### Agent Credential Proxy (Experimental)
+### Agent Proxy 
 
 `run --proxy` starts an in-process, localhost-only HTTP proxy for the lifetime
 of the child command. Instead of receiving the loaded secret, the child receives
@@ -201,7 +201,7 @@ For safe troubleshooting, set `RUST_LOG=debug`. Proxy diagnostics identify
 only the denied or unreachable destination host; they never include headers or
 secret values.
 
-### Agent profiles (experimental)
+### Agent profiles 
 
 > **Early access — local exposure reduction, not hostile-agent isolation.**
 > `agent run` keeps profile secrets out of the child environment and proxies
@@ -334,6 +334,19 @@ additive, any matching deny wins, and a secret with rules is default-deny when
 no allow matches. Rules never widen ordinary egress.
 Use `egress_hosts = ["*"]` only when the agent needs unrestricted HTTP(S)
 egress; it does not widen a secret's configured injection hosts.
+
+HTTP MCP server profiles use `allow_tools` and `deny_tools` as authorization
+terms. A denied tool is not merely labeled as denied: the Agent Proxy removes
+it from `tools/list`, so the agent does not discover it, and rejects any direct
+`tools/call` attempt for it. `deny_tools` takes precedence over `allow_tools`.
+An omitted or empty `allow_tools` list allows no tools; use
+`allow_tools = ["*"]` to explicitly allow every tool.
+The MCP server entry does not authorize credential injection by itself: for
+`agent run`, the binding must separately allow the MCP endpoint through its
+secret `hosts` or `rules`.
+See the [HTTP MCP profile guide](docs/agent-profiles.md#http-mcp-servers) for
+configuration examples and the `agent mcp tools`, `check`, and `verify`
+commands.
 
 ```toml
 # .stashbase/agents/coding.toml

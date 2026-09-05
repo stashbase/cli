@@ -19,7 +19,7 @@ use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
     models::{
-        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentProfile},
+        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile},
         config::Config,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -514,6 +514,29 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
     }
 
+    let mut seen_mcp_endpoints = HashSet::new();
+    for (name, server) in &profile.mcp_servers {
+        validate_mcp_server(name, server, &profile, &mut seen_mcp_endpoints, &mut checks);
+    }
+    if !profile.mcp_servers.is_empty() {
+        let mut servers = profile
+            .mcp_servers
+            .iter()
+            .map(|(name, server)| {
+                format!(
+                    "{name} ({} allowed, {} denied)",
+                    server.allow_tools.len(),
+                    server.deny_tools.len()
+                )
+            })
+            .collect::<Vec<_>>();
+        servers.sort();
+        checks.push(ok(
+            "MCP policy",
+            format!("Configured servers: {}.", servers.join(", ")),
+        ));
+    }
+
     for (kind, paths) in [
         ("read", &profile.filesystem.deny_read),
         ("write", &profile.filesystem.deny_write),
@@ -540,8 +563,9 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         checks.push(ok(
             "Profile policy",
             format!(
-                "{} binding(s), {} egress host rule(s), {} denied host rule(s), and {} filesystem deny rule(s) are valid.",
+                "{} binding(s), {} MCP server(s), {} egress host rule(s), {} denied host rule(s), and {} filesystem deny rule(s) are valid.",
                 profile.secrets.bindings.len() + profile.personal_credentials.len(),
+                profile.mcp_servers.len(),
                 profile.egress_hosts.as_ref().map_or(0, Vec::len),
                 profile.deny_hosts.as_ref().map_or(0, Vec::len),
                 profile.filesystem.deny_read.len() + profile.filesystem.deny_write.len()
@@ -594,6 +618,96 @@ fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: 
     for path in &rule.paths {
         if let Err(reason) = validate_path_pattern(path) {
             checks.push(fail(format!("{label} path"), reason));
+        }
+    }
+}
+
+fn validate_mcp_server(
+    name: &str,
+    server: &AgentMcpServer,
+    profile: &AgentProfile,
+    seen_endpoints: &mut HashSet<String>,
+    checks: &mut Vec<Check>,
+) {
+    let label = format!("MCP server '{name}'");
+    match reqwest::Url::parse(&server.url) {
+        Ok(url)
+            if matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.fragment().is_none()
+                && url.username().is_empty()
+                && url.password().is_none() =>
+        {
+            if url.path().is_empty() {
+                checks.push(fail(
+                    format!("{label} url"),
+                    "The URL must include an MCP endpoint path.".to_owned(),
+                ));
+            }
+            let endpoint = url.to_string();
+            if !seen_endpoints.insert(endpoint) {
+                checks.push(warn(
+                    label.clone(),
+                    "Duplicates another configured MCP server endpoint.".to_owned(),
+                ));
+            }
+        }
+        _ => checks.push(fail(
+            format!("{label} url"),
+            "Must be an absolute http:// or https:// URL with a host and no userinfo or fragment."
+                .to_owned(),
+        )),
+    }
+    if let Some(binding) = &server.binding {
+        if !profile.secrets.bindings.contains_key(binding)
+            && !profile.personal_credentials.contains_key(binding)
+        {
+            checks.push(fail(
+                format!("{label} binding"),
+                format!(
+                    "Binding '{binding}' is not declared in [secrets] or [personal_credentials]."
+                ),
+            ));
+        }
+    }
+    if let Some(header) = &server.header {
+        if HeaderName::from_bytes(header.as_bytes()).is_err() {
+            checks.push(fail(
+                format!("{label} header"),
+                format!("'{header}' is not a valid HTTP header name."),
+            ));
+        }
+    }
+    if let Some(template) = &server.value_template {
+        if !template.contains("{value}") {
+            checks.push(fail(
+                format!("{label} value_template"),
+                "Must contain '{value}' so the proxy can inject the credential.".to_owned(),
+            ));
+        }
+    }
+    validate_mcp_server_tools(&label, "allow_tools", &server.allow_tools, checks);
+    validate_mcp_server_tools(&label, "deny_tools", &server.deny_tools, checks);
+}
+
+fn validate_mcp_server_tools(label: &str, field: &str, tools: &[String], checks: &mut Vec<Check>) {
+    let mut seen = HashSet::new();
+    for tool in tools {
+        if tool.trim().is_empty() || tool.contains(['\r', '\n']) {
+            checks.push(fail(
+                format!("{label} {field}"),
+                "Tool names must be non-empty and cannot contain line breaks.".to_owned(),
+            ));
+        } else if tool != "*" && tool.contains(['*', '?']) {
+            checks.push(fail(
+                format!("{label} {field}"),
+                format!("Invalid wildcard in tool '{tool}'; only '*' is supported."),
+            ));
+        } else if !seen.insert(tool) {
+            checks.push(warn(
+                format!("{label} {field}"),
+                format!("Duplicate tool '{tool}'."),
+            ));
         }
     }
 }
@@ -896,6 +1010,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -927,6 +1042,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -959,6 +1075,7 @@ mod tests {
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
@@ -976,6 +1093,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
                 "LINEAR_API_KEY".to_owned(),
@@ -1007,6 +1125,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),
@@ -1063,6 +1182,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
                 environment: Some("development".to_owned()),

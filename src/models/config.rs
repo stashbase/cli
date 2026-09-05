@@ -152,6 +152,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_direct_agent_profile_with_mcp_server() {
+        let profile: crate::models::agent::AgentProfile = toml::from_str(
+            r#"
+                [mcp_servers.linear]
+                url = "https://mcp.linear.app/mcp"
+                allow_tools = ["search_issues", "get_issue"]
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            profile.mcp_servers["linear"].url,
+            "https://mcp.linear.app/mcp"
+        );
+        assert_eq!(
+            profile.mcp_servers["linear"].allow_tools,
+            ["search_issues", "get_issue"]
+        );
+    }
+
+    #[test]
     fn parses_agent_profile_with_personal_credentials() {
         let config: Config = toml::from_str(
             r#"

@@ -130,7 +130,7 @@ fn normalize_host(host: &str) -> String {
     host.trim().trim_end_matches('.').to_ascii_lowercase()
 }
 
-fn normalize_path_pattern(pattern: &str) -> String {
+pub(crate) fn normalize_path_pattern(pattern: &str) -> String {
     if pattern == "*" {
         return "*".to_owned();
     }

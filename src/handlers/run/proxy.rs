@@ -33,7 +33,7 @@ use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
 use hyper::{
     body::{Bytes, Frame, Incoming},
     client::conn::http1 as client_http1,
-    header::{HeaderName, HeaderValue, CONTENT_TYPE},
+    header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
     server::conn::http1,
     service::service_fn,
     Method, Request, Response, StatusCode,
@@ -63,11 +63,12 @@ use crate::{
         evaluate_secret_authorization, host_matches, normalize_secret_http_policy,
         SecretAuthorizationDecision, SecretHttpPolicy,
     },
+    models::agent::{AgentHttpRuleEffect, AgentMcpRule},
     REQUEST_TIMEOUT_SECS,
 };
 
 #[cfg(test)]
-use crate::models::agent::{AgentHttpRule, AgentHttpRuleEffect};
+use crate::models::agent::AgentHttpRule;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -78,6 +79,7 @@ type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infal
 
 const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const AUDIT_LOG_MAX_FILES: usize = 1_000;
+const MCP_INSPECTION_HEADER: &str = "x-stashbase-mcp-inspection";
 
 /// One metadata-only event emitted by the local proxy audit log.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -103,6 +105,9 @@ pub struct ProxyAuditLogEvent {
     /// Present only for filesystem-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// MCP tool name for MCP tool-call audit events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_tool: Option<String>,
     /// Filesystem operation denied by policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation: Option<String>,
@@ -265,6 +270,7 @@ impl ProxyAuditLog {
             None,
             Some(path),
             Some(operation),
+            None,
         );
         id
     }
@@ -302,6 +308,7 @@ impl ProxyAuditLog {
             None,
             None,
             None,
+            None,
         );
     }
 
@@ -319,6 +326,7 @@ impl ProxyAuditLog {
         response_bytes: Option<u64>,
         path: Option<&str>,
         operation: Option<&str>,
+        mcp_tool: Option<&str>,
     ) {
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
@@ -356,6 +364,7 @@ impl ProxyAuditLog {
                 .map(str::to_owned),
             path: path.map(str::to_owned),
             operation: operation.map(str::to_owned),
+            mcp_tool: mcp_tool.map(str::to_owned),
             method: method.map(Method::as_str).map(str::to_owned),
             binding_name: secret_name.map(str::to_owned),
             binding_source: secret_name
@@ -386,8 +395,10 @@ struct AuditedResponseStream {
     request_id: String,
     action: &'static str,
     host: Option<String>,
+    path: Option<String>,
     method: Method,
     secret_name: Option<String>,
+    mcp_tool: Option<String>,
     status: StatusCode,
     started: Instant,
     recorded: bool,
@@ -402,8 +413,10 @@ impl AuditedResponseStream {
         request_id: String,
         action: &'static str,
         host: Option<String>,
+        path: Option<String>,
         method: Method,
         secret_name: Option<String>,
+        mcp_tool: Option<String>,
         status: StatusCode,
         started: Instant,
     ) -> Self {
@@ -415,8 +428,10 @@ impl AuditedResponseStream {
             request_id,
             action,
             host,
+            path,
             method,
             secret_name,
+            mcp_tool,
             status,
             started,
             recorded: false,
@@ -439,8 +454,9 @@ impl AuditedResponseStream {
                 Some(&self.request_id),
                 Some(self.request_bytes.load(Ordering::Relaxed)),
                 Some(self.response_bytes),
+                self.path.as_deref(),
                 None,
-                None,
+                self.mcp_tool.as_deref(),
             );
         }
     }
@@ -471,6 +487,73 @@ impl Stream for AuditedResponseStream {
 impl Drop for AuditedResponseStream {
     fn drop(&mut self) {
         self.record_once();
+    }
+}
+
+/// Filters complete SSE lines while retaining only an incomplete trailing line.
+/// This keeps long-lived MCP responses incremental instead of waiting for EOF.
+struct McpToolsListSseStream {
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    pending: Vec<u8>,
+    policy: ProxyPolicy,
+    host: Option<String>,
+    path: String,
+    finished: bool,
+}
+
+impl McpToolsListSseStream {
+    fn new(
+        inner: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+        policy: ProxyPolicy,
+        host: Option<String>,
+        path: String,
+    ) -> Self {
+        Self {
+            inner: Box::pin(inner),
+            pending: Vec::new(),
+            policy,
+            host,
+            path,
+            finished: false,
+        }
+    }
+
+    fn filter_bytes(&self, bytes: &[u8]) -> Bytes {
+        filter_mcp_tools_list_sse_response(bytes, &self.policy, self.host.as_deref(), &self.path)
+            .expect("serializing an MCP JSON value cannot fail")
+    }
+}
+
+impl Stream for McpToolsListSseStream {
+    type Item = Result<Bytes, reqwest::Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        loop {
+            match self.inner.as_mut().poll_next(context) {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    self.pending.extend_from_slice(&chunk);
+                    let Some(end) = self.pending.iter().rposition(|byte| *byte == b'\n') else {
+                        continue;
+                    };
+                    let complete = self.pending.drain(..=end).collect::<Vec<_>>();
+                    return Poll::Ready(Some(Ok(self.filter_bytes(&complete))));
+                }
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
+                Poll::Ready(None) if !self.finished => {
+                    self.finished = true;
+                    if self.pending.is_empty() {
+                        return Poll::Ready(None);
+                    }
+                    let trailing = std::mem::take(&mut self.pending);
+                    return Poll::Ready(Some(Ok(self.filter_bytes(&trailing))));
+                }
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }
 
@@ -579,6 +662,7 @@ pub struct ProxyPolicy {
     /// Whether credential-bearing requests must also satisfy egress policy.
     pub egress_hosts_configured: bool,
     pub strict_deny: bool,
+    pub mcp_rules: Vec<AgentMcpRule>,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -683,6 +767,7 @@ impl ProxyPolicy {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: false,
+            mcp_rules: Vec::new(),
         }
     }
 
@@ -748,6 +833,35 @@ impl ProxyPolicy {
                 injection.value_template
             ));
         }
+        let mut mcp_rules = self
+            .mcp_rules
+            .iter()
+            .map(|rule| {
+                let mut hosts = rule
+                    .hosts
+                    .iter()
+                    .map(|host| host.trim().to_ascii_lowercase())
+                    .collect::<Vec<_>>();
+                let mut paths = rule
+                    .paths
+                    .iter()
+                    .map(|path| path.trim().to_owned())
+                    .collect::<Vec<_>>();
+                let mut tools = rule.tools.clone();
+                hosts.sort();
+                paths.sort();
+                tools.sort();
+                format!(
+                    "{:?};{};{};{}",
+                    rule.effect,
+                    hosts.join(","),
+                    paths.join(","),
+                    tools.join(",")
+                )
+            })
+            .collect::<Vec<_>>();
+        mcp_rules.sort();
+        lines.push(format!("mcp_rules={}", mcp_rules.join("|")));
 
         hex::encode(Sha256::digest(lines.join("\n").as_bytes()))
     }
@@ -763,6 +877,7 @@ struct ProxyState {
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
     remote: Option<RemoteProxyConfig>,
+    mcp_inspection_token: String,
 }
 
 /// Tracks every accepted proxy and TLS-upgrade task so proxy shutdown closes
@@ -807,6 +922,7 @@ pub struct Proxy {
     remove_ca_file: bool,
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
+    mcp_inspection_token: String,
 }
 
 impl Proxy {
@@ -936,6 +1052,7 @@ impl Proxy {
             audit_log: audit_log.clone(),
             connections: connections.clone(),
             remote,
+            mcp_inspection_token: Uuid::new_v4().to_string(),
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -983,11 +1100,16 @@ impl Proxy {
             remove_ca_file,
             audit_log,
             connections,
+            mcp_inspection_token: state.mcp_inspection_token.clone(),
         })
     }
 
     pub fn child_env(&self) -> &HashMap<String, String> {
         &self.child_env
+    }
+
+    pub fn mcp_inspection_token(&self) -> &str {
+        &self.mcp_inspection_token
     }
 
     pub async fn stop(mut self) {
@@ -1523,19 +1645,86 @@ fn proxy_request(
             }
         };
         let method = request.method().clone();
+        let mcp_inspection =
+            is_authorized_mcp_inspection(request.headers(), &state.mcp_inspection_token);
+        request.headers_mut().remove(MCP_INSPECTION_HEADER);
         let mut headers = request.headers().clone();
+        let mcp_path = request.uri().path().to_owned();
+        let mcp_rule = matching_mcp_rule(&state.policy, host.as_deref(), &method, &mcp_path);
+        let mut mcp_method = None;
+        let mut mcp_tool_for_audit = None;
         // `Incoming` is converted into a data stream without collecting it. Reqwest
         // applies chunked transfer encoding when no content length is available, so
         // streaming uploads retain their incremental delivery to the upstream.
         let request_bytes = Arc::new(AtomicU64::new(0));
         let request_byte_counter = request_bytes.clone();
-        let body =
+        let body = if mcp_rule.is_some() && method == Method::POST {
+            let bytes = match request.into_body().collect().await {
+                Ok(body) => body.to_bytes(),
+                Err(_) => {
+                    return Ok(proxy_error_response_with_id(
+                        StatusCode::BAD_REQUEST,
+                        "proxy.mcp_request_invalid",
+                        "Unable to read MCP request body",
+                        Some(&request_id),
+                    ));
+                }
+            };
+            let mcp_tool = mcp_tool_name(&bytes);
+            if let Err(message) =
+                authorize_mcp_request(&bytes, &state.policy, host.as_deref(), &mcp_path)
+            {
+                if let Some(tool) = mcp_tool.as_deref() {
+                    state.record_mcp_tool_with_request(
+                        &request_id,
+                        "mcp_tool_denied",
+                        tool,
+                        host.as_deref(),
+                        Some(&mcp_path),
+                        Some(&method),
+                        None,
+                        Some(StatusCode::FORBIDDEN),
+                        Some(started.elapsed()),
+                    );
+                } else {
+                    state.record_audit_with_request(
+                        &request_id,
+                        "mcp_tool_denied",
+                        host.as_deref(),
+                        Some(&method),
+                        None,
+                        Some(StatusCode::FORBIDDEN),
+                        Some(started.elapsed()),
+                    );
+                }
+                return Ok(proxy_error_response_with_id(
+                    StatusCode::FORBIDDEN,
+                    "proxy.mcp_tool_not_allowed",
+                    message,
+                    Some(&request_id),
+                ));
+            }
+            mcp_method = serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("method")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                });
+            if mcp_method.as_deref() == Some("tools/call") {
+                mcp_tool_for_audit = mcp_tool;
+            }
+            request_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            reqwest::Body::from(bytes)
+        } else {
             reqwest::Body::wrap_stream(request.into_body().into_data_stream().map(move |chunk| {
                 if let Ok(bytes) = &chunk {
                     request_byte_counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
                 }
                 chunk
-            }));
+            }))
+        };
 
         let destination_url = if let Some(remote) = state
             .remote
@@ -1628,7 +1817,81 @@ fn proxy_request(
         {
             Ok(upstream) => {
                 let status = upstream.status();
-                let headers = upstream.headers().clone();
+                let mut headers = upstream.headers().clone();
+                let content_type = headers
+                    .get(CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_ascii_lowercase);
+                let filter_mcp_list = mcp_method.as_deref() == Some("tools/list")
+                    && mcp_rule.is_some()
+                    && !mcp_inspection;
+                let mcp_json_response = filter_mcp_list
+                    && content_type
+                        .as_deref()
+                        .is_some_and(|value| value.contains("application/json"));
+                let mcp_sse_response = filter_mcp_list
+                    && content_type
+                        .as_deref()
+                        .is_some_and(|value| value.contains("text/event-stream"));
+                if mcp_json_response {
+                    let response_bytes = match upstream.bytes().await {
+                        Ok(bytes) => filter_mcp_tools_list_response(
+                            &bytes,
+                            &state.policy,
+                            host.as_deref(),
+                            &mcp_path,
+                        )
+                        .unwrap_or(bytes),
+                        Err(error) => {
+                            return Ok(proxy_error_response_with_id(
+                                StatusCode::BAD_GATEWAY,
+                                "proxy.mcp_response_invalid",
+                                &format!("Unable to read MCP tools/list response: {error}"),
+                                Some(&request_id),
+                            ));
+                        }
+                    };
+                    request_bytes.fetch_add(response_bytes.len() as u64, Ordering::Relaxed);
+                    headers.remove("content-length");
+                    let mut response = Response::builder()
+                        .status(status)
+                        .body(full_body(response_bytes))
+                        .unwrap();
+                    *response.headers_mut() = headers;
+                    return Ok(response);
+                }
+                if mcp_sse_response {
+                    headers.remove("content-length");
+                    let action = if secret_name.is_some() {
+                        "injected"
+                    } else {
+                        "forwarded"
+                    };
+                    let filtered = McpToolsListSseStream::new(
+                        upstream.bytes_stream(),
+                        state.policy.clone(),
+                        host.clone(),
+                        mcp_path.clone(),
+                    );
+                    let body = StreamBody::new(AuditedResponseStream::new(
+                        filtered,
+                        request_bytes,
+                        state.audit_log.clone(),
+                        request_id,
+                        action,
+                        host,
+                        None,
+                        method,
+                        secret_name,
+                        None,
+                        status,
+                        started,
+                    ))
+                    .boxed_unsync();
+                    let mut response = Response::builder().status(status).body(body).unwrap();
+                    *response.headers_mut() = headers;
+                    return Ok(response);
+                }
                 // Do not await `bytes()`: forwarding this stream lets clients observe
                 // each upstream chunk (including SSE events) as it arrives.
                 let action = if secret_name.is_some() {
@@ -1636,15 +1899,22 @@ fn proxy_request(
                 } else {
                     "forwarded"
                 };
+                let audit_action = if mcp_tool_for_audit.is_some() {
+                    "mcp_tool_call"
+                } else {
+                    action
+                };
                 let body = StreamBody::new(AuditedResponseStream::new(
                     upstream.bytes_stream(),
                     request_bytes,
                     state.audit_log.clone(),
                     request_id,
-                    action,
+                    audit_action,
                     host.clone(),
+                    mcp_tool_for_audit.as_ref().map(|_| mcp_path.clone()),
                     method.clone(),
                     secret_name.clone(),
+                    mcp_tool_for_audit,
                     status,
                     started,
                 ))
@@ -2391,6 +2661,36 @@ impl ProxyState {
             );
         }
     }
+
+    fn record_mcp_tool_with_request(
+        &self,
+        request_id: &str,
+        action: &str,
+        tool: &str,
+        host: Option<&str>,
+        path: Option<&str>,
+        method: Option<&Method>,
+        secret_name: Option<&str>,
+        status: Option<StatusCode>,
+        duration: Option<Duration>,
+    ) {
+        if let Some(audit_log) = &self.audit_log {
+            audit_log.record_with_bytes(
+                action,
+                host,
+                method,
+                secret_name,
+                status,
+                duration,
+                Some(request_id),
+                None,
+                None,
+                path,
+                None,
+                Some(tool),
+            );
+        }
+    }
 }
 
 fn policy_allows_connect(policy: &ProxyPolicy, host: &str) -> bool {
@@ -2413,6 +2713,193 @@ fn policy_allows_egress(policy: &ProxyPolicy, host: &str) -> bool {
         .allowed_egress_hosts
         .iter()
         .any(|allowed| allowed == "*" || host_matches(allowed, host))
+}
+
+fn matching_mcp_rule<'a>(
+    policy: &'a ProxyPolicy,
+    host: Option<&str>,
+    method: &Method,
+    path: &str,
+) -> Option<&'a AgentMcpRule> {
+    let host = host?;
+    policy.mcp_rules.iter().find(|rule| {
+        rule.hosts.iter().any(|allowed| host_matches(allowed, host))
+            && rule.paths.iter().any(|pattern| path_matches(pattern, path))
+            && (method == Method::POST || method == Method::GET)
+    })
+}
+
+fn is_authorized_mcp_inspection(headers: &HeaderMap, expected_token: &str) -> bool {
+    headers
+        .get(MCP_INSPECTION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == expected_token)
+}
+
+fn path_matches(pattern: &str, path: &str) -> bool {
+    let pattern = pattern.trim();
+    match pattern.strip_suffix('*') {
+        Some(prefix) => path.starts_with(prefix),
+        None => pattern == path,
+    }
+}
+
+fn mcp_tool_name(bytes: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<serde_json::Value>(bytes).ok()?;
+    (value.get("method")?.as_str()? == "tools/call")
+        .then(|| value.pointer("/params/name")?.as_str().map(str::to_owned))
+        .flatten()
+}
+
+fn authorize_mcp_request(
+    body: &[u8],
+    policy: &ProxyPolicy,
+    host: Option<&str>,
+    path: &str,
+) -> std::result::Result<(), &'static str> {
+    if !policy.mcp_rules.iter().any(|candidate| {
+        candidate
+            .hosts
+            .iter()
+            .any(|allowed| host.is_some_and(|host| host_matches(allowed, host)))
+            && candidate
+                .paths
+                .iter()
+                .any(|pattern| path_matches(pattern, path))
+    }) {
+        return Ok(());
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| "MCP request body is not valid JSON")?;
+    let Some(method) = value.get("method").and_then(serde_json::Value::as_str) else {
+        // JSON-RPC responses to server-initiated requests have no method. They
+        // must pass through so MCP capabilities such as sampling and
+        // elicitation can complete.
+        return Ok(());
+    };
+    if method != "tools/call" {
+        return Ok(());
+    }
+    let Some(tool) = value
+        .get("params")
+        .and_then(|params| params.get("name"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Err("MCP tools/call is missing params.name");
+    };
+    let allowed = policy.mcp_rules.iter().any(|candidate| {
+        candidate.effect == AgentHttpRuleEffect::Allow
+            && candidate
+                .hosts
+                .iter()
+                .any(|allowed| host.is_some_and(|host| host_matches(allowed, host)))
+            && candidate
+                .paths
+                .iter()
+                .any(|pattern| path_matches(pattern, path))
+            && candidate
+                .tools
+                .iter()
+                .any(|candidate_tool| candidate_tool == "*" || candidate_tool == tool)
+    });
+    let denied = policy.mcp_rules.iter().any(|candidate| {
+        candidate.effect == AgentHttpRuleEffect::Deny
+            && host.is_some_and(|host| {
+                candidate
+                    .hosts
+                    .iter()
+                    .any(|allowed| host_matches(allowed, host))
+            })
+            && candidate
+                .paths
+                .iter()
+                .any(|pattern| path_matches(pattern, path))
+            && candidate
+                .tools
+                .iter()
+                .any(|candidate_tool| candidate_tool == "*" || candidate_tool == tool)
+    });
+    if allowed && !denied {
+        Ok(())
+    } else {
+        Err("MCP tool is not allowed by the agent profile")
+    }
+}
+
+fn filter_mcp_tools_list_response(
+    body: &[u8],
+    policy: &ProxyPolicy,
+    host: Option<&str>,
+    path: &str,
+) -> Result<Bytes> {
+    let mut value: serde_json::Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        Err(_) => return filter_mcp_tools_list_sse_response(body, policy, host, path),
+    };
+    let Some(tools) = value
+        .get_mut("result")
+        .and_then(|result| result.get_mut("tools"))
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return Ok(Bytes::copy_from_slice(body));
+    };
+    tools.retain(|tool| {
+        let Some(name) = tool.get("name").and_then(serde_json::Value::as_str) else {
+            return false;
+        };
+        let allowed = policy.mcp_rules.iter().any(|rule| {
+            rule.effect == AgentHttpRuleEffect::Allow
+                && host.is_some_and(|host| {
+                    rule.hosts.iter().any(|allowed| host_matches(allowed, host))
+                })
+                && rule.paths.iter().any(|pattern| path_matches(pattern, path))
+                && rule
+                    .tools
+                    .iter()
+                    .any(|candidate| candidate == "*" || candidate == name)
+        });
+        let denied = policy.mcp_rules.iter().any(|rule| {
+            rule.effect == AgentHttpRuleEffect::Deny
+                && host.is_some_and(|host| {
+                    rule.hosts.iter().any(|allowed| host_matches(allowed, host))
+                })
+                && rule.paths.iter().any(|pattern| path_matches(pattern, path))
+                && rule
+                    .tools
+                    .iter()
+                    .any(|candidate| candidate == "*" || candidate == name)
+        });
+        allowed && !denied
+    });
+    Ok(Bytes::from(serde_json::to_vec(&value)?))
+}
+
+fn filter_mcp_tools_list_sse_response(
+    body: &[u8],
+    policy: &ProxyPolicy,
+    host: Option<&str>,
+    path: &str,
+) -> Result<Bytes> {
+    let text = String::from_utf8_lossy(body);
+    let mut output = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        if let Some(data) = line.strip_prefix("data:") {
+            let leading = &data[..data.len() - data.trim_start().len()];
+            if let Ok(filtered) =
+                filter_mcp_tools_list_response(data.trim_start().as_bytes(), policy, host, path)
+            {
+                output.push_str("data:");
+                output.push_str(leading);
+                output.push_str(&String::from_utf8_lossy(&filtered));
+                if line.ends_with('\n') {
+                    output.push('\n');
+                }
+                continue;
+            }
+        }
+        output.push_str(line);
+    }
+    Ok(Bytes::from(output))
 }
 
 fn policy_denies_host(policy: &ProxyPolicy, host: &str) -> bool {
@@ -2721,6 +3208,220 @@ mod tests {
             .unwrap()
     }
 
+    fn mcp_test_policy() -> ProxyPolicy {
+        ProxyPolicy {
+            secret_policies: HashMap::new(),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::new(),
+            denied_hosts: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
+            egress_hosts_configured: false,
+            strict_deny: true,
+            mcp_rules: vec![
+                AgentMcpRule {
+                    effect: AgentHttpRuleEffect::Allow,
+                    hosts: vec!["mcp.example.com".to_owned()],
+                    paths: vec!["/mcp".to_owned()],
+                    tools: vec!["*".to_owned()],
+                },
+                AgentMcpRule {
+                    effect: AgentHttpRuleEffect::Deny,
+                    hosts: vec!["mcp.example.com".to_owned()],
+                    paths: vec!["/mcp".to_owned()],
+                    tools: vec!["list_projects".to_owned()],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn mcp_tools_list_hides_denied_tools_for_fresh_sessions() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"tools": [
+                {"name": "list_projects"},
+                {"name": "list_project_labels"}
+            ]}
+        });
+        let filtered = filter_mcp_tools_list_response(
+            serde_json::to_string(&body).unwrap().as_bytes(),
+            &mcp_test_policy(),
+            Some("mcp.example.com"),
+            "/mcp",
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&filtered).unwrap();
+        let names = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["list_project_labels"]);
+    }
+
+    #[test]
+    fn mcp_sse_tools_list_hides_denied_tools_for_fresh_sessions() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"tools": [
+                {"name": "list_projects"},
+                {"name": "list_project_labels"}
+            ]}
+        });
+        let sse = format!("event: message\ndata: {}\n\n", body);
+        let filtered = filter_mcp_tools_list_response(
+            sse.as_bytes(),
+            &mcp_test_policy(),
+            Some("mcp.example.com"),
+            "/mcp",
+        )
+        .unwrap();
+
+        let text = String::from_utf8(filtered.to_vec()).unwrap();
+        assert!(!text.contains("list_projects"));
+        assert!(text.contains("list_project_labels"));
+    }
+
+    #[tokio::test]
+    async fn mcp_sse_tools_list_is_filtered_incrementally() {
+        let first = Bytes::from(format!(
+            "data: {}\n\n",
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"tools": [
+                    {"name": "list_projects"},
+                    {"name": "list_project_labels"}
+                ]}
+            })
+        ));
+        let source = stream::iter([Ok::<_, reqwest::Error>(first)]).chain(stream::once(async {
+            sleep(Duration::from_millis(200)).await;
+            Ok(Bytes::from_static(b": keepalive\n\n"))
+        }));
+        let mut filtered = McpToolsListSseStream::new(
+            source,
+            mcp_test_policy(),
+            Some("mcp.example.com".to_owned()),
+            "/mcp".to_owned(),
+        );
+
+        let first = timeout(Duration::from_millis(100), filtered.next())
+            .await
+            .expect("the first filtered SSE event was buffered")
+            .unwrap()
+            .unwrap();
+        let text = String::from_utf8(first.to_vec()).unwrap();
+        assert!(!text.contains("list_projects"));
+        assert!(text.contains("list_project_labels"));
+        assert_eq!(
+            filtered.next().await.unwrap().unwrap(),
+            Bytes::from_static(b": keepalive\n\n")
+        );
+    }
+
+    #[test]
+    fn mcp_inspection_requires_the_proxy_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert(MCP_INSPECTION_HEADER, HeaderValue::from_static("1"));
+        assert!(!is_authorized_mcp_inspection(&headers, "secret-token"));
+
+        headers.insert(
+            MCP_INSPECTION_HEADER,
+            HeaderValue::from_static("secret-token"),
+        );
+        assert!(is_authorized_mcp_inspection(&headers, "secret-token"));
+    }
+
+    #[test]
+    fn mcp_tools_call_allows_wildcard_tools_except_explicit_denials() {
+        let allowed = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_project_labels", "arguments": {}}
+        });
+        let denied = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "list_projects", "arguments": {}}
+        });
+        let policy = mcp_test_policy();
+
+        assert_eq!(
+            authorize_mcp_request(
+                serde_json::to_string(&allowed).unwrap().as_bytes(),
+                &policy,
+                Some("mcp.example.com"),
+                "/mcp",
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            authorize_mcp_request(
+                serde_json::to_string(&denied).unwrap().as_bytes(),
+                &policy,
+                Some("mcp.example.com"),
+                "/mcp",
+            ),
+            Err("MCP tool is not allowed by the agent profile")
+        );
+    }
+
+    #[test]
+    fn mcp_tools_call_is_not_policy_checked_for_other_endpoints() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_projects", "arguments": {}}
+        });
+
+        assert_eq!(
+            authorize_mcp_request(
+                serde_json::to_string(&request).unwrap().as_bytes(),
+                &mcp_test_policy(),
+                Some("mcp.example.com"),
+                "/other",
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn mcp_json_rpc_responses_are_allowed() {
+        let responses = [
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"model": "example"}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "error": {"code": -32601, "message": "Method not found"}
+            }),
+        ];
+
+        for response in responses {
+            assert_eq!(
+                authorize_mcp_request(
+                    serde_json::to_string(&response).unwrap().as_bytes(),
+                    &mcp_test_policy(),
+                    Some("mcp.example.com"),
+                    "/mcp",
+                ),
+                Ok(())
+            );
+        }
+    }
+
     #[test]
     fn remote_session_token_is_redacted_and_expires_for_new_connections() {
         let config = RemoteProxyConfig {
@@ -2908,6 +3609,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -3032,6 +3734,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         }
     }
 
@@ -3312,8 +4015,10 @@ mod tests {
             "evt_test".to_owned(),
             "injected",
             Some("api.example.com".to_owned()),
+            Some("/mcp".to_owned()),
             Method::POST,
             Some("EXAMPLE_API_KEY".to_owned()),
+            Some("list_issues".to_owned()),
             StatusCode::OK,
             Instant::now(),
         );
@@ -3336,6 +4041,8 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(event.request_bytes, Some(7));
         assert_eq!(event.response_bytes, Some(5));
+        assert_eq!(event.path.as_deref(), Some("/mcp"));
+        assert_eq!(event.mcp_tool.as_deref(), Some("list_issues"));
         fs::remove_file(path).unwrap();
     }
 
@@ -3432,6 +4139,7 @@ mod tests {
             destination_host: Some("api.github.com".to_owned()),
             path: None,
             operation: None,
+            mcp_tool: None,
             method: Some("POST".to_owned()),
             binding_name: Some("GH_TOKEN".to_owned()),
             binding_source: None,
@@ -3472,6 +4180,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -3511,6 +4220,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         }
     }
 
@@ -3535,6 +4245,29 @@ mod tests {
 
         assert_eq!(left.fingerprint(), right.fingerprint());
         assert_eq!(left.fingerprint().len(), 64);
+    }
+
+    #[test]
+    fn policy_fingerprint_includes_normalized_mcp_rules() {
+        let mut left = rule_policy(Vec::new());
+        left.mcp_rules = vec![AgentMcpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["MCP.EXAMPLE.COM".to_owned(), "other.example.com".to_owned()],
+            paths: vec!["/second".to_owned(), "/mcp".to_owned()],
+            tools: vec!["write".to_owned(), "read".to_owned()],
+        }];
+        let mut equivalent = rule_policy(Vec::new());
+        equivalent.mcp_rules = vec![AgentMcpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["other.example.com".to_owned(), "mcp.example.com".to_owned()],
+            paths: vec!["/mcp".to_owned(), "/second".to_owned()],
+            tools: vec!["read".to_owned(), "write".to_owned()],
+        }];
+        let mut different = equivalent.clone();
+        different.mcp_rules[0].tools = vec!["read".to_owned()];
+
+        assert_eq!(left.fingerprint(), equivalent.fingerprint());
+        assert_ne!(left.fingerprint(), different.fingerprint());
     }
 
     #[test]
@@ -3618,6 +4351,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         };
         assert!(secret_allows_request(
             &policy,
@@ -3701,6 +4435,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -3739,6 +4474,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -3763,6 +4499,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: true,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -3775,6 +4512,7 @@ mod tests {
             audit_log: None,
             connections: Arc::new(ActiveConnections::default()),
             remote: None,
+            mcp_inspection_token: "inspection-token".to_owned(),
         };
 
         assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
@@ -3822,6 +4560,7 @@ mod tests {
             denied_write_paths: Vec::new(),
             egress_hosts_configured: false,
             strict_deny: true,
+            mcp_rules: Vec::new(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -4182,6 +4921,7 @@ mod tests {
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
                 strict_deny: true,
+                mcp_rules: Vec::new(),
             },
             None,
         )
@@ -4217,6 +4957,7 @@ mod tests {
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: false,
                 strict_deny: true,
+                mcp_rules: Vec::new(),
             },
             None,
         )
@@ -4253,6 +4994,7 @@ mod tests {
                 denied_write_paths: Vec::new(),
                 egress_hosts_configured: true,
                 strict_deny: true,
+                mcp_rules: Vec::new(),
             },
             None,
         )

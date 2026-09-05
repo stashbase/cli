@@ -13,6 +13,9 @@ pub struct AgentProfile {
     /// Filesystem paths denied to the agent process tree.
     #[serde(default)]
     pub filesystem: AgentFilesystemProfile,
+    /// Named HTTP MCP servers and their tool policies.
+    #[serde(default)]
+    pub mcp_servers: HashMap<String, AgentMcpServer>,
     #[serde(default)]
     pub secrets: AgentSecretsProfile,
     /// Personal credentials are private to the authenticated account and are
@@ -23,6 +26,42 @@ pub struct AgentProfile {
     /// Optional local-only regression cases for this profile's HTTP policy.
     #[serde(default)]
     pub policy_tests: Vec<AgentPolicyTestCase>,
+}
+
+/// An MCP endpoint rule. `hosts` and `paths` identify the endpoint, while
+/// `tools` limits the tools exposed through it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentMcpRule {
+    pub effect: AgentHttpRuleEffect,
+    pub hosts: Vec<String>,
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
+
+/// User-facing MCP server policy. The endpoint and binding association are
+/// declared once, without mixing MCP authorization into HTTP credential rules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentMcpServer {
+    /// The single Streamable HTTP endpoint for this MCP server.
+    pub url: String,
+    #[serde(default)]
+    /// Optional name from `[secrets]` or `[personal_credentials]`.
+    /// `credential` remains accepted as a legacy input alias.
+    #[serde(alias = "credential")]
+    pub binding: Option<String>,
+    /// Optional MCP-specific credential header override.
+    #[serde(default)]
+    pub header: Option<String>,
+    /// Optional MCP-specific credential value template override.
+    #[serde(default)]
+    pub value_template: Option<String>,
+    #[serde(default)]
+    pub allow_tools: Vec<String>,
+    #[serde(default)]
+    pub deny_tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

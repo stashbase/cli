@@ -93,6 +93,101 @@ deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
 ```
 
+## HTTP MCP servers
+
+MCP servers can expose many tools through one HTTP endpoint. Define each server
+at the profile root and reference its credential binding explicitly. This keeps
+HTTP credential authorization and MCP tool authorization distinct:
+
+```toml
+[secrets.LINEAR_API_KEY]
+env = "LINEAR_API_KEY"
+
+[[secrets.LINEAR_API_KEY.rules]]
+effect = "allow"
+hosts = ["mcp.linear.app"]
+methods = ["GET", "POST"]
+paths = ["/mcp"]
+
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+binding = "LINEAR_API_KEY"
+allow_tools = ["search_issues", "get_issue"]
+```
+
+When an MCP server uses a different authentication scheme than the binding's
+normal HTTP destinations, override it on the MCP server:
+
+```toml
+[mcp_servers.example]
+url = "https://mcp.example.com/mcp"
+binding = "SHARED_TOKEN"
+header = "X-API-Key"
+value_template = "{value}"
+```
+
+The HTTP rule controls endpoint access and credential injection. The MCP server
+entry controls tool access. The Agent Proxy must enforce the MCP rule at
+both `tools/list` (by filtering advertised tools) and `tools/call` (by
+rejecting unauthorized calls).
+
+For a normal `agent run`, the binding must also authorize the MCP endpoint
+through its secret `hosts` or `rules`; `mcp_servers.*` does not by itself grant
+permission to inject the credential. This intentional separation means the
+profile declares both where the credential may be sent and which MCP tools the
+agent may use. The example above is the recommended form for an HTTP MCP
+binding.
+
+Use `allow_tools = ["*"]` to explicitly allow every tool on a matching endpoint. A
+matching `deny` rule still takes precedence, so this can be used to allow all
+tools except selected high-impact operations.
+An omitted or empty `allow_tools` list allows no tools. This makes broad MCP
+access an explicit choice in the profile.
+
+To inspect a configured HTTP MCP server, use:
+
+```bash
+stashbase agent mcp tools --profile linear --server linear
+stashbase agent mcp tools --remote --profile linear --server linear
+```
+
+To interactively select and save the allowed tools in a writable repository
+profile, use:
+
+```bash
+stashbase agent mcp configure --profile linear --server linear
+```
+
+The command can allow all tools explicitly or save a selected allowlist. It
+preserves the profile's existing credential rules and comments. Global profiles
+must first be copied to a writable repository profile or passed with
+`--policy-file`.
+
+The command performs the MCP handshake and `tools/list`, then marks each
+returned tool according to `allow_tools` and `deny_tools`. It can read a local
+secret binding from the configured environment, profile file, or configured
+project/environment. With `--remote`, the binding is resolved by the remote
+Agent Proxy instead. Personal credentials require `--remote`.
+
+To check one tool without contacting the server or invoking the tool, use:
+
+```bash
+stashbase agent mcp check --profile linear --server linear --tool save_issue
+```
+
+This reports whether the tool is allowed and explains whether the decision came
+from `allow_tools`, `deny_tools`, or the default deny-all behavior.
+
+To verify that configured tool names still exist on the server, use:
+
+```bash
+stashbase agent mcp verify --profile linear --server linear
+stashbase agent mcp verify --remote --profile linear --server linear
+```
+
+This contacts the server, compares `allow_tools` and `deny_tools` with
+`tools/list`, and exits unsuccessfully when a configured tool is missing.
+
 Filesystem restrictions use explicit path prefixes:
 
 ```toml
@@ -288,13 +383,18 @@ Stashbase-managed credentials—useful for Codex with an existing local login or
 for MCP-only workflows:
 
 ```toml
-[agent_profiles.codex]
 egress_hosts = ["chatgpt.com", "mcp.context7.com", "mcp.linear.app"]
 deny_hosts = ["api.stashbase.dev"]
 ```
 
 The CLI prints an egress-only warning at startup. To prevent accidental secret
 loading, this mode rejects a configured `file` or `[secrets]` source.
+
+MCP tool rules apply to HTTP MCP transports, including Streamable HTTP. They
+work in both local and remote runs: the local proxy enforces the JSON-RPC
+request and response, while a remote run sends the same rules to the remote
+Agent Proxy for enforcement. Stdio MCP servers are not covered by these rules
+yet because their JSON-RPC traffic does not pass through the HTTP proxy.
 
 ## Secret sources, bindings, and local overrides
 

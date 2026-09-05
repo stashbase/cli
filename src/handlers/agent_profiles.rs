@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use owo_colors::OwoColorize;
 use serde::Serialize;
 
@@ -13,7 +13,11 @@ use crate::{
     },
     config::config,
     handlers::agent_policy::{normalize_secret_http_policy, SecretHttpPolicy},
-    models::{agent::AgentProfile, config::Config},
+    models::{
+        agent::AgentProfile,
+        config::Config,
+        validation::{AgentProfileInputValidationError, InputValidationError},
+    },
     utils::output::{get_formatted_json_string, is_color_enabled},
 };
 
@@ -25,8 +29,31 @@ pub fn handle_agent_profiles_command(
 ) -> Result<()> {
     match command.subcommand {
         AgentProfilesSubcommand::List(command) => handle_list(command, global_config, silent, json),
-        AgentProfilesSubcommand::Show(command) => handle_show(command, global_config, json),
+        AgentProfilesSubcommand::Show(command) => handle_show(command, global_config, silent, json),
     }
+}
+
+pub(crate) fn profile_not_found_error(profile: &str, source: &str, json: bool) -> anyhow::Error {
+    let error =
+        InputValidationError::AgentProfile(AgentProfileInputValidationError::ProfileNotFound {
+            profile: profile.to_owned(),
+            source: source.to_owned(),
+        });
+    anyhow::anyhow!(error.format_error_output(json).unwrap_or_else(|_| {
+        format!("Agent profile '{profile}' was not found in the {source} config.")
+    }))
+}
+
+pub(crate) fn profile_not_found_error_with_output(
+    profile: &str,
+    source: &str,
+    json: bool,
+    silent: bool,
+) -> anyhow::Error {
+    if !silent {
+        eprintln!();
+    }
+    profile_not_found_error(profile, source, json)
 }
 
 fn handle_list(
@@ -77,6 +104,7 @@ fn handle_list(
 fn handle_show(
     command: AgentProfilesShowCommand,
     global_config: &Config,
+    silent: bool,
     json: bool,
 ) -> Result<()> {
     let profiles = if let Some(path) = command.policy_file.as_deref() {
@@ -86,11 +114,12 @@ fn handle_show(
         profiles_for_source(command.profile_source, global_config)?
     };
     let Some((profile, source)) = profiles.get(&command.profile) else {
-        bail!(
-            "Agent profile '{}' was not found in the {} config.",
-            command.profile,
-            source_label(command.profile_source)
-        );
+        return Err(profile_not_found_error_with_output(
+            &command.profile,
+            source_label(command.profile_source),
+            json,
+            silent,
+        ));
     };
     let profile = command
         .effective
@@ -118,6 +147,17 @@ fn effective_profile(profile: &AgentProfile) -> AgentProfile {
     let mut effective = profile.clone();
     effective.egress_hosts = effective.egress_hosts.take().map(normalize_values);
     effective.deny_hosts = effective.deny_hosts.take().map(normalize_values);
+    for server in effective.mcp_servers.values_mut() {
+        for tools in [&mut server.allow_tools, &mut server.deny_tools] {
+            *tools = std::mem::take(tools)
+                .into_iter()
+                .map(|tool| tool.trim().to_owned())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            tools.sort();
+        }
+    }
     for (name, secret) in &mut effective.secrets.bindings {
         secret.from.get_or_insert_with(|| name.clone());
         secret.env.get_or_insert_with(|| name.clone());
@@ -259,7 +299,7 @@ struct ProfileDetails {
     profile: AgentProfile,
 }
 
-fn source_label(source: AgentProfileSource) -> &'static str {
+pub(crate) fn source_label(source: AgentProfileSource) -> &'static str {
     match source {
         AgentProfileSource::Global => "global",
         AgentProfileSource::Directory => "directory",
@@ -297,6 +337,7 @@ mod tests {
             egress_hosts: Some(vec!["API.GITHUB.COM.".to_owned()]),
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
                 AgentBindingProfile {
@@ -337,6 +378,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "API_KEY".to_owned(),
                 AgentBindingProfile {
@@ -375,6 +417,7 @@ mod tests {
             egress_hosts: None,
             deny_hosts: None,
             filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
             secrets: HashMap::from([("GITHUB_TOKEN".to_owned(), binding.clone())]).into(),
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),

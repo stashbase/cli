@@ -16,10 +16,16 @@ pub enum InputValidationError {
     Environments(EnvironmentsInputValidationError),
     YamlConfigFile(YamlEnvConfigError),
     Run(RunInputValidationError),
+    AgentProfile(AgentProfileInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PushPullEnvironment(PushPullInputValidationError),
     Webhook(WebhookInputValidationError),
     Scan(ScanInputValidationError),
+}
+
+#[derive(Debug, Serialize)]
+pub enum AgentProfileInputValidationError {
+    ProfileNotFound { profile: String, source: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -335,6 +341,19 @@ impl fmt::Display for RunInputValidationError {
     }
 }
 
+impl fmt::Display for AgentProfileInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (msg, hint) = self.message_and_hint();
+
+        writeln!(f, "  Message: {msg}")?;
+        if let Some(hint) = hint {
+            write!(f, "  Hint: {hint}")
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl fmt::Display for ScanInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
@@ -390,6 +409,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),
             InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
             InputValidationError::Run(inner) => write!(f, "{}", inner),
+            InputValidationError::AgentProfile(inner) => write!(f, "{}", inner),
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
             InputValidationError::Scan(inner) => write!(f, "{}", inner),
             InputValidationError::MissingApiKey => {
@@ -1006,6 +1026,23 @@ impl RunInputValidationError {
     }
 }
 
+impl AgentProfileInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
+        match self {
+            AgentProfileInputValidationError::ProfileNotFound { profile, source } => (
+                "Agent profile was not found.",
+                Some(Box::leak(
+                    format!(
+                        "Profile '{}' was not found in the {} config. Use `stashbase agent profiles list` to see available profiles.",
+                        profile, source
+                    )
+                    .into_boxed_str(),
+                )),
+            ),
+        }
+    }
+}
+
 impl ScanInputValidationError {
     pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
         match self {
@@ -1132,6 +1169,10 @@ impl InputValidationError {
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
             InputValidationError::Run(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::AgentProfile(inner) => {
                 let (m, h) = inner.message_and_hint();
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
