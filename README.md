@@ -339,6 +339,9 @@ HTTP MCP server profiles use `allow_tools` and `deny_tools` as authorization
 terms. A denied tool is not merely labeled as denied: the Agent Proxy removes
 it from `tools/list`, so the agent does not discover it, and rejects any direct
 `tools/call` attempt for it. `deny_tools` takes precedence over `allow_tools`.
+See the [HTTP MCP profile guide](docs/agent-profiles.md#http-mcp-servers) for
+configuration examples and the `agent mcp tools`, `check`, and `verify`
+commands.
 
 ```toml
 # .stashbase/agents/coding.toml

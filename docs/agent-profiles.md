@@ -93,6 +93,8 @@ deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
 ```
 
+## HTTP MCP servers
+
 MCP servers can expose many tools through one HTTP endpoint. Define each server
 at the profile root and reference its credential binding explicitly. This keeps
 HTTP credential authorization and MCP tool authorization distinct:
@@ -129,7 +131,7 @@ entry controls tool access. The Agent Proxy must enforce the MCP rule at
 both `tools/list` (by filtering advertised tools) and `tools/call` (by
 rejecting unauthorized calls).
 
-Use `tools = ["*"]` to explicitly allow every tool on a matching endpoint. A
+Use `allow_tools = ["*"]` to explicitly allow every tool on a matching endpoint. A
 matching `deny` rule still takes precedence, so this can be used to allow all
 tools except selected high-impact operations.
 
