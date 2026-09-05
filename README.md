@@ -154,7 +154,7 @@ stashbase run --file .env.production -- npm run dev
 stashbase run --file secrets.yaml -- npm run dev
 ```
 
-### Agent Credential Proxy (Experimental)
+### Agent Proxy 
 
 `run --proxy` starts an in-process, localhost-only HTTP proxy for the lifetime
 of the child command. Instead of receiving the loaded secret, the child receives
@@ -201,7 +201,7 @@ For safe troubleshooting, set `RUST_LOG=debug`. Proxy diagnostics identify
 only the denied or unreachable destination host; they never include headers or
 secret values.
 
-### Agent profiles (experimental)
+### Agent profiles 
 
 > **Early access — local exposure reduction, not hostile-agent isolation.**
 > `agent run` keeps profile secrets out of the child environment and proxies
