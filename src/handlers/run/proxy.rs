@@ -2625,7 +2625,10 @@ fn authorize_mcp_request(
     let value: serde_json::Value =
         serde_json::from_slice(body).map_err(|_| "MCP request body is not valid JSON")?;
     let Some(method) = value.get("method").and_then(serde_json::Value::as_str) else {
-        return Err("MCP request is missing its JSON-RPC method");
+        // JSON-RPC responses to server-initiated requests have no method. They
+        // must pass through so MCP capabilities such as sampling and
+        // elicitation can complete.
+        return Ok(());
     };
     if method != "tools/call" {
         return Ok(());
@@ -3135,6 +3138,90 @@ mod tests {
         let text = String::from_utf8(filtered.to_vec()).unwrap();
         assert!(!text.contains("list_projects"));
         assert!(text.contains("list_project_labels"));
+    }
+
+    #[test]
+    fn mcp_tools_call_allows_wildcard_tools_except_explicit_denials() {
+        let allowed = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_project_labels", "arguments": {}}
+        });
+        let denied = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "list_projects", "arguments": {}}
+        });
+        let policy = mcp_test_policy();
+
+        assert_eq!(
+            authorize_mcp_request(
+                serde_json::to_string(&allowed).unwrap().as_bytes(),
+                &policy,
+                Some("mcp.example.com"),
+                "/mcp",
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            authorize_mcp_request(
+                serde_json::to_string(&denied).unwrap().as_bytes(),
+                &policy,
+                Some("mcp.example.com"),
+                "/mcp",
+            ),
+            Err("MCP tool is not allowed by the agent profile")
+        );
+    }
+
+    #[test]
+    fn mcp_tools_call_is_not_policy_checked_for_other_endpoints() {
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "list_projects", "arguments": {}}
+        });
+
+        assert_eq!(
+            authorize_mcp_request(
+                serde_json::to_string(&request).unwrap().as_bytes(),
+                &mcp_test_policy(),
+                Some("mcp.example.com"),
+                "/other",
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn mcp_json_rpc_responses_are_allowed() {
+        let responses = [
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"model": "example"}
+            }),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "error": {"code": -32601, "message": "Method not found"}
+            }),
+        ];
+
+        for response in responses {
+            assert_eq!(
+                authorize_mcp_request(
+                    serde_json::to_string(&response).unwrap().as_bytes(),
+                    &mcp_test_policy(),
+                    Some("mcp.example.com"),
+                    "/mcp",
+                ),
+                Ok(())
+            );
+        }
     }
 
     #[test]

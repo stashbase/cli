@@ -841,3 +841,48 @@ fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
         (false, "not present in allow_tools")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::tool_decision;
+    use crate::models::agent::AgentMcpServer;
+
+    fn server(allow_tools: &[&str], deny_tools: &[&str]) -> AgentMcpServer {
+        AgentMcpServer {
+            url: "https://mcp.example.com/mcp".to_owned(),
+            binding: None,
+            header: None,
+            value_template: None,
+            allow_tools: allow_tools.iter().map(|tool| (*tool).to_owned()).collect(),
+            deny_tools: deny_tools.iter().map(|tool| (*tool).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn tool_decision_defaults_to_allow_all() {
+        assert_eq!(
+            tool_decision(&server(&[], &[]), "read_file"),
+            (true, "allow_tools is empty; all tools are allowed")
+        );
+    }
+
+    #[test]
+    fn tool_decision_supports_wildcards_and_deny_precedence() {
+        assert_eq!(
+            tool_decision(&server(&["*"], &["delete_file"]), "read_file"),
+            (true, "matched allow_tools")
+        );
+        assert_eq!(
+            tool_decision(&server(&["*"], &["delete_file"]), "delete_file"),
+            (false, "matched deny_tools")
+        );
+    }
+
+    #[test]
+    fn tool_decision_rejects_tools_outside_allow_list() {
+        assert_eq!(
+            tool_decision(&server(&["read_file"], &[]), "write_file"),
+            (false, "not present in allow_tools")
+        );
+    }
+}
