@@ -105,16 +105,8 @@ pub async fn handle_agent_mcp_tools_command(
         session.as_deref(),
     )
     .await?;
-    let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
-    let (response, _) = send_mcp(&client, &url, &auth, list, session.as_deref()).await?;
+    let tools = list_mcp_tools(&client, &url, &auth, session.as_deref()).await?;
     spinner.finish();
-    if let Some(error) = response.get("error") {
-        bail!("MCP tools/list failed: {error}");
-    }
-    let tools = response
-        .pointer("/result/tools")
-        .and_then(Value::as_array)
-        .context("MCP tools/list returned no tools array")?;
     let rows = tools
         .iter()
         .filter_map(|tool| {
@@ -241,18 +233,12 @@ pub async fn handle_agent_mcp_verify_command(
         session.as_deref(),
     )
     .await?;
-    let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}});
-    let (response, _) = send_mcp(&client, &url, &auth, list, session.as_deref()).await?;
+    let tools = list_mcp_tools(&client, &url, &auth, session.as_deref()).await?;
     spinner.finish();
-    if let Some(error) = response.get("error") {
-        bail!("MCP tools/list failed: {error}");
-    }
-    let available = response
-        .pointer("/result/tools")
-        .and_then(Value::as_array)
-        .context("MCP tools/list returned no tools array")?
+    let available = tools
         .iter()
         .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .map(str::to_owned)
         .collect::<HashSet<_>>();
     let configured = server
         .allow_tools
@@ -264,10 +250,7 @@ pub async fn handle_agent_mcp_verify_command(
         .filter(|tool| !available.contains(tool.as_str()))
         .map(|tool| (*tool).clone())
         .collect::<Vec<_>>();
-    let mut available_tools = available
-        .iter()
-        .map(|tool| (*tool).to_owned())
-        .collect::<Vec<_>>();
+    let mut available_tools = available.iter().cloned().collect::<Vec<_>>();
     available_tools.sort();
     let mut configured_tools = configured
         .iter()
@@ -409,6 +392,7 @@ async fn proxied_client(
     let client = reqwest::Client::builder()
         .proxy(reqwest::Proxy::all(proxy_url)?)
         .add_root_certificate(ca)
+        .default_headers(mcp_inspection_headers(&proxy)?)
         .build()?;
     Ok((proxy, client, auth))
 }
@@ -566,6 +550,7 @@ async fn remote_proxied_client(
             proxy.child_env()["HTTPS_PROXY"].clone(),
         )?)
         .add_root_certificate(ca)
+        .default_headers(mcp_inspection_headers(&proxy)?)
         .build()?;
     let auth = server.binding.as_ref().and_then(|binding_name| {
         bindings
@@ -702,6 +687,62 @@ async fn inspection_binding_policy(
     ))
 }
 
+async fn list_mcp_tools(
+    client: &reqwest::Client,
+    url: &str,
+    auth: &Option<(String, String)>,
+    session: Option<&str>,
+) -> Result<Vec<Value>> {
+    let mut tools = Vec::new();
+    let mut cursor = None;
+    let mut seen_cursors = HashSet::new();
+    let mut request_id = 2_u64;
+
+    loop {
+        let params = cursor
+            .as_ref()
+            .map_or_else(|| json!({}), |cursor| json!({"cursor": cursor}));
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "tools/list",
+            "params": params
+        });
+        let (response, _) = send_mcp(client, url, auth, request, session).await?;
+        let (mut page_tools, next_cursor) = mcp_tools_page(&response)?;
+        tools.append(&mut page_tools);
+
+        let Some(next_cursor) = next_cursor else {
+            return Ok(tools);
+        };
+        if !seen_cursors.insert(next_cursor.clone()) {
+            bail!("MCP tools/list returned a repeated nextCursor");
+        }
+        cursor = Some(next_cursor);
+        request_id = request_id.saturating_add(1);
+    }
+}
+
+fn mcp_tools_page(response: &Value) -> Result<(Vec<Value>, Option<String>)> {
+    if let Some(error) = response.get("error") {
+        bail!("MCP tools/list failed: {error}");
+    }
+    let result = response
+        .get("result")
+        .context("MCP tools/list returned no result")?;
+    let tools = result
+        .get("tools")
+        .and_then(Value::as_array)
+        .context("MCP tools/list returned no tools array")?
+        .clone();
+    let next_cursor = match result.get("nextCursor") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(cursor)) => Some(cursor.clone()),
+        Some(_) => bail!("MCP tools/list returned an invalid nextCursor"),
+    };
+    Ok((tools, next_cursor))
+}
+
 async fn send_mcp(
     client: &reqwest::Client,
     url: &str,
@@ -714,7 +755,6 @@ async fn send_mcp(
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
         .header("mcp-protocol-version", "2025-03-26")
-        .header("x-stashbase-mcp-inspection", "1")
         .json(&body);
     if let Some((header, value)) = auth {
         request = request.header(header, value);
@@ -752,7 +792,6 @@ async fn send_mcp_notification(
         .header("content-type", "application/json")
         .header("accept", "application/json, text/event-stream")
         .header("mcp-protocol-version", "2025-03-26")
-        .header("x-stashbase-mcp-inspection", "1")
         .json(&body);
     if let Some((header, value)) = auth {
         request = request.header(header, value);
@@ -762,6 +801,15 @@ async fn send_mcp_notification(
     }
     request.send().await?.error_for_status()?;
     Ok(())
+}
+
+fn mcp_inspection_headers(proxy: &Proxy) -> Result<reqwest::header::HeaderMap> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-stashbase-mcp-inspection",
+        reqwest::header::HeaderValue::from_str(proxy.mcp_inspection_token())?,
+    );
+    Ok(headers)
 }
 
 pub fn handle_agent_mcp_check_command(
@@ -844,7 +892,7 @@ fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
 
 #[cfg(test)]
 mod tests {
-    use super::tool_decision;
+    use super::{mcp_tools_page, tool_decision};
     use crate::models::agent::AgentMcpServer;
 
     fn server(allow_tools: &[&str], deny_tools: &[&str]) -> AgentMcpServer {
@@ -884,5 +932,33 @@ mod tests {
             tool_decision(&server(&["read_file"], &[]), "write_file"),
             (false, "not present in allow_tools")
         );
+    }
+
+    #[test]
+    fn mcp_tools_page_returns_tools_and_next_cursor() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "tools": [{"name": "first"}],
+                "nextCursor": "next-page"
+            }
+        });
+
+        let (tools, cursor) = mcp_tools_page(&response).unwrap();
+        assert_eq!(tools, vec![serde_json::json!({"name": "first"})]);
+        assert_eq!(cursor.as_deref(), Some("next-page"));
+    }
+
+    #[test]
+    fn mcp_tools_page_stops_without_a_next_cursor() {
+        let response = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "result": {"tools": [{"name": "last"}]}
+        });
+
+        let (_, cursor) = mcp_tools_page(&response).unwrap();
+        assert_eq!(cursor, None);
     }
 }
