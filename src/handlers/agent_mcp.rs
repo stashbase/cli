@@ -102,6 +102,7 @@ pub async fn handle_agent_mcp_tools_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
+    let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
         remote_proxied_client(&profile, server, api_key, json_format).await
     } else {
@@ -109,14 +110,8 @@ pub async fn handle_agent_mcp_tools_command(
     };
     let (_proxy, client, auth) = match inspection {
         Ok(value) => value,
-        Err(error) => {
-            if !silent {
-                eprintln!();
-            }
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
-    let mut spinner = SpinnerGuard::new(!silent);
 
     let initialize = json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -230,6 +225,7 @@ pub async fn handle_agent_mcp_configure_command(
         .cloned()
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(&server)?;
+    let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
         remote_proxied_client(&profile, &server, api_key, false).await
     } else {
@@ -237,14 +233,8 @@ pub async fn handle_agent_mcp_configure_command(
     };
     let (_proxy, client, auth) = match inspection {
         Ok(value) => value,
-        Err(error) => {
-            if !silent {
-                eprintln!();
-            }
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
-    let mut spinner = SpinnerGuard::new(!silent);
     let initialize = json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
@@ -510,6 +500,7 @@ pub async fn handle_agent_mcp_verify_command(
         .get(&command.server)
         .context("MCP server was not found in the profile")?;
     let url = mcp_url(server)?;
+    let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
         remote_proxied_client(&profile, server, api_key, json_format).await
     } else {
@@ -517,14 +508,8 @@ pub async fn handle_agent_mcp_verify_command(
     };
     let (_proxy, client, auth) = match inspection {
         Ok(value) => value,
-        Err(error) => {
-            if !silent {
-                eprintln!();
-            }
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
-    let mut spinner = SpinnerGuard::new(!silent);
     let initialize = json!({
         "jsonrpc": "2.0", "id": 1, "method": "initialize",
         "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
