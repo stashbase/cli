@@ -131,6 +131,13 @@ entry controls tool access. The Agent Proxy must enforce the MCP rule at
 both `tools/list` (by filtering advertised tools) and `tools/call` (by
 rejecting unauthorized calls).
 
+For a normal `agent run`, the binding must also authorize the MCP endpoint
+through its secret `hosts` or `rules`; `mcp_servers.*` does not by itself grant
+permission to inject the credential. This intentional separation means the
+profile declares both where the credential may be sent and which MCP tools the
+agent may use. The example above is the recommended form for an HTTP MCP
+binding.
+
 Use `allow_tools = ["*"]` to explicitly allow every tool on a matching endpoint. A
 matching `deny` rule still takes precedence, so this can be used to allow all
 tools except selected high-impact operations.

@@ -341,6 +341,9 @@ it from `tools/list`, so the agent does not discover it, and rejects any direct
 `tools/call` attempt for it. `deny_tools` takes precedence over `allow_tools`.
 An omitted or empty `allow_tools` list allows no tools; use
 `allow_tools = ["*"]` to explicitly allow every tool.
+The MCP server entry does not authorize credential injection by itself: for
+`agent run`, the binding must separately allow the MCP endpoint through its
+secret `hosts` or `rules`.
 See the [HTTP MCP profile guide](docs/agent-profiles.md#http-mcp-servers) for
 configuration examples and the `agent mcp tools`, `check`, and `verify`
 commands.
