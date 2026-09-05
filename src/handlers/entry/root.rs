@@ -26,7 +26,7 @@ use crate::{
         agent_doctor::handle_agent_doctor_command,
         agent_explain::handle_agent_explain_command,
         agent_init::handle_agent_init_command,
-        agent_mcp::handle_agent_mcp_tools_command,
+        agent_mcp::{handle_agent_mcp_configure_command, handle_agent_mcp_tools_command},
         agent_policy::SecretHttpPolicy,
         agent_policy_test::handle_agent_policy_test_command,
         agent_profiles::handle_agent_profiles_command,
@@ -574,6 +574,9 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Mcp(agent_mcp) => match agent_mcp.subcommand {
                     crate::cmd::agent::AgentMcpSubcommand::Tools(command) => {
                         handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await
+                    }
+                    crate::cmd::agent::AgentMcpSubcommand::Configure(command) => {
+                        handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
                         match crate::handlers::agent_mcp::handle_agent_mcp_check_command(

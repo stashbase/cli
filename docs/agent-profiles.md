@@ -151,6 +151,18 @@ stashbase agent mcp tools --profile linear --server linear
 stashbase agent mcp tools --remote --profile linear --server linear
 ```
 
+To interactively select and save the allowed tools in a writable repository
+profile, use:
+
+```bash
+stashbase agent mcp configure --profile linear --server linear
+```
+
+The command can allow all tools explicitly or save a selected allowlist. It
+preserves the profile's existing credential rules and comments. Global profiles
+must first be copied to a writable repository profile or passed with
+`--policy-file`.
+
 The command performs the MCP handshake and `tools/list`, then marks each
 returned tool according to `allow_tools` and `deny_tools`. It can read a local
 secret binding from the configured environment, profile file, or configured

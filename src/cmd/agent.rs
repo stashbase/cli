@@ -46,6 +46,8 @@ pub struct AgentMcpCommand {
 pub enum AgentMcpSubcommand {
     /// Inspect the tools exposed by a configured HTTP MCP server
     Tools(AgentMcpToolsCommand),
+    /// Select and save the tools allowed for a configured HTTP MCP server
+    Configure(AgentMcpConfigureCommand),
     /// Check whether one MCP tool is allowed by the configured policy
     Check(AgentMcpCheckCommand),
     /// Verify configured MCP tool names against the server's tools/list response
@@ -178,6 +180,29 @@ pub struct AgentMcpToolsCommand {
     pub profile_source: AgentProfileSource,
 
     /// Explicit direct profile file
+    #[arg(long, conflicts_with = "profile_source")]
+    pub policy_file: Option<PathBuf>,
+
+    /// Resolve MCP bindings through a short-lived remote Agent Proxy session
+    #[arg(long)]
+    pub remote: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentMcpConfigureCommand {
+    /// Agent profile containing the MCP server configuration
+    #[arg(long)]
+    pub profile: String,
+
+    /// Named entry under [mcp_servers]
+    #[arg(long)]
+    pub server: String,
+
+    /// Where to load the agent profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
+
+    /// Explicit writable profile file
     #[arg(long, conflicts_with = "profile_source")]
     pub policy_file: Option<PathBuf>,
 

@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect};
 use serde_json::{json, Value};
 use spinoff::Spinner;
 
@@ -15,7 +16,8 @@ use crate::{
     api::secrets,
     cmd::{
         agent::{
-            AgentMcpCheckCommand, AgentMcpToolsCommand, AgentMcpVerifyCommand, AgentProfileSource,
+            AgentMcpCheckCommand, AgentMcpConfigureCommand, AgentMcpToolsCommand,
+            AgentMcpVerifyCommand, AgentProfileSource,
         },
         secrets::SecretsFileFormat,
     },
@@ -186,6 +188,250 @@ pub async fn handle_agent_mcp_tools_command(
         }
     }
     Ok(())
+}
+
+pub async fn handle_agent_mcp_configure_command(
+    command: AgentMcpConfigureCommand,
+    global_config: &Config,
+    api_key: Option<&str>,
+    silent: bool,
+) -> Result<()> {
+    let (profile, profile_path) = load_mcp_profile_for_edit(&command, global_config)?;
+    let server = profile
+        .mcp_servers
+        .get(&command.server)
+        .cloned()
+        .context("MCP server was not found in the profile")?;
+    let url = mcp_url(&server)?;
+    let inspection = if command.remote {
+        remote_proxied_client(&profile, &server, api_key, false).await
+    } else {
+        proxied_client(&profile, &server, api_key, false).await
+    };
+    let (_proxy, client, auth) = match inspection {
+        Ok(value) => value,
+        Err(error) => {
+            if !silent {
+                eprintln!();
+            }
+            return Err(error);
+        }
+    };
+    let mut spinner = SpinnerGuard::new(!silent);
+    let initialize = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "stashbase", "version": env!("CARGO_PKG_VERSION")}}
+    });
+    let (initialize_response, session) = send_mcp(&client, &url, &auth, initialize, None).await?;
+    if let Some(error) = initialize_response.get("error") {
+        bail!("MCP initialize failed: {error}");
+    }
+    send_mcp_notification(
+        &client,
+        &url,
+        &auth,
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        session.as_deref(),
+    )
+    .await?;
+    let mut tools = list_mcp_tools(&client, &url, &auth, session.as_deref()).await?;
+    spinner.finish();
+    tools.sort_by(|left, right| left["name"].as_str().cmp(&right["name"].as_str()));
+    let names = tools
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        bail!("The MCP server did not expose any tools.");
+    }
+
+    println!();
+    println!("MCP server: {}", command.server);
+    println!("Endpoint: {url}");
+    println!("Profile: {}", profile_path.display());
+    println!();
+    let current_allow_all = server.allow_tools.iter().any(|tool| tool == "*");
+    let current_tools = server
+        .allow_tools
+        .iter()
+        .filter(|tool| tool.as_str() != "*")
+        .collect::<HashSet<_>>();
+    let missing_current_tools = current_tools
+        .iter()
+        .filter(|tool| !names.iter().any(|name| name == **tool))
+        .map(|tool| (*tool).clone())
+        .collect::<Vec<_>>();
+    if !missing_current_tools.is_empty() {
+        eprintln!(
+            "Warning: configured tools not found on the server: {}",
+            missing_current_tools.join(", ")
+        );
+    }
+    let allow_all = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Allow all tools?")
+        .default(current_allow_all)
+        .interact()?;
+    let selected = if allow_all {
+        vec!["*".to_owned()]
+    } else {
+        let mut theme = ColorfulTheme::default();
+        theme.active_item_prefix = dialoguer::console::style(">".to_owned())
+            .for_stderr()
+            .green();
+        theme.inactive_item_prefix = dialoguer::console::style(" ".to_owned()).for_stderr();
+        theme.checked_item_prefix = dialoguer::console::style("[x]".to_owned())
+            .for_stderr()
+            .green();
+        theme.unchecked_item_prefix = dialoguer::console::style("[ ]".to_owned()).for_stderr();
+        let defaults = names
+            .iter()
+            .map(|name| current_tools.contains(name))
+            .collect::<Vec<_>>();
+        let selected = MultiSelect::with_theme(&theme)
+            .with_prompt("Select allowed tools")
+            .items(&names)
+            .defaults(&defaults)
+            .interact()?;
+        selected
+            .into_iter()
+            .map(|index| names[index].clone())
+            .collect::<Vec<_>>()
+    };
+    let summary = if selected == ["*"] {
+        "all tools".to_owned()
+    } else if selected.is_empty() {
+        "no tools".to_owned()
+    } else {
+        format!(
+            "{} tool{}",
+            selected.len(),
+            if selected.len() == 1 { "" } else { "s" }
+        )
+    };
+    if !Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(format!("Save {summary} to the profile?"))
+        .default(true)
+        .interact()?
+    {
+        bail!("MCP profile was not changed.");
+    }
+
+    let content = fs::read_to_string(&profile_path)
+        .with_context(|| format!("Could not read agent profile '{}'.", profile_path.display()))?;
+    let updated = replace_mcp_allow_tools(&content, &command.server, &selected)?;
+    fs::write(&profile_path, updated).with_context(|| {
+        format!(
+            "Could not write agent profile '{}'.",
+            profile_path.display()
+        )
+    })?;
+    println!("Updated MCP tools in {}.", profile_path.display());
+    Ok(())
+}
+
+fn load_mcp_profile_for_edit(
+    command: &AgentMcpConfigureCommand,
+    global_config: &Config,
+) -> Result<(AgentProfile, std::path::PathBuf)> {
+    if let Some(path) = command.policy_file.as_deref() {
+        let loaded = config::get_explicit_agent_profile(path)?;
+        return Ok((loaded.profile, loaded.path));
+    }
+    if matches!(command.profile_source, AgentProfileSource::Global) {
+        bail!("MCP configure requires a writable repository profile or --policy-file.");
+    }
+    if let Some(loaded) = config::get_directory_agent_profile(&command.profile)? {
+        return Ok((loaded.profile, loaded.path));
+    }
+    if matches!(command.profile_source, AgentProfileSource::Auto)
+        && global_config
+            .agent_profiles
+            .as_ref()
+            .is_some_and(|profiles| profiles.contains_key(&command.profile))
+    {
+        bail!(
+            "MCP configure cannot modify the global agent profile '{}'. Use --policy-file or create a repository-local profile.",
+            command.profile
+        );
+    }
+    bail!(
+        "Agent profile '{}' was not found in the repository profile directory.",
+        command.profile
+    )
+}
+
+fn replace_mcp_allow_tools(content: &str, server: &str, tools: &[String]) -> Result<String> {
+    let section = format!("[mcp_servers.{server}]");
+    let lines = content.lines().collect::<Vec<_>>();
+    let start = lines
+        .iter()
+        .position(|line| line.trim() == section)
+        .context(format!(
+            "MCP server '{server}' section was not found in the profile"
+        ))?;
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find(|(_, line)| line.trim_start().starts_with('['))
+        .map(|(index, _)| index)
+        .unwrap_or(lines.len());
+    let existing = (start + 1..end).find(|index| {
+        lines[*index].trim_start().starts_with("allow_tools") && lines[*index].contains('=')
+    });
+    let mut output = lines
+        .iter()
+        .map(|line| (*line).to_owned())
+        .collect::<Vec<_>>();
+    let indent = existing
+        .map(|index| lines[index].len() - lines[index].trim_start().len())
+        .unwrap_or(0);
+    let replacement = format_allow_tools(indent, tools)?;
+    if let Some(index) = existing {
+        output.splice(index..=index, replacement);
+    } else {
+        output.splice(end..end, replacement);
+        if end < lines.len() {
+            output.insert(end + replacement_len(tools), String::new());
+        }
+    }
+    let mut result = output.join("\n");
+    if content.ends_with('\n') {
+        result.push('\n');
+    }
+    Ok(result)
+}
+
+fn format_allow_tools(indent: usize, tools: &[String]) -> Result<Vec<String>> {
+    let prefix = " ".repeat(indent);
+    if tools.len() <= 3 {
+        let values = tools
+            .iter()
+            .map(|tool| serde_json::to_string(tool))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        return Ok(vec![format!("{prefix}allow_tools = [{values}]")]);
+    }
+
+    let mut lines = vec![format!("{prefix}allow_tools = [")];
+    for (index, tool) in tools.iter().enumerate() {
+        let comma = if index + 1 == tools.len() { "" } else { "," };
+        lines.push(format!(
+            "{prefix}    {}{comma}",
+            serde_json::to_string(tool)?
+        ));
+    }
+    lines.push(format!("{prefix}]"));
+    Ok(lines)
+}
+
+fn replacement_len(tools: &[String]) -> usize {
+    if tools.len() <= 3 {
+        1
+    } else {
+        tools.len() + 2
+    }
 }
 
 pub async fn handle_agent_mcp_verify_command(
@@ -954,7 +1200,7 @@ fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{mcp_tools_page, tool_decision};
+    use super::{mcp_tools_page, replace_mcp_allow_tools, tool_decision};
     use crate::models::agent::AgentMcpServer;
 
     fn server(allow_tools: &[&str], deny_tools: &[&str]) -> AgentMcpServer {
@@ -1022,5 +1268,44 @@ mod tests {
 
         let (_, cursor) = mcp_tools_page(&response).unwrap();
         assert_eq!(cursor, None);
+    }
+
+    #[test]
+    fn configure_replaces_only_the_selected_mcp_allowlist() {
+        let profile = "# profile\n\n[mcp_servers.linear]\nurl = \"https://mcp.example.com/mcp\"\n# keep me\nallow_tools = [\"old_tool\"]\n\n[secrets.TOKEN]\nenv = \"TOKEN\"\n";
+        let updated = replace_mcp_allow_tools(
+            profile,
+            "linear",
+            &["list_issues".to_owned(), "get_issue".to_owned()],
+        )
+        .unwrap();
+
+        assert!(updated.contains("# profile"));
+        assert!(updated.contains("# keep me"));
+        assert!(updated.contains("allow_tools = [\"list_issues\", \"get_issue\"]"));
+        assert!(!updated.contains("allow_tools = [\"old_tool\"]"));
+        assert!(updated.contains("[secrets.TOKEN]"));
+    }
+
+    #[test]
+    fn configure_inserts_allowlist_when_it_is_missing() {
+        let profile = "[mcp_servers.linear]\nurl = \"https://mcp.example.com/mcp\"\n\n[secrets.TOKEN]\nenv = \"TOKEN\"\n";
+        let updated = replace_mcp_allow_tools(profile, "linear", &["*".to_owned()]).unwrap();
+
+        assert!(updated.contains("allow_tools = [\"*\"]\n\n[secrets.TOKEN]"));
+    }
+
+    #[test]
+    fn configure_formats_large_allowlists_as_multiline_toml() {
+        let profile = "[mcp_servers.linear]\nurl = \"https://mcp.example.com/mcp\"\n";
+        let tools = ["one", "two", "three", "four"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let updated = replace_mcp_allow_tools(profile, "linear", &tools).unwrap();
+
+        assert!(updated.contains(
+            "allow_tools = [\n    \"one\",\n    \"two\",\n    \"three\",\n    \"four\"\n]"
+        ));
     }
 }
