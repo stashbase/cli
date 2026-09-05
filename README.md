@@ -335,6 +335,11 @@ no allow matches. Rules never widen ordinary egress.
 Use `egress_hosts = ["*"]` only when the agent needs unrestricted HTTP(S)
 egress; it does not widen a secret's configured injection hosts.
 
+HTTP MCP server profiles use `allow_tools` and `deny_tools` as authorization
+terms. A denied tool is not merely labeled as denied: the Agent Proxy removes
+it from `tools/list`, so the agent does not discover it, and rejects any direct
+`tools/call` attempt for it. `deny_tools` takes precedence over `allow_tools`.
+
 ```toml
 # .stashbase/agents/coding.toml
 egress_hosts = ["api.github.com"]
