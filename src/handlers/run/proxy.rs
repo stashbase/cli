@@ -33,7 +33,7 @@ use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
 use hyper::{
     body::{Bytes, Frame, Incoming},
     client::conn::http1 as client_http1,
-    header::{HeaderName, HeaderValue, CONTENT_TYPE},
+    header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
     server::conn::http1,
     service::service_fn,
     Method, Request, Response, StatusCode,
@@ -79,6 +79,7 @@ type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infal
 
 const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const AUDIT_LOG_MAX_FILES: usize = 1_000;
+const MCP_INSPECTION_HEADER: &str = "x-stashbase-mcp-inspection";
 
 /// One metadata-only event emitted by the local proxy audit log.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -489,6 +490,73 @@ impl Drop for AuditedResponseStream {
     }
 }
 
+/// Filters complete SSE lines while retaining only an incomplete trailing line.
+/// This keeps long-lived MCP responses incremental instead of waiting for EOF.
+struct McpToolsListSseStream {
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    pending: Vec<u8>,
+    policy: ProxyPolicy,
+    host: Option<String>,
+    path: String,
+    finished: bool,
+}
+
+impl McpToolsListSseStream {
+    fn new(
+        inner: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+        policy: ProxyPolicy,
+        host: Option<String>,
+        path: String,
+    ) -> Self {
+        Self {
+            inner: Box::pin(inner),
+            pending: Vec::new(),
+            policy,
+            host,
+            path,
+            finished: false,
+        }
+    }
+
+    fn filter_bytes(&self, bytes: &[u8]) -> Bytes {
+        filter_mcp_tools_list_sse_response(bytes, &self.policy, self.host.as_deref(), &self.path)
+            .expect("serializing an MCP JSON value cannot fail")
+    }
+}
+
+impl Stream for McpToolsListSseStream {
+    type Item = Result<Bytes, reqwest::Error>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        context: &mut TaskContext<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        loop {
+            match self.inner.as_mut().poll_next(context) {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    self.pending.extend_from_slice(&chunk);
+                    let Some(end) = self.pending.iter().rposition(|byte| *byte == b'\n') else {
+                        continue;
+                    };
+                    let complete = self.pending.drain(..=end).collect::<Vec<_>>();
+                    return Poll::Ready(Some(Ok(self.filter_bytes(&complete))));
+                }
+                Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
+                Poll::Ready(None) if !self.finished => {
+                    self.finished = true;
+                    if self.pending.is_empty() {
+                        return Poll::Ready(None);
+                    }
+                    let trailing = std::mem::take(&mut self.pending);
+                    return Poll::Ready(Some(Ok(self.filter_bytes(&trailing))));
+                }
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
+}
+
 /// Returns the most recent local audit events, ordered oldest to newest.
 pub fn read_local_proxy_audit_logs(
     limit: usize,
@@ -765,6 +833,35 @@ impl ProxyPolicy {
                 injection.value_template
             ));
         }
+        let mut mcp_rules = self
+            .mcp_rules
+            .iter()
+            .map(|rule| {
+                let mut hosts = rule
+                    .hosts
+                    .iter()
+                    .map(|host| host.trim().to_ascii_lowercase())
+                    .collect::<Vec<_>>();
+                let mut paths = rule
+                    .paths
+                    .iter()
+                    .map(|path| path.trim().to_owned())
+                    .collect::<Vec<_>>();
+                let mut tools = rule.tools.clone();
+                hosts.sort();
+                paths.sort();
+                tools.sort();
+                format!(
+                    "{:?};{};{};{}",
+                    rule.effect,
+                    hosts.join(","),
+                    paths.join(","),
+                    tools.join(",")
+                )
+            })
+            .collect::<Vec<_>>();
+        mcp_rules.sort();
+        lines.push(format!("mcp_rules={}", mcp_rules.join("|")));
 
         hex::encode(Sha256::digest(lines.join("\n").as_bytes()))
     }
@@ -780,6 +877,7 @@ struct ProxyState {
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
     remote: Option<RemoteProxyConfig>,
+    mcp_inspection_token: String,
 }
 
 /// Tracks every accepted proxy and TLS-upgrade task so proxy shutdown closes
@@ -824,6 +922,7 @@ pub struct Proxy {
     remove_ca_file: bool,
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
+    mcp_inspection_token: String,
 }
 
 impl Proxy {
@@ -953,6 +1052,7 @@ impl Proxy {
             audit_log: audit_log.clone(),
             connections: connections.clone(),
             remote,
+            mcp_inspection_token: Uuid::new_v4().to_string(),
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -1000,11 +1100,16 @@ impl Proxy {
             remove_ca_file,
             audit_log,
             connections,
+            mcp_inspection_token: state.mcp_inspection_token.clone(),
         })
     }
 
     pub fn child_env(&self) -> &HashMap<String, String> {
         &self.child_env
+    }
+
+    pub fn mcp_inspection_token(&self) -> &str {
+        &self.mcp_inspection_token
     }
 
     pub async fn stop(mut self) {
@@ -1540,11 +1645,9 @@ fn proxy_request(
             }
         };
         let method = request.method().clone();
-        let mcp_inspection = request
-            .headers()
-            .get("x-stashbase-mcp-inspection")
-            .is_some_and(|value| value == "1");
-        request.headers_mut().remove("x-stashbase-mcp-inspection");
+        let mcp_inspection =
+            is_authorized_mcp_inspection(request.headers(), &state.mcp_inspection_token);
+        request.headers_mut().remove(MCP_INSPECTION_HEADER);
         let mut headers = request.headers().clone();
         let mcp_path = request.uri().path().to_owned();
         let mcp_rule = matching_mcp_rule(&state.policy, host.as_deref(), &method, &mcp_path);
@@ -1715,17 +1818,22 @@ fn proxy_request(
             Ok(upstream) => {
                 let status = upstream.status();
                 let mut headers = upstream.headers().clone();
-                let mcp_list_response = mcp_method.as_deref() == Some("tools/list")
+                let content_type = headers
+                    .get(CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_ascii_lowercase);
+                let filter_mcp_list = mcp_method.as_deref() == Some("tools/list")
                     && mcp_rule.is_some()
-                    && !mcp_inspection
-                    && headers
-                        .get(CONTENT_TYPE)
-                        .and_then(|value| value.to_str().ok())
-                        .is_some_and(|value| {
-                            value.to_ascii_lowercase().contains("application/json")
-                                || value.to_ascii_lowercase().contains("text/event-stream")
-                        });
-                if mcp_list_response {
+                    && !mcp_inspection;
+                let mcp_json_response = filter_mcp_list
+                    && content_type
+                        .as_deref()
+                        .is_some_and(|value| value.contains("application/json"));
+                let mcp_sse_response = filter_mcp_list
+                    && content_type
+                        .as_deref()
+                        .is_some_and(|value| value.contains("text/event-stream"));
+                if mcp_json_response {
                     let response_bytes = match upstream.bytes().await {
                         Ok(bytes) => filter_mcp_tools_list_response(
                             &bytes,
@@ -1749,6 +1857,38 @@ fn proxy_request(
                         .status(status)
                         .body(full_body(response_bytes))
                         .unwrap();
+                    *response.headers_mut() = headers;
+                    return Ok(response);
+                }
+                if mcp_sse_response {
+                    headers.remove("content-length");
+                    let action = if secret_name.is_some() {
+                        "injected"
+                    } else {
+                        "forwarded"
+                    };
+                    let filtered = McpToolsListSseStream::new(
+                        upstream.bytes_stream(),
+                        state.policy.clone(),
+                        host.clone(),
+                        mcp_path.clone(),
+                    );
+                    let body = StreamBody::new(AuditedResponseStream::new(
+                        filtered,
+                        request_bytes,
+                        state.audit_log.clone(),
+                        request_id,
+                        action,
+                        host,
+                        None,
+                        method,
+                        secret_name,
+                        None,
+                        status,
+                        started,
+                    ))
+                    .boxed_unsync();
+                    let mut response = Response::builder().status(status).body(body).unwrap();
                     *response.headers_mut() = headers;
                     return Ok(response);
                 }
@@ -2589,6 +2729,13 @@ fn matching_mcp_rule<'a>(
     })
 }
 
+fn is_authorized_mcp_inspection(headers: &HeaderMap, expected_token: &str) -> bool {
+    headers
+        .get(MCP_INSPECTION_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == expected_token)
+}
+
 fn path_matches(pattern: &str, path: &str) -> bool {
     let pattern = pattern.trim();
     match pattern.strip_suffix('*') {
@@ -3138,6 +3285,57 @@ mod tests {
         let text = String::from_utf8(filtered.to_vec()).unwrap();
         assert!(!text.contains("list_projects"));
         assert!(text.contains("list_project_labels"));
+    }
+
+    #[tokio::test]
+    async fn mcp_sse_tools_list_is_filtered_incrementally() {
+        let first = Bytes::from(format!(
+            "data: {}\n\n",
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"tools": [
+                    {"name": "list_projects"},
+                    {"name": "list_project_labels"}
+                ]}
+            })
+        ));
+        let source = stream::iter([Ok::<_, reqwest::Error>(first)]).chain(stream::once(async {
+            sleep(Duration::from_millis(200)).await;
+            Ok(Bytes::from_static(b": keepalive\n\n"))
+        }));
+        let mut filtered = McpToolsListSseStream::new(
+            source,
+            mcp_test_policy(),
+            Some("mcp.example.com".to_owned()),
+            "/mcp".to_owned(),
+        );
+
+        let first = timeout(Duration::from_millis(100), filtered.next())
+            .await
+            .expect("the first filtered SSE event was buffered")
+            .unwrap()
+            .unwrap();
+        let text = String::from_utf8(first.to_vec()).unwrap();
+        assert!(!text.contains("list_projects"));
+        assert!(text.contains("list_project_labels"));
+        assert_eq!(
+            filtered.next().await.unwrap().unwrap(),
+            Bytes::from_static(b": keepalive\n\n")
+        );
+    }
+
+    #[test]
+    fn mcp_inspection_requires_the_proxy_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert(MCP_INSPECTION_HEADER, HeaderValue::from_static("1"));
+        assert!(!is_authorized_mcp_inspection(&headers, "secret-token"));
+
+        headers.insert(
+            MCP_INSPECTION_HEADER,
+            HeaderValue::from_static("secret-token"),
+        );
+        assert!(is_authorized_mcp_inspection(&headers, "secret-token"));
     }
 
     #[test]
@@ -4050,6 +4248,29 @@ mod tests {
     }
 
     #[test]
+    fn policy_fingerprint_includes_normalized_mcp_rules() {
+        let mut left = rule_policy(Vec::new());
+        left.mcp_rules = vec![AgentMcpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["MCP.EXAMPLE.COM".to_owned(), "other.example.com".to_owned()],
+            paths: vec!["/second".to_owned(), "/mcp".to_owned()],
+            tools: vec!["write".to_owned(), "read".to_owned()],
+        }];
+        let mut equivalent = rule_policy(Vec::new());
+        equivalent.mcp_rules = vec![AgentMcpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["other.example.com".to_owned(), "mcp.example.com".to_owned()],
+            paths: vec!["/mcp".to_owned(), "/second".to_owned()],
+            tools: vec!["read".to_owned(), "write".to_owned()],
+        }];
+        let mut different = equivalent.clone();
+        different.mcp_rules[0].tools = vec!["read".to_owned()];
+
+        assert_eq!(left.fingerprint(), equivalent.fingerprint());
+        assert_ne!(left.fingerprint(), different.fingerprint());
+    }
+
+    #[test]
     fn http_rules_allow_a_matching_request() {
         let policy = rule_policy(vec![rule(
             AgentHttpRuleEffect::Allow,
@@ -4291,6 +4512,7 @@ mod tests {
             audit_log: None,
             connections: Arc::new(ActiveConnections::default()),
             remote: None,
+            mcp_inspection_token: "inspection-token".to_owned(),
         };
 
         assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
