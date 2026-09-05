@@ -22,6 +22,9 @@ use crate::{
     config::config,
     handlers::{
         agent_policy::SecretHttpPolicy,
+        agent_profiles::{
+            profile_not_found_error, profile_not_found_error_with_output, source_label,
+        },
         entry::root::{provision_remote_session_ca, remote_bindings, remote_session_state},
         run::proxy::{Proxy, ProxyPolicy, RemoteProxyConfig, RemoteProxyProtocol, SecretInjection},
     },
@@ -56,16 +59,37 @@ pub async fn handle_agent_mcp_tools_command(
         profile.profile
     } else {
         match command.profile_source {
-            AgentProfileSource::Global => global.context("agent profile was not found")?,
+            AgentProfileSource::Global => global.ok_or_else(|| {
+                profile_not_found_error_with_output(
+                    &command.profile,
+                    source_label(command.profile_source),
+                    json_format,
+                    silent,
+                )
+            })?,
             AgentProfileSource::Directory => {
                 config::get_directory_agent_profile(&command.profile)?
-                    .context("agent profile was not found")?
+                    .ok_or_else(|| {
+                        profile_not_found_error_with_output(
+                            &command.profile,
+                            source_label(command.profile_source),
+                            json_format,
+                            silent,
+                        )
+                    })?
                     .profile
             }
             AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
                 .map(|p| p.profile)
                 .or(global)
-                .context("agent profile was not found")?,
+                .ok_or_else(|| {
+                    profile_not_found_error_with_output(
+                        &command.profile,
+                        source_label(command.profile_source),
+                        json_format,
+                        silent,
+                    )
+                })?,
         }
     };
     let server = profile
@@ -185,16 +209,37 @@ pub async fn handle_agent_mcp_verify_command(
         profile.profile
     } else {
         match command.profile_source {
-            AgentProfileSource::Global => global.context("agent profile was not found")?,
+            AgentProfileSource::Global => global.ok_or_else(|| {
+                profile_not_found_error_with_output(
+                    &command.profile,
+                    source_label(command.profile_source),
+                    json_format,
+                    silent,
+                )
+            })?,
             AgentProfileSource::Directory => {
                 config::get_directory_agent_profile(&command.profile)?
-                    .context("agent profile was not found")?
+                    .ok_or_else(|| {
+                        profile_not_found_error_with_output(
+                            &command.profile,
+                            source_label(command.profile_source),
+                            json_format,
+                            silent,
+                        )
+                    })?
                     .profile
             }
             AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
                 .map(|p| p.profile)
                 .or(global)
-                .context("agent profile was not found")?,
+                .ok_or_else(|| {
+                    profile_not_found_error_with_output(
+                        &command.profile,
+                        source_label(command.profile_source),
+                        json_format,
+                        silent,
+                    )
+                })?,
         }
     };
     let server = profile
@@ -831,16 +876,34 @@ pub fn handle_agent_mcp_check_command(
         profile.profile
     } else {
         match command.profile_source {
-            AgentProfileSource::Global => global.context("agent profile was not found")?,
+            AgentProfileSource::Global => global.ok_or_else(|| {
+                profile_not_found_error(
+                    &command.profile,
+                    source_label(command.profile_source),
+                    json_format,
+                )
+            })?,
             AgentProfileSource::Directory => {
                 config::get_directory_agent_profile(&command.profile)?
-                    .context("agent profile was not found")?
+                    .ok_or_else(|| {
+                        profile_not_found_error(
+                            &command.profile,
+                            source_label(command.profile_source),
+                            json_format,
+                        )
+                    })?
                     .profile
             }
             AgentProfileSource::Auto => config::get_directory_agent_profile(&command.profile)?
                 .map(|p| p.profile)
                 .or(global)
-                .context("agent profile was not found")?,
+                .ok_or_else(|| {
+                    profile_not_found_error(
+                        &command.profile,
+                        source_label(command.profile_source),
+                        json_format,
+                    )
+                })?,
         }
     };
     let server = profile
