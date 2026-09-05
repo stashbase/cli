@@ -273,7 +273,6 @@ pub async fn handle_agent_mcp_configure_command(
         bail!("The MCP server did not expose any tools.");
     }
 
-    println!();
     println!("MCP server: {}", command.server);
     println!("Endpoint: {url}");
     println!("Profile: {}", profile_path.display());
