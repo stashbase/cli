@@ -2,13 +2,16 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fmt, fs,
     path::Path,
     sync::{Arc, RwLock},
 };
 
 use anyhow::{bail, Context, Result};
-use dialoguer::{theme::ColorfulTheme, Confirm, MultiSelect};
+use dialoguer::{
+    theme::{ColorfulTheme, Theme},
+    Confirm, MultiSelect,
+};
 use serde_json::{json, Value};
 use spinoff::Spinner;
 
@@ -190,6 +193,30 @@ pub async fn handle_agent_mcp_tools_command(
     Ok(())
 }
 
+#[derive(Default)]
+struct McpMultiSelectTheme {
+    inner: ColorfulTheme,
+}
+
+impl Theme for McpMultiSelectTheme {
+    fn format_multi_select_prompt_item(
+        &self,
+        f: &mut dyn fmt::Write,
+        text: &str,
+        checked: bool,
+        active: bool,
+    ) -> fmt::Result {
+        let cursor = if active { ">" } else { " " };
+        let checkbox = if checked { "[x]" } else { "[ ]" };
+        let styled_text = if active {
+            self.inner.active_item_style.apply_to(text)
+        } else {
+            self.inner.inactive_item_style.apply_to(text)
+        };
+        write!(f, "{cursor} {checkbox} {styled_text}")
+    }
+}
+
 pub async fn handle_agent_mcp_configure_command(
     command: AgentMcpConfigureCommand,
     global_config: &Config,
@@ -275,20 +302,11 @@ pub async fn handle_agent_mcp_configure_command(
     let selected = if allow_all {
         vec!["*".to_owned()]
     } else {
-        let mut theme = ColorfulTheme::default();
-        theme.active_item_prefix = dialoguer::console::style(">".to_owned())
-            .for_stderr()
-            .green();
-        theme.inactive_item_prefix = dialoguer::console::style(" ".to_owned()).for_stderr();
-        theme.checked_item_prefix = dialoguer::console::style("[x]".to_owned())
-            .for_stderr()
-            .green();
-        theme.unchecked_item_prefix = dialoguer::console::style("[ ]".to_owned()).for_stderr();
         let defaults = names
             .iter()
             .map(|name| current_tools.contains(name))
             .collect::<Vec<_>>();
-        let selected = MultiSelect::with_theme(&theme)
+        let selected = MultiSelect::with_theme(&McpMultiSelectTheme::default())
             .with_prompt("Select allowed tools")
             .items(&names)
             .defaults(&defaults)
@@ -389,11 +407,19 @@ fn replace_mcp_allow_tools(content: &str, server: &str, tools: &[String]) -> Res
         .unwrap_or(0);
     let replacement = format_allow_tools(indent, tools)?;
     if let Some(index) = existing {
-        output.splice(index..=index, replacement);
+        let existing_end = if lines[index].contains(']') {
+            index
+        } else {
+            (index + 1..end)
+                .find(|line| lines[*line].trim() == "]")
+                .context("MCP allow_tools array is missing its closing bracket")?
+        };
+        output.splice(index..=existing_end, replacement);
     } else {
+        let replacement_length = replacement.len();
         output.splice(end..end, replacement);
         if end < lines.len() {
-            output.insert(end + replacement_len(tools), String::new());
+            output.insert(end + replacement_length, String::new());
         }
     }
     let mut result = output.join("\n");
@@ -424,14 +450,6 @@ fn format_allow_tools(indent: usize, tools: &[String]) -> Result<Vec<String>> {
     }
     lines.push(format!("{prefix}]"));
     Ok(lines)
-}
-
-fn replacement_len(tools: &[String]) -> usize {
-    if tools.len() <= 3 {
-        1
-    } else {
-        tools.len() + 2
-    }
 }
 
 pub async fn handle_agent_mcp_verify_command(
@@ -1307,5 +1325,23 @@ mod tests {
         assert!(updated.contains(
             "allow_tools = [\n    \"one\",\n    \"two\",\n    \"three\",\n    \"four\"\n]"
         ));
+    }
+
+    #[test]
+    fn configure_replaces_the_entire_existing_multiline_allowlist() {
+        let profile = "[mcp_servers.linear]\nurl = \"https://mcp.example.com/mcp\"\nallow_tools = [\n    \"old_one\",\n    \"old_two\"\n]\n\n[secrets.TOKEN]\nenv = \"TOKEN\"\n";
+        let updated = replace_mcp_allow_tools(
+            profile,
+            "linear",
+            &["new_one".to_owned(), "new_two".to_owned()],
+        )
+        .unwrap();
+
+        assert!(updated.contains("allow_tools = [\"new_one\", \"new_two\"]"));
+        assert!(!updated.contains("old_one"));
+        assert!(!updated.contains("old_two"));
+        assert_eq!(updated.matches("allow_tools").count(), 1);
+        assert!(updated.contains("[secrets.TOKEN]"));
+        assert!(toml::from_str::<crate::models::agent::AgentProfile>(&updated).is_ok());
     }
 }
