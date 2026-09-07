@@ -294,6 +294,13 @@ Filesystem enforcement uses the supported macOS or Linux process sandbox; see
 the [agent-profile cookbook](docs/agent-profiles.md) for platform requirements
 and limitations.
 
+On macOS, filesystem rules wrap the agent in `sandbox-exec` even without
+`--sandbox`. Agents that apply their own macOS sandbox, including Codex's patch
+helper, can then fail with `sandbox_apply: Operation not permitted`. Omit
+`[filesystem]` for those agents. These rules reduce accidental exposure; for
+strong isolation, run the agent in a container or VM with only a clean working
+copy mounted.
+
 On Linux, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
 `ReadOnlyPaths`. If the systemd user session is unavailable, it probes and can
 use `bubblewrap` to create a private mount namespace: read-denied directories
