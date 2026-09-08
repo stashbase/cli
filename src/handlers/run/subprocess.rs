@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::env;
 #[cfg(unix)]
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read, Write};
 #[cfg(unix)]
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
@@ -143,15 +143,45 @@ pub async fn run_command_with_filesystem_policy(
             std::io::stdin().is_terminal(),
             std::io::stderr().is_terminal(),
         ) {
-            let terminal_error = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
-            if terminal_error < 0 {
+            let mut pipe_fds = [0; 2];
+            if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
                 return Err(std::io::Error::last_os_error().into());
             }
-            cmd.stdout_file(terminal_output)
-                .stderr_file(terminal_error)
+            // Drain stderr concurrently so an interactive child cannot block
+            // on a full pipe. The bytes are still forwarded to the terminal
+            // and parsed after exit for filesystem policy reporting.
+            let mut stderr_reader = unsafe { std::fs::File::from_raw_fd(pipe_fds[0]) };
+            let stderr_writer = unsafe { std::fs::File::from_raw_fd(pipe_fds[1]) };
+            let stderr_forwarder = std::thread::spawn(move || {
+                let mut captured = Vec::new();
+                let mut terminal = std::io::stderr();
+                let mut buffer = [0; 8192];
+                loop {
+                    let count = stderr_reader.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    terminal.write_all(&buffer[..count])?;
+                    captured.extend_from_slice(&buffer[..count]);
+                }
+                terminal.flush()?;
+                Ok::<_, std::io::Error>(captured)
+            });
+            let output = cmd
+                .stdout_file(terminal_output)
+                .stderr_file(stderr_writer)
                 .unchecked()
-                .run()?
-                .status
+                .run()?;
+            let stderr = stderr_forwarder
+                .join()
+                .map_err(|_| anyhow::anyhow!("stderr forwarding thread panicked"))??;
+            record_child_stderr(
+                &stderr,
+                denied_read_paths,
+                denied_write_paths,
+                audit_log.as_ref(),
+            )?;
+            output.status
         } else {
             let output = cmd
                 .stdout_file(terminal_output)
@@ -387,25 +417,50 @@ fn emit_child_stderr(
         if let Some((path, operation)) =
             filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
         {
-            let id =
-                audit_log.map(|audit_log| audit_log.record_filesystem_denied(&path, operation));
-            println!(
-                "{}",
-                serde_json::json!({
-                    "error": {
-                        "code": "filesystem_denied",
-                        "message": "Filesystem access denied by agent policy",
-                        "path": path,
-                        "operation": operation,
-                        "id": id,
-                    }
-                })
-            );
+            emit_filesystem_denial(&path, operation, audit_log);
         } else {
             eprintln!("{line}");
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn record_child_stderr(
+    stderr: &[u8],
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    audit_log: Option<&super::proxy::ProxyAuditLog>,
+) -> Result<()> {
+    for line in String::from_utf8_lossy(stderr).lines() {
+        if let Some((path, operation)) =
+            filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
+        {
+            emit_filesystem_denial(&path, operation, audit_log);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn emit_filesystem_denial(
+    path: &str,
+    operation: &str,
+    audit_log: Option<&super::proxy::ProxyAuditLog>,
+) {
+    let id = audit_log.map(|audit_log| audit_log.record_filesystem_denied(path, operation));
+    println!(
+        "{}",
+        serde_json::json!({
+            "error": {
+                "code": "filesystem_denied",
+                "message": "Filesystem access denied by agent policy",
+                "path": path,
+                "operation": operation,
+                "id": id,
+            }
+        })
+    );
 }
 
 fn filesystem_denial_from_line(
