@@ -34,7 +34,9 @@ use crate::{
         run::proxy::{Proxy, ProxyPolicy, RemoteProxyConfig, RemoteProxyProtocol, SecretInjection},
     },
     models::{
-        agent::{AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile},
+        agent::{
+            AgentBindingProfile, AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile,
+        },
         config::Config,
     },
     utils::{
@@ -888,21 +890,8 @@ async fn inspection_binding_policy(
     if profile.personal_credentials.contains_key(name) {
         bail!("MCP binding '{name}' is a personal credential and requires --remote");
     }
-    let env_name = binding.env.as_deref().unwrap_or(name);
-    let local_value = std::env::var(env_name).ok().or_else(|| {
-        profile
-            .file
-            .as_deref()
-            .and_then(|file| {
-                read_secrets_from_file(Path::new(file), &SecretsFileFormat::Dotenv).ok()
-            })
-            .and_then(|items| {
-                items
-                    .into_iter()
-                    .find(|item| item.name == env_name)
-                    .map(|item| item.value)
-            })
-    });
+    let source_name = binding_source_name(name, binding);
+    let local_value = local_binding_value(profile.file.as_deref(), source_name)?;
     let value = if let Some(value) = local_value {
         value
     } else if let (Some(api_key), Some(project), Some(environment)) = (
@@ -914,7 +903,7 @@ async fn inspection_binding_policy(
             api_key.to_owned(),
             Some(project),
             Some(environment),
-            vec![binding.from.clone().unwrap_or_else(|| name.to_owned())],
+            vec![source_name.to_owned()],
             Vec::new(),
             false,
             false,
@@ -931,14 +920,14 @@ async fn inspection_binding_policy(
         };
         values
             .into_iter()
-            .find(|secret| secret.name == binding.from.as_deref().unwrap_or(name))
+            .find(|secret| secret.name == source_name)
             .map(|secret| secret.value)
             .context(format!(
                 "MCP binding '{name}' was not found in the configured project/environment"
             ))?
     } else {
         return Err(anyhow::anyhow!(format!(
-            "MCP binding '{name}' is not available in ${env_name} or the profile file"
+            "MCP binding '{name}' is not available in ${source_name} or the profile file"
         )));
     };
     let header = server
@@ -977,6 +966,27 @@ async fn inspection_binding_policy(
         HashMap::from([(name.to_owned(), secret_injection)]),
         Some((header, placeholder_value)),
     ))
+}
+
+fn binding_source_name<'a>(name: &'a str, binding: &'a AgentBindingProfile) -> &'a str {
+    binding.from.as_deref().unwrap_or(name)
+}
+
+fn local_binding_value(file: Option<&str>, source_name: &str) -> Result<Option<String>> {
+    let file_value = file
+        .map(|file| {
+            read_secrets_from_file(Path::new(file), &SecretsFileFormat::Dotenv)
+                .with_context(|| format!("Could not read configured MCP secret file '{file}'."))
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .find(|item| item.name == source_name)
+                        .map(|item| item.value)
+                })
+        })
+        .transpose()?
+        .flatten();
+    Ok(file_value.or_else(|| std::env::var(source_name).ok()))
 }
 
 async fn list_mcp_tools(
@@ -1202,8 +1212,14 @@ fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{mcp_tools_page, replace_mcp_allow_tools, tool_decision};
-    use crate::models::agent::AgentMcpServer;
+    use std::fs;
+
+    use super::{
+        binding_source_name, local_binding_value, mcp_tools_page, replace_mcp_allow_tools,
+        tool_decision,
+    };
+    use crate::models::agent::{AgentBindingProfile, AgentMcpServer};
+    use uuid::Uuid;
 
     fn server(allow_tools: &[&str], deny_tools: &[&str]) -> AgentMcpServer {
         AgentMcpServer {
@@ -1270,6 +1286,56 @@ mod tests {
 
         let (_, cursor) = mcp_tools_page(&response).unwrap();
         assert_eq!(cursor, None);
+    }
+
+    #[test]
+    fn local_profile_file_overrides_shell_binding_value() {
+        let name = format!("STASHBASE_MCP_TEST_{}", Uuid::new_v4().simple());
+        let path = std::env::temp_dir().join(format!("{name}.env"));
+        fs::write(&path, format!("{name}=from-file\n")).unwrap();
+        std::env::set_var(&name, "from-shell");
+
+        assert_eq!(
+            local_binding_value(path.to_str(), &name)
+                .unwrap()
+                .as_deref(),
+            Some("from-file")
+        );
+
+        std::env::remove_var(&name);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn mcp_binding_reads_the_canonical_source_not_the_child_env_name() {
+        let binding = AgentBindingProfile {
+            hosts: Vec::new(),
+            rules: Vec::new(),
+            from: None,
+            env: Some("GITHUB_PAT_TOKEN".to_owned()),
+            placeholder: None,
+            header: None,
+            value_template: None,
+        };
+
+        assert_eq!(
+            binding_source_name("GITHUB_TOKEN", &binding),
+            "GITHUB_TOKEN"
+        );
+    }
+
+    #[test]
+    fn configured_missing_profile_file_does_not_fall_back_to_shell() {
+        let name = format!("STASHBASE_MCP_TEST_{}", Uuid::new_v4().simple());
+        let path = std::env::temp_dir().join(format!("{name}.env"));
+        std::env::set_var(&name, "from-shell");
+
+        let error = local_binding_value(path.to_str(), &name).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("Could not read configured MCP secret file"));
+        std::env::remove_var(&name);
     }
 
     #[test]

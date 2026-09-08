@@ -491,7 +491,11 @@ injects the mapped credential. The default
 You can combine a remote source with a local override file. The file is read
 first; for every configured source it supplies, no remote request is made. Any
 source absent from the file is fetched from the configured project/environment.
-The local value wins when both sources define it.
+The local value wins when both sources define it. For local MCP inspection, a
+configured file also takes precedence over an environment variable with the
+same source name (`from`, or the binding name when omitted). An unreadable or
+invalid configured file fails the inspection; it does not fall back to the
+shell.
 
 ```toml
 [agent_profiles.coding]
