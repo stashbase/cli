@@ -927,7 +927,7 @@ async fn inspection_binding_policy(
             ))?
     } else {
         return Err(anyhow::anyhow!(format!(
-            "MCP binding '{name}' is not available in ${source_name} or the profile file"
+            "MCP binding '{name}' is not available from any configured source"
         )));
     };
     let header = server
@@ -986,7 +986,7 @@ fn local_binding_value(file: Option<&str>, source_name: &str) -> Result<Option<S
         })
         .transpose()?
         .flatten();
-    Ok(file_value.or_else(|| std::env::var(source_name).ok()))
+    Ok(file_value)
 }
 
 async fn list_mcp_tools(
@@ -1336,6 +1336,19 @@ mod tests {
             .to_string()
             .contains("Could not read configured MCP secret file"));
         std::env::remove_var(&name);
+    }
+
+    #[test]
+    fn configured_profile_file_without_source_does_not_fall_back_to_shell() {
+        let name = format!("STASHBASE_MCP_TEST_{}", Uuid::new_v4().simple());
+        let path = std::env::temp_dir().join(format!("{name}.env"));
+        fs::write(&path, "OTHER=value\n").unwrap();
+        std::env::set_var(&name, "from-shell");
+
+        assert_eq!(local_binding_value(path.to_str(), &name).unwrap(), None);
+
+        std::env::remove_var(&name);
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
