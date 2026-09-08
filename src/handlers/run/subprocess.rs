@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::env;
 #[cfg(unix)]
+use std::io::IsTerminal;
+#[cfg(unix)]
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -129,26 +131,41 @@ pub async fn run_command_with_filesystem_policy(
     // .full_env(env_vars);
     // .env("--color", "always");
 
-    // Unix keeps stdout attached to the terminal while stderr is captured for
-    // policy-denial normalization. This avoids breaking interactive agents.
+    // Interactive agents such as Cursor render their terminal UI on stderr.
+    // Keep both streams attached to the terminal when one is available.
     #[cfg(unix)]
     let status = {
         let terminal_output = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
         if terminal_output < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
-        let output = cmd
-            .stdout_file(terminal_output)
-            .stderr_capture()
-            .unchecked()
-            .run()?;
-        emit_child_stderr(
-            &output.stderr,
-            denied_read_paths,
-            denied_write_paths,
-            audit_log.as_ref(),
-        )?;
-        output.status
+        if should_inherit_terminal_streams(
+            std::io::stdin().is_terminal(),
+            std::io::stderr().is_terminal(),
+        ) {
+            let terminal_error = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
+            if terminal_error < 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+            cmd.stdout_file(terminal_output)
+                .stderr_file(terminal_error)
+                .unchecked()
+                .run()?
+                .status
+        } else {
+            let output = cmd
+                .stdout_file(terminal_output)
+                .stderr_capture()
+                .unchecked()
+                .run()?;
+            emit_child_stderr(
+                &output.stderr,
+                denied_read_paths,
+                denied_write_paths,
+                audit_log.as_ref(),
+            )?;
+            output.status
+        }
     };
 
     #[cfg(not(unix))]
@@ -167,6 +184,10 @@ pub async fn run_command_with_filesystem_policy(
             .clone()
     };
     Ok(status)
+}
+
+fn should_inherit_terminal_streams(stdin_is_terminal: bool, stderr_is_terminal: bool) -> bool {
+    stdin_is_terminal && stderr_is_terminal
 }
 
 #[cfg(test)]
@@ -650,6 +671,7 @@ mod tests {
     use super::sandbox_command_with_filesystem_policy;
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
+        should_inherit_terminal_streams,
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -675,6 +697,13 @@ mod tests {
             filesystem_backend_for_policy(&[], &[]),
             "none (no filesystem deny rules)"
         );
+    }
+
+    #[test]
+    fn inherits_both_terminal_streams_only_for_interactive_children() {
+        assert!(should_inherit_terminal_streams(true, true));
+        assert!(!should_inherit_terminal_streams(true, false));
+        assert!(!should_inherit_terminal_streams(false, true));
     }
 
     #[test]
