@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::env;
 #[cfg(unix)]
-use std::os::unix::io::AsRawFd;
+use std::io::{IsTerminal, Read, Write};
+#[cfg(unix)]
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
@@ -129,26 +131,71 @@ pub async fn run_command_with_filesystem_policy(
     // .full_env(env_vars);
     // .env("--color", "always");
 
-    // Unix keeps stdout attached to the terminal while stderr is captured for
-    // policy-denial normalization. This avoids breaking interactive agents.
+    // Interactive agents such as Cursor render their terminal UI on stderr.
+    // Keep both streams attached to the terminal when one is available.
     #[cfg(unix)]
     let status = {
         let terminal_output = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
         if terminal_output < 0 {
             return Err(std::io::Error::last_os_error().into());
         }
-        let output = cmd
-            .stdout_file(terminal_output)
-            .stderr_capture()
-            .unchecked()
-            .run()?;
-        emit_child_stderr(
-            &output.stderr,
-            denied_read_paths,
-            denied_write_paths,
-            audit_log.as_ref(),
-        )?;
-        output.status
+        if should_inherit_terminal_streams(
+            std::io::stdin().is_terminal(),
+            std::io::stderr().is_terminal(),
+        ) {
+            let mut pipe_fds = [0; 2];
+            if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+            // Drain stderr concurrently so an interactive child cannot block
+            // on a full pipe. The bytes are still forwarded to the terminal
+            // and parsed after exit for filesystem policy reporting.
+            let mut stderr_reader = unsafe { std::fs::File::from_raw_fd(pipe_fds[0]) };
+            let stderr_writer = unsafe { std::fs::File::from_raw_fd(pipe_fds[1]) };
+            let stderr_forwarder = std::thread::spawn(move || {
+                let mut captured = Vec::new();
+                let mut terminal = std::io::stderr();
+                let mut buffer = [0; 8192];
+                loop {
+                    let count = stderr_reader.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    terminal.write_all(&buffer[..count])?;
+                    captured.extend_from_slice(&buffer[..count]);
+                }
+                terminal.flush()?;
+                Ok::<_, std::io::Error>(captured)
+            });
+            let output = cmd
+                .stdout_file(terminal_output)
+                .stderr_file(stderr_writer)
+                .unchecked()
+                .run()?;
+            let stderr = stderr_forwarder
+                .join()
+                .map_err(|_| anyhow::anyhow!("stderr forwarding thread panicked"))??;
+            record_child_stderr(
+                &stderr,
+                denied_read_paths,
+                denied_write_paths,
+                audit_log.as_ref(),
+            )?;
+            output.status
+        } else {
+            let output = cmd
+                .stdout_file(terminal_output)
+                .stderr_capture()
+                .unchecked()
+                .run()?;
+            emit_child_stderr(
+                &output.stderr,
+                denied_read_paths,
+                denied_write_paths,
+                audit_log.as_ref(),
+            )?;
+            output.status
+        }
     };
 
     #[cfg(not(unix))]
@@ -167,6 +214,10 @@ pub async fn run_command_with_filesystem_policy(
             .clone()
     };
     Ok(status)
+}
+
+fn should_inherit_terminal_streams(stdin_is_terminal: bool, stderr_is_terminal: bool) -> bool {
+    stdin_is_terminal && stderr_is_terminal
 }
 
 #[cfg(test)]
@@ -366,25 +417,50 @@ fn emit_child_stderr(
         if let Some((path, operation)) =
             filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
         {
-            let id =
-                audit_log.map(|audit_log| audit_log.record_filesystem_denied(&path, operation));
-            println!(
-                "{}",
-                serde_json::json!({
-                    "error": {
-                        "code": "filesystem_denied",
-                        "message": "Filesystem access denied by agent policy",
-                        "path": path,
-                        "operation": operation,
-                        "id": id,
-                    }
-                })
-            );
+            emit_filesystem_denial(&path, operation, audit_log);
         } else {
             eprintln!("{line}");
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn record_child_stderr(
+    stderr: &[u8],
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    audit_log: Option<&super::proxy::ProxyAuditLog>,
+) -> Result<()> {
+    for line in String::from_utf8_lossy(stderr).lines() {
+        if let Some((path, operation)) =
+            filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
+        {
+            emit_filesystem_denial(&path, operation, audit_log);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn emit_filesystem_denial(
+    path: &str,
+    operation: &str,
+    audit_log: Option<&super::proxy::ProxyAuditLog>,
+) {
+    let id = audit_log.map(|audit_log| audit_log.record_filesystem_denied(path, operation));
+    println!(
+        "{}",
+        serde_json::json!({
+            "error": {
+                "code": "filesystem_denied",
+                "message": "Filesystem access denied by agent policy",
+                "path": path,
+                "operation": operation,
+                "id": id,
+            }
+        })
+    );
 }
 
 fn filesystem_denial_from_line(
@@ -650,6 +726,7 @@ mod tests {
     use super::sandbox_command_with_filesystem_policy;
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
+        should_inherit_terminal_streams,
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -675,6 +752,13 @@ mod tests {
             filesystem_backend_for_policy(&[], &[]),
             "none (no filesystem deny rules)"
         );
+    }
+
+    #[test]
+    fn inherits_both_terminal_streams_only_for_interactive_children() {
+        assert!(should_inherit_terminal_streams(true, true));
+        assert!(!should_inherit_terminal_streams(true, false));
+        assert!(!should_inherit_terminal_streams(false, true));
     }
 
     #[test]
