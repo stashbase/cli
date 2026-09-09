@@ -9,6 +9,7 @@ pub struct AgentHooksCommand {
 #[derive(Debug, Subcommand)]
 pub enum AgentHooksSubcommand {
     /// Install an agent dependency hook
+    #[command(alias = "add")]
     Install(AgentHookInstall),
 
     /// Remove an agent dependency hook
