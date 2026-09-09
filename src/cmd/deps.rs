@@ -1,35 +1,32 @@
 use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
-pub struct DepsCommands {
+pub struct AgentHooksCommand {
     #[clap(subcommand)]
-    pub subcommand: DepsSubcommand,
+    pub subcommand: Option<AgentHooksSubcommand>,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum DepsSubcommand {
-    /// Check dependencies from an agent command hook
-    Hook(HookCommands),
+pub enum AgentHooksSubcommand {
+    /// Install an agent dependency hook
+    Install(AgentHookInstall),
+
+    /// Remove an agent dependency hook
+    #[command(alias = "uninstall")]
+    Remove(AgentHookInstall),
 }
 
-#[derive(Debug, Args)]
-pub struct HookCommands {
-    #[clap(subcommand)]
-    pub subcommand: Option<HookSubcommand>,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum HookSubcommand {
-    /// Install the dependency hook for an agent in this repository
-    Install(HookInstall),
-
-    /// Remove the dependency hook from an agent configuration
-    #[command(alias = "remove")]
-    Uninstall(HookInstall),
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum AgentHook {
+    Deps,
 }
 
 #[derive(Debug, clap::Args)]
-pub struct HookInstall {
+pub struct AgentHookInstall {
+    /// Hook to install or remove
+    #[arg(value_enum)]
+    pub hook: AgentHook,
+
     /// Agent configuration to modify
     #[arg(value_enum)]
     pub agent: HookAgent,

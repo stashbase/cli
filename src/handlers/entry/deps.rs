@@ -3,19 +3,15 @@ use std::{fs, io::Read, path::Path};
 
 use crate::{
     api::dependencies::check_batch,
-    cmd::deps::{DepsCommands, DepsSubcommand, HookAgent, HookSubcommand},
+    cmd::deps::{AgentHooksCommand, AgentHooksSubcommand, HookAgent},
     models::dependencies::{DependencyCheckRequest, DependencyDecision},
 };
 
-pub async fn handle_deps_commands(cmd: DepsCommands, api_key: String) -> Result<()> {
+pub async fn handle_agent_hooks_commands(cmd: AgentHooksCommand, api_key: String) -> Result<()> {
     match cmd.subcommand {
-        DepsSubcommand::Hook(command) => match command.subcommand {
-            Some(command) => match command {
-                HookSubcommand::Install(args) => return install_hook(args.agent, args.global),
-                HookSubcommand::Uninstall(args) => return uninstall_hook(args.agent, args.global),
-            },
-            None => return handle_hook(api_key).await,
-        },
+        Some(AgentHooksSubcommand::Install(args)) => return install_hook(args.agent, args.global),
+        Some(AgentHooksSubcommand::Remove(args)) => return uninstall_hook(args.agent, args.global),
+        None => return handle_hook(api_key).await,
     }
 }
 
@@ -283,23 +279,23 @@ fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
             "hooks": [{
                 "type": "command",
                 "if": "Bash(npm install *)",
-                "command": "stashbase deps hook"
+                "command": "stashbase agent hooks"
             }, {
                 "type": "command",
                 "if": "Bash(npm i *)",
-                "command": "stashbase deps hook"
+                "command": "stashbase agent hooks"
             }, {
                 "type": "command",
                 "if": "Bash(bun add *)",
-                "command": "stashbase deps hook"
+                "command": "stashbase agent hooks"
             }, {
                 "type": "command",
                 "if": "Bash(pnpm i *)",
-                "command": "stashbase deps hook"
+                "command": "stashbase agent hooks"
             }, {
                 "type": "command",
                 "if": "Bash(pnpm add *)",
-                "command": "stashbase deps hook"
+                "command": "stashbase agent hooks"
             }]
         }),
     )?;
@@ -358,7 +354,7 @@ fn install_codex_hook(root: &Path, global: bool) -> Result<()> {
             "matcher": "Bash",
             "hooks": [{
                 "type": "command",
-                "command": "stashbase deps hook"
+                "command": "stashbase agent hooks"
             }]
         }),
     )?;
@@ -459,7 +455,7 @@ fn remove_tool_hook(config: &mut serde_json::Value) -> bool {
             let hook_count = hooks.len();
             hooks.retain(|hook| {
                 hook.get("command").and_then(serde_json::Value::as_str)
-                    != Some("stashbase deps hook")
+                    != Some("stashbase agent hooks")
             });
             removed |= hooks.len() != hook_count;
             !hooks.is_empty()
@@ -484,7 +480,7 @@ fn has_dependency_hook(path: &Path) -> Result<bool> {
         .filter_map(serde_json::Value::as_array)
         .flatten()
         .any(|hook| {
-            hook.get("command").and_then(serde_json::Value::as_str) == Some("stashbase deps hook")
+            hook.get("command").and_then(serde_json::Value::as_str) == Some("stashbase agent hooks")
         }))
 }
 
@@ -530,10 +526,10 @@ mod tests {
         let mut config = serde_json::json!({
             "hooks": {
                 "PreToolUse": [{"matcher": "Bash", "hooks": [
-                    {"type": "command", "command": "stashbase deps hook"},
+                    {"type": "command", "command": "stashbase agent hooks"},
                     {"type": "command", "command": "other-hook"}
                 ]}],
-                "PostToolUse": [{"hooks": [{"type": "command", "command": "stashbase deps hook"}]}]
+                "PostToolUse": [{"hooks": [{"type": "command", "command": "stashbase agent hooks"}]}]
             }
         });
         assert!(remove_tool_hook(&mut config));

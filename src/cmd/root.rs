@@ -5,7 +5,6 @@ use crate::cmd::scans::{ScanCommands, ScanConfigSubcommand, ScanSubcommand};
 use super::{
     agent::{AgentCommand, AgentSubcommand},
     config::ConfigCommand,
-    deps::{DepsCommands, DepsSubcommand, HookSubcommand},
     doctor::DoctorCommand,
     environments::EnvironmentCommands,
     generate::GenerateCommand,
@@ -88,9 +87,6 @@ pub enum EntityType {
     #[clap(name = "scan")]
     Scan(ScanCommands),
 
-    /// Manage dependency security hooks
-    Deps(DepsCommands),
-
     /// Manage webhooks
     #[clap(name = "webhooks", aliases = &["web"])]
     Webhooks(WebhookCommand),
@@ -148,6 +144,15 @@ impl EntityType {
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Run(_),
             }) => false,
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Hooks(command),
+            }) => !matches!(
+                command.subcommand,
+                Some(
+                    crate::cmd::deps::AgentHooksSubcommand::Install(_)
+                        | crate::cmd::deps::AgentHooksSubcommand::Remove(_)
+                )
+            ),
             EntityType::Scan(scan_cmd) => match &scan_cmd.subcommand {
                 ScanSubcommand::Install(_) | ScanSubcommand::Uninstall(_) => false,
                 ScanSubcommand::Config(config_cmd) => !matches!(
@@ -156,12 +161,6 @@ impl EntityType {
                 ),
                 _ => true,
             },
-            EntityType::Deps(command) => !matches!(
-                &command.subcommand,
-                DepsSubcommand::Hook(crate::cmd::deps::HookCommands {
-                    subcommand: Some(HookSubcommand::Install(_) | HookSubcommand::Uninstall(_),),
-                })
-            ),
             _ => true,
         }
     }
