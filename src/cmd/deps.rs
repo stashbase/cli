@@ -40,4 +40,5 @@ pub struct AgentHookInstall {
 pub enum HookAgent {
     Claude,
     Codex,
+    Cursor,
 }

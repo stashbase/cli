@@ -29,11 +29,14 @@ async fn handle_hook(api_key: String) -> Result<()> {
         .or_else(|| input.get("event_name"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("PostToolUse");
-    if event == "PreToolUse" {
+    if matches!(event, "PreToolUse" | "preToolUse" | "beforeShellExecution") {
         let Some(dependencies) = parse_preinstall_dependencies(&input)? else {
             return Ok(());
         };
         if dependencies.is_empty() {
+            if event == "beforeShellExecution" {
+                println!("{}", serde_json::json!({"permission": "allow"}));
+            }
             return Ok(());
         }
         return check_pre_install(api_key, dependencies, event).await;
@@ -69,7 +72,20 @@ fn print_pre_hook_response(
         .cloned()
         .collect::<Vec<_>>()
         .join("; ");
-    if blocked {
+    if event == "beforeShellExecution" {
+        let message = if reason.is_empty() {
+            "Dependency check blocked this install.".to_owned()
+        } else {
+            reason.clone()
+        };
+        println!(
+            "{}",
+            serde_json::json!({
+                "permission": if blocked { "deny" } else { "allow" },
+                "user_message": if blocked { message } else { format!("Stashbase dependency warning: {message}") }
+            })
+        );
+    } else if blocked {
         print_pre_hook_denial(event, &reason);
     } else if response.decision == DependencyDecision::Warn {
         println!(
@@ -88,6 +104,13 @@ fn print_pre_hook_response(
 }
 
 fn print_pre_hook_denial(event: &str, reason: &str) {
+    if event == "beforeShellExecution" {
+        println!(
+            "{}",
+            serde_json::json!({"permission": "deny", "user_message": reason})
+        );
+        return;
+    }
     println!(
         "{}",
         serde_json::json!({
@@ -176,6 +199,7 @@ fn install_hook(agent: HookAgent, global: bool) -> Result<()> {
     match agent {
         HookAgent::Claude => install_claude_hook(&root, global),
         HookAgent::Codex => install_codex_hook(&root, global),
+        HookAgent::Cursor => install_cursor_hook(&root, global),
     }
 }
 
@@ -194,6 +218,7 @@ fn uninstall_hook(agent: HookAgent, global: bool) -> Result<()> {
     match agent {
         HookAgent::Claude => uninstall_claude_hook(&root, global),
         HookAgent::Codex => uninstall_codex_hook(&root, global),
+        HookAgent::Cursor => uninstall_cursor_hook(&root, global),
     }
 }
 
@@ -242,6 +267,112 @@ fn uninstall_codex_hook(root: &Path, global: bool) -> Result<()> {
         path.display()
     );
     Ok(())
+}
+
+fn install_cursor_hook(root: &Path, global: bool) -> Result<()> {
+    let directory = root.join(".cursor");
+    let other_path = if global {
+        git2::Repository::discover(".")
+            .ok()
+            .and_then(|repo| repo.workdir().map(Path::to_path_buf))
+            .map(|root| root.join(".cursor/hooks.json"))
+    } else {
+        directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".cursor/hooks.json"))
+    };
+    let path = directory.join("hooks.json");
+    if let Some(other_path) = other_path.as_deref().filter(|other| *other != path) {
+        if has_cursor_dependency_hook(other_path)? {
+            println!(
+                "Dependency hook already exists in the other Cursor configuration scope; remove it before installing in {}.",
+                path.display()
+            );
+            return Ok(());
+        }
+    }
+    let mut config = if path.exists() {
+        read_json(&path).context("Failed to read .cursor/hooks.json.")?
+    } else {
+        serde_json::json!({})
+    };
+    config["version"] = serde_json::json!(1);
+    let events = config
+        .as_object_mut()
+        .context("Cursor hook configuration root must be a JSON object.")?
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+    let entries = events
+        .as_object_mut()
+        .context("Cursor hook configuration 'hooks' must be an object.")?
+        .entry("beforeShellExecution")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .context("Cursor beforeShellExecution hooks must be an array.")?;
+    if !entries.iter().any(|entry| {
+        entry.get("command").and_then(serde_json::Value::as_str) == Some("stashbase agent hooks")
+    }) {
+        entries.push(serde_json::json!({
+            "command": "stashbase agent hooks",
+            "matcher": "(npm\\s+(install|i)|bun\\s+(add|install)|pnpm\\s+(add|install|i))\\s+\\S+",
+            "failClosed": true
+        }));
+    }
+    write_json(&path, &config)?;
+    println!(
+        "Installed {} Cursor dependency hook in {}",
+        if global { "global" } else { "project" },
+        path.display()
+    );
+    Ok(())
+}
+
+fn uninstall_cursor_hook(root: &Path, global: bool) -> Result<()> {
+    let path = root.join(".cursor/hooks.json");
+    if !path.exists() {
+        println!("No Cursor dependency hook found in {}", path.display());
+        return Ok(());
+    }
+    let mut config = read_json(&path).context("Failed to read .cursor/hooks.json.")?;
+    if !remove_cursor_hook(&mut config) {
+        println!("No Cursor dependency hook found in {}", path.display());
+        return Ok(());
+    }
+    write_json(&path, &config)?;
+    println!(
+        "Removed {} Cursor dependency hook from {}",
+        if global { "global" } else { "project" },
+        path.display()
+    );
+    Ok(())
+}
+
+fn has_cursor_dependency_hook(path: &Path) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let config = read_json(path)?;
+    Ok(config
+        .pointer("/hooks/beforeShellExecution")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|entry| {
+            entry.get("command").and_then(serde_json::Value::as_str)
+                == Some("stashbase agent hooks")
+        }))
+}
+
+fn remove_cursor_hook(config: &mut serde_json::Value) -> bool {
+    let Some(entries) = config
+        .pointer_mut("/hooks/beforeShellExecution")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return false;
+    };
+    let before = entries.len();
+    entries.retain(|entry| {
+        entry.get("command").and_then(serde_json::Value::as_str) != Some("stashbase agent hooks")
+    });
+    before != entries.len()
 }
 
 fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
@@ -494,7 +625,7 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_preinstall_dependencies, remove_tool_hook};
+    use super::{parse_preinstall_dependencies, remove_cursor_hook, remove_tool_hook};
 
     #[test]
     fn parses_multiple_preinstall_packages_with_optional_versions() {
@@ -542,6 +673,25 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(!remove_tool_hook(&mut config));
+    }
+
+    #[test]
+    fn removes_only_cursor_dependency_hooks() {
+        let mut config = serde_json::json!({
+            "version": 1,
+            "hooks": {
+                "beforeShellExecution": [
+                    {"command": "stashbase agent hooks"},
+                    {"command": "custom hook"}
+                ]
+            }
+        });
+        assert!(remove_cursor_hook(&mut config));
+        assert_eq!(
+            config["hooks"]["beforeShellExecution"],
+            serde_json::json!([{"command": "custom hook"}])
+        );
+        assert!(!remove_cursor_hook(&mut config));
     }
 }
 
