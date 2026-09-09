@@ -628,27 +628,27 @@ stashbase scan install --all
 stashbase scan uninstall pre-commit --file .husky/pre-commit
 ```
 
-### Check dependency security
+### Protect agent dependency installs
 
-Install the dependency security hook for an AI coding agent. It checks package
-install commands before they run:
+Install an agent dependency security hook for Codex or Claude. It checks
+package install commands before they run:
 
 ```bash
 # Install in the current repository
-stashbase deps hook install codex
-stashbase deps hook install claude
+stashbase agent hooks install deps codex
+stashbase agent hooks install deps claude
 
 # Install for all repositories
-stashbase deps hook install codex --global
-stashbase deps hook install claude --global
+stashbase agent hooks install deps codex --global
+stashbase agent hooks install deps claude --global
 
 # Remove hooks from the current repository
-stashbase deps hook uninstall codex
-stashbase deps hook uninstall claude
+stashbase agent hooks remove deps codex
+stashbase agent hooks remove deps claude
 
 # Remove global hooks ("remove" is an alias for "uninstall")
-stashbase deps hook remove codex --global
-stashbase deps hook remove claude --global
+stashbase agent hooks remove deps codex --global
+stashbase agent hooks remove deps claude --global
 ```
 
 The hook supports npm, Bun, and pnpm. It sends only package names and exact
