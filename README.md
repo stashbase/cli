@@ -630,26 +630,32 @@ stashbase scan uninstall pre-commit --file .husky/pre-commit
 
 ### Protect agent dependency installs
 
-Install an agent dependency security hook for Codex or Claude. It checks
+Install an agent dependency security hook for Codex, Claude, or Cursor. It checks
 package install commands before they run:
 
 ```bash
 # Install in the current repository
 stashbase agent hooks install deps codex
 stashbase agent hooks install deps claude
+stashbase agent hooks install deps cursor
 
 # Install for all repositories
 stashbase agent hooks install deps codex --global
 stashbase agent hooks install deps claude --global
+stashbase agent hooks install deps cursor --global
 
 # Remove hooks from the current repository
 stashbase agent hooks remove deps codex
 stashbase agent hooks remove deps claude
+stashbase agent hooks remove deps cursor
 
 # Remove global hooks ("remove" is an alias for "uninstall")
 stashbase agent hooks remove deps codex --global
 stashbase agent hooks remove deps claude --global
+stashbase agent hooks remove deps cursor --global
 ```
+
+`dependencies` is also accepted as an alias for `deps`.
 
 The hook supports npm, Bun, and pnpm. It sends only package names and exact
 versions, or a package name when the install command omits a version, to

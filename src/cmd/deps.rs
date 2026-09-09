@@ -18,6 +18,7 @@ pub enum AgentHooksSubcommand {
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 pub enum AgentHook {
+    #[value(alias = "dependencies")]
     Deps,
 }
 
