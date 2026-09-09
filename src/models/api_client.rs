@@ -46,6 +46,7 @@ pub enum ApiPath {
     Scan {
         path: String,
     },
+    DependenciesCheck,
     Workspace {
         path: Option<String>,
     },
@@ -88,6 +89,7 @@ impl fmt::Display for ApiPath {
                 None => write!(f, "v1/environment/secrets"),
             },
             ApiPath::Scan { path } => write!(f, "v1/scan/{}", path),
+            ApiPath::DependenciesCheck => write!(f, "v1/dependencies/check"),
             ApiPath::Workspace { path } => match path {
                 Some(p) => {
                     write!(f, "v1/workspace/{}", p)
