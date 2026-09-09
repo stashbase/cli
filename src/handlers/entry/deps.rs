@@ -250,6 +250,26 @@ fn uninstall_codex_hook(root: &Path, global: bool) -> Result<()> {
 
 fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
     let path = root.join(".claude/settings.json");
+    let other_path = if global {
+        git2::Repository::discover(".")
+            .ok()
+            .and_then(|repo| repo.workdir().map(Path::to_path_buf))
+            .map(|root| root.join(".claude/settings.json"))
+    } else {
+        directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".claude/settings.json"))
+    };
+    if let Some(other_path) = other_path
+        .as_deref()
+        .filter(|other_path| *other_path != path)
+    {
+        if has_dependency_hook(other_path)? {
+            println!(
+                "Dependency hook already exists in the other Claude configuration scope; remove it before installing in {}.",
+                path.display()
+            );
+            return Ok(());
+        }
+    }
     let mut settings = if path.exists() {
         read_json(&path).context("Failed to read .claude/settings.json.")?
     } else {
@@ -266,7 +286,15 @@ fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
                 "command": "stashbase deps hook"
             }, {
                 "type": "command",
+                "if": "Bash(npm i *)",
+                "command": "stashbase deps hook"
+            }, {
+                "type": "command",
                 "if": "Bash(bun add *)",
+                "command": "stashbase deps hook"
+            }, {
+                "type": "command",
+                "if": "Bash(pnpm i *)",
                 "command": "stashbase deps hook"
             }, {
                 "type": "command",
@@ -292,6 +320,30 @@ fn install_codex_hook(root: &Path, global: bool) -> Result<()> {
     } else {
         root.join(".codex")
     };
+    let other_directory = if global {
+        git2::Repository::discover(".")
+            .ok()
+            .and_then(|repo| repo.workdir().map(Path::to_path_buf))
+            .map(|root| root.join(".codex"))
+    } else {
+        directories::BaseDirs::new().map(|dirs| {
+            std::env::var_os("CODEX_HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| dirs.home_dir().join(".codex"))
+        })
+    };
+    if let Some(other_directory) = other_directory
+        .as_deref()
+        .filter(|other_directory| *other_directory != directory)
+    {
+        if has_dependency_hook(&other_directory.join("hooks.json"))? {
+            println!(
+                "Dependency hook already exists in the other Codex configuration scope; remove it before installing in {}.",
+                directory.display()
+            );
+            return Ok(());
+        }
+    }
     fs::create_dir_all(&directory)?;
     let path = directory.join("hooks.json");
     let mut hooks = if path.exists() {
@@ -416,6 +468,26 @@ fn remove_tool_hook(config: &mut serde_json::Value) -> bool {
     removed
 }
 
+fn has_dependency_hook(path: &Path) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let config = read_json(path)?;
+    Ok(config
+        .pointer("/hooks")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|events| events.values())
+        .filter_map(serde_json::Value::as_array)
+        .flatten()
+        .filter_map(|entry| entry.get("hooks"))
+        .filter_map(serde_json::Value::as_array)
+        .flatten()
+        .any(|hook| {
+            hook.get("command").and_then(serde_json::Value::as_str) == Some("stashbase deps hook")
+        }))
+}
+
 fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -430,6 +502,18 @@ mod tests {
 
     #[test]
     fn parses_multiple_preinstall_packages_with_optional_versions() {
+        for command in [
+            "bun add lodash minimist@1.2.5",
+            "npm i lodash",
+            "pnpm i lodash",
+        ] {
+            let dependencies = parse_preinstall_dependencies(&serde_json::json!({
+                "tool_input": { "command": command }
+            }))
+            .unwrap()
+            .unwrap();
+            assert!(!dependencies.is_empty());
+        }
         let dependencies = parse_preinstall_dependencies(&serde_json::json!({
             "tool_input": { "command": "bun add lodash minimist@1.2.5" }
         }))

@@ -21,7 +21,6 @@ pub enum InputValidationError {
     PushPullEnvironment(PushPullInputValidationError),
     Webhook(WebhookInputValidationError),
     Scan(ScanInputValidationError),
-    Dependencies(DependencyInputValidationError),
 }
 
 #[derive(Debug, Serialize)]
@@ -194,35 +193,6 @@ pub enum ScanInputValidationError {
     InvalidIgnoreSecretRegex { regex: String, message: String },
     InvalidIgnoreSecretHash { hash: String },
 }
-
-#[derive(Debug, Serialize)]
-pub enum DependencyInputValidationError {
-    RepositoryNotFound,
-    RepositoryAccess {
-        message: String,
-    },
-    PackageJsonNotFound,
-    FileRead {
-        path: String,
-        message: String,
-    },
-    FileParse {
-        path: String,
-        message: String,
-    },
-    LockfileNotFound,
-    NoDependencies,
-    MissingLockedVersion {
-        name: String,
-    },
-    InvalidLockedVersion {
-        name: String,
-        version: String,
-        message: String,
-    },
-}
-
-impl std::error::Error for DependencyInputValidationError {}
 
 #[derive(Debug, Serialize)]
 pub enum PushPullInputValidationError {
@@ -399,17 +369,6 @@ impl fmt::Display for ScanInputValidationError {
     }
 }
 
-impl fmt::Display for DependencyInputValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (msg, hint) = self.message_and_hint();
-        writeln!(f, "  Message: {msg}")?;
-        if let Some(hint) = hint {
-            write!(f, "  Hint: {hint}")?;
-        }
-        Ok(())
-    }
-}
-
 impl fmt::Display for YamlEnvConfigError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
@@ -453,7 +412,6 @@ impl fmt::Display for InputValidationError {
             InputValidationError::AgentProfile(inner) => write!(f, "{}", inner),
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
             InputValidationError::Scan(inner) => write!(f, "{}", inner),
-            InputValidationError::Dependencies(inner) => write!(f, "{}", inner),
             InputValidationError::MissingApiKey => {
                 writeln!(
                     f,
@@ -941,57 +899,6 @@ impl YamlEnvConfigError {
     }
 }
 
-impl DependencyInputValidationError {
-    pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
-        match self {
-            Self::RepositoryNotFound => (
-                "Not a git repository.",
-                Some("Run this command inside a repository with package.json."),
-            ),
-            Self::RepositoryAccess { message } => (
-                "Could not access the git repository.",
-                Some(Box::leak(message.clone().into_boxed_str())),
-            ),
-            Self::PackageJsonNotFound => (
-                "No package.json file found.",
-                Some("Run this command from a JavaScript repository root."),
-            ),
-            Self::FileRead { path, message } => (
-                "Failed to read a dependency file.",
-                Some(Box::leak(format!("{}: {}", path, message).into_boxed_str())),
-            ),
-            Self::FileParse { path, message } => (
-                "Failed to parse a dependency file.",
-                Some(Box::leak(format!("{}: {}", path, message).into_boxed_str())),
-            ),
-            Self::LockfileNotFound => (
-                "No supported dependency lockfile found.",
-                Some("An exact version lockfile is required."),
-            ),
-            Self::NoDependencies => (
-                "No npm dependencies found in package.json.",
-                Some("Add at least one dependency before running the check."),
-            ),
-            Self::MissingLockedVersion { name } => (
-                "No exact locked version found.",
-                Some(Box::leak(
-                    format!("Add '{}' to the lockfile and try again.", name).into_boxed_str(),
-                )),
-            ),
-            Self::InvalidLockedVersion {
-                name,
-                version,
-                message,
-            } => (
-                "A locked dependency version is invalid.",
-                Some(Box::leak(
-                    format!("{}@{}: {}", name, version, message).into_boxed_str(),
-                )),
-            ),
-        }
-    }
-}
-
 impl LoadEnvironmentInputValidationError {
     pub fn message_and_hint_and_secrets(
         &self,
@@ -1282,10 +1189,6 @@ impl InputValidationError {
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
             InputValidationError::Scan(inner) => {
-                let (m, h) = inner.message_and_hint();
-                MessageHint { message: m, hint: h, secrets: vec![] }
-            }
-            InputValidationError::Dependencies(inner) => {
                 let (m, h) = inner.message_and_hint();
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
