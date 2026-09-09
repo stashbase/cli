@@ -35,6 +35,7 @@ use crate::{
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
             config::handle_config_commands,
+            deps::handle_deps_commands,
             environments::handle_environment_commands,
             generate::handle_generate_command,
             projects::handle_project_commands,
@@ -1229,6 +1230,7 @@ pub async fn handle_cli(args: Cli) {
                 handle_push(args).await
             }
             EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent).await,
+            EntityType::Deps(cmd) => handle_deps_commands(cmd, api_key).await,
             EntityType::Open => handle_open_dashboard(api_key, silent).await,
             EntityType::Generate(_) => unreachable!(),
             EntityType::Doctor(_) => unreachable!(),

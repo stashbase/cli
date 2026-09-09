@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod config;
+pub mod deps;
 pub mod doctor;
 pub mod environments;
 pub mod generate;

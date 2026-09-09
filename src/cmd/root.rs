@@ -5,6 +5,7 @@ use crate::cmd::scans::{ScanCommands, ScanConfigSubcommand, ScanSubcommand};
 use super::{
     agent::{AgentCommand, AgentSubcommand},
     config::ConfigCommand,
+    deps::{DepsCommands, DepsSubcommand, HookSubcommand},
     doctor::DoctorCommand,
     environments::EnvironmentCommands,
     generate::GenerateCommand,
@@ -87,6 +88,9 @@ pub enum EntityType {
     #[clap(name = "scan")]
     Scan(ScanCommands),
 
+    /// Manage dependency security hooks
+    Deps(DepsCommands),
+
     /// Manage webhooks
     #[clap(name = "webhooks", aliases = &["web"])]
     Webhooks(WebhookCommand),
@@ -152,6 +156,12 @@ impl EntityType {
                 ),
                 _ => true,
             },
+            EntityType::Deps(command) => !matches!(
+                &command.subcommand,
+                DepsSubcommand::Hook(crate::cmd::deps::HookCommands {
+                    subcommand: Some(HookSubcommand::Install(_) | HookSubcommand::Uninstall(_),),
+                })
+            ),
             _ => true,
         }
     }
