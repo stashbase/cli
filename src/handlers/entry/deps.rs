@@ -138,6 +138,8 @@ fn parse_preinstall_dependencies(
     .find_map(serde_json::Value::as_str) else {
         return Ok(None);
     };
+    let mut dependencies = Vec::new();
+    let mut found_install = false;
     for segment in command.split(['&', '|', ';']) {
         let words = segment
             .split_whitespace()
@@ -154,7 +156,7 @@ fn parse_preinstall_dependencies(
             if !is_manager || !is_install {
                 continue;
             }
-            let mut dependencies = Vec::new();
+            found_install = true;
             for spec in words[index + 2..]
                 .iter()
                 .copied()
@@ -162,10 +164,10 @@ fn parse_preinstall_dependencies(
             {
                 dependencies.push(parse_package_spec(spec)?);
             }
-            return Ok(Some(dependencies));
+            break;
         }
     }
-    Ok(None)
+    Ok(found_install.then_some(dependencies))
 }
 
 fn parse_package_spec(spec: &str) -> Result<DependencyCheckRequest> {
@@ -421,11 +423,19 @@ fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
                 "command": "stashbase agent hooks"
             }, {
                 "type": "command",
+                "if": "Bash(bun install *)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
                 "if": "Bash(pnpm i *)",
                 "command": "stashbase agent hooks"
             }, {
                 "type": "command",
                 "if": "Bash(pnpm add *)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(pnpm install *)",
                 "command": "stashbase agent hooks"
             }]
         }),
@@ -625,7 +635,13 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_preinstall_dependencies, remove_cursor_hook, remove_tool_hook};
+    use super::{
+        install_claude_hook, parse_preinstall_dependencies, remove_cursor_hook, remove_tool_hook,
+    };
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn parses_multiple_preinstall_packages_with_optional_versions() {
@@ -650,6 +666,42 @@ mod tests {
         assert_eq!(dependencies[0].name, "lodash");
         assert_eq!(dependencies[0].version, None);
         assert_eq!(dependencies[1].version.as_deref(), Some("1.2.5"));
+    }
+
+    #[test]
+    fn parses_all_chained_preinstall_commands() {
+        let dependencies = parse_preinstall_dependencies(&serde_json::json!({
+            "tool_input": { "command": "npm install safe && npm install malicious" }
+        }))
+        .unwrap()
+        .unwrap();
+        assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies[0].name, "safe");
+        assert_eq!(dependencies[1].name, "malicious");
+    }
+
+    #[test]
+    fn installs_claude_hooks_for_all_package_manager_aliases() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("stashbase-claude-hook-test-{suffix}"));
+
+        install_claude_hook(&root, true).unwrap();
+        let settings: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join(".claude/settings.json")).unwrap())
+                .unwrap();
+        let matchers = settings["hooks"]["PreToolUse"][0]["hooks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|hook| hook["if"].as_str())
+            .collect::<Vec<_>>();
+
+        assert!(matchers.contains(&"Bash(bun install *)"));
+        assert!(matchers.contains(&"Bash(pnpm install *)"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
