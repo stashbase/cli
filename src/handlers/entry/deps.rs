@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use std::{fs, io::Read, path::Path};
+use std::{collections::BTreeSet, fs, io::Read, path::Path};
 
 use crate::{
     api::dependencies::check_batch,
@@ -149,7 +149,7 @@ fn parse_preinstall_dependencies(
             let is_manager = matches!(words[index], "npm" | "bun" | "pnpm" | "yarn");
             let is_install = matches!(
                 (words[index], words[index + 1]),
-                ("npm", "install" | "i")
+                ("npm", "install" | "i" | "ci")
                     | ("bun", "add" | "install")
                     | ("pnpm", "add" | "install" | "i")
                     | ("yarn", "add" | "install")
@@ -168,7 +168,95 @@ fn parse_preinstall_dependencies(
             break;
         }
     }
+    if found_install && dependencies.is_empty() {
+        dependencies = root_dependency_requests(input)?;
+    }
     Ok(found_install.then_some(dependencies))
+}
+
+fn root_dependency_requests(input: &serde_json::Value) -> Result<Vec<DependencyCheckRequest>> {
+    let root = input
+        .get("cwd")
+        .and_then(serde_json::Value::as_str)
+        .map(Path::new)
+        .map(Path::to_path_buf)
+        .or_else(|| std::env::current_dir().ok())
+        .context("Could not determine the project directory for dependency scanning.")?;
+    let manifest = root.join("package.json");
+    if !manifest.exists() {
+        return Ok(Vec::new());
+    }
+    let manifest = read_json(&manifest)?;
+    let names = [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+    ]
+    .into_iter()
+    .filter_map(|field| manifest.get(field).and_then(serde_json::Value::as_object))
+    .flat_map(|dependencies| dependencies.keys().cloned())
+    .collect::<BTreeSet<_>>();
+    let versions = root_lockfile_versions(&root, &names);
+    names
+        .into_iter()
+        .map(|name| match versions.get(&name) {
+            Some(version) => DependencyCheckRequest::new(&name, version)
+                .map_err(|error| anyhow::anyhow!("Cannot check dependency '{name}': {error}")),
+            None => DependencyCheckRequest::latest(name)
+                .map_err(|error| anyhow::anyhow!("Cannot check dependency: {error}")),
+        })
+        .collect()
+}
+
+fn root_lockfile_versions(
+    root: &Path,
+    names: &BTreeSet<String>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut versions = std::collections::BTreeMap::new();
+    if let Ok(lockfile) = read_json(&root.join("package-lock.json")) {
+        if let Some(packages) = lockfile
+            .get("packages")
+            .and_then(serde_json::Value::as_object)
+        {
+            for name in names {
+                if let Some(version) = packages
+                    .get(&format!("node_modules/{name}"))
+                    .and_then(|package| package.get("version"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    versions.insert(name.clone(), version.to_owned());
+                }
+            }
+        }
+    }
+    if let Some(lockfile) = fs::read_to_string(root.join("pnpm-lock.yaml"))
+        .ok()
+        .and_then(|contents| serde_yaml::from_str::<serde_yaml::Value>(&contents).ok())
+    {
+        let importer = lockfile
+            .as_mapping()
+            .and_then(|root| root.get(serde_yaml::Value::String("importers".to_owned())))
+            .and_then(serde_yaml::Value::as_mapping)
+            .and_then(|importers| importers.get(serde_yaml::Value::String(".".to_owned())));
+        if let Some(importer) = importer {
+            for field in ["dependencies", "devDependencies", "optionalDependencies"] {
+                if let Some(entries) = importer.get(field).and_then(serde_yaml::Value::as_mapping) {
+                    for name in names {
+                        if let Some(version) = entries
+                            .get(serde_yaml::Value::String(name.clone()))
+                            .and_then(|entry| entry.get("version").or(Some(entry)))
+                            .and_then(serde_yaml::Value::as_str)
+                            .map(|version| version.split('(').next().unwrap_or(version))
+                        {
+                            versions.insert(name.clone(), version.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    versions
 }
 
 fn parse_package_spec(spec: &str) -> Result<DependencyCheckRequest> {
@@ -315,7 +403,7 @@ fn install_cursor_hook(root: &Path, global: bool) -> Result<()> {
     }) {
         entries.push(serde_json::json!({
             "command": "stashbase agent hooks",
-            "matcher": "(npm\\s+(install|i)|bun\\s+(add|install)|pnpm\\s+(add|install|i)|yarn\\s+(add|install))\\s+\\S+",
+            "matcher": "(npm\\s+(install|i|ci)|bun\\s+(add|install)|pnpm\\s+(add|install|i)|yarn\\s+(add|install))(?:\\s+\\S+)?",
             "failClosed": true
         }));
     }
@@ -445,6 +533,30 @@ fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
             }, {
                 "type": "command",
                 "if": "Bash(yarn install *)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(npm install)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(npm i)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(npm ci)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(bun install)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(pnpm install)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(yarn install)",
                 "command": "stashbase agent hooks"
             }]
         }),
@@ -702,6 +814,53 @@ mod tests {
         }))
         .unwrap()
         .is_none());
+    }
+
+    #[test]
+    fn scans_root_dependencies_at_lockfile_versions() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("stashbase-root-deps-test-{suffix}"));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"lodash":"^4.17.0"},"devDependencies":{"vitest":"^2.0.0"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("package-lock.json"),
+            r#"{"lockfileVersion":3,"packages":{"node_modules/lodash":{"version":"4.17.21"},"node_modules/vitest":{"version":"2.1.9"}}}"#,
+        )
+        .unwrap();
+
+        let dependencies = parse_preinstall_dependencies(&serde_json::json!({
+            "cwd": root,
+            "tool_input": { "command": "npm ci" }
+        }))
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies[0].version.as_deref(), Some("4.17.21"));
+        assert_eq!(dependencies[1].version.as_deref(), Some("2.1.9"));
+
+        fs::remove_file(root.join("package-lock.json")).unwrap();
+        fs::write(
+            root.join("pnpm-lock.yaml"),
+            "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n      lodash:\n        specifier: ^4.17.0\n        version: 4.17.21\n    devDependencies:\n      vitest:\n        specifier: ^2.0.0\n        version: 2.1.9\n",
+        )
+        .unwrap();
+        let dependencies = parse_preinstall_dependencies(&serde_json::json!({
+            "cwd": root,
+            "tool_input": { "command": "pnpm install" }
+        }))
+        .unwrap()
+        .unwrap();
+        assert_eq!(dependencies[0].version.as_deref(), Some("4.17.21"));
+        assert_eq!(dependencies[1].version.as_deref(), Some("2.1.9"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
