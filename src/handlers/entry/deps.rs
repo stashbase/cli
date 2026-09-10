@@ -10,8 +10,53 @@ use crate::{
 pub async fn handle_agent_hooks_commands(cmd: AgentHooksCommand, api_key: String) -> Result<()> {
     match cmd.subcommand {
         Some(AgentHooksSubcommand::Install(args)) => return install_hook(args.agent, args.global),
+        Some(AgentHooksSubcommand::Check(args)) => return check_hook(args.agent, args.global),
         Some(AgentHooksSubcommand::Remove(args)) => return uninstall_hook(args.agent, args.global),
         None => return handle_hook(api_key).await,
+    }
+}
+
+fn check_hook(agent: HookAgent, global: bool) -> Result<()> {
+    let root = if global {
+        directories::BaseDirs::new()
+            .map(|dirs| dirs.home_dir().to_path_buf())
+            .context("Could not determine the home directory for global hooks.")?
+    } else {
+        git2::Repository::discover(".")
+            .context("Hook check must run inside a git repository.")?
+            .workdir()
+            .map(Path::to_path_buf)
+            .context("Git repository has no working directory.")?
+    };
+    let (path, installed) = match agent {
+        HookAgent::Claude => {
+            let path = root.join(".claude/settings.json");
+            let installed = has_dependency_hook(&path)?;
+            (path, installed)
+        }
+        HookAgent::Codex => {
+            let directory = if global {
+                std::env::var_os("CODEX_HOME")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| root.join(".codex"))
+            } else {
+                root.join(".codex")
+            };
+            let path = directory.join("hooks.json");
+            let installed = has_dependency_hook(&path)?;
+            (path, installed)
+        }
+        HookAgent::Cursor => {
+            let path = root.join(".cursor/hooks.json");
+            let installed = has_cursor_dependency_hook(&path)?;
+            (path, installed)
+        }
+    };
+    if installed {
+        println!("Dependency hook installed in {}", path.display());
+        Ok(())
+    } else {
+        bail!("No dependency hook found in {}", path.display());
     }
 }
 

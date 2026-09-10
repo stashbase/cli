@@ -12,6 +12,9 @@ pub enum AgentHooksSubcommand {
     #[command(alias = "add")]
     Install(AgentHookInstall),
 
+    /// Check whether an agent dependency hook is installed
+    Check(AgentHookInstall),
+
     /// Remove an agent dependency hook
     #[command(alias = "uninstall")]
     Remove(AgentHookInstall),
@@ -25,11 +28,11 @@ pub enum AgentHook {
 
 #[derive(Debug, clap::Args)]
 pub struct AgentHookInstall {
-    /// Hook to install or remove
+    /// Hook to install, check, or remove
     #[arg(value_enum)]
     pub hook: AgentHook,
 
-    /// Agent configuration to modify
+    /// Agent configuration to inspect or modify
     #[arg(value_enum)]
     pub agent: HookAgent,
 
