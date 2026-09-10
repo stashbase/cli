@@ -3,15 +3,17 @@ use std::{collections::BTreeSet, fs, io::Read, path::Path};
 
 use crate::{
     api::dependencies::check_batch,
-    cmd::deps::{AgentHooksCommand, AgentHooksSubcommand, HookAgent},
+    cmd::deps::{AgentDepsSubcommand, AgentHooksCommand, AgentHooksSubcommand, HookAgent},
     models::dependencies::{DependencyCheckRequest, DependencyDecision},
 };
 
 pub async fn handle_agent_hooks_commands(cmd: AgentHooksCommand, api_key: String) -> Result<()> {
     match cmd.subcommand {
-        Some(AgentHooksSubcommand::Install(args)) => return install_hook(args.agent, args.global),
-        Some(AgentHooksSubcommand::Check(args)) => return check_hook(args.agent, args.global),
-        Some(AgentHooksSubcommand::Remove(args)) => return uninstall_hook(args.agent, args.global),
+        Some(AgentHooksSubcommand::Deps(args)) => match args.subcommand {
+            AgentDepsSubcommand::Install(args) => install_hook(args.agent, args.global),
+            AgentDepsSubcommand::Check(args) => check_hook(args.agent, args.global),
+            AgentDepsSubcommand::Uninstall(args) => uninstall_hook(args.agent, args.global),
+        },
         None => return handle_hook(api_key).await,
     }
 }

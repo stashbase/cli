@@ -8,30 +8,32 @@ pub struct AgentHooksCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentHooksSubcommand {
-    /// Install an agent dependency hook
-    #[command(alias = "add")]
-    Install(AgentHookInstall),
-
-    /// Check whether an agent dependency hook is installed
-    Check(AgentHookInstall),
-
-    /// Remove an agent dependency hook
-    #[command(alias = "uninstall")]
-    Remove(AgentHookInstall),
+    /// Manage dependency hooks
+    Deps(AgentDepsCommand),
 }
 
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
-pub enum AgentHook {
-    #[value(alias = "dependencies")]
-    Deps,
+#[derive(Debug, Args)]
+pub struct AgentDepsCommand {
+    #[clap(subcommand)]
+    pub subcommand: AgentDepsSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentDepsSubcommand {
+    /// Install a dependency hook
+    #[command(alias = "add")]
+    Install(AgentHookTarget),
+
+    /// Check whether a dependency hook is installed
+    Check(AgentHookTarget),
+
+    /// Remove a dependency hook
+    #[command(alias = "remove")]
+    Uninstall(AgentHookTarget),
 }
 
 #[derive(Debug, clap::Args)]
-pub struct AgentHookInstall {
-    /// Hook to install, check, or remove
-    #[arg(value_enum)]
-    pub hook: AgentHook,
-
+pub struct AgentHookTarget {
     /// Agent configuration to inspect or modify
     #[arg(value_enum)]
     pub agent: HookAgent,

@@ -148,10 +148,7 @@ impl EntityType {
                 subcommand: AgentSubcommand::Hooks(command),
             }) => !matches!(
                 command.subcommand,
-                Some(
-                    crate::cmd::deps::AgentHooksSubcommand::Install(_)
-                        | crate::cmd::deps::AgentHooksSubcommand::Remove(_)
-                )
+                Some(crate::cmd::deps::AgentHooksSubcommand::Deps(_))
             ),
             EntityType::Scan(scan_cmd) => match &scan_cmd.subcommand {
                 ScanSubcommand::Install(_) | ScanSubcommand::Uninstall(_) => false,
