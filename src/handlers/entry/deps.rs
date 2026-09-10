@@ -146,12 +146,13 @@ fn parse_preinstall_dependencies(
             .map(|word| word.trim_matches(['\'', '"']))
             .collect::<Vec<_>>();
         for index in 0..words.len().saturating_sub(1) {
-            let is_manager = matches!(words[index], "npm" | "bun" | "pnpm");
+            let is_manager = matches!(words[index], "npm" | "bun" | "pnpm" | "yarn");
             let is_install = matches!(
                 (words[index], words[index + 1]),
                 ("npm", "install" | "i")
                     | ("bun", "add" | "install")
                     | ("pnpm", "add" | "install" | "i")
+                    | ("yarn", "add" | "install")
             );
             if !is_manager || !is_install {
                 continue;
@@ -314,7 +315,7 @@ fn install_cursor_hook(root: &Path, global: bool) -> Result<()> {
     }) {
         entries.push(serde_json::json!({
             "command": "stashbase agent hooks",
-            "matcher": "(npm\\s+(install|i)|bun\\s+(add|install)|pnpm\\s+(add|install|i))\\s+\\S+",
+            "matcher": "(npm\\s+(install|i)|bun\\s+(add|install)|pnpm\\s+(add|install|i)|yarn\\s+(add|install))\\s+\\S+",
             "failClosed": true
         }));
     }
@@ -436,6 +437,14 @@ fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
             }, {
                 "type": "command",
                 "if": "Bash(pnpm install *)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(yarn add *)",
+                "command": "stashbase agent hooks"
+            }, {
+                "type": "command",
+                "if": "Bash(yarn install *)",
                 "command": "stashbase agent hooks"
             }]
         }),
@@ -636,7 +645,8 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        install_claude_hook, parse_preinstall_dependencies, remove_cursor_hook, remove_tool_hook,
+        install_claude_hook, install_cursor_hook, parse_preinstall_dependencies,
+        remove_cursor_hook, remove_tool_hook,
     };
     use std::{
         fs,
@@ -649,6 +659,7 @@ mod tests {
             "bun add lodash minimist@1.2.5",
             "npm i lodash",
             "pnpm i lodash",
+            "yarn add lodash",
         ] {
             let dependencies = parse_preinstall_dependencies(&serde_json::json!({
                 "tool_input": { "command": command }
@@ -671,13 +682,26 @@ mod tests {
     #[test]
     fn parses_all_chained_preinstall_commands() {
         let dependencies = parse_preinstall_dependencies(&serde_json::json!({
-            "tool_input": { "command": "npm install safe && npm install malicious" }
+            "tool_input": {
+                "command": "npm install safe && npm install malicious || bun add another; pnpm i final"
+            }
         }))
         .unwrap()
         .unwrap();
-        assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies.len(), 4);
         assert_eq!(dependencies[0].name, "safe");
         assert_eq!(dependencies[1].name, "malicious");
+        assert_eq!(dependencies[2].name, "another");
+        assert_eq!(dependencies[3].name, "final");
+    }
+
+    #[test]
+    fn ignores_commands_without_installs() {
+        assert!(parse_preinstall_dependencies(&serde_json::json!({
+            "tool_input": { "command": "npm run build" }
+        }))
+        .unwrap()
+        .is_none());
     }
 
     #[test]
@@ -701,6 +725,18 @@ mod tests {
 
         assert!(matchers.contains(&"Bash(bun install *)"));
         assert!(matchers.contains(&"Bash(pnpm install *)"));
+        assert!(matchers.contains(&"Bash(yarn add *)"));
+        assert!(matchers.contains(&"Bash(yarn install *)"));
+
+        install_cursor_hook(&root, true).unwrap();
+        let hooks: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join(".cursor/hooks.json")).unwrap())
+                .unwrap();
+        assert!(hooks["hooks"]["beforeShellExecution"][0]["matcher"]
+            .as_str()
+            .unwrap()
+            .contains("yarn\\s+(add|install)"));
+
         fs::remove_dir_all(root).unwrap();
     }
 
