@@ -635,32 +635,41 @@ package install commands before they run:
 
 ```bash
 # Install in the current repository
-stashbase agent hooks install deps codex
-stashbase agent hooks install deps claude
-stashbase agent hooks install deps cursor
+stashbase agent hooks deps install codex
+stashbase agent hooks deps install claude
+stashbase agent hooks deps install cursor
 
 # Install for all repositories
-stashbase agent hooks install deps codex --global
-stashbase agent hooks install deps claude --global
-stashbase agent hooks install deps cursor --global
+stashbase agent hooks deps install codex --global
+stashbase agent hooks deps install claude --global
+stashbase agent hooks deps install cursor --global
+
+# Check whether a hook is installed (exit status is non-zero when missing)
+stashbase agent hooks deps check claude
+stashbase agent hooks deps check claude --global
 
 # Remove hooks from the current repository
-stashbase agent hooks remove deps codex
-stashbase agent hooks remove deps claude
-stashbase agent hooks remove deps cursor
+stashbase agent hooks deps uninstall codex
+stashbase agent hooks deps uninstall claude
+stashbase agent hooks deps uninstall cursor
 
 # Remove global hooks ("remove" is an alias for "uninstall")
-stashbase agent hooks remove deps codex --global
-stashbase agent hooks remove deps claude --global
-stashbase agent hooks remove deps cursor --global
+stashbase agent hooks deps uninstall codex --global
+stashbase agent hooks deps uninstall claude --global
+stashbase agent hooks deps uninstall cursor --global
 ```
 
 `dependencies` is also accepted as an alias for `deps`.
 
-The hook supports npm, Bun, and pnpm. It sends only package names and exact
-versions, or a package name when the install command omits a version, to
-Stashbase. A blocked dependency stops before installation; warnings are shown
-and the install may continue according to the agent's hook behavior.
+The hook supports npm, Bun, pnpm, and Yarn. For package-specific installs it
+sends only package names and exact versions, or a package name when the install
+command omits a version, to Stashbase. For project-wide installs such as
+`npm ci` or bare `npm install`, it scans only the direct dependencies declared
+in the root `package.json` and uses exact versions from npm or pnpm lockfiles
+when available. Otherwise it sends the package name without a version. It does
+not scan transitive dependencies, so this is not a full dependency-tree audit.
+A blocked dependency stops before installation; warnings are shown and the
+install may continue according to the agent's hook behavior.
 
 ### Diagnose CLI setup
 
