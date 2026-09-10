@@ -177,3 +177,19 @@ pub enum WhoamiOutputFormat {
     Table,
     Json,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn parses_dependency_hook_command_aliases() {
+        for action in ["install", "add", "uninstall", "remove"] {
+            assert!(Cli::try_parse_from(
+                ["stashbase", "agent", "hooks", "deps", action, "claude",]
+            )
+            .is_ok());
+        }
+    }
+}
