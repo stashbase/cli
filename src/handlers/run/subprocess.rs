@@ -81,6 +81,12 @@ pub async fn run_command_with_filesystem_policy(
     audit_log: Option<super::proxy::ProxyAuditLog>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
+    #[cfg(target_os = "macos")]
+    let args = codex_args_with_outer_sandbox(
+        command,
+        args,
+        !denied_read_paths.is_empty() || !denied_write_paths.is_empty(),
+    );
     let (program, launcher_args) = sandbox_command_with_filesystem_policy(
         command,
         sandbox,
@@ -216,6 +222,28 @@ pub async fn run_command_with_filesystem_policy(
     Ok(status)
 }
 
+#[cfg(target_os = "macos")]
+fn codex_args_with_outer_sandbox(
+    command: &str,
+    mut args: Vec<String>,
+    has_outer_sandbox: bool,
+) -> Vec<String> {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    if has_outer_sandbox
+        && is_codex
+        && !args
+            .iter()
+            .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
+    {
+        // Seatbelt profiles cannot be nested. The outer Stashbase profile remains
+        // the enforcement boundary for every command Codex starts.
+        args.insert(0, "--dangerously-bypass-approvals-and-sandbox".to_owned());
+    }
+    args
+}
+
 fn should_inherit_terminal_streams(stdin_is_terminal: bool, stderr_is_terminal: bool) -> bool {
     stdin_is_terminal && stderr_is_terminal
 }
@@ -346,7 +374,6 @@ fn sandbox_command_with_filesystem_policy(
     }
 }
 
-#[cfg(target_os = "macos")]
 #[cfg(target_os = "macos")]
 fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
     let mut rules = Vec::new();
@@ -723,7 +750,7 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 #[cfg(all(test, unix))]
 mod tests {
     #[cfg(target_os = "macos")]
-    use super::sandbox_command_with_filesystem_policy;
+    use super::{codex_args_with_outer_sandbox, sandbox_command_with_filesystem_policy};
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
         should_inherit_terminal_streams,
@@ -1023,6 +1050,63 @@ mod tests {
 
         assert_eq!(program, "/usr/bin/sandbox-exec");
         assert!(args[1].contains("(deny file-read* (subpath \"/tmp/private-agent-file\"))"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_codex_uses_outer_sandbox_without_nesting() {
+        assert_eq!(
+            codex_args_with_outer_sandbox("/opt/homebrew/bin/codex", vec!["exec".to_owned()], true),
+            vec![
+                "--dangerously-bypass-approvals-and-sandbox".to_owned(),
+                "exec".to_owned(),
+            ]
+        );
+        assert_eq!(
+            codex_args_with_outer_sandbox("codex", vec!["exec".to_owned()], false),
+            vec!["exec".to_owned()]
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_filesystem_policy_allows_atomic_edits_of_other_files() {
+        use std::{fs, process::Command};
+
+        let _guard = environment_lock().lock().unwrap();
+        let root =
+            std::env::temp_dir().join(format!("stashbase-seatbelt-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("allowed.txt"), "before").unwrap();
+        fs::write(root.join("blocked.txt"), "before").unwrap();
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&root).unwrap();
+
+        let (program, args) = sandbox_command_with_filesystem_policy(
+            "/bin/sh",
+            false,
+            &HashMap::new(),
+            &[],
+            &["blocked.txt".to_owned()],
+        )
+        .unwrap();
+        let status = Command::new(program)
+            .args(args)
+            .args(["-c", "printf allowed > allowed.tmp && mv allowed.tmp allowed.txt; printf blocked > blocked.tmp && mv blocked.tmp blocked.txt"])
+            .status()
+            .unwrap();
+
+        std::env::set_current_dir(previous).unwrap();
+        assert!(!status.success());
+        assert_eq!(
+            fs::read_to_string(root.join("allowed.txt")).unwrap(),
+            "allowed"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("blocked.txt")).unwrap(),
+            "before"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "linux")]
