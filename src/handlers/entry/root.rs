@@ -732,6 +732,11 @@ pub async fn handle_cli(args: Cli) {
                         }
                     }
 
+                    let dependency_hooks_requested = profile
+                        .allow_hooks
+                        .iter()
+                        .any(|hook| hook == "dependency_check");
+                    let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !silent {
                         if agent_run.sandbox {
                             eprintln!("Network sandbox: enabled");
@@ -743,12 +748,17 @@ pub async fn handle_cli(args: Cli) {
                         print_agent_egress_warnings(&profile);
                         eprintln!(
                             "API hook broker: {}",
-                            if dependency_hooks_enabled(&profile, &api_key) {
+                            if dependency_hooks {
                                 "enabled (dependency_check)"
                             } else {
                                 "disabled"
                             }
                         );
+                        if dependency_hooks_requested && !dependency_hooks {
+                            eprintln!(
+                                "Warning: dependency_check is configured but no API key is available; dependency checks are disabled."
+                            );
+                        }
                     }
 
                     let egress_only = profile.secrets.bindings.is_empty()
@@ -790,7 +800,6 @@ pub async fn handle_cli(args: Cli) {
                     }
 
                     let is_remote = agent_run.remote;
-                    let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !is_remote && !profile.personal_credentials.is_empty() {
                         let error = InputValidationError::Run(
                             crate::models::validation::RunInputValidationError::PersonalCredentialsRequireRemote,
