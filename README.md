@@ -241,6 +241,19 @@ environment = "development"
 hosts = ["api.github.com"]
 ```
 
+The profile hook capability is only needed for hooks that make authenticated
+Stashbase API requests, such as the installed Claude, Codex, or Cursor
+dependency hook. Local-only hooks do not need this setting. To let the
+dependency hook check packages during a proxied run, opt in explicitly:
+
+```toml
+allow_hooks = ["dependency_check"]
+```
+
+The parent CLI keeps the API key and exposes only a short-lived, exact local
+dependency-check route to the child. Without this capability the hook is a
+deliberate no-op; startup prints the selected status.
+
 Profiles can instead use a fixed local secrets file. The profile owns this path;
 the agent cannot provide a different file at runtime.
 
