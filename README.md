@@ -294,12 +294,15 @@ Filesystem enforcement uses the supported macOS or Linux process sandbox; see
 the [agent-profile cookbook](docs/agent-profiles.md) for platform requirements
 and limitations.
 
-On macOS, filesystem rules wrap the agent in `sandbox-exec` even without
-`--sandbox`. Agents that apply their own macOS sandbox, including Codex's patch
-helper, can then fail with `sandbox_apply: Operation not permitted`. Omit
-`[filesystem]` for those agents. These rules reduce accidental exposure; for
-strong isolation, run the agent in a container or VM with only a clean working
-copy mounted.
+On macOS, filesystem rules wrap the agent in Seatbelt even without `--sandbox`.
+Seatbelt cannot be nested, so Codex's inner sandbox is disabled for that run;
+Stashbase uses one outer profile for its configured filesystem denies and the
+basic workspace boundary needed for normal Codex operation. Codex state under
+`CODEX_HOME` (or `~/.codex`) remains writable and approval prompts stay active.
+This does not extend or equal Codex's full Seatbelt policy, and it is not
+hostile-process or full-machine isolation; protection is limited to the paths
+and boundaries Stashbase defines. Use `--sandbox` for network containment and a
+container or VM with a clean working copy for stronger isolation.
 
 On Linux, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
 `ReadOnlyPaths`. If the systemd user session is unavailable, it probes and can

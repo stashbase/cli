@@ -208,13 +208,16 @@ Existing file descriptors and data already loaded into process memory are
 outside this policy.
 
 On macOS, any non-empty filesystem policy wraps the agent in Seatbelt even
-without `--sandbox`; `--sandbox` only adds network restrictions. An agent that
-creates its own macOS sandbox can fail to apply patches or generate diffs—for
-example, Codex may report `sandbox_apply: Operation not permitted`. Omit
-`[filesystem]` when running those agents. Filesystem rules reduce accidental
-local exposure; they are not same-user hostile-agent isolation. Use a
-container or VM with only a clean working copy mounted when the original
-checkout must be inaccessible to the agent.
+without `--sandbox`; `--sandbox` only adds network restrictions. Seatbelt cannot
+be nested, so Codex's inner sandbox is disabled for that run. Stashbase uses one
+outer profile for its configured filesystem denies and the basic workspace
+boundary needed for normal Codex operation. Codex state under `CODEX_HOME` (or
+`~/.codex`) remains writable and approval prompts stay active. This does not
+extend or equal Codex's full Seatbelt policy, and it is not same-user
+hostile-agent or full-machine isolation; protection is limited to the paths and
+boundaries Stashbase defines. Use `--sandbox` for network containment and a
+container or VM with a clean working copy when the original checkout must be
+inaccessible to the agent.
 
 Blocked access is reported as a structured policy error when the denial passes
 through the agent proxy.
