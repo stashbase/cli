@@ -240,19 +240,27 @@ fn codex_args_with_outer_sandbox(
     {
         return args;
     }
-    for index in 0..args.len() {
+    let mut found_sandbox = false;
+    let mut index = 0;
+    while index < args.len() {
         if args[index] == "--sandbox" {
             if let Some(mode) = args.get_mut(index + 1) {
                 *mode = "danger-full-access".to_owned();
             } else {
                 args.push("danger-full-access".to_owned());
             }
-            return args;
-        }
-        if args[index].starts_with("--sandbox=") {
+            found_sandbox = true;
+            index += 2;
+        } else if args[index].starts_with("--sandbox=") {
             args[index] = "--sandbox=danger-full-access".to_owned();
-            return args;
+            found_sandbox = true;
+            index += 1;
+        } else {
+            index += 1;
         }
+    }
+    if found_sandbox {
+        return args;
     }
     {
         // Seatbelt profiles cannot be nested. The outer Stashbase profile remains
@@ -1112,6 +1120,22 @@ mod tests {
                 true,
             ),
             vec!["--sandbox=danger-full-access".to_owned(), "exec".to_owned()]
+        );
+        assert_eq!(
+            codex_args_with_outer_sandbox(
+                "codex",
+                vec![
+                    "--sandbox".to_owned(),
+                    "read-only".to_owned(),
+                    "--sandbox=workspace-write".to_owned(),
+                ],
+                true,
+            ),
+            vec![
+                "--sandbox".to_owned(),
+                "danger-full-access".to_owned(),
+                "--sandbox=danger-full-access".to_owned(),
+            ]
         );
     }
 
