@@ -1,6 +1,7 @@
 # Stashbase CLI
 
-The Stashbase CLI is the official command-line tool for the Stashbase secrets management platform for developers.
+The official CLI for Stashbase, a security platform for building and shipping software with developers, services, and coding agents.
+Manage secrets across projects and environments, scan code for exposed credentials, and apply guardrails to agent access, tools, files, and dependencies.
 
 ## Table of Contents
 
@@ -14,6 +15,7 @@ The Stashbase CLI is the official command-line tool for the Stashbase secrets ma
 You have multiple options to install the Stashbase CLI, either via package managers, shell script or you can just download the binary from the [releases](https://github.com/stashbase/cli/releases) page directly.
 
 Beta platform support:
+
 - macOS Apple Silicon
 - Linux x64
 - Windows x64
@@ -60,6 +62,7 @@ scoop install stashbase
 For full documentation, please visit [Stashbase CLI Documentation](https://docs.stashbase.dev/cli).
 
 ### First-time setup
+
 You can run the interactive setup command to configure the CLI for the first time.
 
 ```bash
@@ -70,6 +73,7 @@ Setup asks for a profile name and pre-fills `default`; press Enter to keep the
 standard one-workspace setup.
 
 ### Authenticate with Stashbase
+
 If you don't set the API Key during setup, you can set it later manually.
 You can generate an API Key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
 
@@ -105,6 +109,7 @@ override the selected profile's stored key, which is useful in CI.
 ### API key storage
 
 `stashbase config api-key set` stores your API key in the OS secure credential store:
+
 - macOS: Keychain
 - Linux: Secret Service (`secret-tool`)
 - Windows: DPAPI-encrypted local secret file
@@ -154,7 +159,7 @@ stashbase run --file .env.production -- npm run dev
 stashbase run --file secrets.yaml -- npm run dev
 ```
 
-### Agent Proxy 
+### Agent Proxy
 
 `run --proxy` starts an in-process, localhost-only HTTP proxy for the lifetime
 of the child command. Instead of receiving the loaded secret, the child receives
@@ -201,7 +206,7 @@ For safe troubleshooting, set `RUST_LOG=debug`. Proxy diagnostics identify
 only the denied or unreachable destination host; they never include headers or
 secret values.
 
-### Agent profiles 
+### Agent profiles
 
 > **Early access — local exposure reduction, not hostile-agent isolation.**
 > `agent run` keeps profile secrets out of the child environment and proxies
@@ -270,8 +275,6 @@ Then start the agent through the restricted command:
 ```bash
 stashbase agent run --profile coding -- codex
 ```
-
-
 
 Validate a profile without loading any secret before using it:
 
@@ -705,7 +708,6 @@ stashbase doctor --verbose
 Bug fixes, documentation improvements, and improvements of all kinds are always welcome.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
-
 
 ## License
 
