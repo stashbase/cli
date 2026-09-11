@@ -231,11 +231,29 @@ fn codex_args_with_outer_sandbox(
     let is_codex = PathBuf::from(command)
         .file_stem()
         .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
-    if has_outer_sandbox
-        && is_codex
-        && !args
-            .iter()
-            .any(|arg| arg == "--sandbox" || arg == "--dangerously-bypass-approvals-and-sandbox")
+    if !has_outer_sandbox || !is_codex {
+        return args;
+    }
+    if args
+        .iter()
+        .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
+    {
+        return args;
+    }
+    for index in 0..args.len() {
+        if args[index] == "--sandbox" {
+            if let Some(mode) = args.get_mut(index + 1) {
+                *mode = "danger-full-access".to_owned();
+            } else {
+                args.push("danger-full-access".to_owned());
+            }
+            return args;
+        }
+        if args[index].starts_with("--sandbox=") {
+            args[index] = "--sandbox=danger-full-access".to_owned();
+            return args;
+        }
+    }
     {
         // Seatbelt profiles cannot be nested. The outer Stashbase profile remains
         // the enforcement boundary for every command Codex starts. Keep Codex's
@@ -1070,6 +1088,30 @@ mod tests {
         assert_eq!(
             codex_args_with_outer_sandbox("codex", vec!["exec".to_owned()], false),
             vec!["exec".to_owned()]
+        );
+        assert_eq!(
+            codex_args_with_outer_sandbox(
+                "codex",
+                vec![
+                    "--sandbox".to_owned(),
+                    "workspace-write".to_owned(),
+                    "exec".to_owned()
+                ],
+                true,
+            ),
+            vec![
+                "--sandbox".to_owned(),
+                "danger-full-access".to_owned(),
+                "exec".to_owned(),
+            ]
+        );
+        assert_eq!(
+            codex_args_with_outer_sandbox(
+                "codex",
+                vec!["--sandbox=read-only".to_owned(), "exec".to_owned()],
+                true,
+            ),
+            vec!["--sandbox=danger-full-access".to_owned(), "exec".to_owned()]
         );
     }
 
