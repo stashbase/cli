@@ -296,13 +296,13 @@ and limitations.
 
 On macOS, filesystem rules wrap the agent in Seatbelt even without `--sandbox`.
 Seatbelt cannot be nested, so Codex's inner sandbox is disabled for that run;
-Stashbase preserves its workspace-write/read-only boundary in the outer profile,
-keeps Codex's approval prompts, and applies the configured filesystem denies.
-Codex state under `CODEX_HOME` (or `~/.codex`) remains writable. The tradeoff is
-that this is a Stashbase-reproduced boundary, not Codex's literal sandbox, and
-it is not hostile-process or full-machine isolation. Use `--sandbox` for network
-containment and a container or VM with a clean working copy for stronger
-isolation.
+Stashbase uses one outer profile for its configured filesystem denies and the
+basic workspace boundary needed for normal Codex operation. Codex state under
+`CODEX_HOME` (or `~/.codex`) remains writable and approval prompts stay active.
+This does not extend or equal Codex's full Seatbelt policy, and it is not
+hostile-process or full-machine isolation; protection is limited to the paths
+and boundaries Stashbase defines. Use `--sandbox` for network containment and a
+container or VM with a clean working copy for stronger isolation.
 
 On Linux, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
 `ReadOnlyPaths`. If the systemd user session is unavailable, it probes and can
