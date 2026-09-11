@@ -82,17 +82,20 @@ pub async fn run_command_with_filesystem_policy(
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
     #[cfg(target_os = "macos")]
-    let args = codex_args_with_outer_sandbox(
+    let (args, codex_boundary) = codex_args_with_outer_sandbox(
         command,
         args,
         !denied_read_paths.is_empty() || !denied_write_paths.is_empty(),
     );
+    #[cfg(not(target_os = "macos"))]
+    let codex_boundary = CodexSandboxBoundary::FullAccess;
     let (program, launcher_args) = sandbox_command_with_filesystem_policy(
         command,
         sandbox,
         &env_vars,
         denied_read_paths,
         denied_write_paths,
+        codex_boundary,
     )?;
     let cmd: Expression = cmd(program, launcher_args)
         .before_spawn(move |cmd| {
@@ -223,28 +226,44 @@ pub async fn run_command_with_filesystem_policy(
 }
 
 #[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CodexSandboxBoundary {
+    FullAccess,
+    WorkspaceWrite,
+    ReadOnly,
+}
+
+#[cfg(not(target_os = "macos"))]
+#[derive(Clone, Copy)]
+enum CodexSandboxBoundary {
+    FullAccess,
+}
+
+#[cfg(target_os = "macos")]
 fn codex_args_with_outer_sandbox(
     command: &str,
     mut args: Vec<String>,
     has_outer_sandbox: bool,
-) -> Vec<String> {
+) -> (Vec<String>, CodexSandboxBoundary) {
     let is_codex = PathBuf::from(command)
         .file_stem()
         .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
     if !has_outer_sandbox || !is_codex {
-        return args;
+        return (args, CodexSandboxBoundary::FullAccess);
     }
     if args
         .iter()
         .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
     {
-        return args;
+        return (args, CodexSandboxBoundary::FullAccess);
     }
+    let mut boundary = CodexSandboxBoundary::WorkspaceWrite;
     let mut found_sandbox = false;
     let mut index = 0;
     while index < args.len() {
         if args[index] == "--sandbox" {
             if let Some(mode) = args.get_mut(index + 1) {
+                boundary = codex_boundary_for_mode(mode);
                 *mode = "danger-full-access".to_owned();
             } else {
                 args.push("danger-full-access".to_owned());
@@ -252,6 +271,7 @@ fn codex_args_with_outer_sandbox(
             found_sandbox = true;
             index += 2;
         } else if args[index].starts_with("--sandbox=") {
+            boundary = codex_boundary_for_mode(args[index].trim_start_matches("--sandbox="));
             args[index] = "--sandbox=danger-full-access".to_owned();
             found_sandbox = true;
             index += 1;
@@ -260,7 +280,7 @@ fn codex_args_with_outer_sandbox(
         }
     }
     if found_sandbox {
-        return args;
+        return (args, boundary);
     }
     {
         // Seatbelt profiles cannot be nested. The outer Stashbase profile remains
@@ -271,7 +291,16 @@ fn codex_args_with_outer_sandbox(
             ["--sandbox".to_owned(), "danger-full-access".to_owned()],
         );
     }
-    args
+    (args, boundary)
+}
+
+#[cfg(target_os = "macos")]
+fn codex_boundary_for_mode(mode: &str) -> CodexSandboxBoundary {
+    match mode {
+        "read-only" => CodexSandboxBoundary::ReadOnly,
+        "danger-full-access" => CodexSandboxBoundary::FullAccess,
+        _ => CodexSandboxBoundary::WorkspaceWrite,
+    }
 }
 
 fn should_inherit_terminal_streams(stdin_is_terminal: bool, stderr_is_terminal: bool) -> bool {
@@ -284,7 +313,14 @@ fn sandbox_command(
     sandbox: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<(String, Vec<String>)> {
-    sandbox_command_with_filesystem_policy(command, sandbox, env_vars, &[], &[])
+    sandbox_command_with_filesystem_policy(
+        command,
+        sandbox,
+        env_vars,
+        &[],
+        &[],
+        CodexSandboxBoundary::FullAccess,
+    )
 }
 
 fn sandbox_command_with_filesystem_policy(
@@ -293,6 +329,7 @@ fn sandbox_command_with_filesystem_policy(
     env_vars: &HashMap<String, String>,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
+    codex_boundary: CodexSandboxBoundary,
 ) -> Result<(String, Vec<String>)> {
     #[cfg(target_os = "linux")]
     let _ = env_vars;
@@ -358,7 +395,9 @@ fn sandbox_command_with_filesystem_policy(
             (allow default)
             {network_rules}
             {}
+            {}
         "#,
+            codex_workspace_rules(codex_boundary),
             denied_file_rules(denied_read_paths, denied_write_paths)
         );
         return Ok((
@@ -402,6 +441,31 @@ fn sandbox_command_with_filesystem_policy(
     {
         anyhow::bail!("--sandbox is currently supported on macOS and systemd-based Linux")
     }
+}
+
+#[cfg(target_os = "macos")]
+fn codex_workspace_rules(boundary: CodexSandboxBoundary) -> String {
+    if boundary == CodexSandboxBoundary::FullAccess {
+        return String::new();
+    }
+    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut rules = vec!["(deny file-write* (subpath \"/\"))".to_owned()];
+    for path in [
+        current_dir.clone(),
+        PathBuf::from("/dev"),
+        PathBuf::from("/private/tmp"),
+        PathBuf::from("/private/var/folders"),
+        PathBuf::from("/private/var/tmp"),
+    ] {
+        if boundary == CodexSandboxBoundary::ReadOnly && path == current_dir {
+            continue;
+        }
+        rules.push(format!(
+            "(allow file-write* (subpath \"{}\"))",
+            escape_sbpl_path(&path.to_string_lossy())
+        ));
+    }
+    format!("\n            {}", rules.join("\n            "))
 }
 
 #[cfg(target_os = "macos")]
@@ -780,7 +844,10 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 #[cfg(all(test, unix))]
 mod tests {
     #[cfg(target_os = "macos")]
-    use super::{codex_args_with_outer_sandbox, sandbox_command_with_filesystem_policy};
+    use super::{
+        codex_args_with_outer_sandbox, codex_workspace_rules, escape_sbpl_path,
+        sandbox_command_with_filesystem_policy, CodexSandboxBoundary,
+    };
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
         should_inherit_terminal_streams,
@@ -1075,6 +1142,7 @@ mod tests {
             &HashMap::new(),
             &["/tmp/private-agent-file".to_owned()],
             &[],
+            CodexSandboxBoundary::FullAccess,
         )
         .unwrap();
 
@@ -1085,58 +1153,84 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_codex_uses_outer_sandbox_without_nesting() {
+        let (args, boundary) =
+            codex_args_with_outer_sandbox("/opt/homebrew/bin/codex", vec!["exec".to_owned()], true);
         assert_eq!(
-            codex_args_with_outer_sandbox("/opt/homebrew/bin/codex", vec!["exec".to_owned()], true),
+            args,
             vec![
                 "--sandbox".to_owned(),
                 "danger-full-access".to_owned(),
                 "exec".to_owned(),
             ]
         );
-        assert_eq!(
-            codex_args_with_outer_sandbox("codex", vec!["exec".to_owned()], false),
-            vec!["exec".to_owned()]
+        assert_eq!(boundary, CodexSandboxBoundary::WorkspaceWrite);
+        let (args, boundary) =
+            codex_args_with_outer_sandbox("codex", vec!["exec".to_owned()], false);
+        assert_eq!(args, vec!["exec".to_owned()]);
+        assert_eq!(boundary, CodexSandboxBoundary::FullAccess);
+        let (args, boundary) = codex_args_with_outer_sandbox(
+            "codex",
+            vec![
+                "--sandbox".to_owned(),
+                "workspace-write".to_owned(),
+                "exec".to_owned(),
+            ],
+            true,
         );
         assert_eq!(
-            codex_args_with_outer_sandbox(
-                "codex",
-                vec![
-                    "--sandbox".to_owned(),
-                    "workspace-write".to_owned(),
-                    "exec".to_owned()
-                ],
-                true,
-            ),
+            args,
             vec![
                 "--sandbox".to_owned(),
                 "danger-full-access".to_owned(),
                 "exec".to_owned(),
             ]
         );
+        assert_eq!(boundary, CodexSandboxBoundary::WorkspaceWrite);
+        let (args, boundary) = codex_args_with_outer_sandbox(
+            "codex",
+            vec!["--sandbox=read-only".to_owned(), "exec".to_owned()],
+            true,
+        );
         assert_eq!(
-            codex_args_with_outer_sandbox(
-                "codex",
-                vec!["--sandbox=read-only".to_owned(), "exec".to_owned()],
-                true,
-            ),
+            args,
             vec!["--sandbox=danger-full-access".to_owned(), "exec".to_owned()]
         );
+        assert_eq!(boundary, CodexSandboxBoundary::ReadOnly);
+        let (args, boundary) = codex_args_with_outer_sandbox(
+            "codex",
+            vec![
+                "--sandbox".to_owned(),
+                "read-only".to_owned(),
+                "--sandbox=workspace-write".to_owned(),
+            ],
+            true,
+        );
         assert_eq!(
-            codex_args_with_outer_sandbox(
-                "codex",
-                vec![
-                    "--sandbox".to_owned(),
-                    "read-only".to_owned(),
-                    "--sandbox=workspace-write".to_owned(),
-                ],
-                true,
-            ),
+            args,
             vec![
                 "--sandbox".to_owned(),
                 "danger-full-access".to_owned(),
                 "--sandbox=danger-full-access".to_owned(),
             ]
         );
+        assert_eq!(boundary, CodexSandboxBoundary::WorkspaceWrite);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_outer_profile_preserves_codex_write_boundaries() {
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_rule = format!(
+            "(allow file-write* (subpath \"{}\"))",
+            escape_sbpl_path(&cwd.to_string_lossy())
+        );
+        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite);
+        assert!(workspace.contains("(deny file-write* (subpath \"/\"))"));
+        assert!(workspace.contains(&cwd_rule));
+
+        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly);
+        assert!(read_only.contains("(deny file-write* (subpath \"/\"))"));
+        assert!(!read_only.contains(&cwd_rule));
     }
 
     #[cfg(target_os = "macos")]
@@ -1159,6 +1253,7 @@ mod tests {
             &HashMap::new(),
             &[],
             &["blocked.txt".to_owned()],
+            CodexSandboxBoundary::FullAccess,
         )
         .unwrap();
         let status = Command::new(program)
