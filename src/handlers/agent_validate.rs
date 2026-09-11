@@ -118,6 +118,7 @@ pub async fn handle_agent_validate_command(
     }
 
     checks.extend(validate_profile(&profile));
+    checks.extend(validate_hook_capabilities(&profile));
     checks.extend(validate_runtime_requirements(&profile));
     if command.remote {
         checks.extend(validate_remote_profile(&profile));
@@ -131,6 +132,7 @@ pub async fn handle_agent_validate_command(
 pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
     let failures = validate_profile(profile)
         .into_iter()
+        .chain(validate_hook_capabilities(profile))
         .chain(validate_runtime_requirements(profile))
         .filter(|check| check.status == Status::Fail)
         .map(|check| format!("{}: {}", check.name, check.message))
@@ -575,6 +577,33 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     checks
 }
 
+fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
+    let unsupported = profile
+        .allow_hooks
+        .iter()
+        .filter(|hook| hook.as_str() != "dependency_check")
+        .collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        return unsupported
+            .into_iter()
+            .map(|hook| {
+                fail(
+                    "Hook capability",
+                    format!("Unsupported hook capability '{hook}'."),
+                )
+            })
+            .collect();
+    }
+    vec![ok(
+        "Hook capabilities",
+        if profile.allow_hooks.is_empty() {
+            "No authenticated API hooks enabled.".to_owned()
+        } else {
+            format!("Enabled: {}.", profile.allow_hooks.join(", "))
+        },
+    )]
+}
+
 fn valid_filesystem_path(path: &str) -> bool {
     !path.is_empty()
         && path == path.trim()
@@ -935,6 +964,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_unsupported_hook_capabilities_in_validate_and_run() {
+        let profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: vec!["anything_else".to_owned()],
+        };
+
+        assert!(validate_hook_capabilities(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail));
+        assert!(ensure_profile_is_valid_for_run(&profile)
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported hook capability 'anything_else'"));
+    }
+
+    #[test]
     fn accepts_exact_hosts_and_subdomain_wildcards() {
         assert!(validate_host("api.github.com", false).is_ok());
         assert!(validate_host("*.githubcopilot.com", false).is_ok());
@@ -1029,6 +1081,7 @@ mod tests {
             },
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
         assert!(validate_profile(&profile)
             .iter()
@@ -1061,6 +1114,7 @@ mod tests {
             },
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         assert!(validate_profile(&profile)
@@ -1079,6 +1133,7 @@ mod tests {
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         assert!(validate_profile(&profile).iter().any(|check| {
@@ -1108,6 +1163,7 @@ mod tests {
                 },
             )]),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         assert!(!validate_profile(&profile)
@@ -1158,6 +1214,7 @@ mod tests {
             },
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
@@ -1190,6 +1247,7 @@ mod tests {
             },
             personal_credentials: HashMap::from([("API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();

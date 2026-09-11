@@ -26,6 +26,9 @@ pub struct AgentProfile {
     /// Optional local-only regression cases for this profile's HTTP policy.
     #[serde(default)]
     pub policy_tests: Vec<AgentPolicyTestCase>,
+    /// Capabilities the agent may use through the local run broker.
+    #[serde(default)]
+    pub allow_hooks: Vec<String>,
 }
 
 /// An MCP endpoint rule. `hosts` and `paths` identify the endpoint, while

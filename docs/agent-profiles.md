@@ -93,6 +93,22 @@ deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
 ```
 
+## Dependency hooks
+
+Hooks that need authenticated Stashbase API access are disabled unless the
+profile explicitly grants their capability. The current example is the
+dependency hook; local-only hooks do not need this setting:
+
+```toml
+allow_hooks = ["dependency_check"]
+```
+
+When enabled, `agent run` gives the child only a short-lived local broker
+token. The parent retains the Stashbase API key and the broker accepts only
+`POST /__stashbase/dependency-check`; it does not grant general API access.
+When omitted, installed dependency hooks are disabled for that profile and
+the run prints `API hook broker: disabled`.
+
 ## HTTP MCP servers
 
 MCP servers can expose many tools through one HTTP endpoint. Define each server

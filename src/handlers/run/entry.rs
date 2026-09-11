@@ -41,6 +41,8 @@ use super::format::format_env_variable_value;
 /// Runs an agent through the localhost relay while credentials stay in the
 /// control-plane's short-lived remote agent-proxy session.
 pub async fn handle_remote_agent_run(
+    api_key: String,
+    hooks_enabled: bool,
     command: Vec<String>,
     policy: super::proxy::ProxyPolicy,
     remote: super::proxy::RemoteProxyConfig,
@@ -56,8 +58,14 @@ pub async fn handle_remote_agent_run(
     let denied_read_paths = policy.denied_read_paths.clone();
     let denied_write_paths = policy.denied_write_paths.clone();
     let command_audit_log = audit_log.clone();
-    let proxy =
-        super::proxy::Proxy::start_remote_with_port(remote, policy, audit_log, proxy_port).await?;
+    let proxy = super::proxy::Proxy::start_remote_with_hook(
+        remote,
+        policy,
+        audit_log,
+        proxy_port,
+        hooks_enabled.then_some(api_key),
+    )
+    .await?;
     let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
     if !silent {
         let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
@@ -119,6 +127,7 @@ pub struct HandleRunArgs {
     pub json_format: bool,
     pub silent: bool,
     pub scope: Option<Scope>,
+    pub dependency_hooks: bool,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
@@ -147,6 +156,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         json_format,
         silent,
         scope,
+        dependency_hooks,
     } = args;
 
     if no_print_secrets {
@@ -205,6 +215,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             silent,
             json_format,
+            false,
+            None,
         )
         .await;
     }
@@ -650,6 +662,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             is_from_file,
             silent,
             json_format,
+            dependency_hooks,
+            Some(api_key.clone()),
         )
         .await?;
 
@@ -690,6 +704,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             silent,
             json_format,
+            dependency_hooks,
+            Some(api_key.clone()),
         )
         .await?;
         return Ok(());
@@ -707,7 +723,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     }
 
     let res = secrets::pull(
-        api_key,
+        api_key.clone(),
         api_project,
         api_environment,
         remote_only,
@@ -841,6 +857,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             is_from_file,
                             silent,
                             json_format,
+                            dependency_hooks,
+                            Some(api_key.clone()),
                         )
                         .await?;
                     } else {
@@ -873,6 +891,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         is_from_file,
                         silent,
                         json_format,
+                        dependency_hooks,
+                        Some(api_key.clone()),
                     )
                     .await?;
                 }
@@ -983,6 +1003,8 @@ async fn handle_run(
     is_from_file: bool,
     silent: bool,
     json_format: bool,
+    dependency_hooks: bool,
+    hook_api_key: Option<String>,
 ) -> anyhow::Result<()> {
     apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
@@ -1107,11 +1129,12 @@ async fn handle_run(
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
-        let proxy = super::proxy::Proxy::start_with_port(
+        let proxy = super::proxy::Proxy::start_with_hook(
             secrets_hash_map,
             proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
             audit_log,
             proxy_port,
+            dependency_hooks.then_some(hook_api_key).flatten(),
         )
         .await?;
         let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;

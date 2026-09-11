@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
+use super::deps::AgentHooksCommand;
+
 #[derive(Debug, Args)]
 pub struct AgentCommand {
     #[command(subcommand)]
@@ -10,6 +12,8 @@ pub struct AgentCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentSubcommand {
+    /// Manage agent hooks
+    Hooks(AgentHooksCommand),
     /// Create a safe starter profile in .stashbase/agents
     Init(AgentInitCommand),
     /// Run an agent through the Stashbase Agent Proxy

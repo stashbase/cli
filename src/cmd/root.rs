@@ -144,6 +144,12 @@ impl EntityType {
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Run(_),
             }) => false,
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Hooks(command),
+            }) => !matches!(
+                command.subcommand,
+                Some(crate::cmd::deps::AgentHooksSubcommand::Deps(_))
+            ),
             EntityType::Scan(scan_cmd) => match &scan_cmd.subcommand {
                 ScanSubcommand::Install(_) | ScanSubcommand::Uninstall(_) => false,
                 ScanSubcommand::Config(config_cmd) => !matches!(
@@ -170,4 +176,20 @@ pub enum WhoamiOutputFormat {
     Plain,
     Table,
     Json,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cli;
+    use clap::Parser;
+
+    #[test]
+    fn parses_dependency_hook_command_aliases() {
+        for action in ["install", "add", "uninstall", "remove"] {
+            assert!(Cli::try_parse_from(
+                ["stashbase", "agent", "hooks", "deps", action, "claude",]
+            )
+            .is_ok());
+        }
+    }
 }

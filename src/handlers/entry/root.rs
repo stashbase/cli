@@ -35,6 +35,7 @@ use crate::{
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
             config::handle_config_commands,
+            deps::handle_agent_hooks_commands,
             environments::handle_environment_commands,
             generate::handle_generate_command,
             projects::handle_project_commands,
@@ -440,7 +441,8 @@ pub async fn handle_cli(args: Cli) {
         let raw_output = args.raw;
         let silent = args.silent;
 
-        let requires_api_key = args.entity_type.requires_api_key();
+        let requires_api_key = args.entity_type.requires_api_key()
+            && !uses_local_dependency_hook_broker(&args.entity_type);
 
         if requires_api_key && api_key.is_none() {
             let error = InputValidationError::MissingApiKey;
@@ -552,6 +554,9 @@ pub async fn handle_cli(args: Cli) {
                     .await
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
+                AgentSubcommand::Hooks(command) => {
+                    handle_agent_hooks_commands(command, api_key).await
+                }
                 AgentSubcommand::Init(agent_init) => {
                     handle_agent_init_command(agent_init, silent, raw_output)
                 }
@@ -727,6 +732,11 @@ pub async fn handle_cli(args: Cli) {
                         }
                     }
 
+                    let dependency_hooks_requested = profile
+                        .allow_hooks
+                        .iter()
+                        .any(|hook| hook == "dependency_check");
+                    let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !silent {
                         if agent_run.sandbox {
                             eprintln!("Network sandbox: enabled");
@@ -736,6 +746,19 @@ pub async fn handle_cli(args: Cli) {
                             );
                         }
                         print_agent_egress_warnings(&profile);
+                        eprintln!(
+                            "API hook broker: {}",
+                            if dependency_hooks {
+                                "enabled (dependency_check)"
+                            } else {
+                                "disabled"
+                            }
+                        );
+                        if dependency_hooks_requested && !dependency_hooks {
+                            eprintln!(
+                                "Warning: dependency_check is configured but no API key is available; dependency checks are disabled."
+                            );
+                        }
                     }
 
                     let egress_only = profile.secrets.bindings.is_empty()
@@ -1060,6 +1083,8 @@ pub async fn handle_cli(args: Cli) {
                             remote_transport_identity,
                         );
                         let result = handle_remote_agent_run(
+                            api_key.clone(),
+                            dependency_hooks,
                             command,
                             policy,
                             crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
@@ -1099,6 +1124,7 @@ pub async fn handle_cli(args: Cli) {
                         set_comments: Vec::new(),
                         print_secrets: None,
                         no_print_secrets: true,
+                        dependency_hooks,
                         config_file: None,
                         file: profile.file,
                         expand_refs: None,
@@ -1154,6 +1180,7 @@ pub async fn handle_cli(args: Cli) {
                     json_format: raw_output,
                     silent,
                     scope: run_cmd.scope,
+                    dependency_hooks: false,
                 };
 
                 handle_load_env_run(args).await
@@ -1262,6 +1289,34 @@ pub async fn handle_cli(args: Cli) {
         }
         eprintln!("{:?}", err);
     }
+}
+
+fn uses_local_dependency_hook_broker(entity_type: &EntityType) -> bool {
+    uses_local_dependency_hook_broker_mode(
+        entity_type,
+        std::env::var(crate::api::dependencies::HOOK_MODE_ENV)
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn dependency_hooks_enabled(profile: &crate::models::agent::AgentProfile, api_key: &str) -> bool {
+    !api_key.is_empty()
+        && profile
+            .allow_hooks
+            .iter()
+            .any(|hook| hook == "dependency_check")
+}
+
+fn uses_local_dependency_hook_broker_mode(entity_type: &EntityType, mode: Option<&str>) -> bool {
+    matches!(
+        entity_type,
+        EntityType::Agent(crate::cmd::agent::AgentCommand {
+            subcommand: AgentSubcommand::Hooks(crate::cmd::deps::AgentHooksCommand {
+                subcommand: None,
+            }),
+        })
+    ) && matches!(mode, Some("broker" | "disabled"))
 }
 
 #[derive(Clone, Copy)]
@@ -1979,14 +2034,17 @@ fn spawn_remote_session_rotation(
 mod tests {
     use super::{
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
-        directory_profile_git_warning, ensure_replacement_session_is_compatible,
-        infer_remote_agent_type, remote_bindings, remote_session_rotation_delay_for,
-        remote_session_transport_identity, remote_source_env_names, secret_child_name,
-        summarize_audit_events,
+        dependency_hooks_enabled, directory_profile_git_warning,
+        ensure_replacement_session_is_compatible, infer_remote_agent_type, remote_bindings,
+        remote_session_rotation_delay_for, remote_session_transport_identity,
+        remote_source_env_names, secret_child_name, summarize_audit_events,
+        uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
+    use crate::cmd::root::Cli;
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
     use crate::models::agent::{AgentBindingProfile, AgentProfile, AgentSecretsProfile};
+    use clap::Parser;
     use std::{
         collections::HashMap,
         fs,
@@ -2028,6 +2086,44 @@ mod tests {
             secret_child_name("GITHUB_TOKEN", &secret, true),
             "GITHUB_TOKEN"
         );
+    }
+
+    #[test]
+    fn brokered_hook_invocation_does_not_require_a_child_api_key() {
+        let hook = Cli::try_parse_from(["stashbase", "agent", "hooks"])
+            .unwrap()
+            .entity_type;
+        assert!(uses_local_dependency_hook_broker_mode(
+            &hook,
+            Some("broker")
+        ));
+        assert!(uses_local_dependency_hook_broker_mode(
+            &hook,
+            Some("disabled")
+        ));
+        assert!(!uses_local_dependency_hook_broker_mode(&hook, None));
+
+        let install =
+            Cli::try_parse_from(["stashbase", "agent", "hooks", "deps", "install", "codex"])
+                .unwrap()
+                .entity_type;
+        assert!(!uses_local_dependency_hook_broker_mode(
+            &install,
+            Some("broker")
+        ));
+    }
+
+    #[test]
+    fn dependency_hooks_require_an_api_key() {
+        let profile: AgentProfile = serde_json::from_value(serde_json::json!({
+            "file": null,
+            "egress_hosts": null,
+            "deny_hosts": null,
+            "allow_hooks": ["dependency_check"]
+        }))
+        .unwrap();
+        assert!(!dependency_hooks_enabled(&profile, ""));
+        assert!(dependency_hooks_enabled(&profile, "key"));
     }
 
     #[test]
@@ -2106,6 +2202,7 @@ mod tests {
                 binding(Some("linear-token")),
             )]),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         let bindings = remote_bindings(&profile);
