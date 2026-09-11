@@ -349,6 +349,7 @@ mod tests {
             .into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         }
     }
 

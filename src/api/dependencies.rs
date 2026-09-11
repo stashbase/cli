@@ -8,11 +8,46 @@ use crate::{
     },
 };
 
+pub const HOOK_MODE_ENV: &str = "STASHBASE_HOOK_MODE";
+pub const HOOK_BROKER_URL_ENV: &str = "STASHBASE_HOOK_BROKER_URL";
+pub const HOOK_BROKER_TOKEN_ENV: &str = "STASHBASE_HOOK_BROKER_TOKEN";
+
 pub async fn check_batch(
     api_key: String,
     dependencies: Vec<DependencyCheckRequest>,
 ) -> Result<DependencyCheckBatchResponse, OutputError> {
     let request = DependencyCheckBatchRequest { dependencies };
+    if std::env::var(HOOK_MODE_ENV).as_deref() == Ok("disabled") {
+        return Ok(DependencyCheckBatchResponse {
+            dependencies: Vec::new(),
+            decision: crate::models::dependencies::DependencyDecision::Allow,
+        });
+    }
+    if std::env::var(HOOK_MODE_ENV).as_deref() == Ok("broker") {
+        let url = std::env::var(HOOK_BROKER_URL_ENV).map_err(|_| OutputError::cannot_connect())?;
+        let token =
+            std::env::var(HOOK_BROKER_TOKEN_ENV).map_err(|_| OutputError::cannot_connect())?;
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|_| OutputError::cannot_connect())?;
+        let response = client
+            .post(url)
+            .bearer_auth(token)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|_| OutputError::cannot_connect())?;
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|_| OutputError::failed_to_read_response_body())?;
+        if !status.is_success() {
+            return Err(OutputError::cannot_connect().with_status(Some(status.as_u16())));
+        }
+        return parse_response(&text);
+    }
     let args = RequestArgs {
         api_key,
         path: ApiPath::DependenciesCheck,

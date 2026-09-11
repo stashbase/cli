@@ -358,6 +358,7 @@ mod tests {
             .into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         let effective = effective_profile(&profile);
@@ -394,6 +395,7 @@ mod tests {
             .into(),
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         let secret = &effective_profile(&profile).secrets.bindings["API_KEY"];
@@ -421,6 +423,7 @@ mod tests {
             secrets: HashMap::from([("GITHUB_TOKEN".to_owned(), binding.clone())]).into(),
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         assert_eq!(binding_count(&profile), 2);

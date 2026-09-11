@@ -14,6 +14,9 @@ const PROFILE_TEMPLATE: &str = r#"# Stashbase Agent Proxy profile.
 # Add only destinations the agent genuinely needs to contact.
 egress_hosts = []
 
+# Enable installed dependency hooks for this profile.
+# allow_hooks = ["dependency_check"]
+
 # Optional: protect sensitive files from agent reads and writes.
 # [filesystem]
 # deny_read = ["~/.ssh", "~/.aws", ".env"]
@@ -118,6 +121,7 @@ mod tests {
     #[test]
     fn template_starts_closed_and_includes_a_generic_rule() {
         assert!(PROFILE_TEMPLATE.contains("egress_hosts = []"));
+        assert!(PROFILE_TEMPLATE.contains("# allow_hooks = [\"dependency_check\"]"));
         assert!(PROFILE_TEMPLATE.contains("[secrets.SECRET_NAME]"));
         assert!(PROFILE_TEMPLATE.contains("[[secrets.SECRET_NAME.rules]]"));
     }

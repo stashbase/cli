@@ -80,6 +80,7 @@ type ProxyFuture = Pin<Box<dyn Future<Output = Result<Response<ProxyBody>, Infal
 const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const AUDIT_LOG_MAX_FILES: usize = 1_000;
 const MCP_INSPECTION_HEADER: &str = "x-stashbase-mcp-inspection";
+const DEPENDENCY_HOOK_PATH: &str = "/__stashbase/dependency-check";
 
 /// One metadata-only event emitted by the local proxy audit log.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -878,6 +879,8 @@ struct ProxyState {
     connections: Arc<ActiveConnections>,
     remote: Option<RemoteProxyConfig>,
     mcp_inspection_token: String,
+    dependency_hook_token: Option<String>,
+    dependency_hook_client: Option<reqwest::Client>,
 }
 
 /// Tracks every accepted proxy and TLS-upgrade task so proxy shutdown closes
@@ -941,7 +944,17 @@ impl Proxy {
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
     ) -> Result<Self> {
-        Self::start_inner(secrets, policy, audit_log, proxy_port, None).await
+        Self::start_inner(secrets, policy, audit_log, proxy_port, None, None, false).await
+    }
+
+    pub async fn start_with_hook(
+        secrets: HashMap<String, String>,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+        api_key: Option<String>,
+    ) -> Result<Self> {
+        Self::start_inner(secrets, policy, audit_log, proxy_port, None, api_key, true).await
     }
 
     pub async fn start_remote_with_port(
@@ -951,7 +964,36 @@ impl Proxy {
         proxy_port: Option<u16>,
     ) -> Result<Self> {
         let placeholders = remote.placeholders.clone();
-        Self::start_inner(placeholders, policy, audit_log, proxy_port, Some(remote)).await
+        Self::start_inner(
+            placeholders,
+            policy,
+            audit_log,
+            proxy_port,
+            Some(remote),
+            None,
+            false,
+        )
+        .await
+    }
+
+    pub async fn start_remote_with_hook(
+        remote: RemoteProxyConfig,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+        api_key: Option<String>,
+    ) -> Result<Self> {
+        let placeholders = remote.placeholders.clone();
+        Self::start_inner(
+            placeholders,
+            policy,
+            audit_log,
+            proxy_port,
+            Some(remote),
+            api_key,
+            true,
+        )
+        .await
     }
 
     async fn start_inner(
@@ -960,6 +1002,8 @@ impl Proxy {
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
         remote: Option<RemoteProxyConfig>,
+        hook_api_key: Option<String>,
+        hook_mode_set: bool,
     ) -> Result<Self> {
         if proxy_port == Some(0) {
             anyhow::bail!("--proxy-port must be between 1 and 65535");
@@ -1053,6 +1097,17 @@ impl Proxy {
             connections: connections.clone(),
             remote,
             mcp_inspection_token: Uuid::new_v4().to_string(),
+            dependency_hook_token: hook_api_key.as_ref().map(|_| Uuid::new_v4().to_string()),
+            dependency_hook_client: hook_api_key.as_ref().map(|api_key| {
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .default_headers(reqwest::header::HeaderMap::from_iter([(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {api_key}").parse().unwrap(),
+                    )]))
+                    .build()
+                    .expect("dependency hook client must build")
+            }),
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -1086,6 +1141,27 @@ impl Proxy {
                 remote_child_env.as_ref(),
             );
             child_env.insert(env_name, placeholder.clone());
+        }
+        if hook_mode_set {
+            child_env.insert(
+                crate::api::dependencies::HOOK_MODE_ENV.to_owned(),
+                if hook_api_key.is_some() {
+                    "broker"
+                } else {
+                    "disabled"
+                }
+                .to_owned(),
+            );
+            if let (Some(token), Some(_)) = (&state.dependency_hook_token, &hook_api_key) {
+                child_env.insert(
+                    crate::api::dependencies::HOOK_BROKER_URL_ENV.to_owned(),
+                    format!("http://{address}{DEPENDENCY_HOOK_PATH}"),
+                );
+                child_env.insert(
+                    crate::api::dependencies::HOOK_BROKER_TOKEN_ENV.to_owned(),
+                    token.clone(),
+                );
+            }
         }
 
         if let Some(audit_log) = &audit_log {
@@ -1472,6 +1548,10 @@ fn proxy_request(
                 .status(StatusCode::OK)
                 .body(full_body(Bytes::new()))
                 .unwrap());
+        }
+
+        if request.uri().path() == DEPENDENCY_HOOK_PATH {
+            return Ok(handle_dependency_hook(request, &state).await);
         }
 
         let request_id = new_local_request_id();
@@ -1946,6 +2026,81 @@ fn proxy_request(
             }
         }
     })
+}
+
+async fn handle_dependency_hook(
+    request: Request<Incoming>,
+    state: &ProxyState,
+) -> Response<ProxyBody> {
+    let authorized = request.method() == Method::POST
+        && request.uri().query().is_none()
+        && state.dependency_hook_token.as_ref().is_some_and(|token| {
+            request
+                .headers()
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value == format!("Bearer {token}"))
+        });
+    if !authorized {
+        return proxy_error_response(
+            StatusCode::FORBIDDEN,
+            "proxy.dependency_hook_not_allowed",
+            "Dependency hook route is not enabled for this run",
+        );
+    }
+    let Some(client) = &state.dependency_hook_client else {
+        return proxy_error_response(
+            StatusCode::FORBIDDEN,
+            "proxy.dependency_hook_not_allowed",
+            "Dependency hook route is not enabled for this run",
+        );
+    };
+    let body = match request.into_body().collect().await {
+        Ok(body) => body.to_bytes(),
+        Err(_) => {
+            return proxy_error_response(
+                StatusCode::BAD_REQUEST,
+                "proxy.invalid_body",
+                "Invalid dependency hook request",
+            )
+        }
+    };
+    let response = match client
+        .post(format!(
+            "{}/v1/dependencies/check",
+            crate::api::client::get_api_url()
+        ))
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => {
+            return proxy_error_response(
+                StatusCode::BAD_GATEWAY,
+                "proxy.dependency_hook_failed",
+                "Dependency check request failed",
+            )
+        }
+    };
+    let status = response.status();
+    let content_type = response.headers().get("content-type").cloned();
+    let body = match response.bytes().await {
+        Ok(body) => body,
+        Err(_) => {
+            return proxy_error_response(
+                StatusCode::BAD_GATEWAY,
+                "proxy.dependency_hook_failed",
+                "Dependency check response failed",
+            )
+        }
+    };
+    let mut builder = Response::builder().status(status);
+    if let Some(content_type) = content_type {
+        builder = builder.header("content-type", content_type);
+    }
+    builder.body(full_body(body)).unwrap()
 }
 
 /// Standard remote-proxy requests are built per request so a new connection
@@ -4363,6 +4518,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dependency_hook_broker_is_opt_in_and_route_scoped() {
+        let enabled = Proxy::start_with_hook(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            Some("parent-api-key".to_owned()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            enabled.child_env()[crate::api::dependencies::HOOK_MODE_ENV],
+            "broker"
+        );
+        assert!(
+            enabled.child_env()[crate::api::dependencies::HOOK_BROKER_URL_ENV]
+                .ends_with(DEPENDENCY_HOOK_PATH)
+        );
+        assert!(!enabled.child_env().contains_key("STASHBASE_API_KEY"));
+        assert!(!enabled.child_env()[crate::api::dependencies::HOOK_BROKER_TOKEN_ENV].is_empty());
+        enabled.stop().await;
+
+        let disabled =
+            Proxy::start_with_hook(HashMap::new(), ProxyPolicy::permissive(), None, None, None)
+                .await
+                .unwrap();
+        assert_eq!(
+            disabled.child_env()[crate::api::dependencies::HOOK_MODE_ENV],
+            "disabled"
+        );
+        assert!(!disabled
+            .child_env()
+            .contains_key(crate::api::dependencies::HOOK_BROKER_URL_ENV));
+        disabled.stop().await;
+    }
+
+    #[tokio::test]
     async fn child_environment_uses_the_binding_name_for_its_default_placeholder() {
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -4513,6 +4705,8 @@ mod tests {
             connections: Arc::new(ActiveConnections::default()),
             remote: None,
             mcp_inspection_token: "inspection-token".to_owned(),
+            dependency_hook_token: None,
+            dependency_hook_client: None,
         };
 
         assert!(state.host_allowed_for_connect(Some("chatgpt.com")));

@@ -173,6 +173,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_dependency_hook_capability() {
+        let profile: crate::models::agent::AgentProfile =
+            toml::from_str(r#"allow_hooks = ["dependency_check"]"#).unwrap();
+
+        assert_eq!(profile.allow_hooks, ["dependency_check"]);
+    }
+
+    #[test]
     fn parses_agent_profile_with_personal_credentials() {
         let config: Config = toml::from_str(
             r#"

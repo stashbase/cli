@@ -441,7 +441,8 @@ pub async fn handle_cli(args: Cli) {
         let raw_output = args.raw;
         let silent = args.silent;
 
-        let requires_api_key = args.entity_type.requires_api_key();
+        let requires_api_key = args.entity_type.requires_api_key()
+            && !uses_local_dependency_hook_broker(&args.entity_type);
 
         if requires_api_key && api_key.is_none() {
             let error = InputValidationError::MissingApiKey;
@@ -740,6 +741,14 @@ pub async fn handle_cli(args: Cli) {
                             );
                         }
                         print_agent_egress_warnings(&profile);
+                        eprintln!(
+                            "Dependency hook: {}",
+                            if profile.allow_hooks.iter().any(|hook| hook == "dependency_check") {
+                                "enabled (broker)"
+                            } else {
+                                "disabled by profile"
+                            }
+                        );
                     }
 
                     let egress_only = profile.secrets.bindings.is_empty()
@@ -1064,6 +1073,8 @@ pub async fn handle_cli(args: Cli) {
                             remote_transport_identity,
                         );
                         let result = handle_remote_agent_run(
+                            api_key.clone(),
+                            profile.allow_hooks.iter().any(|hook| hook == "dependency_check"),
                             command,
                             policy,
                             crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
@@ -1103,6 +1114,7 @@ pub async fn handle_cli(args: Cli) {
                         set_comments: Vec::new(),
                         print_secrets: None,
                         no_print_secrets: true,
+                        dependency_hooks: profile.allow_hooks.iter().any(|hook| hook == "dependency_check"),
                         config_file: None,
                         file: profile.file,
                         expand_refs: None,
@@ -1158,6 +1170,7 @@ pub async fn handle_cli(args: Cli) {
                     json_format: raw_output,
                     silent,
                     scope: run_cmd.scope,
+                    dependency_hooks: false,
                 };
 
                 handle_load_env_run(args).await
@@ -1266,6 +1279,26 @@ pub async fn handle_cli(args: Cli) {
         }
         eprintln!("{:?}", err);
     }
+}
+
+fn uses_local_dependency_hook_broker(entity_type: &EntityType) -> bool {
+    uses_local_dependency_hook_broker_mode(
+        entity_type,
+        std::env::var(crate::api::dependencies::HOOK_MODE_ENV)
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn uses_local_dependency_hook_broker_mode(entity_type: &EntityType, mode: Option<&str>) -> bool {
+    matches!(
+        entity_type,
+        EntityType::Agent(crate::cmd::agent::AgentCommand {
+            subcommand: AgentSubcommand::Hooks(crate::cmd::deps::AgentHooksCommand {
+                subcommand: None,
+            }),
+        })
+    ) && matches!(mode, Some("broker" | "disabled"))
 }
 
 #[derive(Clone, Copy)]
@@ -1986,11 +2019,13 @@ mod tests {
         directory_profile_git_warning, ensure_replacement_session_is_compatible,
         infer_remote_agent_type, remote_bindings, remote_session_rotation_delay_for,
         remote_session_transport_identity, remote_source_env_names, secret_child_name,
-        summarize_audit_events,
+        summarize_audit_events, uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
+    use crate::cmd::root::Cli;
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
     use crate::models::agent::{AgentBindingProfile, AgentProfile, AgentSecretsProfile};
+    use clap::Parser;
     use std::{
         collections::HashMap,
         fs,
@@ -2032,6 +2067,31 @@ mod tests {
             secret_child_name("GITHUB_TOKEN", &secret, true),
             "GITHUB_TOKEN"
         );
+    }
+
+    #[test]
+    fn brokered_hook_invocation_does_not_require_a_child_api_key() {
+        let hook = Cli::try_parse_from(["stashbase", "agent", "hooks"])
+            .unwrap()
+            .entity_type;
+        assert!(uses_local_dependency_hook_broker_mode(
+            &hook,
+            Some("broker")
+        ));
+        assert!(uses_local_dependency_hook_broker_mode(
+            &hook,
+            Some("disabled")
+        ));
+        assert!(!uses_local_dependency_hook_broker_mode(&hook, None));
+
+        let install =
+            Cli::try_parse_from(["stashbase", "agent", "hooks", "deps", "install", "codex"])
+                .unwrap()
+                .entity_type;
+        assert!(!uses_local_dependency_hook_broker_mode(
+            &install,
+            Some("broker")
+        ));
     }
 
     #[test]
@@ -2110,6 +2170,7 @@ mod tests {
                 binding(Some("linear-token")),
             )]),
             policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
         };
 
         let bindings = remote_bindings(&profile);

@@ -76,6 +76,12 @@ async fn handle_hook(api_key: String) -> Result<()> {
         .or_else(|| input.get("event_name"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("PostToolUse");
+    if std::env::var(crate::api::dependencies::HOOK_MODE_ENV).as_deref() == Ok("disabled") {
+        if event == "beforeShellExecution" {
+            println!("{}", serde_json::json!({"permission": "allow"}));
+        }
+        return Ok(());
+    }
     if matches!(event, "PreToolUse" | "preToolUse" | "beforeShellExecution") {
         let Some(dependencies) = parse_preinstall_dependencies(&input)? else {
             return Ok(());
