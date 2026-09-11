@@ -578,17 +578,30 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
 }
 
 fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
-    profile
+    let unsupported = profile
         .allow_hooks
         .iter()
         .filter(|hook| hook.as_str() != "dependency_check")
-        .map(|hook| {
-            fail(
-                "Hook capability",
-                format!("Unsupported hook capability '{hook}'."),
-            )
-        })
-        .collect()
+        .collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        return unsupported
+            .into_iter()
+            .map(|hook| {
+                fail(
+                    "Hook capability",
+                    format!("Unsupported hook capability '{hook}'."),
+                )
+            })
+            .collect();
+    }
+    vec![ok(
+        "Hook capabilities",
+        if profile.allow_hooks.is_empty() {
+            "No authenticated API hooks enabled.".to_owned()
+        } else {
+            format!("Enabled: {}.", profile.allow_hooks.join(", "))
+        },
+    )]
 }
 
 fn valid_filesystem_path(path: &str) -> bool {

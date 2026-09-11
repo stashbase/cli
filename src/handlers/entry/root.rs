@@ -742,11 +742,11 @@ pub async fn handle_cli(args: Cli) {
                         }
                         print_agent_egress_warnings(&profile);
                         eprintln!(
-                            "Dependency hook: {}",
+                            "API hook broker: {}",
                             if profile.allow_hooks.iter().any(|hook| hook == "dependency_check") {
-                                "enabled (broker)"
+                                "enabled (dependency_check)"
                             } else {
-                                "disabled by profile"
+                                "disabled"
                             }
                         );
                     }
