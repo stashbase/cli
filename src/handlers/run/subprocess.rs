@@ -449,14 +449,21 @@ fn codex_workspace_rules(boundary: CodexSandboxBoundary) -> String {
         return String::new();
     }
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let codex_home = env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")));
     let mut rules = vec!["(deny file-write* (subpath \"/\"))".to_owned()];
-    for path in [
+    let mut writable_paths = vec![
         current_dir.clone(),
         PathBuf::from("/dev"),
         PathBuf::from("/private/tmp"),
         PathBuf::from("/private/var/folders"),
         PathBuf::from("/private/var/tmp"),
-    ] {
+    ];
+    if let Some(codex_home) = codex_home {
+        writable_paths.push(codex_home);
+    }
+    for path in writable_paths {
         if boundary == CodexSandboxBoundary::ReadOnly && path == current_dir {
             continue;
         }
@@ -1224,9 +1231,20 @@ mod tests {
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&cwd.to_string_lossy())
         );
+        let codex_home = std::env::var_os("CODEX_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".codex"))
+            })
+            .unwrap();
+        let codex_home_rule = format!(
+            "(allow file-write* (subpath \"{}\"))",
+            escape_sbpl_path(&codex_home.to_string_lossy())
+        );
         let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite);
         assert!(workspace.contains("(deny file-write* (subpath \"/\"))"));
         assert!(workspace.contains(&cwd_rule));
+        assert!(workspace.contains(&codex_home_rule));
 
         let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly);
         assert!(read_only.contains("(deny file-write* (subpath \"/\"))"));
