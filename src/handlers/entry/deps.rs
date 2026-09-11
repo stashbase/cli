@@ -281,6 +281,19 @@ fn root_lockfile_versions(
                     versions.insert(name.clone(), version.to_owned());
                 }
             }
+        } else if let Some(dependencies) = lockfile
+            .get("dependencies")
+            .and_then(serde_json::Value::as_object)
+        {
+            for name in names {
+                if let Some(version) = dependencies
+                    .get(name)
+                    .and_then(|dependency| dependency.get("version"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    versions.insert(name.clone(), version.to_owned());
+                }
+            }
         }
     }
     if let Some(lockfile) = fs::read_to_string(root.join("pnpm-lock.yaml"))
@@ -896,6 +909,21 @@ mod tests {
         .unwrap();
 
         assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies[0].version.as_deref(), Some("4.17.21"));
+        assert_eq!(dependencies[1].version.as_deref(), Some("2.1.9"));
+
+        fs::remove_file(root.join("package-lock.json")).unwrap();
+        fs::write(
+            root.join("package-lock.json"),
+            r#"{"lockfileVersion":1,"dependencies":{"lodash":{"version":"4.17.21"},"vitest":{"version":"2.1.9"}}}"#,
+        )
+        .unwrap();
+        let dependencies = parse_preinstall_dependencies(&serde_json::json!({
+            "cwd": root,
+            "tool_input": { "command": "npm ci" }
+        }))
+        .unwrap()
+        .unwrap();
         assert_eq!(dependencies[0].version.as_deref(), Some("4.17.21"));
         assert_eq!(dependencies[1].version.as_deref(), Some("2.1.9"));
 

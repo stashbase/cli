@@ -743,7 +743,7 @@ pub async fn handle_cli(args: Cli) {
                         print_agent_egress_warnings(&profile);
                         eprintln!(
                             "API hook broker: {}",
-                            if profile.allow_hooks.iter().any(|hook| hook == "dependency_check") {
+                            if dependency_hooks_enabled(&profile, &api_key) {
                                 "enabled (dependency_check)"
                             } else {
                                 "disabled"
@@ -790,6 +790,7 @@ pub async fn handle_cli(args: Cli) {
                     }
 
                     let is_remote = agent_run.remote;
+                    let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !is_remote && !profile.personal_credentials.is_empty() {
                         let error = InputValidationError::Run(
                             crate::models::validation::RunInputValidationError::PersonalCredentialsRequireRemote,
@@ -1074,7 +1075,7 @@ pub async fn handle_cli(args: Cli) {
                         );
                         let result = handle_remote_agent_run(
                             api_key.clone(),
-                            profile.allow_hooks.iter().any(|hook| hook == "dependency_check"),
+                            dependency_hooks,
                             command,
                             policy,
                             crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
@@ -1114,7 +1115,7 @@ pub async fn handle_cli(args: Cli) {
                         set_comments: Vec::new(),
                         print_secrets: None,
                         no_print_secrets: true,
-                        dependency_hooks: profile.allow_hooks.iter().any(|hook| hook == "dependency_check"),
+                        dependency_hooks,
                         config_file: None,
                         file: profile.file,
                         expand_refs: None,
@@ -1288,6 +1289,14 @@ fn uses_local_dependency_hook_broker(entity_type: &EntityType) -> bool {
             .ok()
             .as_deref(),
     )
+}
+
+fn dependency_hooks_enabled(profile: &crate::models::agent::AgentProfile, api_key: &str) -> bool {
+    !api_key.is_empty()
+        && profile
+            .allow_hooks
+            .iter()
+            .any(|hook| hook == "dependency_check")
 }
 
 fn uses_local_dependency_hook_broker_mode(entity_type: &EntityType, mode: Option<&str>) -> bool {
@@ -2016,10 +2025,11 @@ fn spawn_remote_session_rotation(
 mod tests {
     use super::{
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
-        directory_profile_git_warning, ensure_replacement_session_is_compatible,
-        infer_remote_agent_type, remote_bindings, remote_session_rotation_delay_for,
-        remote_session_transport_identity, remote_source_env_names, secret_child_name,
-        summarize_audit_events, uses_local_dependency_hook_broker_mode,
+        dependency_hooks_enabled, directory_profile_git_warning,
+        ensure_replacement_session_is_compatible, infer_remote_agent_type, remote_bindings,
+        remote_session_rotation_delay_for, remote_session_transport_identity,
+        remote_source_env_names, secret_child_name, summarize_audit_events,
+        uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::cmd::root::Cli;
@@ -2092,6 +2102,19 @@ mod tests {
             &install,
             Some("broker")
         ));
+    }
+
+    #[test]
+    fn dependency_hooks_require_an_api_key() {
+        let profile: AgentProfile = serde_json::from_value(serde_json::json!({
+            "file": null,
+            "egress_hosts": null,
+            "deny_hosts": null,
+            "allow_hooks": ["dependency_check"]
+        }))
+        .unwrap();
+        assert!(!dependency_hooks_enabled(&profile, ""));
+        assert!(dependency_hooks_enabled(&profile, "key"));
     }
 
     #[test]
