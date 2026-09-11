@@ -107,7 +107,7 @@ When enabled, `agent run` gives the child only a short-lived local broker
 token. The parent retains the Stashbase API key and the broker accepts only
 `POST /__stashbase/dependency-check`; it does not grant general API access.
 When omitted, installed dependency hooks are disabled for that profile and
-the run prints `Dependency hook: disabled by profile`.
+the run prints `API hook broker: disabled`.
 
 ## HTTP MCP servers
 
