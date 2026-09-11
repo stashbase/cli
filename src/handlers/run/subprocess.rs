@@ -235,11 +235,15 @@ fn codex_args_with_outer_sandbox(
         && is_codex
         && !args
             .iter()
-            .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
+            .any(|arg| arg == "--sandbox" || arg == "--dangerously-bypass-approvals-and-sandbox")
     {
         // Seatbelt profiles cannot be nested. The outer Stashbase profile remains
-        // the enforcement boundary for every command Codex starts.
-        args.insert(0, "--dangerously-bypass-approvals-and-sandbox".to_owned());
+        // the enforcement boundary for every command Codex starts. Keep Codex's
+        // approval policy active while disabling only its inner sandbox.
+        args.splice(
+            0..0,
+            ["--sandbox".to_owned(), "danger-full-access".to_owned()],
+        );
     }
     args
 }
@@ -1058,7 +1062,8 @@ mod tests {
         assert_eq!(
             codex_args_with_outer_sandbox("/opt/homebrew/bin/codex", vec!["exec".to_owned()], true),
             vec![
-                "--dangerously-bypass-approvals-and-sandbox".to_owned(),
+                "--sandbox".to_owned(),
+                "danger-full-access".to_owned(),
                 "exec".to_owned(),
             ]
         );
