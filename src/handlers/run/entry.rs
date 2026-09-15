@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{bail, Context};
@@ -1145,10 +1146,11 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let result = subprocess::run_command_with_filesystem_policy(
+        let child_env = proxy.child_env().clone();
+        let mut command = Box::pin(subprocess::run_command_with_filesystem_policy(
             &cmd,
             args,
-            proxy.child_env().clone(),
+            child_env,
             secret_bindings.keys().cloned().collect(),
             sandbox,
             true,
@@ -1156,9 +1158,22 @@ async fn handle_run(
             &denied_read_paths,
             &denied_write_paths,
             command_audit_log,
-        )
-        .await;
-        proxy.stop().await;
+        ));
+        let mut revoke = Box::pin(async {
+            #[cfg(unix)]
+            {
+                let mut signal =
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())
+                        .expect("SIGUSR1 handler");
+                signal.recv().await;
+            }
+            #[cfg(not(unix))]
+            std::future::pending::<()>().await;
+        });
+        let result = tokio::select! {
+            result = &mut command => { proxy.stop().await; result }
+            _ = &mut revoke => { proxy.stop().await; command.await }
+        };
         if !silent {
             eprintln!("Agent proxy stopped");
         }
@@ -1184,6 +1199,11 @@ async fn handle_run(
     drop(mutex);
 
     let status = command_result?;
+    #[cfg(unix)]
+    if std::io::stdin().is_terminal() {
+        let _ = std::process::Command::new("stty").args(["sane"]).status();
+    }
+    let _ = dialoguer::console::Term::stdout().show_cursor();
     if !status.success() {
         return Err(subprocess::CommandFailed { status }.into());
     }
