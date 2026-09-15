@@ -108,7 +108,16 @@ pub fn revoke_local_session(session_id: &str) -> Result<bool> {
         return Ok(false);
     }
     #[cfg(unix)]
-    let result = unsafe { libc::kill(session.process_id as libc::pid_t, libc::SIGTERM) };
+    let result = unsafe {
+        let pid = session.process_id as libc::pid_t;
+        let process_group = libc::getpgid(pid);
+        let current_group = libc::getpgrp();
+        if process_group > 0 && process_group != current_group {
+            libc::kill(-process_group, libc::SIGTERM)
+        } else {
+            libc::kill(pid, libc::SIGTERM)
+        }
+    };
     #[cfg(windows)]
     let result = Command::new("taskkill")
         .args(["/PID", &session.process_id.to_string(), "/T", "/F"])
@@ -312,7 +321,10 @@ pub async fn handle_revoke(
         if json {
             println!(
                 "{}",
-                serde_json::json!({"session_id": command.session_id, "origin": "local", "revoked": true})
+                crate::utils::output::get_formatted_json_string(
+                    &serde_json::json!({"session_id": command.session_id, "origin": "local", "revoked": true}),
+                    true,
+                )?
             );
         } else {
             println!("Revoked local agent session {}.", command.session_id);
@@ -335,7 +347,10 @@ pub async fn handle_revoke(
     if json {
         println!(
             "{}",
-            serde_json::json!({"session_id": command.session_id, "origin": "remote", "revoked": true})
+            crate::utils::output::get_formatted_json_string(
+                &serde_json::json!({"session_id": command.session_id, "origin": "remote", "revoked": true}),
+                true,
+            )?
         );
     } else {
         println!("Revoked remote agent session {}.", command.session_id);
