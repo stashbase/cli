@@ -151,7 +151,10 @@ impl EntityType {
                     },
             }) => !command.local,
             EntityType::Agent(AgentCommand {
-                subcommand: AgentSubcommand::Revoke(command),
+                subcommand:
+                    AgentSubcommand::Sessions {
+                        command: AgentSessionsSubcommand::Revoke(command),
+                    },
             }) => !command.local,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Hooks(command),

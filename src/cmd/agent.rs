@@ -23,8 +23,6 @@ pub enum AgentSubcommand {
         #[command(subcommand)]
         command: AgentSessionsSubcommand,
     },
-    /// Revoke an active local or remote agent session
-    Revoke(AgentRevokeCommand),
     /// Validate an agent profile without loading secrets or starting a proxy
     Validate(AgentValidateCommand),
     /// Explain how an agent profile would handle an HTTP request without loading secrets
@@ -51,6 +49,8 @@ pub enum AgentSubcommand {
 pub enum AgentSessionsSubcommand {
     /// List active agent sessions
     List(AgentSessionsCommand),
+    /// Revoke an active local or remote agent session
+    Revoke(AgentRevokeCommand),
 }
 
 #[derive(Debug, Args)]
@@ -65,7 +65,7 @@ pub struct AgentSessionsCommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent revoke <SESSION_ID> [--local | --remote]")]
+#[command(override_usage = "agent sessions revoke <SESSION_ID> [--local | --remote]")]
 pub struct AgentRevokeCommand {
     /// Session ID from `agent sessions`
     pub session_id: String,
@@ -546,16 +546,26 @@ mod tests {
             "--remote"
         ])
         .is_err());
-        assert!(Cli::try_parse_from(["stashbase", "agent", "revoke", "session-id"]).is_ok());
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "session-id"]).is_ok()
+        );
         let local =
             Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--local"]).unwrap();
         let remote =
             Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--remote"]).unwrap();
         let all = Cli::try_parse_from(["stashbase", "agent", "sessions", "list"]).unwrap();
-        let local_revoke =
-            Cli::try_parse_from(["stashbase", "agent", "revoke", "session-id", "--local"]).unwrap();
+        let local_revoke = Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "sessions",
+            "revoke",
+            "session-id",
+            "--local",
+        ])
+        .unwrap();
         let remote_revoke =
-            Cli::try_parse_from(["stashbase", "agent", "revoke", "session-id"]).unwrap();
+            Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "session-id"])
+                .unwrap();
         assert!(!local.entity_type.requires_api_key());
         assert!(remote.entity_type.requires_api_key());
         assert!(all.entity_type.requires_api_key());

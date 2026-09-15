@@ -883,7 +883,7 @@ when listed.
 stashbase agent sessions list
 stashbase agent sessions list --local
 stashbase agent sessions list --remote
-stashbase agent revoke <session-id>
+stashbase agent sessions revoke <session-id>
 ```
 
 Revoking a local session terminates its Stashbase CLI process and closes its

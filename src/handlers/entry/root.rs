@@ -9,6 +9,7 @@ use std::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use short_uuid::ShortUuid;
 use tabled::Tabled;
 use tokio::{sync::watch, task::JoinHandle};
 
@@ -568,7 +569,9 @@ pub async fn handle_cli(args: Cli) {
                     )
                     .await
                 }
-                AgentSubcommand::Revoke(command) => {
+                AgentSubcommand::Sessions {
+                    command: crate::cmd::agent::AgentSessionsSubcommand::Revoke(command),
+                } => {
                     crate::handlers::agent_sessions::handle_revoke(
                         command, &api_key, raw_output, silent,
                     )
@@ -919,7 +922,7 @@ pub async fn handle_cli(args: Cli) {
                         profile_source,
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,
                     )?;
-                    let local_session_id = uuid::Uuid::new_v4().to_string();
+                    let local_session_id = format!("ags_{}", ShortUuid::generate());
                     let local_session_agent = infer_remote_agent_type(&agent_run.command).to_owned();
                     let audit_log = (!agent_run.remote)
                         .then(|| {

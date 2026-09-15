@@ -601,7 +601,7 @@ List and revoke active sessions:
 stashbase agent sessions list
 stashbase agent sessions list --local
 stashbase agent sessions list --remote
-stashbase agent revoke <session-id>
+stashbase agent sessions revoke <session-id>
 ```
 
 The combined list includes this machine's local runs and remote sessions owned
