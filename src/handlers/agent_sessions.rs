@@ -15,7 +15,6 @@ use crate::utils::spinner::request_spinner;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalAgentSession {
     pub session_id: String,
-    pub profile: String,
     pub agent: String,
     pub started_at: String,
     process_id: u32,
@@ -25,7 +24,7 @@ pub struct LocalAgentSession {
 pub struct LocalAgentSessionGuard(PathBuf);
 
 impl LocalAgentSessionGuard {
-    pub fn start(session_id: String, profile: String, agent: String) -> Result<Self> {
+    pub fn start(session_id: String, agent: String) -> Result<Self> {
         let directory = session_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
@@ -35,7 +34,6 @@ impl LocalAgentSessionGuard {
 
         let session = LocalAgentSession {
             session_id: session_id.clone(),
-            profile,
             agent,
             started_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             process_id: std::process::id(),
@@ -193,13 +191,7 @@ pub struct AgentSessionRow {
     pub origin: String,
     pub id: String,
     pub agent: String,
-    #[tabled(display_with = "display_optional_profile")]
-    pub profile: Option<String>,
     pub started_at: String,
-}
-
-fn display_optional_profile(profile: &Option<String>) -> String {
-    profile.clone().unwrap_or_default()
 }
 
 impl From<LocalAgentSession> for AgentSessionRow {
@@ -208,7 +200,6 @@ impl From<LocalAgentSession> for AgentSessionRow {
             origin: "local".to_owned(),
             id: session.session_id,
             agent: session.agent,
-            profile: Some(session.profile),
             started_at: session.started_at,
         }
     }
@@ -264,7 +255,6 @@ mod tests {
             origin: "remote".to_owned(),
             id: "session-id".to_owned(),
             agent: "codex".to_owned(),
-            profile: None,
             started_at: "2026-07-03T14:10:07Z".to_owned(),
         };
         assert!(serde_json::to_value(row)
@@ -298,7 +288,6 @@ pub async fn handle_sessions(
                     origin: "remote".to_owned(),
                     id: session.id,
                     agent: "unknown".to_owned(),
-                    profile: None,
                     started_at: format_utc_timestamp(&session.started_at)?,
                 })
             })
