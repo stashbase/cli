@@ -560,6 +560,20 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Init(agent_init) => {
                     handle_agent_init_command(agent_init, silent, raw_output)
                 }
+                AgentSubcommand::Sessions {
+                    command: crate::cmd::agent::AgentSessionsSubcommand::List(command),
+                } => {
+                    crate::handlers::agent_sessions::handle_sessions(
+                        command, &api_key, raw_output, silent,
+                    )
+                    .await
+                }
+                AgentSubcommand::Revoke(command) => {
+                    crate::handlers::agent_sessions::handle_revoke(
+                        command, &api_key, raw_output, silent,
+                    )
+                    .await
+                }
                 AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
                         handle_agent_logs(list.into(), raw_output).await
@@ -905,11 +919,14 @@ pub async fn handle_cli(args: Cli) {
                         profile_source,
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,
                     )?;
+                    let local_session_id = uuid::Uuid::new_v4().to_string();
+                    let local_session_agent = infer_remote_agent_type(&agent_run.command).to_owned();
                     let audit_log = (!agent_run.remote)
                         .then(|| {
                             agent_run.audit_log.then(|| {
-                                ProxyAuditLog::local(
+                                ProxyAuditLog::local_with_session_id(
                                     &agent_run.profile,
+                                    local_session_id.clone(),
                                     policy_fingerprint.clone(),
                                 )
                                 .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
@@ -1105,6 +1122,7 @@ pub async fn handle_cli(args: Cli) {
                         crate::api::remote_proxy::clear_agent_run_cleanup();
                         return result;
                     }
+                    let print_local_session_id = audit_log.is_none();
                     let args = HandleRunArgs {
                         api_key,
                         project: profile.secrets.project,
@@ -1132,6 +1150,18 @@ pub async fn handle_cli(args: Cli) {
                         silent,
                         scope: None,
                     };
+                    let _local_session = if agent_run.remote {
+                        None
+                    } else {
+                        Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
+                            local_session_id.clone(),
+                            agent_run.profile.clone(),
+                            local_session_agent,
+                        )?)
+                    };
+                    if !silent && !agent_run.remote && print_local_session_id {
+                        eprintln!("Agent session: {local_session_id}");
+                    }
                     handle_load_env_run(args).await
                 }
                 .await,

@@ -595,6 +595,20 @@ one JSON event per line as new events arrive. Profile, action, host, and session
 filters use exact matches. Each audited `agent run` prints its session ID at
 startup, which can be passed to `--session`.
 
+List and revoke active sessions:
+
+```bash
+stashbase agent sessions list
+stashbase agent sessions list --local
+stashbase agent sessions list --remote
+stashbase agent revoke <session-id>
+```
+
+The combined list includes this machine's local runs and remote sessions owned
+by the authenticated account. Local revocation stops the local proxy process;
+remote revocation ends the logical Agent Proxy session, including rotated
+tokens.
+
 This is still a local experimental mode. If a profile permits the Stashbase API
 host, a sandboxed agent can still invoke normal `stashbase` commands through the
 proxy using same-user credentials. Use `deny_hosts` for the Stashbase API host

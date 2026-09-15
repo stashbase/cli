@@ -209,10 +209,6 @@ impl ProfileAuditProvenance {
 }
 
 impl ProxyAuditLog {
-    pub fn local(profile: &str, policy_fingerprint: String) -> Result<Self> {
-        Self::local_with_session_id(profile, Uuid::new_v4().to_string(), policy_fingerprint)
-    }
-
     /// Uses the control-plane session identifier so local metadata can be
     /// correlated with future server-side remote-proxy audit events.
     pub fn local_with_session_id(

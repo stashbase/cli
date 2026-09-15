@@ -871,6 +871,25 @@ stashbase agent logs summary --profile coding --by action
 `stashbase agent logs` remains a backward-compatible alias for `stashbase agent
 logs list`.
 
+## Active sessions
+
+`agent sessions list` lists local `agent run` sessions and active remote Agent Proxy
+sessions owned by the authenticated account. Use `--local` or `--remote` to
+limit the results. Local session metadata is kept in the Stashbase config
+directory with owner-only Unix permissions; stale process records are removed
+when listed.
+
+```bash
+stashbase agent sessions list
+stashbase agent sessions list --local
+stashbase agent sessions list --remote
+stashbase agent revoke <session-id>
+```
+
+Revoking a local session terminates its Stashbase CLI process and closes its
+local proxy. Revoking a remote session disables all active tokens for that
+logical run and marks the run ended.
+
 `agent logs summary` groups local metadata-only events into request, injection,
 forward, and denial counts. Its `Denied by` section groups only the proxy
 action and destination host; it never prints secret names, request paths,

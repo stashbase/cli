@@ -5,6 +5,7 @@ pub mod agent_mcp;
 pub mod agent_policy;
 pub mod agent_policy_test;
 pub mod agent_profiles;
+pub mod agent_sessions;
 pub mod agent_validate;
 pub mod config;
 pub mod doctor;

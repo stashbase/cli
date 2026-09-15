@@ -18,6 +18,13 @@ pub enum AgentSubcommand {
     Init(AgentInitCommand),
     /// Run an agent through the Stashbase Agent Proxy
     Run(AgentRunCommand),
+    /// List active agent sessions
+    Sessions {
+        #[command(subcommand)]
+        command: AgentSessionsSubcommand,
+    },
+    /// Revoke an active local or remote agent session
+    Revoke(AgentRevokeCommand),
     /// Validate an agent profile without loading secrets or starting a proxy
     Validate(AgentValidateCommand),
     /// Explain how an agent profile would handle an HTTP request without loading secrets
@@ -38,6 +45,36 @@ pub enum AgentSubcommand {
     McpCheck(AgentMcpCheckCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentSessionsSubcommand {
+    /// List active agent sessions
+    List(AgentSessionsCommand),
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "agent sessions list [--local | --remote]")]
+pub struct AgentSessionsCommand {
+    /// Show only sessions running on this machine
+    #[arg(long, conflicts_with = "remote")]
+    pub local: bool,
+    /// Show only sessions on the Stashbase Agent Proxy
+    #[arg(long, conflicts_with = "local")]
+    pub remote: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(override_usage = "agent revoke <SESSION_ID> [--local | --remote]")]
+pub struct AgentRevokeCommand {
+    /// Session ID from `agent sessions`
+    pub session_id: String,
+    /// Revoke a local session only
+    #[arg(long, conflicts_with = "remote")]
+    pub local: bool,
+    /// Revoke a remote session only
+    #[arg(long, conflicts_with = "local")]
+    pub remote: bool,
 }
 
 #[derive(Debug, Args)]
@@ -488,5 +525,41 @@ mod tests {
             AgentAuditGroupBy::from_str("secret", true),
             Ok(AgentAuditGroupBy::Binding)
         );
+    }
+
+    #[test]
+    fn sessions_command_supports_all_local_and_remote_filters() {
+        use crate::cmd::root::Cli;
+        use clap::Parser;
+
+        assert!(Cli::try_parse_from(["stashbase", "agent", "sessions", "list"]).is_ok());
+        assert!(Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--local"]).is_ok());
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--remote"]).is_ok()
+        );
+        assert!(Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "sessions",
+            "list",
+            "--local",
+            "--remote"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from(["stashbase", "agent", "revoke", "session-id"]).is_ok());
+        let local =
+            Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--local"]).unwrap();
+        let remote =
+            Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--remote"]).unwrap();
+        let all = Cli::try_parse_from(["stashbase", "agent", "sessions", "list"]).unwrap();
+        let local_revoke =
+            Cli::try_parse_from(["stashbase", "agent", "revoke", "session-id", "--local"]).unwrap();
+        let remote_revoke =
+            Cli::try_parse_from(["stashbase", "agent", "revoke", "session-id"]).unwrap();
+        assert!(!local.entity_type.requires_api_key());
+        assert!(remote.entity_type.requires_api_key());
+        assert!(all.entity_type.requires_api_key());
+        assert!(!local_revoke.entity_type.requires_api_key());
+        assert!(remote_revoke.entity_type.requires_api_key());
     }
 }
