@@ -108,15 +108,16 @@ pub fn revoke_local_session(session_id: &str) -> Result<bool> {
         return Ok(false);
     }
     #[cfg(unix)]
-    let result = unsafe {
-        let pid = session.process_id as libc::pid_t;
-        let process_group = libc::getpgid(pid);
-        let current_group = libc::getpgrp();
-        if process_group > 0 && process_group != current_group {
-            libc::kill(-process_group, libc::SIGTERM)
-        } else {
-            libc::kill(pid, libc::SIGTERM)
-        }
+    let children = child_processes(session.process_id)?;
+    #[cfg(unix)]
+    let result = if children.is_empty() {
+        -1
+    } else {
+        children
+            .iter()
+            .map(|pid| unsafe { libc::kill(*pid as libc::pid_t, libc::SIGTERM) })
+            .find(|result| *result != 0)
+            .unwrap_or(0)
     };
     #[cfg(windows)]
     let result = Command::new("taskkill")
@@ -137,6 +138,24 @@ pub fn revoke_local_session(session_id: &str) -> Result<bool> {
     } else {
         Err(std::io::Error::last_os_error()).context("Could not stop the local agent session")
     }
+}
+
+#[cfg(unix)]
+fn child_processes(parent: u32) -> Result<Vec<u32>> {
+    let output = Command::new("pgrep")
+        .args(["-P", &parent.to_string()])
+        .output()?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    let mut result = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Ok(pid) = line.trim().parse() {
+            result.push(pid);
+            result.extend(child_processes(pid)?);
+        }
+    }
+    Ok(result)
 }
 
 fn session_directory() -> Result<PathBuf> {
@@ -318,6 +337,9 @@ pub async fn handle_revoke(
         false
     };
     if local {
+        if !silent {
+            println!();
+        }
         if json {
             println!(
                 "{}",
@@ -344,6 +366,9 @@ pub async fn handle_revoke(
         spinner.stop_and_persist("", "");
     }
     result?;
+    if !silent {
+        println!();
+    }
     if json {
         println!(
             "{}",
