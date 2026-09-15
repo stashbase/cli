@@ -1008,7 +1008,7 @@ pub async fn handle_cli(args: Cli) {
                                 let binding_sources = audit_binding_sources(&bindings);
                                 ProxyAuditLog::local_with_session_id(
                                     &agent_run.profile,
-                                    session.session_id.clone(),
+                                    format!("ags_{}", short_uuid::ShortUuid::generate()),
                                     policy_fingerprint.clone(),
                                 )
                                 .map(|audit_log| {
@@ -1158,7 +1158,6 @@ pub async fn handle_cli(args: Cli) {
                     } else {
                         Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
                             local_session_id.clone(),
-                            agent_run.profile.clone(),
                             local_session_agent,
                         )?)
                     };
