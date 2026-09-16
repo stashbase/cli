@@ -315,8 +315,8 @@ Seatbelt cannot be nested, so Stashbase disables Codex's inner sandbox for that
 run. Stashbase uses one outer profile for its configured filesystem denies and
 the basic workspace boundary needed for normal Codex operation. Codex state
 under `CODEX_HOME` (or `~/.codex`) remains writable and approval prompts stay
-active. Claude Code's optional macOS Bash sandbox must remain disabled when
-launched through `stashbase agent run`; the outer Stashbase Seatbelt profile is
+active. Claude Code's optional Bash sandbox is configured independently;
+Stashbase does not alter or rely on it. The outer Stashbase Seatbelt profile is
 the network and configured-filesystem enforcement boundary for that session.
 This does not extend or equal Codex's full Seatbelt policy, and it is not
 hostile-process or full-machine isolation; protection is limited to the paths
