@@ -1829,8 +1829,9 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  session_id={} event_id={} profile={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
-        event.timestamp, event.session_id, event.event_id, event.profile, event.action, host,
+        "{}  session_id={} event_id={} profile={} profile_source={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        event.timestamp, event.session_id, event.event_id, event.profile,
+        event.profile_source.as_deref().unwrap_or("-"), event.action, host,
         event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
         event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
