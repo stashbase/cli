@@ -16,7 +16,6 @@ pub enum InputValidationError {
     Environments(EnvironmentsInputValidationError),
     YamlConfigFile(YamlEnvConfigError),
     Run(RunInputValidationError),
-    AgentProfile(AgentProfileInputValidationError),
     AgentSession(AgentSessionInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PushPullEnvironment(PushPullInputValidationError),
@@ -25,13 +24,9 @@ pub enum InputValidationError {
 }
 
 #[derive(Debug, Serialize)]
-pub enum AgentProfileInputValidationError {
-    ProfileNotFound { profile: String, source: String },
-}
-
-#[derive(Debug, Serialize)]
 pub enum AgentSessionInputValidationError {
     InvalidId,
+    ProfileNotFound { profile: String, source: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -347,24 +342,15 @@ impl fmt::Display for RunInputValidationError {
     }
 }
 
-impl fmt::Display for AgentProfileInputValidationError {
+impl fmt::Display for AgentSessionInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
-
         writeln!(f, "  Message: {msg}")?;
         if let Some(hint) = hint {
             write!(f, "  Hint: {hint}")
         } else {
             Ok(())
         }
-    }
-}
-
-impl fmt::Display for AgentSessionInputValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (msg, hint) = self.message_and_hint();
-        writeln!(f, "  Message: {msg}")?;
-        write!(f, "  Hint: {hint}")
     }
 }
 
@@ -423,7 +409,6 @@ impl fmt::Display for InputValidationError {
             InputValidationError::Webhook(inner) => write!(f, "{}", inner),
             InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
             InputValidationError::Run(inner) => write!(f, "{}", inner),
-            InputValidationError::AgentProfile(inner) => write!(f, "{}", inner),
             InputValidationError::AgentSession(inner) => write!(f, "{}", inner),
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
             InputValidationError::Scan(inner) => write!(f, "{}", inner),
@@ -1041,10 +1026,14 @@ impl RunInputValidationError {
     }
 }
 
-impl AgentProfileInputValidationError {
+impl AgentSessionInputValidationError {
     pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
         match self {
-            AgentProfileInputValidationError::ProfileNotFound { profile, source } => (
+            AgentSessionInputValidationError::InvalidId => (
+                "Invalid agent session ID.",
+                Some("ID must start with the prefix 'ags_' followed by 22 alphanumeric characters."),
+            ),
+            AgentSessionInputValidationError::ProfileNotFound { profile, source } => (
                 "Agent profile was not found.",
                 Some(Box::leak(
                     format!(
@@ -1053,17 +1042,6 @@ impl AgentProfileInputValidationError {
                     )
                     .into_boxed_str(),
                 )),
-            ),
-        }
-    }
-}
-
-impl AgentSessionInputValidationError {
-    pub fn message_and_hint(&self) -> (&'static str, &'static str) {
-        match self {
-            AgentSessionInputValidationError::InvalidId => (
-                "Invalid agent session ID.",
-                "ID must start with the prefix 'ags_' followed by an alphanumeric short ID.",
             ),
         }
     }
@@ -1198,13 +1176,9 @@ impl InputValidationError {
                 let (m, h) = inner.message_and_hint();
                 MessageHint { message: m, hint: h, secrets: vec![] }
             }
-            InputValidationError::AgentProfile(inner) => {
-                let (m, h) = inner.message_and_hint();
-                MessageHint { message: m, hint: h, secrets: vec![] }
-            }
             InputValidationError::AgentSession(inner) => {
                 let (m, h) = inner.message_and_hint();
-                MessageHint { message: m, hint: Some(h), secrets: vec![] }
+                MessageHint { message: m, hint: h, secrets: vec![] }
             }
             InputValidationError::LoadEnvironment(inner) => {
                 let (m, h, s) = inner.message_and_hint_and_secrets();
