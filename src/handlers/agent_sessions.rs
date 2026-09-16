@@ -19,8 +19,11 @@ pub struct LocalAgentSession {
     pub started_at: String,
     process_id: u32,
     process_started_at: String,
+    #[serde(default)]
+    revoked: bool,
 }
 
+#[derive(Debug)]
 pub struct LocalAgentSessionGuard(PathBuf);
 
 impl LocalAgentSessionGuard {
@@ -38,6 +41,7 @@ impl LocalAgentSessionGuard {
             started_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             process_id: std::process::id(),
             process_started_at: process_start_time(std::process::id())?,
+            revoked: false,
         };
         let path = directory.join(format!("{session_id}.json"));
         let mut file = OpenOptions::new()
@@ -49,6 +53,10 @@ impl LocalAgentSessionGuard {
         file.write_all(&serde_json::to_vec(&session)?)?;
         file.sync_all()?;
         Ok(Self(path))
+    }
+
+    pub fn path(&self) -> PathBuf {
+        self.0.clone()
     }
 }
 
@@ -83,7 +91,9 @@ pub fn list_local_sessions() -> Result<Vec<LocalAgentSession>> {
         if process_start_time(session.process_id)
             .is_ok_and(|started| started == session.process_started_at)
         {
-            sessions.push(session);
+            if !session.revoked {
+                sessions.push(session);
+            }
         } else {
             let _ = fs::remove_file(entry.path());
         }
@@ -93,67 +103,32 @@ pub fn list_local_sessions() -> Result<Vec<LocalAgentSession>> {
 }
 
 pub fn revoke_local_session(session_id: &str) -> Result<bool> {
-    let Some(session) = list_local_sessions()?
-        .into_iter()
-        .find(|session| session.session_id == session_id)
-    else {
+    let path = session_directory()?.join(format!("{session_id}.json"));
+    let Ok(bytes) = fs::read(&path) else {
         return Ok(false);
     };
+    let mut session: LocalAgentSession = serde_json::from_slice(&bytes)?;
     if !process_start_time(session.process_id)
         .is_ok_and(|started| started == session.process_started_at)
     {
-        let _ = fs::remove_file(session_directory()?.join(format!("{session_id}.json")));
+        let _ = fs::remove_file(&path);
         return Ok(false);
     }
-    #[cfg(unix)]
-    let children = child_processes(session.process_id)?;
-    #[cfg(unix)]
-    let result = if children.is_empty() {
-        -1
-    } else {
-        children
-            .iter()
-            .map(|pid| unsafe { libc::kill(*pid as libc::pid_t, libc::SIGTERM) })
-            .find(|result| *result != 0)
-            .unwrap_or(0)
-    };
-    #[cfg(windows)]
-    let result = Command::new("taskkill")
-        .args(["/PID", &session.process_id.to_string(), "/T", "/F"])
-        .output()?
-        .status;
-    #[cfg(not(any(unix, windows)))]
-    let result: i32 = -1;
-    #[cfg(windows)]
-    if result.success() {
-        Ok(true)
-    } else if !result.success() {
-        anyhow::bail!("Could not stop the local agent session.")
+    if session.revoked {
+        return Ok(false);
     }
-    #[cfg(unix)]
-    if result == 0 {
-        Ok(true)
-    } else {
-        Err(std::io::Error::last_os_error()).context("Could not stop the local agent session")
-    }
+    session.revoked = true;
+    let mut file = OpenOptions::new().write(true).truncate(true).open(path)?;
+    file.write_all(&serde_json::to_vec(&session)?)?;
+    file.sync_all()?;
+    Ok(true)
 }
 
-#[cfg(unix)]
-fn child_processes(parent: u32) -> Result<Vec<u32>> {
-    let output = Command::new("pgrep")
-        .args(["-P", &parent.to_string()])
-        .output()?;
-    if !output.status.success() {
-        return Ok(Vec::new());
-    }
-    let mut result = Vec::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        if let Ok(pid) = line.trim().parse() {
-            result.push(pid);
-            result.extend(child_processes(pid)?);
-        }
-    }
-    Ok(result)
+pub fn is_local_session_revoked(path: &std::path::Path) -> bool {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<LocalAgentSession>(&bytes).ok())
+        .is_some_and(|session| session.revoked)
 }
 
 fn session_directory() -> Result<PathBuf> {

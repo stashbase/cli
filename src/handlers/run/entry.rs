@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{bail, Context};
@@ -129,6 +128,7 @@ pub struct HandleRunArgs {
     pub silent: bool,
     pub scope: Option<Scope>,
     pub dependency_hooks: bool,
+    pub local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
@@ -158,6 +158,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         silent,
         scope,
         dependency_hooks,
+        local_session,
     } = args;
 
     if no_print_secrets {
@@ -218,6 +219,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             json_format,
             false,
             None,
+            local_session,
         )
         .await;
     }
@@ -665,6 +667,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             json_format,
             dependency_hooks,
             Some(api_key.clone()),
+            local_session,
         )
         .await?;
 
@@ -707,6 +710,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             json_format,
             dependency_hooks,
             Some(api_key.clone()),
+            local_session,
         )
         .await?;
         return Ok(());
@@ -860,6 +864,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             json_format,
                             dependency_hooks,
                             Some(api_key.clone()),
+                            local_session,
                         )
                         .await?;
                     } else {
@@ -894,6 +899,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         json_format,
                         dependency_hooks,
                         Some(api_key.clone()),
+                        local_session,
                     )
                     .await?;
                 }
@@ -1006,6 +1012,7 @@ async fn handle_run(
     json_format: bool,
     dependency_hooks: bool,
     hook_api_key: Option<String>,
+    local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
 ) -> anyhow::Result<()> {
     apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
@@ -1138,6 +1145,9 @@ async fn handle_run(
             dependency_hooks.then_some(hook_api_key).flatten(),
         )
         .await?;
+        if let Some(session) = &local_session {
+            proxy.set_revocation_path(session.path());
+        }
         let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
         if !silent {
             let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
@@ -1147,7 +1157,7 @@ async fn handle_run(
             );
         }
         let child_env = proxy.child_env().clone();
-        let mut command = Box::pin(subprocess::run_command_with_filesystem_policy(
+        let command = Box::pin(subprocess::run_command_with_filesystem_policy(
             &cmd,
             args,
             child_env,
@@ -1159,21 +1169,8 @@ async fn handle_run(
             &denied_write_paths,
             command_audit_log,
         ));
-        let mut revoke = Box::pin(async {
-            #[cfg(unix)]
-            {
-                let mut signal =
-                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1())
-                        .expect("SIGUSR1 handler");
-                signal.recv().await;
-            }
-            #[cfg(not(unix))]
-            std::future::pending::<()>().await;
-        });
-        let result = tokio::select! {
-            result = &mut command => { proxy.stop().await; result }
-            _ = &mut revoke => { proxy.stop().await; command.await }
-        };
+        let result = command.await;
+        proxy.stop().await;
         if !silent {
             eprintln!("Agent proxy stopped");
         }
@@ -1198,12 +1195,8 @@ async fn handle_run(
     *mutex = false;
     drop(mutex);
 
-    let status = command_result?;
-    #[cfg(unix)]
-    if std::io::stdin().is_terminal() {
-        let _ = std::process::Command::new("stty").args(["sane"]).status();
-    }
     let _ = dialoguer::console::Term::stdout().show_cursor();
+    let status = command_result?;
     if !status.success() {
         return Err(subprocess::CommandFailed { status }.into());
     }

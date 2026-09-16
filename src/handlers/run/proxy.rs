@@ -877,6 +877,7 @@ struct ProxyState {
     mcp_inspection_token: String,
     dependency_hook_token: Option<String>,
     dependency_hook_client: Option<reqwest::Client>,
+    revocation_path: Arc<RwLock<Option<PathBuf>>>,
 }
 
 /// Tracks every accepted proxy and TLS-upgrade task so proxy shutdown closes
@@ -909,6 +910,13 @@ impl ActiveConnections {
             task.abort();
         }
     }
+
+    fn close_existing(&self) {
+        let mut state = self.inner.lock().expect("proxy connection lock poisoned");
+        for task in state.tasks.drain(..) {
+            task.abort();
+        }
+    }
 }
 
 /// Owns the listener and the temporary trust anchor for exactly one child process.
@@ -922,6 +930,7 @@ pub struct Proxy {
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
     mcp_inspection_token: String,
+    revocation_path: Arc<RwLock<Option<PathBuf>>>,
 }
 
 impl Proxy {
@@ -1082,6 +1091,7 @@ impl Proxy {
         } else {
             None
         };
+        let revocation_path = Arc::new(RwLock::new(None));
         let state = ProxyState {
             secrets: Arc::new(placeholders),
             policy,
@@ -1104,6 +1114,7 @@ impl Proxy {
                     .build()
                     .expect("dependency hook client must build")
             }),
+            revocation_path: revocation_path.clone(),
         };
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task = tokio::spawn(run_listener(listener, state.clone(), shutdown_rx));
@@ -1173,6 +1184,7 @@ impl Proxy {
             audit_log,
             connections,
             mcp_inspection_token: state.mcp_inspection_token.clone(),
+            revocation_path,
         })
     }
 
@@ -1182,6 +1194,13 @@ impl Proxy {
 
     pub fn mcp_inspection_token(&self) -> &str {
         &self.mcp_inspection_token
+    }
+
+    pub fn set_revocation_path(&self, path: PathBuf) {
+        *self
+            .revocation_path
+            .write()
+            .expect("proxy revocation path lock poisoned") = Some(path);
     }
 
     pub async fn stop(mut self) {
@@ -1394,9 +1413,17 @@ async fn run_listener(
     state: ProxyState,
     mut shutdown: oneshot::Receiver<()>,
 ) {
+    let mut revocation_check = tokio::time::interval(Duration::from_millis(50));
+    let mut revoked = false;
     loop {
         tokio::select! {
             _ = &mut shutdown => break,
+            _ = revocation_check.tick(), if !revoked => {
+                if state.is_revoked() {
+                    state.connections.close_existing();
+                    revoked = true;
+                }
+            }
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
                     let state = state.clone();
@@ -1423,6 +1450,21 @@ fn proxy_request(
 ) -> ProxyFuture {
     Box::pin(async move {
         let started = Instant::now();
+        if state.is_revoked() {
+            state.record_audit(
+                "session_revoked",
+                None,
+                Some(request.method()),
+                None,
+                Some(StatusCode::BAD_GATEWAY),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response(
+                StatusCode::BAD_GATEWAY,
+                "proxy.session_revoked",
+                "Agent Proxy session was revoked",
+            ));
+        }
         if request.method() == Method::CONNECT {
             let authority = request.uri().authority().map(|value| value.to_string());
             let Some(authority) = authority else {
@@ -2755,6 +2797,14 @@ async fn serve_tls_connection(
 }
 
 impl ProxyState {
+    fn is_revoked(&self) -> bool {
+        self.revocation_path
+            .read()
+            .ok()
+            .and_then(|path| path.clone())
+            .is_some_and(|path| crate::handlers::agent_sessions::is_local_session_revoked(&path))
+    }
+
     fn host_is_denied(&self, host: Option<&str>) -> bool {
         host.is_some_and(|host| policy_denies_host(&self.policy, host))
     }
@@ -4059,6 +4109,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn revoked_proxy_rejects_requests_without_closing_the_listener() {
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+        let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
+        let marker =
+            std::env::temp_dir().join(format!("stashbase-revoked-{}.json", Uuid::new_v4()));
+        std::fs::write(
+            &marker,
+            r#"{"session_id":"ags_test","command":"agent","started_at":"","process_id":0,"process_started_at":"","revoked":false}"#,
+        )
+        .unwrap();
+        proxy.set_revocation_path(marker.clone());
+
+        let mut existing = tokio::net::TcpStream::connect(address).await.unwrap();
+        sleep(Duration::from_millis(20)).await;
+        std::fs::write(
+            &marker,
+            r#"{"session_id":"ags_test","command":"agent","started_at":"","process_id":0,"process_started_at":"","revoked":true}"#,
+        )
+        .unwrap();
+        let mut closed = [0; 1];
+        assert_eq!(
+            timeout(Duration::from_secs(2), existing.read(&mut closed))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+
+        let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+        stream
+            .write_all(b"GET http://example.test/ HTTP/1.1\r\nHost: example.test\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = [0; 128];
+        let count = stream.read(&mut response).await.unwrap();
+        assert!(String::from_utf8_lossy(&response[..count]).starts_with("HTTP/1.1 502"));
+        proxy.stop().await;
+        std::fs::remove_file(marker).unwrap();
+    }
+
+    #[tokio::test]
     async fn proxy_uses_an_explicit_local_port() {
         let reservation = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = reservation.local_addr().unwrap().port();
@@ -4703,6 +4796,7 @@ mod tests {
             mcp_inspection_token: "inspection-token".to_owned(),
             dependency_hook_token: None,
             dependency_hook_client: None,
+            revocation_path: Arc::new(RwLock::new(None)),
         };
 
         assert!(state.host_allowed_for_connect(Some("chatgpt.com")));

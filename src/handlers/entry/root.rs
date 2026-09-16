@@ -725,6 +725,8 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
+                    // A revocable local session must not have a direct-network fallback.
+                    let network_sandbox = agent_run.sandbox || !agent_run.remote;
 
                     if loaded_from_directory
                         && matches!(agent_run.profile_source, AgentProfileSource::Auto)
@@ -755,7 +757,7 @@ pub async fn handle_cli(args: Cli) {
                         .any(|hook| hook == "dependency_check");
                     let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !silent {
-                        if agent_run.sandbox {
+                        if network_sandbox {
                             eprintln!("Network sandbox: enabled");
                         } else {
                             eprintln!(
@@ -1126,6 +1128,14 @@ pub async fn handle_cli(args: Cli) {
                         return result;
                     }
                     let print_local_session_id = audit_log.is_none();
+                    let local_session = if agent_run.remote {
+                        None
+                    } else {
+                        Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
+                            local_session_id.clone(),
+                            local_session_agent,
+                        )?)
+                    };
                     let args = HandleRunArgs {
                         api_key,
                         project: profile.secrets.project,
@@ -1135,7 +1145,7 @@ pub async fn handle_cli(args: Cli) {
                         proxy_port: agent_run.proxy_port,
                         proxy_policy: Some(policy),
                         trust_proxy_ca: agent_run.trust_proxy_ca,
-                        sandbox: agent_run.sandbox,
+                        sandbox: network_sandbox,
                         audit_log,
                         secret_bindings: secret_bindings.clone(),
                         allow_file_override: true,
@@ -1146,20 +1156,13 @@ pub async fn handle_cli(args: Cli) {
                         print_secrets: None,
                         no_print_secrets: true,
                         dependency_hooks,
+                        local_session,
                         config_file: None,
                         file: profile.file,
                         expand_refs: None,
                         json_format: raw_output,
                         silent,
                         scope: None,
-                    };
-                    let _local_session = if agent_run.remote {
-                        None
-                    } else {
-                        Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
-                            local_session_id.clone(),
-                            local_session_agent,
-                        )?)
                     };
                     if !silent && !agent_run.remote && print_local_session_id {
                         eprintln!("Agent session: {local_session_id}");
@@ -1213,6 +1216,7 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                     scope: run_cmd.scope,
                     dependency_hooks: false,
+                    local_session: None,
                 };
 
                 handle_load_env_run(args).await

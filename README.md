@@ -504,9 +504,9 @@ a machine where the launched agent is trusted.
 
 ### Network sandbox (experimental)
 
-On macOS and systemd-based Linux systems, add `--sandbox` to deny the child
-direct network access while retaining its loopback connection to the embedded
-proxy:
+Local `agent run` sessions deny the child direct network access while retaining
+its loopback connection to the embedded proxy. Add `--sandbox` to apply the
+same containment to remote sessions:
 
 ```bash
 stashbase agent run --sandbox --profile coding --profile-source directory -- codex
