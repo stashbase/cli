@@ -91,7 +91,7 @@ pub struct ProxyAuditLogEvent {
     /// SHA-256 fingerprint of the normalized policy snapshot for this run.
     pub policy_fingerprint: String,
     /// Opaque local audit-event ID.
-    pub id: String,
+    pub event_id: String,
     /// Present only on `session_started`; identifies the selected profile file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_source: Option<String>,
@@ -158,7 +158,10 @@ impl ProxyAuditLogFilter {
                 .session
                 .as_ref()
                 .is_none_or(|value| value == &event.session_id)
-            && self.id.as_ref().is_none_or(|value| value == &event.id)
+            && self
+                .id
+                .as_ref()
+                .is_none_or(|value| value == &event.event_id)
     }
 }
 
@@ -330,7 +333,7 @@ impl ProxyAuditLog {
             session_id: self.session_id.clone(),
             profile: self.profile.clone(),
             policy_fingerprint: self.policy_fingerprint.clone(),
-            id: id
+            event_id: id
                 .map(str::to_owned)
                 .unwrap_or_else(new_local_audit_event_id),
             profile_source: (action == "session_started")
@@ -4223,7 +4226,7 @@ mod tests {
         let filesystem_event = content
             .lines()
             .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
-            .find(|event| event.id == filesystem_event_id)
+            .find(|event| event.event_id == filesystem_event_id)
             .unwrap();
         assert_eq!(filesystem_event.action, "filesystem_denied");
         assert_eq!(filesystem_event.path.as_deref(), Some(".env"));
@@ -4330,8 +4333,8 @@ mod tests {
             .lines()
             .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
             .collect::<Vec<_>>();
-        assert!(events[0].id.starts_with("evt_"));
-        assert_eq!(events[1].id, "evt_test");
+        assert!(events[0].event_id.starts_with("evt_"));
+        assert_eq!(events[1].event_id, "evt_test");
         assert_eq!(
             events[0].profile_source.as_deref(),
             Some("./.stashbase/agents/coding.toml")
@@ -4375,7 +4378,7 @@ mod tests {
             session_id: "session-1".to_owned(),
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
-            id: "evt_test".to_owned(),
+            event_id: "evt_test".to_owned(),
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
@@ -4406,6 +4409,9 @@ mod tests {
             ..Default::default()
         }
         .matches(&event));
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["event_id"], "evt_test");
+        assert!(json.get("id").is_none());
     }
 
     #[test]

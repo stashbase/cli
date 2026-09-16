@@ -129,6 +129,12 @@ pub fn is_local_session_revoked(path: &std::path::Path) -> bool {
         .is_some_and(|session| session.revoked)
 }
 
+pub fn is_valid_agent_session_id(value: &str) -> bool {
+    value.strip_prefix("ags_").is_some_and(|suffix| {
+        suffix.len() == 22 && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    })
+}
+
 fn session_directory() -> Result<PathBuf> {
     Ok(crate::config::config::get_config_path()?
         .parent()
@@ -198,7 +204,9 @@ pub fn format_sessions(rows: &Vec<AgentSessionRow>, json: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_utc_timestamp, process_start_time, AgentSessionRow};
+    use super::{
+        format_utc_timestamp, is_valid_agent_session_id, process_start_time, AgentSessionRow,
+    };
 
     #[test]
     fn process_identity_is_stable_for_the_current_process() {
@@ -228,6 +236,13 @@ mod tests {
             started_at: "2026-07-03T14:10:07Z".to_owned(),
         };
         assert!(serde_json::to_value(row).unwrap().get("command").is_none());
+    }
+
+    #[test]
+    fn session_ids_require_a_22_character_suffix() {
+        assert!(is_valid_agent_session_id("ags_1234567890123456789012"));
+        assert!(!is_valid_agent_session_id("ags_short"));
+        assert!(!is_valid_agent_session_id("ags_12345678901234567890123"));
     }
 }
 
@@ -286,13 +301,7 @@ pub async fn handle_revoke(
     json: bool,
     silent: bool,
 ) -> Result<()> {
-    if !command
-        .session_id
-        .strip_prefix("ags_")
-        .is_some_and(|suffix| {
-            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())
-        })
-    {
+    if !is_valid_agent_session_id(&command.session_id) {
         let error = crate::models::validation::InputValidationError::AgentSession(
             crate::models::validation::AgentSessionInputValidationError::InvalidId,
         );

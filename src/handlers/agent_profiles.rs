@@ -16,7 +16,7 @@ use crate::{
     models::{
         agent::AgentProfile,
         config::Config,
-        validation::{AgentProfileInputValidationError, InputValidationError},
+        validation::{AgentSessionInputValidationError, InputValidationError},
     },
     utils::output::{get_formatted_json_string, is_color_enabled},
 };
@@ -35,7 +35,7 @@ pub fn handle_agent_profiles_command(
 
 pub(crate) fn profile_not_found_error(profile: &str, source: &str, json: bool) -> anyhow::Error {
     let error =
-        InputValidationError::AgentProfile(AgentProfileInputValidationError::ProfileNotFound {
+        InputValidationError::AgentSession(AgentSessionInputValidationError::ProfileNotFound {
             profile: profile.to_owned(),
             source: source.to_owned(),
         });

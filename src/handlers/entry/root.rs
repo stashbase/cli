@@ -1829,8 +1829,8 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
-        event.timestamp, event.id, event.profile, event.action, host,
+        "{}  session_id={} event_id={} profile={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        event.timestamp, event.session_id, event.event_id, event.profile, event.action, host,
         event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
         event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
@@ -2381,7 +2381,7 @@ mod tests {
     fn audit_summary_groups_denials_without_secret_metadata() {
         let event = |action: &str, host: &str, status| ProxyAuditLogEvent {
             timestamp: "2026-01-01T00:00:00Z".to_owned(),
-            id: "evt_test".to_owned(),
+            event_id: "evt_test".to_owned(),
             session_id: "session".to_owned(),
             profile: "codex".to_owned(),
             policy_fingerprint: "fingerprint".to_owned(),
@@ -2431,7 +2431,7 @@ mod tests {
         let events = vec![
             ProxyAuditLogEvent {
                 timestamp: "2026-01-01T00:00:00Z".to_owned(),
-                id: "evt_one".to_owned(),
+                event_id: "evt_one".to_owned(),
                 session_id: "session".to_owned(),
                 profile: "codex".to_owned(),
                 policy_fingerprint: "fingerprint".to_owned(),
@@ -2453,7 +2453,7 @@ mod tests {
             },
             ProxyAuditLogEvent {
                 timestamp: "2026-01-01T00:00:00Z".to_owned(),
-                id: "evt_two".to_owned(),
+                event_id: "evt_two".to_owned(),
                 session_id: "session".to_owned(),
                 profile: "codex".to_owned(),
                 policy_fingerprint: "fingerprint".to_owned(),
