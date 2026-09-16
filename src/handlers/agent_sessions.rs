@@ -123,10 +123,14 @@ pub fn revoke_local_session(session_id: &str) -> Result<bool> {
 }
 
 pub fn is_local_session_revoked(path: &std::path::Path) -> bool {
-    fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<LocalAgentSession>(&bytes).ok())
-        .is_some_and(|session| session.revoked)
+    match fs::read(path).and_then(|bytes| {
+        serde_json::from_slice::<LocalAgentSession>(&bytes).map_err(std::io::Error::other)
+    }) {
+        Ok(session) => session.revoked,
+        // A missing, truncated, or otherwise unreadable marker must block
+        // proxy traffic until the session state can be trusted again.
+        Err(_) => true,
+    }
 }
 
 pub fn is_valid_agent_session_id(value: &str) -> bool {
@@ -309,8 +313,7 @@ pub async fn handle_revoke(
         if !silent {
             eprintln!();
         }
-        eprintln!("{formatted}");
-        return Ok(());
+        return Err(anyhow::anyhow!(formatted));
     }
     let local = if !command.remote {
         revoke_local_session(&command.session_id)?
