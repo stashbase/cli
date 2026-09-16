@@ -166,10 +166,6 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub trust_proxy_ca: bool,
 
-    /// Experimental network sandbox: only allows loopback access to the proxy
-    #[arg(long)]
-    pub sandbox: bool,
-
     /// Bind the temporary proxy to this localhost port instead of a random port
     #[arg(long)]
     pub proxy_port: Option<u16>,

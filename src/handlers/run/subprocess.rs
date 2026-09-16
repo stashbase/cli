@@ -85,7 +85,7 @@ pub async fn run_command_with_filesystem_policy(
     let (args, codex_boundary) = codex_args_with_outer_sandbox(
         command,
         args,
-        !denied_read_paths.is_empty() || !denied_write_paths.is_empty(),
+        has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths),
     );
     #[cfg(not(target_os = "macos"))]
     let codex_boundary = CodexSandboxBoundary::FullAccess;
@@ -237,6 +237,17 @@ enum CodexSandboxBoundary {
 #[derive(Clone, Copy)]
 enum CodexSandboxBoundary {
     FullAccess,
+}
+
+/// Codex's own Seatbelt profile cannot run inside the outer Stashbase profile.
+/// Network containment creates that outer profile even without filesystem rules.
+#[cfg(target_os = "macos")]
+fn has_outer_macos_sandbox(
+    network_sandbox: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> bool {
+    network_sandbox || !denied_read_paths.is_empty() || !denied_write_paths.is_empty()
 }
 
 #[cfg(target_os = "macos")]
@@ -853,7 +864,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::{
         codex_args_with_outer_sandbox, codex_workspace_rules, escape_sbpl_path,
-        sandbox_command_with_filesystem_policy, CodexSandboxBoundary,
+        has_outer_macos_sandbox, sandbox_command_with_filesystem_policy, CodexSandboxBoundary,
     };
     use super::{
         filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
@@ -1160,6 +1171,10 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_codex_uses_outer_sandbox_without_nesting() {
+        assert!(has_outer_macos_sandbox(true, &[], &[]));
+        assert!(has_outer_macos_sandbox(false, &[".env".to_owned()], &[]));
+        assert!(!has_outer_macos_sandbox(false, &[], &[]));
+
         let (args, boundary) =
             codex_args_with_outer_sandbox("/opt/homebrew/bin/codex", vec!["exec".to_owned()], true);
         assert_eq!(

@@ -725,8 +725,11 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
-                    // A revocable local session must not have a direct-network fallback.
-                    let network_sandbox = agent_run.sandbox || !agent_run.remote;
+                    // Egress policy is meaningful only when the child cannot opt out of
+                    // its proxy environment. Contain every session to the loopback
+                    // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is
+                    // not a direct-network fallback.
+                    let network_sandbox = true;
 
                     if loaded_from_directory
                         && matches!(agent_run.profile_source, AgentProfileSource::Auto)
@@ -757,13 +760,7 @@ pub async fn handle_cli(args: Cli) {
                         .any(|hook| hook == "dependency_check");
                     let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !silent {
-                        if network_sandbox {
-                            eprintln!("Network sandbox: enabled");
-                        } else {
-                            eprintln!(
-                                "Warning: Network sandbox is disabled. A tool that bypasses proxy settings may make direct network requests. Enable --sandbox for network containment on supported platforms."
-                            );
-                        }
+                        eprintln!("Network sandbox: enabled");
                         print_agent_egress_warnings(&profile);
                         eprintln!(
                             "API hook broker: {}",
@@ -1110,7 +1107,7 @@ pub async fn handle_cli(args: Cli) {
                             policy,
                             crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
                             agent_run.proxy_port,
-                            agent_run.sandbox,
+                            network_sandbox,
                             agent_run.trust_proxy_ca,
                             remote_audit_log,
                             source_env_names,
