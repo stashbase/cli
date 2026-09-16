@@ -286,6 +286,23 @@ pub async fn handle_revoke(
     json: bool,
     silent: bool,
 ) -> Result<()> {
+    if !command
+        .session_id
+        .strip_prefix("ags_")
+        .is_some_and(|suffix| {
+            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        })
+    {
+        let error = crate::models::validation::InputValidationError::AgentSession(
+            crate::models::validation::AgentSessionInputValidationError::InvalidId,
+        );
+        let formatted = error.format_error_output(json)?;
+        if !silent {
+            eprintln!();
+        }
+        eprintln!("{formatted}");
+        return Ok(());
+    }
     let local = if !command.remote {
         revoke_local_session(&command.session_id)?
     } else {

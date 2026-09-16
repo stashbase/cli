@@ -17,6 +17,7 @@ pub enum InputValidationError {
     YamlConfigFile(YamlEnvConfigError),
     Run(RunInputValidationError),
     AgentProfile(AgentProfileInputValidationError),
+    AgentSession(AgentSessionInputValidationError),
     LoadEnvironment(LoadEnvironmentInputValidationError),
     PushPullEnvironment(PushPullInputValidationError),
     Webhook(WebhookInputValidationError),
@@ -26,6 +27,11 @@ pub enum InputValidationError {
 #[derive(Debug, Serialize)]
 pub enum AgentProfileInputValidationError {
     ProfileNotFound { profile: String, source: String },
+}
+
+#[derive(Debug, Serialize)]
+pub enum AgentSessionInputValidationError {
+    InvalidId,
 }
 
 #[derive(Debug, Serialize)]
@@ -354,6 +360,14 @@ impl fmt::Display for AgentProfileInputValidationError {
     }
 }
 
+impl fmt::Display for AgentSessionInputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (msg, hint) = self.message_and_hint();
+        writeln!(f, "  Message: {msg}")?;
+        write!(f, "  Hint: {hint}")
+    }
+}
+
 impl fmt::Display for ScanInputValidationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (msg, hint) = self.message_and_hint();
@@ -410,6 +424,7 @@ impl fmt::Display for InputValidationError {
             InputValidationError::CmdArgs(inner) => write!(f, "{}", inner),
             InputValidationError::Run(inner) => write!(f, "{}", inner),
             InputValidationError::AgentProfile(inner) => write!(f, "{}", inner),
+            InputValidationError::AgentSession(inner) => write!(f, "{}", inner),
             InputValidationError::YamlConfigFile(inner) => write!(f, "{}", inner),
             InputValidationError::Scan(inner) => write!(f, "{}", inner),
             InputValidationError::MissingApiKey => {
@@ -1043,6 +1058,17 @@ impl AgentProfileInputValidationError {
     }
 }
 
+impl AgentSessionInputValidationError {
+    pub fn message_and_hint(&self) -> (&'static str, &'static str) {
+        match self {
+            AgentSessionInputValidationError::InvalidId => (
+                "Invalid agent session ID.",
+                "ID must start with the prefix 'ags_' followed by an alphanumeric short ID.",
+            ),
+        }
+    }
+}
+
 impl ScanInputValidationError {
     pub fn message_and_hint(&self) -> (&'static str, Option<&'static str>) {
         match self {
@@ -1175,6 +1201,10 @@ impl InputValidationError {
             InputValidationError::AgentProfile(inner) => {
                 let (m, h) = inner.message_and_hint();
                 MessageHint { message: m, hint: h, secrets: vec![] }
+            }
+            InputValidationError::AgentSession(inner) => {
+                let (m, h) = inner.message_and_hint();
+                MessageHint { message: m, hint: Some(h), secrets: vec![] }
             }
             InputValidationError::LoadEnvironment(inner) => {
                 let (m, h, s) = inner.message_and_hint_and_secrets();

@@ -547,7 +547,7 @@ mod tests {
         ])
         .is_err());
         assert!(
-            Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "session-id"]).is_ok()
+            Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "ags_test"]).is_ok()
         );
         let local =
             Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--local"]).unwrap();
@@ -559,13 +559,12 @@ mod tests {
             "agent",
             "sessions",
             "revoke",
-            "session-id",
+            "ags_test",
             "--local",
         ])
         .unwrap();
         let remote_revoke =
-            Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "session-id"])
-                .unwrap();
+            Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "ags_test"]).unwrap();
         assert!(!local.entity_type.requires_api_key());
         assert!(remote.entity_type.requires_api_key());
         assert!(all.entity_type.requires_api_key());
