@@ -223,7 +223,8 @@ enforcement. Bubblewrap restrictions are inherited by descendants.
 Existing file descriptors and data already loaded into process memory are
 outside this policy.
 
-On macOS, any non-empty filesystem policy wraps the agent in Seatbelt. Seatbelt cannot
+On macOS, network containment and any non-empty filesystem policy wrap the
+agent in Seatbelt. Seatbelt cannot
 be nested, so Codex's inner sandbox is disabled for that run. Stashbase uses one
 outer profile for its configured filesystem denies and the basic workspace
 boundary needed for normal Codex operation. Codex state under `CODEX_HOME` (or

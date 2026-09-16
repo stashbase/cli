@@ -310,8 +310,7 @@ Filesystem enforcement uses the supported macOS or Linux process sandbox; see
 the [agent-profile cookbook](docs/agent-profiles.md) for platform requirements
 and limitations.
 
-On macOS, filesystem rules wrap the agent in Seatbelt even without filesystem
-restrictions.
+On macOS, network containment and filesystem rules wrap the agent in Seatbelt.
 Seatbelt cannot be nested, so Codex's inner sandbox is disabled for that run;
 Stashbase uses one outer profile for its configured filesystem denies and the
 basic workspace boundary needed for normal Codex operation. Codex state under
