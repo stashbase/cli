@@ -925,7 +925,6 @@ pub async fn handle_cli(args: Cli) {
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,
                     )?;
                     let local_session_id = format!("ags_{}", ShortUuid::generate());
-                    let local_session_agent = infer_remote_agent_type(&agent_run.command).to_owned();
                     let audit_log = (!agent_run.remote)
                         .then(|| {
                             agent_run.audit_log.then(|| {
@@ -1133,7 +1132,6 @@ pub async fn handle_cli(args: Cli) {
                     } else {
                         Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
                             local_session_id.clone(),
-                            local_session_agent,
                         )?)
                     };
                     let args = HandleRunArgs {

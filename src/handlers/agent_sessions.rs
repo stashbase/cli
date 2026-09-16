@@ -15,7 +15,6 @@ use crate::utils::spinner::request_spinner;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalAgentSession {
     pub session_id: String,
-    pub command: String,
     pub started_at: String,
     process_id: u32,
     process_started_at: String,
@@ -27,7 +26,7 @@ pub struct LocalAgentSession {
 pub struct LocalAgentSessionGuard(PathBuf);
 
 impl LocalAgentSessionGuard {
-    pub fn start(session_id: String, agent: String) -> Result<Self> {
+    pub fn start(session_id: String) -> Result<Self> {
         let directory = session_directory()?;
         fs::create_dir_all(&directory)?;
         #[cfg(unix)]
@@ -37,7 +36,6 @@ impl LocalAgentSessionGuard {
 
         let session = LocalAgentSession {
             session_id: session_id.clone(),
-            command: agent,
             started_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
             process_id: std::process::id(),
             process_started_at: process_start_time(std::process::id())?,
@@ -165,13 +163,7 @@ fn process_start_time(pid: u32) -> Result<String> {
 pub struct AgentSessionRow {
     pub origin: String,
     pub id: String,
-    #[tabled(display_with = "display_optional_command")]
-    pub command: Option<String>,
     pub started_at: String,
-}
-
-fn display_optional_command(command: &Option<String>) -> String {
-    command.clone().unwrap_or_default()
 }
 
 impl From<LocalAgentSession> for AgentSessionRow {
@@ -179,7 +171,6 @@ impl From<LocalAgentSession> for AgentSessionRow {
         Self {
             origin: "local".to_owned(),
             id: session.session_id,
-            command: Some(session.command),
             started_at: session.started_at,
         }
     }
@@ -234,13 +225,9 @@ mod tests {
         let row = AgentSessionRow {
             origin: "remote".to_owned(),
             id: "session-id".to_owned(),
-            command: Some("codex".to_owned()),
             started_at: "2026-07-03T14:10:07Z".to_owned(),
         };
-        assert!(serde_json::to_value(row)
-            .unwrap()
-            .get("expires_at")
-            .is_none());
+        assert!(serde_json::to_value(row).unwrap().get("command").is_none());
     }
 }
 
@@ -267,7 +254,6 @@ pub async fn handle_sessions(
                 Ok(AgentSessionRow {
                     origin: "remote".to_owned(),
                     id: session.id,
-                    command: session.command,
                     started_at: format_utc_timestamp(&session.started_at)?,
                 })
             })
