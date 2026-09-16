@@ -311,10 +311,13 @@ the [agent-profile cookbook](docs/agent-profiles.md) for platform requirements
 and limitations.
 
 On macOS, network containment and filesystem rules wrap the agent in Seatbelt.
-Seatbelt cannot be nested, so Codex's inner sandbox is disabled for that run;
-Stashbase uses one outer profile for its configured filesystem denies and the
-basic workspace boundary needed for normal Codex operation. Codex state under
-`CODEX_HOME` (or `~/.codex`) remains writable and approval prompts stay active.
+Seatbelt cannot be nested, so Stashbase disables Codex's inner sandbox for that
+run. Stashbase uses one outer profile for its configured filesystem denies and
+the basic workspace boundary needed for normal Codex operation. Codex state
+under `CODEX_HOME` (or `~/.codex`) remains writable and approval prompts stay
+active. Claude Code's optional macOS Bash sandbox must remain disabled when
+launched through `stashbase agent run`; the outer Stashbase Seatbelt profile is
+the network and configured-filesystem enforcement boundary for that session.
 This does not extend or equal Codex's full Seatbelt policy, and it is not
 hostile-process or full-machine isolation; protection is limited to the paths
 and boundaries Stashbase defines. Agent runs always use network containment; use

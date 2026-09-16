@@ -224,16 +224,25 @@ Existing file descriptors and data already loaded into process memory are
 outside this policy.
 
 On macOS, network containment and any non-empty filesystem policy wrap the
-agent in Seatbelt. Seatbelt cannot
-be nested, so Codex's inner sandbox is disabled for that run. Stashbase uses one
-outer profile for its configured filesystem denies and the basic workspace
-boundary needed for normal Codex operation. Codex state under `CODEX_HOME` (or
-`~/.codex`) remains writable and approval prompts stay active. This does not
-extend or equal Codex's full Seatbelt policy, and it is not same-user
+agent in Seatbelt. Seatbelt cannot be nested, so Stashbase disables Codex's
+inner sandbox for that run. Stashbase uses one outer profile for its configured
+filesystem denies and the basic workspace boundary needed for normal Codex
+operation. Codex state under `CODEX_HOME` (or `~/.codex`) remains writable and
+approval prompts stay active. This does not extend or equal Codex's full
+Seatbelt policy, and it is not same-user
 hostile-agent or full-machine isolation; protection is limited to the paths and
 boundaries Stashbase defines. Agent runs always include network containment; use
 a container or VM with a clean working copy when the original checkout must be
 inaccessible to the agent.
+
+#### Claude Code on macOS
+
+Claude Code's optional Bash sandbox must remain disabled when launched through
+`stashbase agent run`. Claude uses Seatbelt for that sandbox, and macOS cannot
+nest it inside Stashbase's outer Seatbelt profile. Stashbase does not modify
+Claude settings: its outer profile remains the network and configured-filesystem
+enforcement boundary for the session. Do not enable Claude's sandbox with
+`/sandbox` for these sessions.
 
 Blocked access is reported as a structured policy error when the denial passes
 through the agent proxy.
