@@ -347,9 +347,6 @@ pub async fn handle_revoke(
         spinner.stop_and_persist("", "");
     }
     result?;
-    if !silent {
-        println!();
-    }
     if json {
         println!(
             "{}",
