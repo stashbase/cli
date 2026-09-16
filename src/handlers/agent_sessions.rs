@@ -324,10 +324,7 @@ pub async fn handle_revoke(
         if json {
             println!(
                 "{}",
-                crate::utils::output::get_formatted_json_string(
-                    &serde_json::json!({"session_id": command.session_id, "origin": "local", "revoked": true}),
-                    true,
-                )?
+                crate::utils::output::get_formatted_json_string(&serde_json::json!({}), true,)?
             );
         } else {
             println!("Revoked local agent session {}.", command.session_id);
@@ -350,10 +347,7 @@ pub async fn handle_revoke(
     if json {
         println!(
             "{}",
-            crate::utils::output::get_formatted_json_string(
-                &serde_json::json!({"session_id": command.session_id, "origin": "remote", "revoked": true}),
-                true,
-            )?
+            crate::utils::output::get_formatted_json_string(&serde_json::json!({}), true,)?
         );
     } else {
         println!("Revoked remote agent session {}.", command.session_id);
