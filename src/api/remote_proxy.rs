@@ -143,6 +143,7 @@ pub struct RemoteProxySession {
 #[derive(Debug, Deserialize)]
 pub struct RemoteAgentSession {
     pub id: String,
+    pub command: Option<String>,
     pub started_at: String,
 }
 
