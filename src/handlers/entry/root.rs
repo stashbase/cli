@@ -1009,7 +1009,7 @@ pub async fn handle_cli(args: Cli) {
                                 let binding_sources = audit_binding_sources(&bindings);
                                 ProxyAuditLog::local_with_session_id(
                                     &agent_run.profile,
-                                    format!("ags_{}", short_uuid::ShortUuid::generate()),
+                                    session.session_id.clone(),
                                     policy_fingerprint.clone(),
                                 )
                                 .map(|audit_log| {
