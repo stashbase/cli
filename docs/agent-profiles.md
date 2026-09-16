@@ -50,10 +50,10 @@ child environment. Forward-proxy TLS-intercept sessions also provision the
 remote public CA for the child, enabling supported existing coding agents such
 as Codex, Copilot, and Claude Code to use their ordinary HTTP(S) transports.
 
-Remote Agent Proxy is not a general network sandbox: SSH, databases, raw TCP,
-browsers, and a tool that deliberately bypasses proxy settings are outside its
-scope. HTTP/1 WebSocket upgrades used by supported coding agents are relayed;
-HTTP/2 proxying and arbitrary third-party proxy integrations remain unsupported.
+Remote Agent Proxy is not itself a general network sandbox. `agent run` contains
+its child to the loopback proxy on supported platforms; SSH, databases, raw TCP,
+browsers, and arbitrary third-party proxy integrations remain unsupported.
+HTTP/1 WebSocket upgrades used by supported coding agents are relayed.
 
 The default profile source is `auto`: Stashbase uses
 `./.stashbase/agents/<profile>.toml` when present, otherwise it falls back to
@@ -223,16 +223,15 @@ enforcement. Bubblewrap restrictions are inherited by descendants.
 Existing file descriptors and data already loaded into process memory are
 outside this policy.
 
-On macOS, any non-empty filesystem policy wraps the agent in Seatbelt even
-without `--sandbox`; `--sandbox` only adds network restrictions. Seatbelt cannot
+On macOS, any non-empty filesystem policy wraps the agent in Seatbelt. Seatbelt cannot
 be nested, so Codex's inner sandbox is disabled for that run. Stashbase uses one
 outer profile for its configured filesystem denies and the basic workspace
 boundary needed for normal Codex operation. Codex state under `CODEX_HOME` (or
 `~/.codex`) remains writable and approval prompts stay active. This does not
 extend or equal Codex's full Seatbelt policy, and it is not same-user
 hostile-agent or full-machine isolation; protection is limited to the paths and
-boundaries Stashbase defines. Use `--sandbox` for network containment and a
-container or VM with a clean working copy when the original checkout must be
+boundaries Stashbase defines. Agent runs always include network containment; use
+a container or VM with a clean working copy when the original checkout must be
 inaccessible to the agent.
 
 Blocked access is reported as a structured policy error when the denial passes
@@ -742,8 +741,8 @@ deny_hosts = ["api.stashbase.dev"]
 
 Then a child request to an unlisted Stashbase API host is denied and recorded
 as `host_denied` in the proxy audit log. Some HTTPS clients surface that
-CONNECT-level denial as a generic connection error. Use `--sandbox` on supported platforms as well when direct network
-bypass must be blocked. Allowing broad egress is an explicit developer trust
+CONNECT-level denial as a generic connection error. Agent runs on supported
+platforms also block direct network bypass. Allowing broad egress is an explicit developer trust
 decision; the CLI does not implement fragile path-by-path rules for Stashbase
 endpoints. Future scoped agent-session tokens will let the API enforce finer
 permissions server-side.
@@ -764,7 +763,7 @@ Use this matrix when deciding whether a workflow belongs in an agent profile.
 | Streaming uploads, downloads, and SSE | Yes over HTTP/1 | Bodies are forwarded incrementally and unchanged; credential replacement remains header-only. |
 | Request bodies, query parameters, cookies, or arbitrary CLI arguments | No | Injection is header-only. Do not put real credentials in another channel to work around this. |
 | SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets | No | These protocols do not use the HTTP(S) proxy. |
-| Proxy-bypassing tools | No containment by default | They can connect directly unless they honor the proxy settings. `--sandbox` limits direct network access to the proxy loopback port on macOS and systemd-based Linux; Windows is not implemented. |
+| Proxy-bypassing tools | Blocked for `agent run` | Agent runs limit direct network access to the proxy loopback port on macOS and systemd-based Linux; Windows is not implemented. |
 | WebSockets over HTTP/1 (`wss://`) | Yes | The proxy tunnels the upgraded connection after applying host policy and header placeholder rewriting. This supports Codex streaming connections. |
 | HTTP/2 proxy clients | Not a supported target | This proof-of-concept proxy accepts HTTP/1 proxy traffic only. |
 
@@ -798,17 +797,16 @@ child process.
 
 In proxy mode, Stashbase clears inherited `NO_PROXY` / `no_proxy`,
 `ALL_PROXY` / `all_proxy`, and npm proxy override variables before starting the
-child, then supplies its own `HTTP_PROXY` and `HTTPS_PROXY`. This prevents the
-most common accidental bypasses. A tool can still intentionally use its own
-direct connection or proxy configuration; use `--sandbox` when direct network
-egress must be blocked.
+child, then supplies its own `HTTP_PROXY` and `HTTPS_PROXY`. Agent runs also
+contain the child to the loopback proxy, so a tool cannot create a direct
+connection by clearing or replacing those variables.
 
 It reduces exposure during normal local agent and developer-tool workflows; it
 is not a defense against a malicious or compromised same-user process. A
 same-user process can potentially inspect local files or process memory, alter
-the environment, or invoke ordinary Stashbase commands. Without `--sandbox`,
-proxy-bypassing tools can make direct network connections. The sandbox limits
-that network bypass but is not filesystem or process-memory isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
+the environment, or invoke ordinary Stashbase commands. The agent-run sandbox
+blocks proxy-bypassing network connections, but is not filesystem or
+process-memory isolation. `agent run` removes an inherited `STASHBASE_API_KEY` environment
 variable as defense in depth, but this does not protect credentials stored in
 CLI configuration or the operating-system credential store. Directory profiles
 are trusted policy: review a repository's `.stashbase/agents/*.toml` before
@@ -846,8 +844,8 @@ stashbase agent logs --action tls_trust_failed --since 1h
 blocked before it could be forwarded. `tls_trust_failed` means the HTTPS
 handshake ended while the proxy's temporary certificate was being presented;
 the protocol cannot reveal the exact client-side trust error. A direct proxy
-bypass cannot be logged because no request reaches the proxy—use the macOS
-`--sandbox` option when that containment matters.
+bypass cannot be logged because no request reaches the proxy—agent runs block
+that connection on supported platforms.
 
 ```text
 Audit session: 5fd2...

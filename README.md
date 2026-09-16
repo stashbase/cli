@@ -310,15 +310,16 @@ Filesystem enforcement uses the supported macOS or Linux process sandbox; see
 the [agent-profile cookbook](docs/agent-profiles.md) for platform requirements
 and limitations.
 
-On macOS, filesystem rules wrap the agent in Seatbelt even without `--sandbox`.
+On macOS, filesystem rules wrap the agent in Seatbelt even without filesystem
+restrictions.
 Seatbelt cannot be nested, so Codex's inner sandbox is disabled for that run;
 Stashbase uses one outer profile for its configured filesystem denies and the
 basic workspace boundary needed for normal Codex operation. Codex state under
 `CODEX_HOME` (or `~/.codex`) remains writable and approval prompts stay active.
 This does not extend or equal Codex's full Seatbelt policy, and it is not
 hostile-process or full-machine isolation; protection is limited to the paths
-and boundaries Stashbase defines. Use `--sandbox` for network containment and a
-container or VM with a clean working copy for stronger isolation.
+and boundaries Stashbase defines. Agent runs always use network containment; use
+a container or VM with a clean working copy for stronger isolation.
 
 On Linux, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
 `ReadOnlyPaths`. If the systemd user session is unavailable, it probes and can
@@ -330,9 +331,9 @@ descendant processes. Existing file descriptors and data already loaded into
 memory are outside this policy.
 
 Proxy mode clears inherited `NO_PROXY`, `ALL_PROXY`, and npm proxy override
-variables before applying its own proxy settings, preventing common accidental
-proxy bypasses. This does not stop a tool from deliberately creating a direct
-connection; use `--sandbox` on supported platforms when direct network egress must be blocked.
+variables before applying its own proxy settings. Agent runs additionally limit
+the child to the loopback proxy, so clearing those variables cannot create a
+direct network fallback.
 
 By default, a secret is exchanged from `Authorization: Bearer <placeholder>`.
 For providers with a different credential header, set `header` and optionally
@@ -401,9 +402,9 @@ developer's locally stored normal authentication and retrieve authorized
 secrets. Tight profiles should allow only required tool hosts; unlisted
 Stashbase API hosts are denied and recorded as `host_denied` in the audit log.
 Some HTTPS clients report a CONNECT-level denial as a generic connection error.
-Use `--sandbox` on
-supported platforms to prevent direct network bypasses. Scoped agent-session tokens will add
-server-enforced permissions in a future release.
+Agent runs are contained to the loopback proxy on supported platforms, preventing
+direct network bypasses. Scoped agent-session tokens will add server-enforced
+permissions in a future release.
 
 For a practical local-agent profile, allow ordinary internet access while
 blocking the Stashbase API explicitly. `deny_hosts` always wins over both
@@ -502,18 +503,17 @@ the platform's system trust-store updater and may prompt for `sudo`. This option
 intentionally changes host trust only for the session and should be used only on
 a machine where the launched agent is trusted.
 
-### Network sandbox (experimental)
+### Network containment
 
-Local `agent run` sessions deny the child direct network access while retaining
-its loopback connection to the embedded proxy. Add `--sandbox` to apply the
-same containment to remote sessions:
+Every `agent run` session denies the child direct network access while retaining
+its loopback connection to the embedded proxy, including remote sessions:
 
 ```bash
-stashbase agent run --sandbox --profile coding --profile-source directory -- codex
+stashbase agent run --profile coding --profile-source directory -- codex
 ```
 
-This prevents a sandboxed tool from bypassing the proxy with a direct internet
-connection. macOS uses the deprecated `sandbox-exec` utility. Linux uses
+This prevents a tool from bypassing the proxy with a direct internet connection.
+macOS uses the deprecated `sandbox-exec` utility. Linux uses
 `systemd-run --user --scope` with cgroup IP allow/deny rules, so it requires
 `systemd-run` and an active systemd user session. Windows is not implemented.
 This is network containment only, not filesystem or same-user process-memory
@@ -545,9 +545,8 @@ policy and audit logs make those proxied HTTP(S) decisions visible.
 It is not a security boundary against a malicious or compromised process
 running as the same user. Such a process may inspect local files or process
 memory, alter the environment, invoke ordinary `stashbase run`, or otherwise
-bypass the intended workflow. Without `--sandbox`, a tool that ignores
-proxy environment variables can also make direct network connections. The
-sandbox reduces that bypass route, but does not provide filesystem,
+bypass the intended workflow. The network sandbox blocks direct connections
+from the agent child, but does not provide filesystem,
 process-memory, kernel, administrator, or root isolation.
 
 As defense in depth, `agent run` removes the inherited `STASHBASE_API_KEY`
@@ -577,8 +576,8 @@ stashbase agent run --audit-log false --profile coding -- codex
 Failure actions include `host_denied`, `unknown_placeholder`,
 `tls_trust_failed`, `upstream_timeout`, and `upstream_connection_failed`.
 An unknown or stale placeholder is denied before forwarding. A direct proxy
-bypass cannot be logged because the request never reaches the proxy; use the
-`--sandbox` option on supported platforms when that containment matters.
+bypass cannot be logged because the request never reaches the proxy; agent runs
+block that bypass on supported platforms.
 
 View the recent local proxy decisions without reading JSONL files directly:
 
