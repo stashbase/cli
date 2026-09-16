@@ -140,6 +140,12 @@ pub struct RemoteProxySession {
     pub proxy_ca: Option<RemoteProxyCa>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RemoteAgentSession {
+    pub id: String,
+    pub started_at: String,
+}
+
 /// Public trust material for the remote TLS-intercepting forward proxy. This
 /// never contains a private key or any credential.
 #[derive(Debug, Deserialize)]
@@ -216,6 +222,87 @@ pub async fn create_session(
         session.proxy_url = format!("{}{}", client::get_api_url(), session.proxy_url);
     }
     Ok(session)
+}
+
+pub async fn list_agent_sessions(
+    api_key: &str,
+    json_format: bool,
+) -> Result<Vec<RemoteAgentSession>> {
+    let client = reqwest::Client::builder()
+        .user_agent(client::CLI_USER_AGENT)
+        .build()?;
+    let response = match client
+        .get(format!("{}/v1/agent-proxy/sessions", client::get_api_url()))
+        .bearer_auth(api_key)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            let output_error = if error.is_timeout() {
+                OutputError::request_timed_out()
+            } else {
+                OutputError::cannot_connect()
+            };
+            bail!(output_error.format_error_output(json_format)?);
+        }
+    };
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_response = response.json::<ApiErrorResponse>().await.ok();
+        bail!(format_session_error(
+            status,
+            error_response,
+            json_format,
+            false
+        )?);
+    }
+    Ok(response
+        .json::<Vec<RemoteAgentSession>>()
+        .await
+        .context("invalid remote Agent Proxy sessions response")?)
+}
+
+pub async fn revoke_agent_session(
+    api_key: &str,
+    session_id: &str,
+    json_format: bool,
+) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent(client::CLI_USER_AGENT)
+        .timeout(CLEANUP_REQUEST_TIMEOUT)
+        .build()?;
+    let response = match client
+        .post(format!(
+            "{}/v1/agent-proxy/sessions/{}/revoke",
+            client::get_api_url(),
+            session_id
+        ))
+        .bearer_auth(api_key)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            let output_error = if error.is_timeout() {
+                OutputError::request_timed_out()
+            } else {
+                OutputError::cannot_connect()
+            };
+            bail!(output_error.format_error_output(json_format)?);
+        }
+    };
+    if response.status().is_success() {
+        return Ok(());
+    }
+    let status = response.status();
+    let error_response = response.json::<ApiErrorResponse>().await.ok();
+    bail!(format_session_error(
+        status,
+        error_response,
+        json_format,
+        false
+    )?);
 }
 
 async fn ensure_user_authentication_for_credentials(

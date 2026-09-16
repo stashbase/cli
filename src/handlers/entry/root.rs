@@ -9,6 +9,7 @@ use std::{
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use short_uuid::ShortUuid;
 use tabled::Tabled;
 use tokio::{sync::watch, task::JoinHandle};
 
@@ -560,6 +561,22 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Init(agent_init) => {
                     handle_agent_init_command(agent_init, silent, raw_output)
                 }
+                AgentSubcommand::Sessions {
+                    command: crate::cmd::agent::AgentSessionsSubcommand::List(command),
+                } => {
+                    crate::handlers::agent_sessions::handle_sessions(
+                        command, &api_key, raw_output, silent,
+                    )
+                    .await
+                }
+                AgentSubcommand::Sessions {
+                    command: crate::cmd::agent::AgentSessionsSubcommand::Revoke(command),
+                } => {
+                    crate::handlers::agent_sessions::handle_revoke(
+                        command, &api_key, raw_output, silent,
+                    )
+                    .await
+                }
                 AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
                         handle_agent_logs(list.into(), raw_output).await
@@ -708,6 +725,8 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
+                    // A revocable local session must not have a direct-network fallback.
+                    let network_sandbox = agent_run.sandbox || !agent_run.remote;
 
                     if loaded_from_directory
                         && matches!(agent_run.profile_source, AgentProfileSource::Auto)
@@ -738,7 +757,7 @@ pub async fn handle_cli(args: Cli) {
                         .any(|hook| hook == "dependency_check");
                     let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !silent {
-                        if agent_run.sandbox {
+                        if network_sandbox {
                             eprintln!("Network sandbox: enabled");
                         } else {
                             eprintln!(
@@ -905,11 +924,13 @@ pub async fn handle_cli(args: Cli) {
                         profile_source,
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,
                     )?;
+                    let local_session_id = format!("ags_{}", ShortUuid::generate());
                     let audit_log = (!agent_run.remote)
                         .then(|| {
                             agent_run.audit_log.then(|| {
-                                ProxyAuditLog::local(
+                                ProxyAuditLog::local_with_session_id(
                                     &agent_run.profile,
+                                    local_session_id.clone(),
                                     policy_fingerprint.clone(),
                                 )
                                 .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
@@ -1105,6 +1126,14 @@ pub async fn handle_cli(args: Cli) {
                         crate::api::remote_proxy::clear_agent_run_cleanup();
                         return result;
                     }
+                    let print_local_session_id = audit_log.is_none();
+                    let local_session = if agent_run.remote {
+                        None
+                    } else {
+                        Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
+                            local_session_id.clone(),
+                        )?)
+                    };
                     let args = HandleRunArgs {
                         api_key,
                         project: profile.secrets.project,
@@ -1114,7 +1143,7 @@ pub async fn handle_cli(args: Cli) {
                         proxy_port: agent_run.proxy_port,
                         proxy_policy: Some(policy),
                         trust_proxy_ca: agent_run.trust_proxy_ca,
-                        sandbox: agent_run.sandbox,
+                        sandbox: network_sandbox,
                         audit_log,
                         secret_bindings: secret_bindings.clone(),
                         allow_file_override: true,
@@ -1125,6 +1154,7 @@ pub async fn handle_cli(args: Cli) {
                         print_secrets: None,
                         no_print_secrets: true,
                         dependency_hooks,
+                        local_session,
                         config_file: None,
                         file: profile.file,
                         expand_refs: None,
@@ -1132,6 +1162,9 @@ pub async fn handle_cli(args: Cli) {
                         silent,
                         scope: None,
                     };
+                    if !silent && !agent_run.remote && print_local_session_id {
+                        eprintln!("Agent session: {local_session_id}");
+                    }
                     handle_load_env_run(args).await
                 }
                 .await,
@@ -1181,6 +1214,7 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                     scope: run_cmd.scope,
                     dependency_hooks: false,
+                    local_session: None,
                 };
 
                 handle_load_env_run(args).await
@@ -1795,8 +1829,9 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  id={} profile={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
-        event.timestamp, event.id, event.profile, event.action, host,
+        "{}  session_id={} event_id={} profile={} profile_source={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        event.timestamp, event.session_id, event.event_id, event.profile,
+        event.profile_source.as_deref().unwrap_or("-"), event.action, host,
         event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
         event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
@@ -2347,7 +2382,7 @@ mod tests {
     fn audit_summary_groups_denials_without_secret_metadata() {
         let event = |action: &str, host: &str, status| ProxyAuditLogEvent {
             timestamp: "2026-01-01T00:00:00Z".to_owned(),
-            id: "evt_test".to_owned(),
+            event_id: "evt_test".to_owned(),
             session_id: "session".to_owned(),
             profile: "codex".to_owned(),
             policy_fingerprint: "fingerprint".to_owned(),
@@ -2397,7 +2432,7 @@ mod tests {
         let events = vec![
             ProxyAuditLogEvent {
                 timestamp: "2026-01-01T00:00:00Z".to_owned(),
-                id: "evt_one".to_owned(),
+                event_id: "evt_one".to_owned(),
                 session_id: "session".to_owned(),
                 profile: "codex".to_owned(),
                 policy_fingerprint: "fingerprint".to_owned(),
@@ -2419,7 +2454,7 @@ mod tests {
             },
             ProxyAuditLogEvent {
                 timestamp: "2026-01-01T00:00:00Z".to_owned(),
-                id: "evt_two".to_owned(),
+                event_id: "evt_two".to_owned(),
                 session_id: "session".to_owned(),
                 profile: "codex".to_owned(),
                 policy_fingerprint: "fingerprint".to_owned(),

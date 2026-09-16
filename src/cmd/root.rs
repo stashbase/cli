@@ -3,7 +3,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::cmd::scans::{ScanCommands, ScanConfigSubcommand, ScanSubcommand};
 
 use super::{
-    agent::{AgentCommand, AgentSubcommand},
+    agent::{AgentCommand, AgentSessionsSubcommand, AgentSubcommand},
     config::ConfigCommand,
     doctor::DoctorCommand,
     environments::EnvironmentCommands,
@@ -144,6 +144,18 @@ impl EntityType {
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Run(_),
             }) => false,
+            EntityType::Agent(AgentCommand {
+                subcommand:
+                    AgentSubcommand::Sessions {
+                        command: AgentSessionsSubcommand::List(command),
+                    },
+            }) => !command.local,
+            EntityType::Agent(AgentCommand {
+                subcommand:
+                    AgentSubcommand::Sessions {
+                        command: AgentSessionsSubcommand::Revoke(command),
+                    },
+            }) => !command.local,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Hooks(command),
             }) => !matches!(

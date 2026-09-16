@@ -504,9 +504,9 @@ a machine where the launched agent is trusted.
 
 ### Network sandbox (experimental)
 
-On macOS and systemd-based Linux systems, add `--sandbox` to deny the child
-direct network access while retaining its loopback connection to the embedded
-proxy:
+Local `agent run` sessions deny the child direct network access while retaining
+its loopback connection to the embedded proxy. Add `--sandbox` to apply the
+same containment to remote sessions:
 
 ```bash
 stashbase agent run --sandbox --profile coding --profile-source directory -- codex
@@ -594,6 +594,20 @@ stashbase agent logs --follow
 one JSON event per line as new events arrive. Profile, action, host, and session
 filters use exact matches. Each audited `agent run` prints its session ID at
 startup, which can be passed to `--session`.
+
+List and revoke active sessions:
+
+```bash
+stashbase agent sessions list
+stashbase agent sessions list --local
+stashbase agent sessions list --remote
+stashbase agent sessions revoke <session-id>
+```
+
+The combined list includes this machine's local runs and remote sessions owned
+by the authenticated account. Local revocation stops the local proxy process;
+remote revocation ends the logical Agent Proxy session, including rotated
+tokens.
 
 This is still a local experimental mode. If a profile permits the Stashbase API
 host, a sandboxed agent can still invoke normal `stashbase` commands through the
