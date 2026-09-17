@@ -603,12 +603,16 @@ stashbase agent sessions list
 stashbase agent sessions list --local
 stashbase agent sessions list --remote
 stashbase agent sessions revoke <session-id>
+stashbase agent sessions revoke --all --local
+stashbase agent sessions revoke --all --remote
 ```
 
 The combined list includes this machine's local runs and remote sessions owned
 by the authenticated account. Local revocation stops the local proxy process;
 remote revocation ends the logical Agent Proxy session, including rotated
 tokens.
+Bulk revocation requires either `--local` or `--remote` and prompts for
+confirmation. `--silent` skips the confirmation for automation.
 
 This is still a local experimental mode. If a profile permits the Stashbase API
 host, a sandboxed agent can still invoke normal `stashbase` commands through the

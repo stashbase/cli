@@ -10,7 +10,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::utils::spinner::request_spinner;
+use crate::utils::{interaction, spinner::request_spinner};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalAgentSession {
@@ -209,7 +209,8 @@ pub fn format_sessions(rows: &Vec<AgentSessionRow>, json: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_utc_timestamp, is_valid_agent_session_id, process_start_time, AgentSessionRow,
+        format_utc_timestamp, is_valid_agent_session_id, process_start_time,
+        should_confirm_bulk_revoke, validate_bulk_scope, AgentSessionRow,
     };
 
     #[test]
@@ -247,6 +248,21 @@ mod tests {
         assert!(is_valid_agent_session_id("ags_1234567890123456789012"));
         assert!(!is_valid_agent_session_id("ags_short"));
         assert!(!is_valid_agent_session_id("ags_12345678901234567890123"));
+    }
+
+    #[test]
+    fn bulk_revocation_requires_a_scope() {
+        assert!(validate_bulk_scope(true, true, false, false, false).is_ok());
+        assert!(validate_bulk_scope(true, false, true, false, false).is_ok());
+        assert!(validate_bulk_scope(true, false, false, false, false).is_err());
+        assert!(validate_bulk_scope(false, false, false, false, false).is_ok());
+    }
+
+    #[test]
+    fn silent_bulk_revocation_skips_confirmation() {
+        assert!(should_confirm_bulk_revoke(true, false));
+        assert!(!should_confirm_bulk_revoke(true, true));
+        assert!(!should_confirm_bulk_revoke(false, false));
     }
 }
 
@@ -305,7 +321,19 @@ pub async fn handle_revoke(
     json: bool,
     silent: bool,
 ) -> Result<()> {
-    if !is_valid_agent_session_id(&command.session_id) {
+    validate_bulk_scope(command.all, command.local, command.remote, json, silent)?;
+    if should_confirm_bulk_revoke(command.all, silent) {
+        let scope = if command.local { "local" } else { "remote" };
+        if interaction::confirm_opt(&format!("Revoke all active {scope} agent sessions?"))
+            != Some(true)
+        {
+            return Ok(());
+        }
+    }
+    let Some(session_id) = command.session_id.as_deref() else {
+        return handle_revoke_all(command, api_key, json, silent).await;
+    };
+    if !is_valid_agent_session_id(session_id) {
         let error = crate::models::validation::InputValidationError::AgentSession(
             crate::models::validation::AgentSessionInputValidationError::InvalidId,
         );
@@ -316,7 +344,7 @@ pub async fn handle_revoke(
         return Err(anyhow::anyhow!(formatted));
     }
     let local = if !command.remote {
-        revoke_local_session(&command.session_id)?
+        revoke_local_session(session_id)?
     } else {
         false
     };
@@ -330,19 +358,18 @@ pub async fn handle_revoke(
                 crate::utils::output::get_formatted_json_string(&serde_json::json!({}), true,)?
             );
         } else {
-            println!("Revoked local agent session {}.", command.session_id);
+            println!("Revoked local agent session {}.", session_id);
         }
         return Ok(());
     }
     if command.local {
         anyhow::bail!(
             "No active local agent session found with ID '{}'.",
-            command.session_id
+            session_id
         );
     }
     let mut spinner = (!silent).then(request_spinner);
-    let result =
-        crate::api::remote_proxy::revoke_agent_session(api_key, &command.session_id, json).await;
+    let result = crate::api::remote_proxy::revoke_agent_session(api_key, session_id, json).await;
     if let Some(ref mut spinner) = spinner {
         spinner.stop_and_persist("", "");
     }
@@ -353,7 +380,92 @@ pub async fn handle_revoke(
             crate::utils::output::get_formatted_json_string(&serde_json::json!({}), true,)?
         );
     } else {
-        println!("Revoked remote agent session {}.", command.session_id);
+        println!("Revoked remote agent session {}.", session_id);
+    }
+    Ok(())
+}
+
+fn validate_bulk_scope(
+    all: bool,
+    local: bool,
+    remote: bool,
+    json: bool,
+    silent: bool,
+) -> Result<()> {
+    if all && !local && !remote {
+        let error = crate::models::validation::InputValidationError::AgentSession(
+            crate::models::validation::AgentSessionInputValidationError::BulkScopeRequired,
+        );
+        let formatted = error.format_error_output(json)?;
+        if !silent {
+            eprintln!();
+        }
+        anyhow::bail!(formatted);
+    }
+    Ok(())
+}
+
+fn should_confirm_bulk_revoke(all: bool, silent: bool) -> bool {
+    all && !silent
+}
+
+async fn handle_revoke_all(
+    command: crate::cmd::agent::AgentRevokeCommand,
+    api_key: &str,
+    json: bool,
+    silent: bool,
+) -> Result<()> {
+    let revoked_session_count = if !command.remote {
+        let mut count = 0;
+        for session in list_local_sessions()? {
+            if revoke_local_session(&session.session_id)? {
+                count += 1;
+            }
+        }
+        count
+    } else {
+        0
+    };
+    if command.remote {
+        let mut spinner = (!silent).then(request_spinner);
+        let result = crate::api::remote_proxy::revoke_all_agent_sessions(api_key, json).await;
+        if let Some(ref mut spinner) = spinner {
+            spinner.stop_and_persist("", "");
+        }
+        let result = result?;
+        if !silent && !json {
+            println!(
+                "Revoked {} remote agent session(s).",
+                result.revoked_session_count
+            );
+        }
+        if json {
+            println!(
+                "{}",
+                crate::utils::output::get_formatted_json_string(&result, true)?
+            );
+        }
+        return Ok(());
+    }
+    if !silent {
+        println!();
+    }
+    if !silent && !json && revoked_session_count == 0 {
+        println!("No active agent sessions to revoke.");
+    } else if !silent && !json {
+        println!("Revoked {} local agent session(s).", revoked_session_count);
+    }
+    if json {
+        println!(
+            "{}",
+            crate::utils::output::get_formatted_json_string(
+                &serde_json::json!({
+                    "origin": "local",
+                    "revoked_session_count": revoked_session_count,
+                }),
+                true,
+            )?
+        );
     }
     Ok(())
 }

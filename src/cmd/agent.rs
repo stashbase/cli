@@ -65,10 +65,14 @@ pub struct AgentSessionsCommand {
 }
 
 #[derive(Debug, Args)]
-#[command(override_usage = "agent sessions revoke <SESSION_ID> [--local | --remote]")]
+#[command(override_usage = "agent sessions revoke [<SESSION_ID> | --all] [--local | --remote]")]
 pub struct AgentRevokeCommand {
     /// Session ID from `agent sessions`
-    pub session_id: String,
+    #[arg(required_unless_present = "all", conflicts_with = "all")]
+    pub session_id: Option<String>,
+    /// Revoke all active sessions in the selected scope
+    #[arg(long)]
+    pub all: bool,
     /// Revoke a local session only
     #[arg(long, conflicts_with = "remote")]
     pub local: bool,
@@ -545,6 +549,25 @@ mod tests {
         assert!(
             Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "ags_test"]).is_ok()
         );
+        assert!(Cli::try_parse_from(["stashbase", "agent", "sessions", "revoke", "--all"]).is_ok());
+        assert!(Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "sessions",
+            "revoke",
+            "--all",
+            "--local"
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "sessions",
+            "revoke",
+            "ags_test",
+            "--all"
+        ])
+        .is_err());
         let local =
             Cli::try_parse_from(["stashbase", "agent", "sessions", "list", "--local"]).unwrap();
         let remote =
