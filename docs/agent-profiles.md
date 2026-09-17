@@ -237,12 +237,12 @@ inaccessible to the agent.
 
 #### Claude Code on macOS
 
-Claude Code's optional Bash sandbox must remain disabled when launched through
-`stashbase agent run`. Claude uses Seatbelt for that sandbox, and macOS cannot
-nest it inside Stashbase's outer Seatbelt profile. Stashbase does not modify
-Claude settings: its outer profile remains the network and configured-filesystem
-enforcement boundary for the session. Do not enable Claude's sandbox with
-`/sandbox` for these sessions.
+Claude Code's optional Bash sandbox is configured independently; Stashbase does
+not alter or rely on it. The outer Stashbase Seatbelt profile remains the
+network and configured-filesystem enforcement boundary for the session. If
+Claude reports that its own sandbox could not initialize, Claude may fall back
+to its ordinary command-permission flow; verify the active Claude settings for
+your workflow separately.
 
 Blocked access is reported as a structured policy error when the denial passes
 through the agent proxy.
@@ -892,11 +892,15 @@ stashbase agent sessions list
 stashbase agent sessions list --local
 stashbase agent sessions list --remote
 stashbase agent sessions revoke <session-id>
+stashbase agent sessions revoke --all --local
+stashbase agent sessions revoke --all --remote
 ```
 
 Revoking a local session terminates its Stashbase CLI process and closes its
 local proxy. Revoking a remote session disables all active tokens for that
 logical run and marks the run ended.
+Bulk revocation requires either `--local` or `--remote` and prompts for
+confirmation. `--silent` skips the confirmation for automation.
 
 `agent logs summary` groups local metadata-only events into request, injection,
 forward, and denial counts. Its `Denied by` section groups only the proxy
