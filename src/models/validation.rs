@@ -26,6 +26,7 @@ pub enum InputValidationError {
 #[derive(Debug, Serialize)]
 pub enum AgentSessionInputValidationError {
     InvalidId,
+    BulkScopeRequired,
     ProfileNotFound { profile: String, source: String },
 }
 
@@ -1032,6 +1033,10 @@ impl AgentSessionInputValidationError {
             AgentSessionInputValidationError::InvalidId => (
                 "Invalid agent session ID.",
                 Some("ID must start with the prefix 'ags_' followed by 22 alphanumeric characters."),
+            ),
+            AgentSessionInputValidationError::BulkScopeRequired => (
+                "Bulk revocation requires either --local or --remote.",
+                Some("Choose one scope when using '--all'."),
             ),
             AgentSessionInputValidationError::ProfileNotFound { profile, source } => (
                 "Agent profile was not found.",

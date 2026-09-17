@@ -146,6 +146,12 @@ pub struct RemoteAgentSession {
     pub started_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RemoteRevokeAllResponse {
+    pub origin: String,
+    pub revoked_session_count: u64,
+}
+
 /// Public trust material for the remote TLS-intercepting forward proxy. This
 /// never contains a private key or any credential.
 #[derive(Debug, Deserialize)]
@@ -294,6 +300,49 @@ pub async fn revoke_agent_session(
     };
     if response.status().is_success() {
         return Ok(());
+    }
+    let status = response.status();
+    let error_response = response.json::<ApiErrorResponse>().await.ok();
+    bail!(format_session_error(
+        status,
+        error_response,
+        json_format,
+        false
+    )?);
+}
+
+pub async fn revoke_all_agent_sessions(
+    api_key: &str,
+    json_format: bool,
+) -> Result<RemoteRevokeAllResponse> {
+    let client = reqwest::Client::builder()
+        .user_agent(client::CLI_USER_AGENT)
+        .timeout(CLEANUP_REQUEST_TIMEOUT)
+        .build()?;
+    let response = match client
+        .post(format!(
+            "{}/v1/agent-proxy/sessions/revoke/all",
+            client::get_api_url()
+        ))
+        .bearer_auth(api_key)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            let output_error = if error.is_timeout() {
+                OutputError::request_timed_out()
+            } else {
+                OutputError::cannot_connect()
+            };
+            bail!(output_error.format_error_output(json_format)?);
+        }
+    };
+    if response.status().is_success() {
+        return Ok(response
+            .json::<RemoteRevokeAllResponse>()
+            .await
+            .context("invalid remote bulk session revocation response")?);
     }
     let status = response.status();
     let error_response = response.json::<ApiErrorResponse>().await.ok();
@@ -471,6 +520,25 @@ mod tests {
             session_purpose: None,
             previous_session_token: previous_session_token.map(str::to_owned),
         }
+    }
+
+    #[test]
+    fn bulk_revoke_response_preserves_backend_count() {
+        let response: RemoteRevokeAllResponse = serde_json::from_value(serde_json::json!({
+            "origin": "remote",
+            "revoked_session_count": 2
+        }))
+        .unwrap();
+
+        assert_eq!(response.origin, "remote");
+        assert_eq!(response.revoked_session_count, 2);
+        assert_eq!(
+            serde_json::to_value(response).unwrap(),
+            serde_json::json!({
+                "origin": "remote",
+                "revoked_session_count": 2
+            })
+        );
     }
 
     #[test]
