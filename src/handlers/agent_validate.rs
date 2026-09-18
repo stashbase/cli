@@ -152,27 +152,38 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
 }
 
 fn validate_runtime_requirements(profile: &AgentProfile) -> Vec<Check> {
+    let mut checks = Vec::new();
+    match crate::handlers::run::subprocess::network_enforcement_error() {
+        Some(error) => checks.push(fail("Network enforcement", error)),
+        None => checks.push(ok(
+            "Network enforcement",
+            "Loopback-only agent containment is available".to_owned(),
+        )),
+    }
+
     let backend = crate::handlers::run::subprocess::filesystem_backend_for_policy(
         &profile.filesystem.deny_read,
         &profile.filesystem.deny_write,
     );
     if profile.filesystem.deny_read.is_empty() && profile.filesystem.deny_write.is_empty() {
-        return vec![ok(
+        checks.push(ok(
             "Filesystem enforcement",
             format!("Selected backend: {backend}."),
-        )];
+        ));
+        return checks;
     }
 
     match crate::handlers::run::subprocess::filesystem_enforcement_error() {
-        Some(error) => vec![fail(
+        Some(error) => checks.push(fail(
             "Filesystem enforcement",
             format!("Selected backend: {backend}; this profile cannot run here: {error}"),
-        )],
-        None => vec![ok(
+        )),
+        None => checks.push(ok(
             "Filesystem enforcement",
             format!("Selected backend: {backend}."),
-        )],
+        )),
     }
+    checks
 }
 
 fn validate_remote_profile(profile: &AgentProfile) -> Vec<Check> {
