@@ -47,7 +47,25 @@ curl -fsSL https://stashbase.dev/cli/install.sh | bash
 
 ### Windows
 
-For Windows x64 users, we recommend using [Scoop](https://scoop.sh).
+The native Windows CLI supports general commands. For `agent run`, use the
+Linux CLI inside WSL2 so Stashbase can use Linux process containment.
+
+In WSL2, enable systemd and disable Windows interop in `/etc/wsl.conf`:
+
+```ini
+[boot]
+systemd=true
+
+[interop]
+enabled=false
+appendWindowsPath=false
+```
+
+Run `wsl --shutdown` from Windows after changing the file, then install and
+run Stashbase inside the WSL distribution. Keep agent workspaces in the WSL
+filesystem rather than under `/mnt/c`.
+
+For the native Windows x64 CLI, we recommend using [Scoop](https://scoop.sh).
 
 ```bash
 # Add the bucket
@@ -323,7 +341,7 @@ hostile-process or full-machine isolation; protection is limited to the paths
 and boundaries Stashbase defines. Agent runs always use network containment; use
 a container or VM with a clean working copy for stronger isolation.
 
-On Linux, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
+On Linux, including WSL2, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
 `ReadOnlyPaths`. If the systemd user session is unavailable, it probes and can
 use `bubblewrap` to create a private mount namespace: read-denied directories
 are overlaid with `tmpfs`, read-denied files with `/dev/null`, and write-denied
@@ -515,9 +533,10 @@ stashbase agent run --profile coding --profile-source directory -- codex
 ```
 
 This prevents a tool from bypassing the proxy with a direct internet connection.
-macOS uses the deprecated `sandbox-exec` utility. Linux uses
+macOS uses the deprecated `sandbox-exec` utility. Linux, including WSL2, uses
 `systemd-run --user --scope` with cgroup IP allow/deny rules, so it requires
-`systemd-run` and an active systemd user session. Windows is not implemented.
+`systemd-run` and an active systemd user session. Native Windows is not
+implemented.
 This is network containment only, not filesystem or same-user process-memory
 isolation.
 
