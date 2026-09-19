@@ -88,11 +88,12 @@ profile above makes the `GITHUB_TOKEN` secret available as `GH_TOKEN`. The
 source name is removed from the child environment, preventing a parent process
 variable such as `GITHUB_TOKEN` from bypassing the profile's chosen name.
 
+```toml
 [filesystem]
 deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
 
-````
+```
 
 ## Dependency hooks
 
@@ -102,7 +103,7 @@ dependency hook; local-only hooks do not need this setting:
 
 ```toml
 allow_hooks = ["dependency_check"]
-````
+```
 
 When enabled, `agent run` gives the child only a short-lived local broker
 token. The parent retains the Stashbase API key and the broker accepts only
@@ -236,8 +237,8 @@ boundaries Stashbase defines. Agent runs always include network containment; use
 a container or VM with a clean working copy when the original checkout must be
 inaccessible to the agent.
 
-Profiles deny incoming listeners by default. A Node/Nx test profile that needs
-to start a server can opt in:
+On macOS, profiles deny incoming listeners by default. A Node/Nx test profile
+that needs to start a server can opt in:
 
 ```toml
 allow_network_listeners = true
@@ -248,7 +249,8 @@ system temporary directories, so nested Nx/Jest and Rust test workers can
 communicate. Seatbelt cannot restrict TCP binding to `127.0.0.1`; it also
 permits binding the host's LAN addresses. Use it only for a trusted test
 profile. It does not widen direct internet access, which remains restricted to
-the proxy.
+the proxy. Linux's systemd sandbox keeps loopback available for the embedded
+proxy, so this setting has no effect there.
 
 #### Claude Code on macOS
 
