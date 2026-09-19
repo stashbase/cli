@@ -57,6 +57,7 @@ pub async fn handle_remote_agent_run(
     let args = command.into_iter().skip(1).collect();
     let denied_read_paths = policy.denied_read_paths.clone();
     let denied_write_paths = policy.denied_write_paths.clone();
+    let allow_network_listeners = policy.allow_network_listeners;
     let command_audit_log = audit_log.clone();
     let proxy = super::proxy::Proxy::start_remote_with_hook(
         remote,
@@ -81,6 +82,7 @@ pub async fn handle_remote_agent_run(
         proxy.child_env().clone(),
         source_env_names,
         sandbox,
+        allow_network_listeners,
         true,
         true,
         &denied_read_paths,
@@ -1132,6 +1134,9 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.denied_write_paths.clone())
         .unwrap_or_default();
+    let allow_network_listeners = proxy_policy
+        .as_ref()
+        .is_some_and(|policy| policy.allow_network_listeners);
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
@@ -1163,6 +1168,7 @@ async fn handle_run(
             child_env,
             secret_bindings.keys().cloned().collect(),
             sandbox,
+            allow_network_listeners,
             true,
             restrict_stashbase_credentials,
             &denied_read_paths,

@@ -326,6 +326,7 @@ mod tests {
         AgentProfile {
             file: None,
             egress_hosts: Some(vec!["api.github.com".to_owned()]),
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),

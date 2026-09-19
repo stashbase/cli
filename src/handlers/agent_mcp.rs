@@ -672,6 +672,7 @@ async fn proxied_client(
             .collect(),
         denied_read_paths: Vec::new(),
         denied_write_paths: Vec::new(),
+        allow_network_listeners: false,
         egress_hosts_configured: profile.egress_hosts.is_some(),
         strict_deny: true,
         mcp_rules: mcp_rules.clone(),
@@ -811,6 +812,7 @@ async fn remote_proxied_client(
             .collect(),
         denied_read_paths: Vec::new(),
         denied_write_paths: Vec::new(),
+        allow_network_listeners: false,
         egress_hosts_configured: profile.egress_hosts.is_some(),
         strict_deny: true,
         mcp_rules: mcp_rules
