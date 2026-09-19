@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct AgentProfile {
     pub file: Option<String>,
     pub egress_hosts: Option<Vec<String>>,
-    /// Allows a sandboxed child to bind a local test or worker listener.
+    /// On macOS, allows a sandboxed child to bind a test or worker listener.
     #[serde(default)]
     pub allow_network_listeners: bool,
     /// Destinations denied after both secret and ordinary egress rules are evaluated.
