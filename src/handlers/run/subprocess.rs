@@ -687,10 +687,9 @@ fn wsl_interop_error() -> Option<String> {
                 .to_owned(),
         ),
         Ok(_) => None,
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Some(format!(
+        Err(error) => Some(format!(
             "cannot verify WSL Windows interop status; refusing to run agents: {error}"
         )),
-        Err(_) => None,
     }
 }
 
