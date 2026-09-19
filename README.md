@@ -355,6 +355,12 @@ variables before applying its own proxy settings. Agent runs additionally limit
 the child to the loopback proxy, so clearing those variables cannot create a
 direct network fallback.
 
+On macOS, profiles deny incoming listeners by default. A Node/Nx test profile
+can set `allow_network_listeners = true`; this enables localhost TCP and
+temporary Unix-socket IPC, and permits binding the host's LAN addresses, so use
+it only for a trusted test profile. Linux's systemd sandbox keeps loopback
+available for the embedded proxy, so this setting has no effect there.
+
 By default, a secret is exchanged from `Authorization: Bearer <placeholder>`.
 For providers with a different credential header, set `header` and optionally
 `value_template` (which must contain `{value}`):

@@ -909,6 +909,7 @@ pub async fn handle_cli(args: Cli) {
                             .collect(),
                         denied_read_paths: profile.filesystem.deny_read.clone(),
                         denied_write_paths: profile.filesystem.deny_write.clone(),
+                        allow_network_listeners: profile.allow_network_listeners,
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                         mcp_rules: compiled_mcp_rules(&profile),
@@ -2221,6 +2222,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),

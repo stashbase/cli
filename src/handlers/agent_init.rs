@@ -17,6 +17,10 @@ egress_hosts = []
 # Enable installed dependency hooks for this profile.
 # allow_hooks = ["dependency_check"]
 
+# Optional: allow local test servers and Unix-socket IPC (macOS only).
+# Linux keeps loopback available for the embedded proxy; this setting has no effect there.
+# allow_network_listeners = true
+
 # Optional: protect sensitive files from agent reads and writes.
 # [filesystem]
 # deny_read = ["~/.ssh", "~/.aws", ".env"]
@@ -121,6 +125,7 @@ mod tests {
     #[test]
     fn template_starts_closed_and_includes_a_generic_rule() {
         assert!(PROFILE_TEMPLATE.contains("egress_hosts = []"));
+        assert!(PROFILE_TEMPLATE.contains("allow_network_listeners = true"));
         assert!(PROFILE_TEMPLATE.contains("# allow_hooks = [\"dependency_check\"]"));
         assert!(PROFILE_TEMPLATE.contains("[secrets.SECRET_NAME]"));
         assert!(PROFILE_TEMPLATE.contains("[[secrets.SECRET_NAME.rules]]"));
