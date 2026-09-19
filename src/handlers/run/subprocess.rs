@@ -1179,6 +1179,7 @@ mod tests {
         assert!(!denied[1].contains("(allow network-bind"));
         assert!(allowed[1].contains("(allow network-inbound (local ip \"localhost:*\"))"));
         assert!(allowed[1].contains("(allow network-outbound (remote ip \"localhost:*\"))"));
+        assert!(!allowed[1].contains("(allow network-outbound (remote ip \"*:*\"))"));
         assert!(allowed[1]
             .contains("(allow network-bind (local unix-socket (subpath \"/private/tmp\")))"));
     }
