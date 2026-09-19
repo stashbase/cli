@@ -91,7 +91,8 @@ variable such as `GITHUB_TOKEN` from bypassing the profile's chosen name.
 [filesystem]
 deny_read = ["~/.ssh", "~/.aws", ".env"]
 deny_write = ["~/.ssh", "~/.aws", ".git"]
-```
+
+````
 
 ## Dependency hooks
 
@@ -101,7 +102,7 @@ dependency hook; local-only hooks do not need this setting:
 
 ```toml
 allow_hooks = ["dependency_check"]
-```
+````
 
 When enabled, `agent run` gives the child only a short-lived local broker
 token. The parent retains the Stashbase API key and the broker accepts only
@@ -234,6 +235,20 @@ hostile-agent or full-machine isolation; protection is limited to the paths and
 boundaries Stashbase defines. Agent runs always include network containment; use
 a container or VM with a clean working copy when the original checkout must be
 inaccessible to the agent.
+
+Profiles deny incoming listeners by default. A Node/Nx test profile that needs
+to start a server can opt in:
+
+```toml
+allow_network_listeners = true
+```
+
+On macOS, it enables localhost TCP connections and Unix-socket IPC below the
+system temporary directories, so nested Nx/Jest and Rust test workers can
+communicate. Seatbelt cannot restrict TCP binding to `127.0.0.1`; it also
+permits binding the host's LAN addresses. Use it only for a trusted test
+profile. It does not widen direct internet access, which remains restricted to
+the proxy.
 
 #### Claude Code on macOS
 
@@ -762,20 +777,20 @@ permissions server-side.
 The proxy is intentionally focused on common developer-tool HTTP(S) traffic.
 Use this matrix when deciding whether a workflow belongs in an agent profile.
 
-| Workflow or protocol | Proxy support | Notes |
-| --- | --- | --- |
-| `curl` and ordinary HTTP clients | Yes | The client must honor `HTTP_PROXY` / `HTTPS_PROXY` and place the placeholder in a configured header. |
-| HTTPS APIs | Yes, with temporary CA trust | Most clients use the CA-file variables supplied by the CLI. Use `--trust-proxy-ca` only when a client requires operating-system trust-store integration. |
-| Node.js / `fetch` | Usually | The CLI enables `NODE_USE_ENV_PROXY`; use a Node runtime that supports environment proxy settings. |
-| `gh` and GitHub Copilot CLI | Usually | Configure every required GitHub/Copilot host. Some builds need `--trust-proxy-ca`. |
-| Agent-spawned HTTP tools | Yes | They inherit the placeholders and proxy variables from the agent process. The same proxy handles every descendant; no nested proxy is needed. |
-| Custom API-key headers | Yes | Configure `header` and, when needed, `value_template`. |
-| Streaming uploads, downloads, and SSE | Yes over HTTP/1 | Bodies are forwarded incrementally and unchanged; credential replacement remains header-only. |
-| Request bodies, query parameters, cookies, or arbitrary CLI arguments | No | Injection is header-only. Do not put real credentials in another channel to work around this. |
-| SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets | No | These protocols do not use the HTTP(S) proxy. |
-| Proxy-bypassing tools | Blocked for `agent run` | Agent runs limit direct network access to the proxy loopback port on macOS and systemd-based Linux; Windows is not implemented. |
-| WebSockets over HTTP/1 (`wss://`) | Yes | The proxy tunnels the upgraded connection after applying host policy and header placeholder rewriting. This supports Codex streaming connections. |
-| HTTP/2 proxy clients | Not a supported target | This proof-of-concept proxy accepts HTTP/1 proxy traffic only. |
+| Workflow or protocol                                                  | Proxy support                | Notes                                                                                                                                                    |
+| --------------------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `curl` and ordinary HTTP clients                                      | Yes                          | The client must honor `HTTP_PROXY` / `HTTPS_PROXY` and place the placeholder in a configured header.                                                     |
+| HTTPS APIs                                                            | Yes, with temporary CA trust | Most clients use the CA-file variables supplied by the CLI. Use `--trust-proxy-ca` only when a client requires operating-system trust-store integration. |
+| Node.js / `fetch`                                                     | Usually                      | The CLI enables `NODE_USE_ENV_PROXY`; use a Node runtime that supports environment proxy settings.                                                       |
+| `gh` and GitHub Copilot CLI                                           | Usually                      | Configure every required GitHub/Copilot host. Some builds need `--trust-proxy-ca`.                                                                       |
+| Agent-spawned HTTP tools                                              | Yes                          | They inherit the placeholders and proxy variables from the agent process. The same proxy handles every descendant; no nested proxy is needed.            |
+| Custom API-key headers                                                | Yes                          | Configure `header` and, when needed, `value_template`.                                                                                                   |
+| Streaming uploads, downloads, and SSE                                 | Yes over HTTP/1              | Bodies are forwarded incrementally and unchanged; credential replacement remains header-only.                                                            |
+| Request bodies, query parameters, cookies, or arbitrary CLI arguments | No                           | Injection is header-only. Do not put real credentials in another channel to work around this.                                                            |
+| SSH, Git-over-SSH, databases, raw TCP/UDP, local sockets              | No                           | These protocols do not use the HTTP(S) proxy.                                                                                                            |
+| Proxy-bypassing tools                                                 | Blocked for `agent run`      | Agent runs limit direct network access to the proxy loopback port on macOS and systemd-based Linux; Windows is not implemented.                          |
+| WebSockets over HTTP/1 (`wss://`)                                     | Yes                          | The proxy tunnels the upgraded connection after applying host policy and header placeholder rewriting. This supports Codex streaming connections.        |
+| HTTP/2 proxy clients                                                  | Not a supported target       | This proof-of-concept proxy accepts HTTP/1 proxy traffic only.                                                                                           |
 
 The proxy is not a general-purpose proxy, policy engine, or network firewall.
 It is a short-lived credential-injection boundary for supported HTTP(S) tools.
