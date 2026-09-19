@@ -59,6 +59,7 @@ pub async fn run_command(
         env_vars,
         env_removals,
         sandbox,
+        false,
         proxy_mode,
         restrict_stashbase_credentials,
         &[],
@@ -74,6 +75,7 @@ pub async fn run_command_with_filesystem_policy(
     env_vars: HashMap<String, String>,
     env_removals: Vec<String>,
     sandbox: bool,
+    allow_network_listeners: bool,
     proxy_mode: bool,
     restrict_stashbase_credentials: bool,
     denied_read_paths: &[String],
@@ -92,6 +94,7 @@ pub async fn run_command_with_filesystem_policy(
     let (program, launcher_args) = sandbox_command_with_filesystem_policy(
         command,
         sandbox,
+        allow_network_listeners,
         &env_vars,
         denied_read_paths,
         denied_write_paths,
@@ -322,11 +325,13 @@ fn should_inherit_terminal_streams(stdin_is_terminal: bool, stderr_is_terminal: 
 fn sandbox_command(
     command: &str,
     sandbox: bool,
+    allow_network_listeners: bool,
     env_vars: &HashMap<String, String>,
 ) -> Result<(String, Vec<String>)> {
     sandbox_command_with_filesystem_policy(
         command,
         sandbox,
+        allow_network_listeners,
         env_vars,
         &[],
         &[],
@@ -337,6 +342,7 @@ fn sandbox_command(
 fn sandbox_command_with_filesystem_policy(
     command: &str,
     sandbox: bool,
+    allow_network_listeners: bool,
     env_vars: &HashMap<String, String>,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
@@ -390,14 +396,22 @@ fn sandbox_command_with_filesystem_policy(
                 .and_then(|url| url.rsplit_once(':').map(|(_, port)| port))
                 .filter(|port| port.parse::<u16>().is_ok())
                 .ok_or_else(|| anyhow::anyhow!("--sandbox requires a localhost HTTPS_PROXY"))?;
+            let inbound_rule = allow_network_listeners
+                .then_some(
+                    "\n            (allow network-bind (local ip \"*:*\"))\n            (allow network-inbound (local ip \"localhost:*\"))\n            (allow network-outbound (remote ip \"localhost:*\"))\n            (allow system-socket (socket-domain AF_UNIX))\n            (allow network-bind (local unix-socket (subpath \"/private/tmp\")))\n            (allow network-bind (local unix-socket (subpath \"/private/var/folders\")))\n            (allow network-bind (local unix-socket (subpath \"/private/var/tmp\")))\n            (allow network-outbound (remote unix-socket (subpath \"/private/tmp\")))\n            (allow network-outbound (remote unix-socket (subpath \"/private/var/folders\")))\n            (allow network-outbound (remote unix-socket (subpath \"/private/var/tmp\")))",
+                )
+                .unwrap_or_default();
             format!(
-                "(deny network-inbound)\n            (deny network-outbound)\n            (allow network-outbound (remote ip \"localhost:{proxy_port}\"))"
+                "(deny network-inbound)\n            (deny network-outbound){inbound_rule}\n            (allow network-outbound (remote ip \"localhost:{proxy_port}\"))"
             )
         } else {
             String::new()
         };
 
-        // The agent can only make network connections to this command's loopback proxy.
+        // `allow_network_listeners` is an explicit profile opt-in because Seatbelt's
+        // `localhost` inbound matcher also permits the host's LAN addresses. It restores
+        // localhost TCP and temporary Unix-socket IPC for nested test runners.
+        // The agent can otherwise only make network connections to this command's loopback proxy.
         // `allow default` keeps language runtimes usable; direct outbound and inbound
         // sockets are then denied, with the proxy's exact port restored as the exception.
         let profile = format!(
@@ -1130,7 +1144,8 @@ mod tests {
             "HTTPS_PROXY".to_owned(),
             format!("http://127.0.0.1:{allowed_port}"),
         )]);
-        let (program, launcher_args) = sandbox_command("/usr/bin/nc", true, &env_vars).unwrap();
+        let (program, launcher_args) =
+            sandbox_command("/usr/bin/nc", true, false, &env_vars).unwrap();
         let allowed_port = allowed_port.to_string();
 
         let allowed = Command::new(&program)
@@ -1153,9 +1168,27 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    fn macos_sandbox_allows_inbound_only_when_profile_opted_in() {
+        let env_vars = HashMap::from([(
+            "HTTPS_PROXY".to_owned(),
+            "http://127.0.0.1:12345".to_owned(),
+        )]);
+        let (_, denied) = sandbox_command("/usr/bin/true", true, false, &env_vars).unwrap();
+        let (_, allowed) = sandbox_command("/usr/bin/true", true, true, &env_vars).unwrap();
+
+        assert!(!denied[1].contains("(allow network-bind"));
+        assert!(allowed[1].contains("(allow network-inbound (local ip \"localhost:*\"))"));
+        assert!(allowed[1].contains("(allow network-outbound (remote ip \"localhost:*\"))"));
+        assert!(allowed[1]
+            .contains("(allow network-bind (local unix-socket (subpath \"/private/tmp\")))"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
     fn macos_filesystem_policy_generates_file_read_rule() {
         let (program, args) = sandbox_command_with_filesystem_policy(
             "/bin/sh",
+            false,
             false,
             &HashMap::new(),
             &["/tmp/private-agent-file".to_owned()],
@@ -1282,6 +1315,7 @@ mod tests {
 
         let (program, args) = sandbox_command_with_filesystem_policy(
             "/bin/sh",
+            false,
             false,
             &HashMap::new(),
             &[],

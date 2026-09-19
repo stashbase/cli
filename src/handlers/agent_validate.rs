@@ -968,6 +968,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -1060,6 +1061,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -1093,6 +1095,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -1127,6 +1130,7 @@ mod tests {
         let profile = AgentProfile {
             file: Some(".env.agent".to_owned()),
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -1146,6 +1150,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -1179,6 +1184,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -1237,6 +1243,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),

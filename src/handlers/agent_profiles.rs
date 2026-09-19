@@ -331,10 +331,20 @@ mod tests {
     }
 
     #[test]
+    fn network_listeners_are_disabled_unless_a_profile_enables_them() {
+        let default: AgentProfile = toml::from_str("").unwrap();
+        let enabled: AgentProfile = toml::from_str("allow_network_listeners = true").unwrap();
+
+        assert!(!default.allow_network_listeners);
+        assert!(enabled.allow_network_listeners);
+    }
+
+    #[test]
     fn effective_profile_resolves_defaults_and_normalizes_rules() {
         let profile = AgentProfile {
             file: None,
             egress_hosts: Some(vec!["API.GITHUB.COM.".to_owned()]),
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -377,6 +387,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
@@ -417,6 +428,7 @@ mod tests {
         let profile = AgentProfile {
             file: None,
             egress_hosts: None,
+            allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
             mcp_servers: HashMap::new(),
