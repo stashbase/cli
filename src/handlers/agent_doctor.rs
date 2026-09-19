@@ -19,7 +19,7 @@ use crate::{
     cmd::agent::AgentDoctorCommand,
     handlers::run::{
         proxy::{Proxy, ProxyPolicy},
-        subprocess::{filesystem_backend, filesystem_enforcement_error},
+        subprocess::{filesystem_backend, filesystem_enforcement_error, network_enforcement_error},
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
@@ -72,6 +72,14 @@ pub async fn handle_agent_doctor_command(
         None => checks.push(ok(
             "Filesystem enforcement",
             format!("Selected backend: {}.", filesystem_backend()),
+        )),
+    }
+
+    match network_enforcement_error() {
+        Some(error) => checks.push(fail("Network enforcement", error)),
+        None => checks.push(ok(
+            "Network enforcement",
+            "Loopback-only agent containment is available".to_owned(),
         )),
     }
 

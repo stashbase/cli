@@ -675,6 +675,62 @@ fn command_in_path(command: &str) -> bool {
     })
 }
 
+#[cfg(target_os = "linux")]
+fn is_wsl_release(release: &str) -> bool {
+    let release = release.to_ascii_lowercase();
+    release.contains("microsoft") || release.contains("wsl")
+}
+
+#[cfg(target_os = "linux")]
+fn wsl_interop_error() -> Option<String> {
+    let release = match std::fs::read_to_string("/proc/sys/kernel/osrelease") {
+        Ok(release) => release,
+        Err(error) => {
+            return Some(format!(
+                "cannot determine whether this is WSL; refusing to run agents: {error}"
+            ));
+        }
+    };
+    if !is_wsl_release(&release) {
+        return None;
+    }
+
+    match std::fs::read_to_string("/proc/sys/fs/binfmt_misc/WSLInterop") {
+        Ok(entry) if entry.lines().any(|line| line.trim() == "enabled") => Some(
+            "WSL Windows interop is enabled; disable it in /etc/wsl.conf before running agents"
+                .to_owned(),
+        ),
+        Ok(_) => None,
+        Err(error) => Some(format!(
+            "cannot verify WSL Windows interop status; refusing to run agents: {error}"
+        )),
+    }
+}
+
+/// Returns an error when the mandatory network boundary cannot be applied.
+pub(crate) fn network_enforcement_error() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(error) = wsl_interop_error() {
+            return Some(error);
+        }
+        if let Some(error) = systemd_filesystem_enforcement_error() {
+            return Some(format!(
+                "network containment requires a working `systemd-run --user`: {error}"
+            ));
+        }
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        None
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        Some("network containment is supported only on macOS and Linux".to_owned())
+    }
+}
+
 /// Returns the backend that will enforce a non-empty profile denylist.
 pub(crate) fn filesystem_backend() -> String {
     #[cfg(target_os = "linux")]
@@ -890,6 +946,14 @@ mod tests {
     fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn detects_wsl_kernel_releases() {
+        assert!(super::is_wsl_release("5.15.167.4-microsoft-standard-WSL2"));
+        assert!(super::is_wsl_release("5.15.0-Microsoft-standard-WSL2"));
+        assert!(!super::is_wsl_release("6.8.0-generic"));
     }
 
     #[test]
