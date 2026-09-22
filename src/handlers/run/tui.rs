@@ -44,6 +44,7 @@ impl TuiCommand {
 /// the separator line above it. Content that still doesn't fit in this many
 /// lines is dropped rather than growing the bar further.
 pub const MAX_CONTENT_LINES: u16 = 3;
+const CONTENT_PADDING: usize = 1;
 
 /// Smallest terminal we are willing to reshape for `--tui`. Below this the
 /// status bar would crowd out the agent's own UI, so we fail instead of
@@ -228,7 +229,12 @@ fn truncate(line: &str, cols: usize) -> String {
 pub fn content_line_count(cols: u16, info: &TuiStatusInfo) -> u16 {
     let mut chips = identity_chips(info);
     chips.extend(metrics_chips(info));
-    wrap_chips(&chips, cols as usize, MAX_CONTENT_LINES as usize).len() as u16
+    wrap_chips(
+        &chips,
+        (cols as usize).saturating_sub(CONTENT_PADDING * 2),
+        MAX_CONTENT_LINES as usize,
+    )
+    .len() as u16
 }
 
 /// A frame consisting of a plain separator line followed by the bar's
@@ -240,14 +246,18 @@ pub fn render_frame(cols: u16, info: &TuiStatusInfo) -> (String, u16) {
     let reserved_lines = content_line_count(cols, info);
     let mut chips = identity_chips(info);
     chips.extend(metrics_chips(info));
-    let mut lines = wrap_chips(&chips, cols as usize, MAX_CONTENT_LINES as usize);
+    let mut lines = wrap_chips(
+        &chips,
+        (cols as usize).saturating_sub(CONTENT_PADDING * 2),
+        MAX_CONTENT_LINES as usize,
+    );
     while (lines.len() as u16) < reserved_lines {
         lines.push(String::new());
     }
     let separator = "─".repeat((cols as usize).max(MIN_COLS as usize));
     let mut frame_lines = Vec::with_capacity(1 + lines.len());
     frame_lines.push(separator);
-    frame_lines.extend(lines);
+    frame_lines.extend(lines.into_iter().map(|line| format!(" {line}")));
     (frame_lines.join("\n"), 1 + reserved_lines)
 }
 
@@ -1435,6 +1445,15 @@ mod tests {
                 line.chars().count() <= cols as usize,
                 "line exceeded width: {line:?}"
             );
+        }
+    }
+
+    #[test]
+    fn status_bar_content_has_horizontal_padding() {
+        let (frame, _rows) = render_frame(80, &sample_info());
+        for line in frame.lines().skip(1) {
+            assert!(line.starts_with(' '));
+            assert!(line.chars().count() < 80);
         }
     }
 
