@@ -93,5 +93,5 @@ header = "Authorization"
 value_template = "Bearer {value}"
 ```
 
-This is the default. Placeholders and custom headers are resolved before any rule evaluation.
+This is the default. The request is evaluated against the configured policy before any credential is injected. Custom headers and value templates determine how an allowed credential is represented in the forwarded request.
 
