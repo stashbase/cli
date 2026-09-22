@@ -1975,7 +1975,6 @@ fn proxy_request(
                             ));
                         }
                     };
-                    request_bytes.fetch_add(response_bytes.len() as u64, Ordering::Relaxed);
                     headers.remove("content-length");
                     let mut response = Response::builder()
                         .status(status)
