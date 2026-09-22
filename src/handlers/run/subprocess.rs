@@ -242,6 +242,7 @@ async fn run_command_in_tui_with_filesystem_policy(
     tui_info: super::tui::TuiStatusInfo,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
+    let args = codex_args_for_tui(command, args);
     #[cfg(target_os = "macos")]
     let (args, codex_boundary) = codex_args_with_outer_sandbox(
         command,
@@ -296,6 +297,16 @@ async fn run_command_in_tui_with_filesystem_policy(
     tokio::task::spawn_blocking(move || super::tui::run_command_in_tui(command, tui_info))
         .await
         .context("--tui rendering task panicked")?
+}
+
+fn codex_args_for_tui(command: &str, mut args: Vec<String>) -> Vec<String> {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    if is_codex && !args.iter().any(|arg| arg == "--no-alt-screen") {
+        args.insert(0, "--no-alt-screen".to_owned());
+    }
+    args
 }
 
 #[cfg(target_os = "macos")]
@@ -1510,4 +1521,16 @@ mod tests {
         }));
         let _ = std::fs::remove_dir_all(root);
     }
+}
+#[test]
+fn tui_runs_codex_inline_for_wrapper_scrollback() {
+    assert_eq!(
+        codex_args_for_tui("/opt/homebrew/bin/codex", vec![]),
+        vec!["--no-alt-screen"]
+    );
+    assert_eq!(
+        codex_args_for_tui("codex", vec!["--no-alt-screen".to_owned()]),
+        vec!["--no-alt-screen"]
+    );
+    assert!(codex_args_for_tui("claude", vec![]).is_empty());
 }

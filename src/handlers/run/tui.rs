@@ -36,8 +36,6 @@ impl TuiCommand {
         for (name, value) in self.env {
             builder.env(name, value);
         }
-        builder.env("TERM", "xterm-256color");
-        builder.env("COLORTERM", "truecolor");
         builder
     }
 }
@@ -254,6 +252,7 @@ pub fn render_frame(cols: u16, info: &TuiStatusInfo) -> (String, u16) {
 }
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const MOUSE_CAPTURE_ENABLE: &[u8] = b"\x1b[?1000h\x1b[?1006h";
 const TERMINAL_MODE_RESET: &[u8] = b"\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?2026l";
 
 struct TuiState {
@@ -297,6 +296,15 @@ impl TuiState {
         self.cols = cols;
         self.screen.resize(child_rows, cols);
         self.dirty = true;
+    }
+
+    fn scroll(&mut self, rows: i16) {
+        self.screen.scroll(rows);
+        self.dirty = true;
+    }
+
+    fn alternate_screen(&self) -> bool {
+        self.screen.alternate_screen()
     }
 
     fn should_draw(&self, now: Instant) -> bool {
@@ -917,6 +925,17 @@ mod imp {
                 restore_terminal_mode(&tty, &mode);
                 return Err(error).context("failed to prepare the terminal for --tui");
             }
+            if let Err(error) = stdout
+                .write_all(super::MOUSE_CAPTURE_ENABLE)
+                .and_then(|_| stdout.flush())
+            {
+                let _ = stdout.write_all(super::TERMINAL_MODE_RESET);
+                let _ = execute!(stdout, LeaveAlternateScreen, Show);
+                let _ = disable_raw_mode();
+                #[cfg(unix)]
+                restore_terminal_mode(&tty, &mode);
+                return Err(error).context("failed to enable mouse input for --tui");
+            }
             Ok(Self {
                 restored: AtomicBool::new(false),
                 #[cfg(unix)]
@@ -1020,9 +1039,12 @@ mod imp {
     fn spawn_input_forwarder(
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         stop: Arc<AtomicBool>,
+        scrolls: mpsc::Sender<i16>,
+        alternate_screen: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             let mut buffer = [0u8; 4096];
+            let mut pending = Vec::new();
             while !stop.load(Ordering::SeqCst) {
                 let mut fds = libc::pollfd {
                     fd: 0,
@@ -1036,10 +1058,20 @@ mod imp {
                 if count <= 0 {
                     break;
                 }
+                let mut scroll = 0;
+                let bytes = translate_mouse_wheel_input(
+                    &mut pending,
+                    &buffer[..count as usize],
+                    &mut scroll,
+                    !alternate_screen.load(Ordering::Relaxed),
+                );
+                if scroll != 0 {
+                    let _ = scrolls.send(scroll);
+                }
                 if writer
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .write_all(&buffer[..count as usize])
+                    .write_all(&bytes)
                     .is_err()
                 {
                     break;
@@ -1048,10 +1080,65 @@ mod imp {
         })
     }
 
+    #[cfg(unix)]
+    pub(super) fn translate_mouse_wheel_input(
+        pending: &mut Vec<u8>,
+        input: &[u8],
+        scroll: &mut i16,
+        intercept: bool,
+    ) -> Vec<u8> {
+        pending.extend_from_slice(input);
+        if !intercept {
+            return std::mem::take(pending);
+        }
+        let mut forwarded = Vec::with_capacity(pending.len());
+        let mut index = 0;
+        while index < pending.len() {
+            if pending[index] != b'\x1b' {
+                forwarded.push(pending[index]);
+                index += 1;
+                continue;
+            }
+            let remaining = &pending[index..];
+            if b"\x1b[<".starts_with(remaining) {
+                break;
+            }
+            if !remaining.starts_with(b"\x1b[<") {
+                forwarded.push(pending[index]);
+                index += 1;
+                continue;
+            }
+            let Some(end) = remaining[3..]
+                .iter()
+                .position(|byte| matches!(byte, b'M' | b'm'))
+            else {
+                break;
+            };
+            let end = end + 4;
+            let button = std::str::from_utf8(&remaining[3..end - 1])
+                .ok()
+                .and_then(|event| event.split(';').next())
+                .and_then(|button| button.parse::<u8>().ok());
+            match button {
+                Some(button) if button & 0b0110_0000 == 64 => match button & 0b11 {
+                    0 => *scroll = scroll.saturating_add(3),
+                    1 => *scroll = scroll.saturating_sub(3),
+                    _ => forwarded.extend_from_slice(&remaining[..end]),
+                },
+                _ => forwarded.extend_from_slice(&remaining[..end]),
+            }
+            index += end;
+        }
+        pending.drain(..index);
+        forwarded
+    }
+
     #[cfg(not(unix))]
     fn spawn_input_forwarder(
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         stop: Arc<AtomicBool>,
+        _scrolls: mpsc::Sender<i16>,
+        _alternate_screen: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             while !stop.load(Ordering::SeqCst) {
@@ -1100,6 +1187,7 @@ mod imp {
             .context("failed to initialize --tui")?;
         terminal.clear().context("failed to clear --tui")?;
         let (events, receiver) = mpsc::channel();
+        let (scrolls, scroll_receiver) = mpsc::channel();
         let mut session = match pty::PtySession::spawn(command, pty_size(child_rows, cols), events)
         {
             Ok(session) => session,
@@ -1109,7 +1197,13 @@ mod imp {
             }
         };
         let stop = Arc::new(AtomicBool::new(false));
-        let input = spawn_input_forwarder(session.input_writer(), stop.clone());
+        let alternate_screen = Arc::new(AtomicBool::new(false));
+        let input = spawn_input_forwarder(
+            session.input_writer(),
+            stop.clone(),
+            scrolls,
+            alternate_screen.clone(),
+        );
         let start = Instant::now();
         let mut state = TuiState::new(child_rows, cols, start);
         let mut output_closed = false;
@@ -1122,8 +1216,15 @@ mod imp {
                     pty::TuiEvent::OutputClosed => output_closed = true,
                 }
             }
+            while let Ok(rows) = scroll_receiver.try_recv() {
+                state.scroll(rows);
+            }
+            alternate_screen.store(state.alternate_screen(), Ordering::Relaxed);
             if let Some(modes) = state.take_input_mode_update() {
-                let _ = std::io::stdout().write_all(&modes);
+                let mut stdout = std::io::stdout();
+                let _ = stdout.write_all(&modes);
+                let _ = stdout.write_all(super::MOUSE_CAPTURE_ENABLE);
+                let _ = stdout.flush();
             }
             let now = Instant::now();
             if exit.is_none() {
@@ -1456,6 +1557,50 @@ mod tests {
             .any(|mode| mode == b"\x1b[?2026l"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn mouse_wheel_scrolls_wrapper_history_without_touching_other_input() {
+        let mut pending = Vec::new();
+        let mut scroll = 0;
+        assert_eq!(
+            super::imp::translate_mouse_wheel_input(
+                &mut pending,
+                b"x\x1b[<64;10;5M",
+                &mut scroll,
+                true
+            ),
+            b"x"
+        );
+        assert_eq!(scroll, 3);
+        scroll = 0;
+        assert_eq!(
+            super::imp::translate_mouse_wheel_input(&mut pending, b"\x1b[<65;", &mut scroll, true),
+            b""
+        );
+        assert_eq!(scroll, 0);
+        assert_eq!(
+            super::imp::translate_mouse_wheel_input(&mut pending, b"10;5M", &mut scroll, true),
+            b""
+        );
+        assert_eq!(scroll, -3);
+        scroll = 0;
+        assert_eq!(
+            super::imp::translate_mouse_wheel_input(&mut pending, b"\x1b[A", &mut scroll, true),
+            b"\x1b[A"
+        );
+        assert_eq!(scroll, 0);
+        assert_eq!(
+            super::imp::translate_mouse_wheel_input(
+                &mut pending,
+                b"\x1b[<64;10;5M",
+                &mut scroll,
+                false,
+            ),
+            b"\x1b[<64;10;5M"
+        );
+        assert_eq!(scroll, 0);
+    }
+
     #[test]
     fn tui_command_preserves_program_args_cwd_and_environment_policy() {
         let command = TuiCommand {
@@ -1480,5 +1625,10 @@ mod tests {
             Some(OsStr::new("proxy-placeholder"))
         );
         assert_eq!(builder.get_env("CLAUDE_CODE_OAUTH_TOKEN"), None);
+        assert_eq!(builder.get_env("TERM"), std::env::var_os("TERM").as_deref());
+        assert_eq!(
+            builder.get_env("COLORTERM"),
+            std::env::var_os("COLORTERM").as_deref()
+        );
     }
 }

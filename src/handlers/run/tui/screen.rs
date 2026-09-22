@@ -5,6 +5,8 @@ use ratatui::{
 };
 use std::fmt::Write as _;
 
+const SCROLLBACK_LINES: usize = 10_000;
+
 pub struct AgentScreen {
     parser: vt100::Parser,
 }
@@ -12,7 +14,7 @@ pub struct AgentScreen {
 impl AgentScreen {
     pub fn new(rows: u16, cols: u16) -> Self {
         Self {
-            parser: vt100::Parser::new(rows.max(1), cols.max(1), 0),
+            parser: vt100::Parser::new(rows.max(1), cols.max(1), SCROLLBACK_LINES),
         }
     }
 
@@ -40,7 +42,21 @@ impl AgentScreen {
     }
 
     pub fn cursor_visible(&self) -> bool {
-        !self.parser.screen().hide_cursor()
+        self.parser.screen().scrollback() == 0 && !self.parser.screen().hide_cursor()
+    }
+
+    pub fn alternate_screen(&self) -> bool {
+        self.parser.screen().alternate_screen()
+    }
+
+    pub fn scroll(&mut self, rows: i16) {
+        let current = self.parser.screen().scrollback();
+        let next = if rows >= 0 {
+            current.saturating_add(rows as usize)
+        } else {
+            current.saturating_sub(rows.unsigned_abs() as usize)
+        };
+        self.parser.screen_mut().set_scrollback(next);
     }
 
     pub fn input_mode_formatted(&self) -> Vec<u8> {
@@ -114,7 +130,7 @@ impl AgentScreen {
         if cursor_hidden {
             contents.push_str("\x1b[?25l");
         }
-        let mut parser = vt100::Parser::new(rows, cols, 0);
+        let mut parser = vt100::Parser::new(rows, cols, SCROLLBACK_LINES);
         parser.process(contents.as_bytes());
         self.parser = parser;
     }
@@ -202,5 +218,28 @@ mod tests {
         assert!(cell.modifier.contains(Modifier::ITALIC));
         assert!(cell.modifier.contains(Modifier::UNDERLINED));
         assert!(cell.modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn mirrors_agent_mouse_modes_to_the_real_terminal() {
+        let mut screen = AgentScreen::new(1, 1);
+        screen.process(b"\x1b[?1000h\x1b[?1006h");
+        let modes = screen.input_mode_formatted();
+
+        assert!(modes
+            .windows(b"\x1b[?1000h".len())
+            .any(|mode| mode == b"\x1b[?1000h"));
+        assert!(modes
+            .windows(b"\x1b[?1006h".len())
+            .any(|mode| mode == b"\x1b[?1006h"));
+    }
+
+    #[test]
+    fn retains_scrolled_lines_for_wrapper_scrollback() {
+        let mut screen = AgentScreen::new(2, 8);
+        screen.process(b"one\r\ntwo\r\nthree");
+        screen.scroll(1);
+
+        assert_eq!(screen.text_at(0, 0), "one");
     }
 }
