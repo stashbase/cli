@@ -187,6 +187,12 @@ pub struct AgentRunCommand {
     )]
     pub audit_log: bool,
 
+    /// Wrap the agent in a terminal frame showing a live Stashbase status bar.
+    /// The agent keeps normal interactive control of the terminal; this only
+    /// reserves a bottom status line. Requires an interactive terminal.
+    #[arg(long)]
+    pub tui: bool,
+
     /// Command to run
     #[clap(num_args = 1..)]
     pub command: Vec<String>,
@@ -511,9 +517,9 @@ pub enum AgentProfileSource {
 
 #[cfg(test)]
 mod tests {
-    use clap::ValueEnum;
+    use clap::{Parser, ValueEnum};
 
-    use super::AgentAuditGroupBy;
+    use super::{AgentAuditGroupBy, AgentSubcommand};
 
     #[test]
     fn audit_binding_group_accepts_the_legacy_secret_alias() {
@@ -589,5 +595,53 @@ mod tests {
         assert!(all.entity_type.requires_api_key());
         assert!(!local_revoke.entity_type.requires_api_key());
         assert!(remote_revoke.entity_type.requires_api_key());
+    }
+
+    #[test]
+    fn tui_flag_defaults_to_disabled_and_does_not_change_normal_usage() {
+        use crate::cmd::root::{Cli, EntityType};
+
+        let without_flag = Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "run",
+            "--profile",
+            "coding",
+            "--",
+            "codex",
+        ])
+        .unwrap();
+        let EntityType::Agent(agent) = without_flag.entity_type else {
+            panic!("expected an agent subcommand");
+        };
+        let AgentSubcommand::Run(run) = agent.subcommand else {
+            panic!("expected `agent run`");
+        };
+        assert!(!run.tui);
+    }
+
+    #[test]
+    fn tui_flag_is_opt_in() {
+        use crate::cmd::root::{Cli, EntityType};
+
+        let with_flag = Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "run",
+            "--profile",
+            "coding",
+            "--tui",
+            "--",
+            "codex",
+        ])
+        .unwrap();
+        let EntityType::Agent(agent) = with_flag.entity_type else {
+            panic!("expected an agent subcommand");
+        };
+        let AgentSubcommand::Run(run) = agent.subcommand else {
+            panic!("expected `agent run`");
+        };
+        assert!(run.tui);
+        assert_eq!(run.command, vec!["codex".to_owned()]);
     }
 }

@@ -828,6 +828,42 @@ pub async fn handle_cli(args: Cli) {
                         );
                         std::process::exit(1);
                     }
+                    if agent_run.tui && !crate::handlers::run::tui::tui_supported() {
+                        eprintln!(
+                            "Error: {}",
+                            crate::handlers::run::tui::tui_unsupported_reason()
+                        );
+                        std::process::exit(1);
+                    }
+                    // Counts only: the status bar must never see a secret
+                    // value, a request body, a header, or a URL, so this is
+                    // built from the profile's shape alone, before any
+                    // secret is fetched.
+                    let tui_status_info = agent_run.tui.then(|| crate::handlers::run::tui::TuiStatusInfo {
+                        profile: agent_run.profile.clone(),
+                        mode: if is_remote {
+                            crate::handlers::run::tui::TuiMode::Remote
+                        } else {
+                            crate::handlers::run::tui::TuiMode::Local
+                        },
+                        session_id: None,
+                        egress_host_count: profile.egress_hosts.as_ref().map_or(0, Vec::len),
+                        shared_secret_count: profile.secrets.bindings.len(),
+                        personal_credential_count: profile.personal_credentials.len(),
+                        mcp_allowed_tool_count:
+                            crate::handlers::run::tui::TuiStatusInfo::mcp_allowed_tool_count_from(
+                                &profile.mcp_servers,
+                            ),
+                        project_environment: match (
+                            &profile.secrets.project,
+                            &profile.secrets.environment,
+                        ) {
+                            (Some(project), Some(environment)) => {
+                                Some(format!("{project}/{environment}"))
+                            }
+                            _ => None,
+                        },
+                    });
                     let secret_bindings = profile
                         .secrets
                         .bindings
@@ -1001,6 +1037,7 @@ pub async fn handle_cli(args: Cli) {
                             // output spacing for every other CLI command.
                             .map_err(|error| anyhow::anyhow!("\n{error}"))?;
                         let token = session.session_token.clone();
+                        let remote_session_id = session.session_id.clone();
                         let remote_audit_log = match agent_run
                             .audit_log
                             .then(|| {
@@ -1113,6 +1150,10 @@ pub async fn handle_cli(args: Cli) {
                             remote_audit_log,
                             source_env_names,
                             silent,
+                            tui_status_info.map(|mut info| {
+                                info.session_id = Some(remote_session_id);
+                                info
+                            }),
                         ).await;
                         let _ = rotation_stop.send(true);
                         let _ = rotation_task.await;
@@ -1159,6 +1200,10 @@ pub async fn handle_cli(args: Cli) {
                         json_format: raw_output,
                         silent,
                         scope: None,
+                        tui: tui_status_info.map(|mut info| {
+                            info.session_id = Some(local_session_id.clone());
+                            info
+                        }),
                     };
                     if !silent && !agent_run.remote && print_local_session_id {
                         eprintln!("Agent session: {local_session_id}");
@@ -1213,6 +1258,7 @@ pub async fn handle_cli(args: Cli) {
                     scope: run_cmd.scope,
                     dependency_hooks: false,
                     local_session: None,
+                    tui: None,
                 };
 
                 handle_load_env_run(args).await

@@ -52,6 +52,7 @@ pub async fn handle_remote_agent_run(
     audit_log: Option<super::proxy::ProxyAuditLog>,
     source_env_names: Vec<String>,
     silent: bool,
+    tui: Option<super::tui::TuiStatusInfo>,
 ) -> anyhow::Result<()> {
     let cmd = command.first().context("no command provided")?.clone();
     let args = command.into_iter().skip(1).collect();
@@ -88,6 +89,7 @@ pub async fn handle_remote_agent_run(
         &denied_read_paths,
         &denied_write_paths,
         command_audit_log,
+        tui,
     )
     .await;
     proxy.stop().await;
@@ -131,6 +133,7 @@ pub struct HandleRunArgs {
     pub scope: Option<Scope>,
     pub dependency_hooks: bool,
     pub local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    pub tui: Option<super::tui::TuiStatusInfo>,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
@@ -161,6 +164,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         scope,
         dependency_hooks,
         local_session,
+        tui,
     } = args;
 
     if no_print_secrets {
@@ -222,6 +226,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             None,
             local_session,
+            tui.clone(),
         )
         .await;
     }
@@ -670,6 +675,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             dependency_hooks,
             Some(api_key.clone()),
             local_session,
+            tui.clone(),
         )
         .await?;
 
@@ -713,6 +719,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             dependency_hooks,
             Some(api_key.clone()),
             local_session,
+            tui.clone(),
         )
         .await?;
         return Ok(());
@@ -867,6 +874,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             dependency_hooks,
                             Some(api_key.clone()),
                             local_session,
+                            tui.clone(),
                         )
                         .await?;
                     } else {
@@ -902,6 +910,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         dependency_hooks,
                         Some(api_key.clone()),
                         local_session,
+                        tui.clone(),
                     )
                     .await?;
                 }
@@ -1015,7 +1024,11 @@ async fn handle_run(
     dependency_hooks: bool,
     hook_api_key: Option<String>,
     local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    tui: Option<super::tui::TuiStatusInfo>,
 ) -> anyhow::Result<()> {
+    if tui.is_some() && !proxy {
+        anyhow::bail!("--tui requires the agent proxy and is not supported for `stashbase run`");
+    }
     apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
 
@@ -1174,6 +1187,7 @@ async fn handle_run(
             &denied_read_paths,
             &denied_write_paths,
             command_audit_log,
+            tui,
         ));
         let result = command.await;
         proxy.stop().await;

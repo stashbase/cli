@@ -60,6 +60,12 @@ fn set_handlers() {
             if already_aborted {
                 std::process::exit(130);
             }
+        } else {
+            // `--tui` moves the child into its own session so it can own its
+            // controlling terminal. A Ctrl-C delivered to this process out of
+            // band (not through the real terminal's raw-mode byte stream)
+            // would otherwise never reach it.
+            handlers::run::tui::forward_signal_to_tui_child(libc::SIGINT);
         }
     })
     .expect("Error setting Ctrl-C handler");

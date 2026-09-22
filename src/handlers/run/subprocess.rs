@@ -7,7 +7,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use duct::{cmd, Expression};
 use thiserror::Error;
 
@@ -65,6 +65,7 @@ pub async fn run_command(
         &[],
         &[],
         None,
+        None,
     )
     .await
 }
@@ -81,7 +82,27 @@ pub async fn run_command_with_filesystem_policy(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     audit_log: Option<super::proxy::ProxyAuditLog>,
+    tui: Option<super::tui::TuiStatusInfo>,
 ) -> Result<ExitStatus> {
+    if let Some(tui_info) = tui {
+        if !super::tui::tui_supported() {
+            anyhow::bail!(super::tui::tui_unsupported_reason());
+        }
+        return run_command_in_tui_with_filesystem_policy(
+            command,
+            args,
+            env_vars,
+            env_removals,
+            sandbox,
+            allow_network_listeners,
+            proxy_mode,
+            restrict_stashbase_credentials,
+            denied_read_paths,
+            denied_write_paths,
+            tui_info,
+        )
+        .await;
+    }
     let current_dir = env::current_dir()?;
     #[cfg(target_os = "macos")]
     let (args, codex_boundary) = codex_args_with_outer_sandbox(
@@ -226,6 +247,79 @@ pub async fn run_command_with_filesystem_policy(
             .clone()
     };
     Ok(status)
+}
+
+/// Builds the same sandboxed command as `run_command_with_filesystem_policy`,
+/// but runs it inside a pseudo-terminal with a Stashbase status bar reserved
+/// at the bottom of the real terminal instead of inheriting stdio directly.
+async fn run_command_in_tui_with_filesystem_policy(
+    command: &str,
+    args: Vec<String>,
+    env_vars: HashMap<String, String>,
+    env_removals: Vec<String>,
+    sandbox: bool,
+    allow_network_listeners: bool,
+    proxy_mode: bool,
+    restrict_stashbase_credentials: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    tui_info: super::tui::TuiStatusInfo,
+) -> Result<ExitStatus> {
+    let current_dir = env::current_dir()?;
+    #[cfg(target_os = "macos")]
+    let (args, codex_boundary) = codex_args_with_outer_sandbox(
+        command,
+        args,
+        has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let codex_boundary = CodexSandboxBoundary::FullAccess;
+    let (program, launcher_args) = sandbox_command_with_filesystem_policy(
+        command,
+        sandbox,
+        allow_network_listeners,
+        &env_vars,
+        denied_read_paths,
+        denied_write_paths,
+        codex_boundary,
+    )?;
+    let mut child_args = launcher_args;
+    child_args.extend(args);
+    let mut child_env_removals = env_removals;
+    if restrict_stashbase_credentials {
+        child_env_removals.extend(
+            RESTRICTED_CHILD_ENV_REMOVALS
+                .iter()
+                .map(|name| (*name).to_owned()),
+        );
+    }
+    if proxy_mode {
+        child_env_removals.extend(
+            PROXY_CHILD_ENV_REMOVALS
+                .iter()
+                .map(|name| (*name).to_owned()),
+        );
+        if env_vars.contains_key("ANTHROPIC_API_KEY") {
+            child_env_removals.push("ANTHROPIC_AUTH_TOKEN".to_owned());
+            child_env_removals.push("CLAUDE_CODE_OAUTH_TOKEN".to_owned());
+        }
+    }
+    let mut child_env: Vec<_> = env_vars.into_iter().collect();
+    child_env.push(("FORCE_COLOR".to_owned(), "true".to_owned()));
+    let command = super::tui::TuiCommand {
+        program: program.into(),
+        args: child_args.into_iter().map(Into::into).collect(),
+        cwd: current_dir,
+        env: child_env
+            .into_iter()
+            .map(|(name, value)| (name.into(), value.into()))
+            .collect(),
+        env_removals: child_env_removals.into_iter().map(Into::into).collect(),
+    };
+
+    tokio::task::spawn_blocking(move || super::tui::run_command_in_tui(command, tui_info))
+        .await
+        .context("--tui rendering task panicked")?
 }
 
 #[cfg(target_os = "macos")]
