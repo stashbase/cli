@@ -54,44 +54,6 @@ pub const MIN_ROWS: u16 = 8;
 pub const MIN_COLS: u16 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TuiStatus {
-    Starting,
-    Running,
-    #[allow(dead_code)]
-    Stopping,
-    /// Reserved for a session the control plane or a local `agent sessions
-    /// revoke` reports as revoked. Nothing currently drives this state from
-    /// inside the TUI wrapper itself: a revoked session's requests already
-    /// fail at the proxy regardless of `--tui`, so the child still exits and
-    /// is reported through `Failed`/`Exited`. Live revocation polling into
-    /// the status bar is a follow-up, not part of this first version.
-    #[allow(dead_code)]
-    Revoked,
-    #[allow(dead_code)]
-    Failed,
-    Exited(i32),
-}
-
-impl TuiStatus {
-    pub fn label(&self) -> String {
-        match self {
-            TuiStatus::Starting => "STARTING".to_owned(),
-            TuiStatus::Running => "RUNNING".to_owned(),
-            TuiStatus::Stopping => "STOPPING".to_owned(),
-            TuiStatus::Revoked => "REVOKED".to_owned(),
-            TuiStatus::Failed => "FAILED".to_owned(),
-            TuiStatus::Exited(code) => format!("EXITED ({code})"),
-        }
-    }
-}
-
-/// The widest label `TuiStatus::label()` can realistically produce. Used to
-/// size the bar so its height stays stable across a state transition
-/// (Starting -> Running -> ... -> Exited) and only changes when the real
-/// terminal is actually resized.
-const WIDEST_STATUS_LABEL: &str = "EXITED (255)";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TuiMode {
     Local,
     Remote,
@@ -149,12 +111,9 @@ impl TuiStatusInfo {
     }
 }
 
-/// Identity chips: status, session (when known), profile, mode, and
-/// project/environment. `status_label` is a parameter rather than pulled
-/// from a `TuiStatus` so callers can pass `WIDEST_STATUS_LABEL` to size the
-/// bar independently of which status is actually showing.
-fn identity_chips(info: &TuiStatusInfo, status_label: &str) -> Vec<String> {
-    let mut chips = vec![status_label.to_owned()];
+/// Identity chips: session (when known), profile, mode, and project/environment.
+fn identity_chips(info: &TuiStatusInfo) -> Vec<String> {
+    let mut chips = Vec::new();
     if let Some(session_id) = &info.session_id {
         chips.push(format!("session {session_id}"));
     }
@@ -245,7 +204,7 @@ fn truncate(line: &str, cols: usize) -> String {
 /// `cols`. Uses `WIDEST_STATUS_LABEL` so the result stays the same across a
 /// state transition and only changes when `cols` actually changes.
 pub fn content_line_count(cols: u16, info: &TuiStatusInfo) -> u16 {
-    let mut chips = identity_chips(info, WIDEST_STATUS_LABEL);
+    let mut chips = identity_chips(info);
     chips.extend(metrics_chips(info));
     wrap_chips(&chips, cols as usize, MAX_CONTENT_LINES as usize).len() as u16
 }
@@ -255,9 +214,9 @@ pub fn content_line_count(cols: u16, info: &TuiStatusInfo) -> u16 {
 /// `MAX_CONTENT_LINES`). Returns the frame text and the total number of
 /// rows it occupies, including the separator, so the caller can reserve
 /// exactly that much of the real terminal.
-pub fn render_frame(cols: u16, info: &TuiStatusInfo, status: TuiStatus) -> (String, u16) {
+pub fn render_frame(cols: u16, info: &TuiStatusInfo) -> (String, u16) {
     let reserved_lines = content_line_count(cols, info);
-    let mut chips = identity_chips(info, &status.label());
+    let mut chips = identity_chips(info);
     chips.extend(metrics_chips(info));
     let mut lines = wrap_chips(&chips, cols as usize, MAX_CONTENT_LINES as usize);
     while (lines.len() as u16) < reserved_lines {
@@ -277,7 +236,6 @@ struct TuiState {
     screen: screen::AgentScreen,
     child_rows: u16,
     cols: u16,
-    status: TuiStatus,
     dirty: bool,
     next_draw: Instant,
     input_modes: Vec<u8>,
@@ -289,7 +247,6 @@ impl TuiState {
             screen: screen::AgentScreen::new(child_rows, cols),
             child_rows,
             cols,
-            status: TuiStatus::Starting,
             dirty: true,
             next_draw: now,
             input_modes: Vec::new(),
@@ -315,11 +272,6 @@ impl TuiState {
         self.child_rows = child_rows;
         self.cols = cols;
         self.screen.resize(child_rows, cols);
-        self.dirty = true;
-    }
-
-    fn set_status(&mut self, status: TuiStatus) {
-        self.status = status;
         self.dirty = true;
     }
 
@@ -900,7 +852,7 @@ pub fn forward_signal_to_tui_child(_signal: i32) {
 pub use imp::run_command_in_tui;
 
 mod imp {
-    use super::{pty, TuiState, TuiStatus, TuiStatusInfo, FRAME_INTERVAL, MIN_COLS, MIN_ROWS};
+    use super::{pty, TuiState, TuiStatusInfo, FRAME_INTERVAL, MIN_COLS, MIN_ROWS};
     use anyhow::{bail, Context, Result};
     use crossterm::{
         cursor::{Hide, Show},
@@ -1020,7 +972,7 @@ mod imp {
         state: &TuiState,
         info: &TuiStatusInfo,
     ) -> Result<()> {
-        let (status_text, status_rows) = super::render_frame(state.cols, info, state.status);
+        let (status_text, status_rows) = super::render_frame(state.cols, info);
         terminal
             .draw(|frame| {
                 let child = Rect::new(0, 0, state.cols, state.child_rows);
@@ -1136,7 +1088,6 @@ mod imp {
         let input = spawn_input_forwarder(session.input_writer(), stop.clone());
         let start = Instant::now();
         let mut state = TuiState::new(child_rows, cols, start);
-        state.set_status(TuiStatus::Running);
         let mut output_closed = false;
         let mut exit = None;
         let mut exited_at = None;
@@ -1153,8 +1104,7 @@ mod imp {
             let now = Instant::now();
             if exit.is_none() {
                 exit = session.try_wait()?;
-                if let Some(status) = &exit {
-                    state.set_status(TuiStatus::Exited(status.exit_code() as i32));
+                if exit.is_some() {
                     exited_at = Some(now);
                 }
             }
@@ -1245,8 +1195,7 @@ mod tests {
 
     #[test]
     fn status_bar_shows_profile_mode_session_and_counts() {
-        let (frame, _rows) = render_frame(80, &sample_info(), TuiStatus::Running);
-        assert!(frame.contains("RUNNING"));
+        let (frame, _rows) = render_frame(80, &sample_info());
         assert!(frame.contains("coding"));
         assert!(frame.contains("remote"));
         assert!(frame.contains("session ags_wAiPhZv2K9mX"));
@@ -1258,7 +1207,7 @@ mod tests {
 
     #[test]
     fn status_bar_has_no_leading_indicator_glyph() {
-        let (frame, _rows) = render_frame(80, &sample_info(), TuiStatus::Running);
+        let (frame, _rows) = render_frame(80, &sample_info());
         for glyph in ["●", "○", "◐", "✖"] {
             assert!(
                 !frame.contains(glyph),
@@ -1272,8 +1221,7 @@ mod tests {
         let mut info = sample_info();
         info.mode = TuiMode::Local;
         info.session_id = None;
-        let (frame, _rows) = render_frame(80, &info, TuiStatus::Starting);
-        assert!(frame.contains("STARTING"));
+        let (frame, _rows) = render_frame(80, &info);
         assert!(frame.contains("local"));
         assert!(!frame.contains("session ags_wAiPhZv2K9mX"));
     }
@@ -1282,37 +1230,18 @@ mod tests {
     fn unrestricted_mcp_tools_render_without_a_misleading_count() {
         let mut info = sample_info();
         info.mcp_allowed_tool_count = None;
-        let (frame, _rows) = render_frame(80, &info, TuiStatus::Running);
+        let (frame, _rows) = render_frame(80, &info);
         assert!(frame.contains("MCP: unrestricted"));
-    }
-
-    #[test]
-    fn every_terminal_state_has_a_distinct_label() {
-        let states = [
-            TuiStatus::Starting,
-            TuiStatus::Running,
-            TuiStatus::Stopping,
-            TuiStatus::Revoked,
-            TuiStatus::Failed,
-            TuiStatus::Exited(0),
-            TuiStatus::Exited(1),
-        ];
-        let labels: Vec<String> = states.iter().map(TuiStatus::label).collect();
-        let mut unique = labels.clone();
-        unique.sort();
-        unique.dedup();
-        assert_eq!(labels.len(), unique.len());
     }
 
     #[test]
     fn content_that_does_not_fit_wraps_onto_more_lines_instead_of_truncating() {
         let info = sample_info();
         let cols = 50;
-        let (frame, rows) = render_frame(cols, &info, TuiStatus::Running);
+        let (frame, rows) = render_frame(cols, &info);
         // All the identity and metrics chips must still be present somewhere
         // in the frame; a terminal too narrow for one line should make the
         // bar taller, not cut or truncate content out of it.
-        assert!(frame.contains("RUNNING"));
         assert!(frame.contains("coding"));
         assert!(frame.contains("remote"));
         assert!(frame.contains("session ags_wAiPhZv2K9mX"));
@@ -1336,7 +1265,7 @@ mod tests {
         let mut info = sample_info();
         info.profile =
             "a-very-long-profile-name-that-cannot-possibly-fit-on-one-narrow-line".to_owned();
-        let (frame, _rows) = render_frame(24, &info, TuiStatus::Running);
+        let (frame, _rows) = render_frame(24, &info);
         assert!(frame.contains('…'));
         for line in frame.lines() {
             assert!(line.chars().count() <= 24, "line exceeded width: {line:?}");
@@ -1348,21 +1277,17 @@ mod tests {
         let mut info = sample_info();
         info.profile = "a-very-long-profile-name-that-does-not-fit-in-a-narrow-terminal".to_owned();
         info.project_environment = Some("some-org/some-very-long-environment-name".to_owned());
-        let (_frame, rows) = render_frame(20, &info, TuiStatus::Exited(137));
+        let (_frame, rows) = render_frame(20, &info);
         // 1 separator line + at most MAX_CONTENT_LINES content lines.
         assert!(rows <= 1 + MAX_CONTENT_LINES);
     }
 
     #[test]
-    fn bar_height_is_stable_across_a_state_transition() {
-        // The reserved row count must not change just because the status
-        // label's length changed (e.g. "RUNNING" -> "EXITED (137)"), only
-        // when the terminal is actually resized — otherwise the scroll
-        // region and the child's pty size would drift out of sync mid-run.
+    fn bar_height_is_stable_for_the_same_terminal_width() {
         let info = sample_info();
-        let (_short, short_rows) = render_frame(40, &info, TuiStatus::Running);
-        let (_long, long_rows) = render_frame(40, &info, TuiStatus::Exited(137));
-        assert_eq!(short_rows, long_rows);
+        let (_first, first_rows) = render_frame(40, &info);
+        let (_second, second_rows) = render_frame(40, &info);
+        assert_eq!(first_rows, second_rows);
     }
 
     #[test]
@@ -1421,7 +1346,7 @@ mod tests {
             mcp_allowed_tool_count: None,
             project_environment: Some("acme/production".to_owned()),
         };
-        let (rendered, _rows) = render_frame(80, &info, TuiStatus::Running);
+        let (rendered, _rows) = render_frame(80, &info);
         // Only names/counts we deliberately put in should ever appear;
         // nothing resembling a secret value literal is constructed anywhere
         // in `render_frame`.
