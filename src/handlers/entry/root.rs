@@ -849,8 +849,11 @@ pub async fn handle_cli(args: Cli) {
                         },
                         session_id: None,
                         egress_host_count: profile.egress_hosts.as_ref().map_or(0, Vec::len),
+                        filesystem_read_denial_count: profile.filesystem.deny_read.len(),
+                        filesystem_write_denial_count: profile.filesystem.deny_write.len(),
                         shared_secret_count: profile.secrets.bindings.len(),
                         personal_credential_count: profile.personal_credentials.len(),
+                        mcp_server_count: profile.mcp_servers.len(),
                         mcp_allowed_tool_count:
                             crate::handlers::run::tui::TuiStatusInfo::mcp_allowed_tool_count_from(
                                 &profile.mcp_servers,

@@ -79,8 +79,11 @@ pub struct TuiStatusInfo {
     pub mode: TuiMode,
     pub session_id: Option<String>,
     pub egress_host_count: usize,
+    pub filesystem_read_denial_count: usize,
+    pub filesystem_write_denial_count: usize,
     pub shared_secret_count: usize,
     pub personal_credential_count: usize,
+    pub mcp_server_count: usize,
     /// `None` when the profile does not restrict every configured MCP server
     /// to an explicit tool allowlist, so no single bounded count applies.
     pub mcp_allowed_tool_count: Option<usize>,
@@ -131,24 +134,41 @@ fn identity_chips(info: &TuiStatusInfo) -> Vec<String> {
 
 /// Metrics chips: counts only, never a secret name or value.
 fn metrics_chips(info: &TuiStatusInfo) -> Vec<String> {
-    vec![
-        format!(
-            "Egress: {} host{}",
-            info.egress_host_count,
-            if info.egress_host_count == 1 { "" } else { "s" }
-        ),
-        format!(
-            "Bindings: {} secrets, {} personal",
-            info.shared_secret_count, info.personal_credential_count
-        ),
-        format!(
+    let mut chips = vec![format!(
+        "Egress: {} host{}",
+        info.egress_host_count,
+        if info.egress_host_count == 1 { "" } else { "s" }
+    )];
+    if info.shared_secret_count > 0 || info.personal_credential_count > 0 {
+        let mut bindings = Vec::new();
+        if info.shared_secret_count > 0 {
+            bindings.push(format!("{} secrets", info.shared_secret_count));
+        }
+        if info.personal_credential_count > 0 {
+            bindings.push(format!("{} personal", info.personal_credential_count));
+        }
+        chips.push(format!("Bindings: {}", bindings.join(", ")));
+    }
+    if info.mcp_server_count > 0 {
+        chips.push(format!(
             "MCP: {}",
             match info.mcp_allowed_tool_count {
                 Some(count) => format!("{count} allowed"),
                 None => "unrestricted".to_owned(),
             }
-        ),
-    ]
+        ));
+    }
+    if info.filesystem_read_denial_count > 0 || info.filesystem_write_denial_count > 0 {
+        let mut rules = Vec::new();
+        if info.filesystem_read_denial_count > 0 {
+            rules.push(format!("{} read", info.filesystem_read_denial_count));
+        }
+        if info.filesystem_write_denial_count > 0 {
+            rules.push(format!("{} write", info.filesystem_write_denial_count));
+        }
+        chips.insert(0, format!("Filesystem: {} denied", rules.join(", ")));
+    }
+    chips
 }
 
 /// Greedily packs `chips` onto as few lines as fit in `cols`, wrapping onto a
@@ -1191,8 +1211,11 @@ mod tests {
             mode: TuiMode::Remote,
             session_id: Some("ags_wAiPhZv2K9mX".to_owned()),
             egress_host_count: 3,
+            filesystem_read_denial_count: 0,
+            filesystem_write_denial_count: 0,
             shared_secret_count: 2,
             personal_credential_count: 1,
+            mcp_server_count: 1,
             mcp_allowed_tool_count: Some(4),
             project_environment: None,
         }
@@ -1238,6 +1261,46 @@ mod tests {
         info.global_profile = true;
         let (frame, _rows) = render_frame(80, &info);
         assert!(frame.contains("global"));
+    }
+
+    #[test]
+    fn status_bar_shows_filesystem_rule_counts_when_configured() {
+        let mut info = sample_info();
+        info.filesystem_read_denial_count = 2;
+        info.filesystem_write_denial_count = 1;
+        let (frame, _rows) = render_frame(120, &info);
+        assert!(frame.contains("Filesystem: 2 read, 1 write denied"));
+        assert!(frame.find("Filesystem:") < frame.find("Egress:"));
+        assert!(frame.find("Egress:") < frame.find("Bindings:"));
+    }
+
+    #[test]
+    fn status_bar_omits_unconfigured_filesystem_rule_types() {
+        let mut info = sample_info();
+        info.filesystem_read_denial_count = 2;
+        let (frame, _rows) = render_frame(120, &info);
+        assert!(frame.contains("Filesystem: 2 read denied"));
+        assert!(!frame.contains("write"));
+    }
+
+    #[test]
+    fn status_bar_omits_empty_bindings_and_absent_mcp() {
+        let mut info = sample_info();
+        info.shared_secret_count = 0;
+        info.personal_credential_count = 0;
+        info.mcp_server_count = 0;
+        let (frame, _rows) = render_frame(120, &info);
+        assert!(!frame.contains("Bindings:"));
+        assert!(!frame.contains("MCP:"));
+    }
+
+    #[test]
+    fn status_bar_omits_unconfigured_binding_types() {
+        let mut info = sample_info();
+        info.personal_credential_count = 0;
+        let (frame, _rows) = render_frame(120, &info);
+        assert!(frame.contains("Bindings: 2 secrets"));
+        assert!(!frame.contains("personal"));
     }
 
     #[test]
@@ -1356,8 +1419,11 @@ mod tests {
             mode: TuiMode::Local,
             session_id: None,
             egress_host_count: 0,
+            filesystem_read_denial_count: 0,
+            filesystem_write_denial_count: 0,
             shared_secret_count: 0,
             personal_credential_count: 0,
+            mcp_server_count: 0,
             mcp_allowed_tool_count: None,
             project_environment: Some("acme/production".to_owned()),
         };
