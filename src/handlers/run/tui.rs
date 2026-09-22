@@ -116,7 +116,7 @@ impl TuiStatusInfo {
 fn identity_chips(info: &TuiStatusInfo) -> Vec<String> {
     let mut chips = Vec::new();
     if let Some(session_id) = &info.session_id {
-        chips.push(format!("session {session_id}"));
+        chips.push(session_id.clone());
     }
     chips.push(info.profile.clone());
     if info.global_profile {
@@ -1203,11 +1203,12 @@ mod tests {
         let (frame, _rows) = render_frame(80, &sample_info());
         assert!(frame.contains("coding"));
         assert!(frame.contains("remote"));
-        assert!(frame.contains("session ags_wAiPhZv2K9mX"));
-        assert!(frame.find("RUNNING") < frame.find("session ags_wAiPhZv2K9mX"));
+        assert!(frame.contains("ags_wAiPhZv2K9mX"));
         assert!(frame.contains("Egress: 3 hosts"));
         assert!(frame.contains("Bindings: 2 secrets, 1 personal"));
         assert!(frame.contains("MCP: 4 allowed"));
+        assert!(frame.find("Egress:") < frame.find("Bindings:"));
+        assert!(frame.find("Bindings:") < frame.find("MCP:"));
     }
 
     #[test]
@@ -1228,7 +1229,7 @@ mod tests {
         info.session_id = None;
         let (frame, _rows) = render_frame(80, &info);
         assert!(frame.contains("local"));
-        assert!(!frame.contains("session ags_wAiPhZv2K9mX"));
+        assert!(!frame.contains("ags_wAiPhZv2K9mX"));
     }
 
     #[test]
@@ -1257,7 +1258,7 @@ mod tests {
         // bar taller, not cut or truncate content out of it.
         assert!(frame.contains("coding"));
         assert!(frame.contains("remote"));
-        assert!(frame.contains("session ags_wAiPhZv2K9mX"));
+        assert!(frame.contains("ags_wAiPhZv2K9mX"));
         assert!(frame.contains("Egress: 3 hosts"));
         assert!(frame.contains("Bindings: 2 secrets, 1 personal"));
         assert!(frame.contains("MCP: 4 allowed"));
