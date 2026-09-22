@@ -1,413 +1,164 @@
 # Stashbase CLI
 
-The official CLI for Stashbase, a security platform for building and shipping software with developers, services, and coding agents.
-Manage secrets across projects and environments, scan code for exposed credentials, and apply guardrails to agent access, tools, files, and dependencies.
+Run Claude Code, Codex, Cursor, and other coding agents through a local or remote Agent Proxy with controlled access to secrets, APIs, files, MCP tools, and dependencies—without exposing raw credentials.
+
+Stashbase is an open-source access layer that gives coding agents the access they need while keeping raw credentials out of the agent process. Instead of handing out API keys, agents receive placeholders that the Agent Proxy exchanges only for approved destinations. Audit logs record proxy-mediated requests and policy decisions.
 
 ## Table of Contents
 
+- [Agent Quickstart](#agent-quickstart)
+- [What Stashbase Controls](#what-stashbase-controls)
+- [Agent Proxy and Profiles](#agent-proxy-and-profiles)
+  - [Basic Example](#basic-example)
+  - [How the Agent Proxy Works](#how-the-agent-proxy-works)
+  - [Profile Syntax and Configuration](#profile-syntax-and-configuration)
+  - [Filesystem and Network Containment](#filesystem-and-network-containment)
+  - [Remote Agent Sessions](#remote-agent-sessions)
+  - [MCP Tools Authorization](#mcp-tools-authorization)
+  - [Audit Logs and Session Revocation](#audit-logs-and-session-revocation)
+- [Threat Model and Security Boundary](#threat-model-and-security-boundary)
+- [Secret Management and Developer Workflows](#secret-management-and-developer-workflows)
+  - [CLI Profiles](#cli-profiles)
+  - [First-time Setup](#first-time-setup)
+  - [Authentication](#authentication)
+  - [List and Export Secrets](#list-and-export-secrets)
+  - [Run Commands with Injected Secrets](#run-commands-with-injected-secrets)
+  - [Generate Utility Values](#generate-utility-values)
+  - [Scan for Hardcoded Secrets](#scan-for-hardcoded-secrets)
+  - [Dependency Security Hooks](#dependency-security-hooks)
+  - [Diagnose CLI Setup](#diagnose-cli-setup)
 - [Installation](#installation)
-- [Usage](#usage)
-- [License](#license)
-- [Contact](#contact)
+- [Contributing, License, and Contact](#contributing-license-and-contact)
 
-## Installation
+## Agent Quickstart
 
-You have multiple options to install the Stashbase CLI, either via package managers, shell script or you can just download the binary from the [releases](https://github.com/stashbase/cli/releases) page directly.
+Start here if you want to run a coding agent with controlled access to your secrets.
 
-Beta platform support:
+1. **Install Stashbase CLI** (see [Installation](#installation) for your platform)
 
-- macOS Apple Silicon
-- Linux x64
-- Windows x64
-
-Intel macOS is currently not supported.
-
-### macOS
-
-Stashbase CLI is available via [Homebrew](https://brew.sh) for macOS Apple Silicon users.
+2. **Initialize your setup and create an agent profile:**
 
 ```bash
-# Add the tap
-brew tap stashbase/homebrew-stashbase
-
-# Trust the tap
-brew trust stashbase/stashbase
-
-# Install the CLI
-brew install stashbase
-```
-
-### Linux
-
-For Linux x64 users, we recommend downloading Stashbase CLI using shell script.
-
-```bash
-curl -fsSL https://stashbase.dev/cli/install.sh | bash
-```
-
-### Windows
-
-The native Windows CLI supports general commands. For `agent run`, use the
-Linux CLI inside WSL2 so Stashbase can use Linux process containment.
-
-In WSL2, enable systemd and disable Windows interop in `/etc/wsl.conf`:
-
-```ini
-[boot]
-systemd=true
-
-[interop]
-enabled=false
-appendWindowsPath=false
-```
-
-Run `wsl --shutdown` from Windows after changing the file, then install and
-run Stashbase inside the WSL distribution. Keep agent workspaces in the WSL
-filesystem rather than under `/mnt/c`.
-
-For the native Windows x64 CLI, we recommend using [Scoop](https://scoop.sh).
-
-```bash
-# Add the bucket
-scoop bucket add stashbase https://github.com/stashbase/scoop-stashbase
-
-# Install the CLI
-scoop install stashbase
-```
-
-## Usage
-
-For full documentation, please visit [Stashbase CLI Documentation](https://docs.stashbase.dev/cli).
-
-### First-time setup
-
-You can run the interactive setup command to configure the CLI for the first time.
-
-```bash
+# Initial setup (creates credentials)
 stashbase setup
+
+# Create an agent profile (generates .stashbase/agents/coding.toml)
+stashbase agent init coding
+
+# Validate the profile before using it
+stashbase agent validate --profile coding
+
+# Run your agent with the profile
+stashbase agent run --profile coding -- codex
 ```
 
-Setup asks for a profile name and pre-fills `default`; press Enter to keep the
-standard one-workspace setup.
+Replace `codex` with `claude` for Claude Code, or `cursor` for Cursor.
 
-### Authenticate with Stashbase
+A fresh profile grants no egress destinations. Edit `.stashbase/agents/coding.toml` to add the secrets and API hosts your agent needs. See [Basic Example](#basic-example) for a complete, working profile.
 
-If you don't set the API Key during setup, you can set it later manually.
-You can generate an API Key in your Stashbase workspace by going to API Keys -> Personal API Keys -> Create API Key.
+## What Stashbase Controls
 
-```bash
-# interactively set API key
-stashbase config api-key set
+Agent profiles let you control:
 
-# or set API key via stdin (e.g. from environment variable or secret manager)
-printf '%s' 'sb_personal_35tnv...' | stashbase config api-key set --stdin
-```
+- **Secrets and personal credentials without raw values**: Agents receive placeholders instead of real credentials. Application secrets are team-shared credentials stored in a project/environment (e.g., shared API keys). Personal credentials are your own account-scoped credentials, accessible across workspaces and available only in remote sessions. The proxy exchanges placeholders only in configured HTTP(S) request headers, only to approved hosts.
+- **API hosts, methods, and paths**: Allow or deny specific destinations—for example, `GET /repos/*/*` on `api.github.com` but deny `DELETE /*`.
+- **Filesystem access**: Block reads from `.env`, `~/.ssh`, or other sensitive directories. Block writes to `.git` or shared config.
+- **Network egress**: Agents connect only through a loopback proxy. Direct connections to unapproved hosts are denied.
+- **MCP tools**: Authorize or deny which MCP tools the agent can discover and call.
+- **Dependency installation hooks**: Scan and block suspicious package installs before they run.
+- **Local and remote Agent Proxy sessions**: Run agents locally through a policy-controlled proxy, or use remote sessions where credentials remain in Stashbase and never reach your machine. Manage, monitor, and revoke remote sessions from Stashbase.
+- **Audit logs and revocation**: Proxy decisions are logged by default. Revoke individual local or remote sessions and inspect their proxy activity.
 
-### Credential profiles
+## Agent Proxy and Profiles
 
-Use profiles when you work with more than one Stashbase workspace. Each
-profile's API key is stored separately in the OS secure credential store; the
-config file contains only the profile name and optional workspace label.
+### Basic Example
 
-```bash
-# Create a profile and enter its API key when prompted.
-stashbase config profile add acme --workspace acme-production
-
-# Make it your usual profile.
-stashbase config profile use acme
-
-# Use a profile for one command or an automation run.
-STASHBASE_PROFILE=acme stashbase projects list
-```
-
-Selection uses `STASHBASE_PROFILE`, then the configured default profile (or the
-backwards-compatible `default` profile). `--api-key` and `STASHBASE_API_KEY`
-override the selected profile's stored key, which is useful in CI.
-
-### API key storage
-
-`stashbase config api-key set` stores your API key in the OS secure credential store:
-
-- macOS: Keychain
-- Linux: Secret Service (`secret-tool`)
-- Windows: DPAPI-encrypted local secret file
-
-The CLI config file is now used for non-sensitive settings and is written with owner-only permissions on Unix systems.
-If secure storage is unavailable, the CLI falls back to config-file storage and prints a warning.
-
-### List projects
-
-```bash
-stashbase projects list
-```
-
-### List environments
-
-```bash
-stashbase environments list -p <PROJECT>
-```
-
-### List secrets
-
-```bash
-stashbase secrets list -p <PROJECT> -e <ENVIRONMENT>
-```
-
-### Export a safe agent environment schema
-
-```bash
-stashbase secrets schema pull --project api --environment production
-```
-
-This writes `env.schema.yaml` with the selected project and environment metadata (including their IDs), plus secret names and comments; it never writes secret values or secret IDs. Pass `--output <PATH>` to choose another location.
-
-### Run commands with injected secrets
-
-```bash
-# load config from stashbase.yaml and select a config entry interactively
-stashbase run -- npm run dev
-
-# load secrets from Stashbase and run a command
-stashbase run -p <PROJECT> -e <ENVIRONMENT> -- npm run dev
-
-# load secrets from a local env file and run a command
-stashbase run --file .env.production -- npm run dev
-
-# local file input supports dotenv, yaml/yml, and json
-stashbase run --file secrets.yaml -- npm run dev
-```
-
-### Agent Proxy
-
-`run --proxy` starts an in-process, localhost-only HTTP proxy for the lifetime
-of the child command. Instead of receiving the loaded secret, the child receives
-a placeholder such as `**STASHBASE_GH_TOKEN**`. When the child sends that value
-as an `Authorization: Bearer` header, the proxy replaces it before forwarding
-the request. It rewrites headers only: request and response bodies stream
-through unchanged, including chunked uploads, downloads, and SSE responses.
-
-```bash
-stashbase run --proxy --only GH_TOKEN -- gh workflow run deploy.yml
-```
-
-The proxy prints its temporary localhost port when it starts and stops as soon
-as the child command finishes. It is not a daemon and does not write credentials
-to stdout or logs.
-
-It chooses a random localhost port by default. For debugging or a local
-integration that requires a stable port, use `--proxy-port`:
-
-```bash
-stashbase agent run --proxy-port 8787 --profile coding -- codex
-
-# The regular run command supports it too.
-stashbase run --proxy --proxy-port 8787 --only GH_TOKEN -- gh auth status
-```
-
-The requested port must be available and between 1 and 65535.
-
-This is a feasibility experiment, not a production credential boundary. HTTPS
-rewriting requires TLS interception, so the proxy creates a temporary local CA
-and provides its path through standard child-process trust variables
-(`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO`). `curl` can use this
-on typical systems. A client that ignores these variables, pins certificates,
-uses HTTP/2-only proxy traffic, or bypasses proxy environment variables will
-not work; in particular, `gh` may not trust the temporary CA on every platform.
-For `run --proxy`, only exact `Authorization: Bearer <placeholder>` headers
-are rewritten. Agent profiles can additionally configure a provider-specific
-HTTP header; non-HTTP traffic and approval flows remain out of scope.
-
-Node's built-in `fetch` is configured through `NODE_USE_ENV_PROXY=1` and
-`NODE_EXTRA_CA_CERTS`, which the proxy supplies automatically.
-
-For safe troubleshooting, set `RUST_LOG=debug`. Proxy diagnostics identify
-only the denied or unreachable destination host; they never include headers or
-secret values.
-
-### Agent profiles
-
-> **Early access — local exposure reduction, not hostile-agent isolation.**
-> `agent run` keeps profile secrets out of the child environment and proxies
-> them only to configured HTTP(S) destinations. It does not prevent a
-> malicious same-user process from accessing the developer's broader Stashbase
-> credentials or bypassing the intended workflow. The remote `only` parameter
-> limits this CLI request; it is not server-enforced authorization for a holder
-> of a normal personal or service API key.
-
-For a repository-local starting point, create a deliberately closed profile,
-then replace the placeholder and example rule with the capability your agent
-needs:
-
-```bash
-stashbase agent init codex
-stashbase agent validate --profile codex --profile-source directory
-stashbase agent run --profile codex -- codex
-```
-
-This creates `.stashbase/agents/codex.toml` with no egress destinations granted
-by default. See the [agent-profile cookbook](docs/agent-profiles.md) for
-credential-specific HTTP allow/deny rules, legacy host-only profiles, sandbox
-containment, auditing, and remote sessions.
-
-For a coding agent, use an agent profile instead of allowing the agent to select
-its own secret names or destinations. Create
-`.stashbase/agents/coding.toml`:
+Create `.stashbase/agents/coding.toml`:
 
 ```toml
-egress_hosts = ["collector.github.com"]
+egress_hosts = ["api.github.com", "registry.npmjs.org"]
 
 [secrets]
 project = "my-project"
 environment = "development"
 
 [secrets.GH_TOKEN]
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
 hosts = ["api.github.com"]
-```
+methods = ["GET", "POST"]
+paths = ["/*"]
 
-The profile hook capability is only needed for hooks that make authenticated
-Stashbase API requests, such as the installed Claude, Codex, or Cursor
-dependency hook. Local-only hooks do not need this setting. To let the
-dependency hook check packages during a proxied run, opt in explicitly:
-
-```toml
-allow_hooks = ["dependency_check"]
-```
-
-The parent CLI keeps the API key and exposes only a short-lived, exact local
-dependency-check route to the child. Without this capability the hook is a
-deliberate no-op; startup prints the selected status.
-
-Profiles can instead use a fixed local secrets file. The profile owns this path;
-the agent cannot provide a different file at runtime.
-
-```toml
-# .stashbase/agents/local-coding.toml
-file = "/absolute/path/to/.env.agent"
-
-[secrets.GH_TOKEN]
-hosts = ["api.github.com"]
-```
-
-Then start the agent through the restricted command:
-
-```bash
-stashbase agent run --profile coding -- codex
-```
-
-Validate a profile without loading any secret before using it:
-
-```bash
-stashbase agent validate --profile coding
-stashbase agent validate --remote --profile coding
-```
-
-To inspect a proposed request against a profile without loading secrets or
-making a network request:
-
-```bash
-stashbase agent explain --profile coding \
-  --host api.github.com --method GET --path /user
-```
-
-`agent run` always uses proxy mode, exposes only placeholders to the child,
-suppresses secret printing, and strictly denies HTTP(S) destinations outside the
-profile. A placeholder can only be exchanged for its mapped secret at one of
-that secret's configured hosts. The agent run deliberately has no `--set`,
-`--file`, `--only`, or host-override options.
-
-Profiles can also restrict filesystem access for local agent runs:
-
-```toml
 [filesystem]
 deny_read = [".env", "~/.ssh"]
-deny_write = [".git", "~/.ssh"]
+deny_write = [".git"]
 ```
 
-These policy-only local profiles do not require secrets or personal credentials.
-Filesystem enforcement uses the supported macOS or Linux process sandbox; see
-the [agent-profile cookbook](docs/agent-profiles.md) for platform requirements
-and limitations.
+Now your agent can:
+- Use the `GH_TOKEN` secret on GitHub API requests (it receives a placeholder, not the real token).
+- Reach the npm registry when allowed by the profile. Enable the dependency hook separately if you want package-install checks.
+- Read files anywhere except `.env` and `~/.ssh`.
+- Write files anywhere except `.git`.
 
-On macOS, network containment and filesystem rules wrap the agent in Seatbelt.
-Seatbelt cannot be nested, so Stashbase disables Codex's inner sandbox for that
-run. Stashbase uses one outer profile for its configured filesystem denies and
-the basic workspace boundary needed for normal Codex operation. Codex state
-under `CODEX_HOME` (or `~/.codex`) remains writable and approval prompts stay
-active. Claude Code's optional Bash sandbox is configured independently;
-Stashbase does not alter or rely on it. The outer Stashbase Seatbelt profile is
-the network and configured-filesystem enforcement boundary for that session.
-This does not extend or equal Codex's full Seatbelt policy, and it is not
-hostile-process or full-machine isolation; protection is limited to the paths
-and boundaries Stashbase defines. Agent runs always use network containment; use
-a container or VM with a clean working copy for stronger isolation.
+### How the Agent Proxy Works
 
-On Linux, including WSL2, the CLI prefers `systemd-run --user` with `InaccessiblePaths` and
-`ReadOnlyPaths`. If the systemd user session is unavailable, it probes and can
-use `bubblewrap` to create a private mount namespace: read-denied directories
-are overlaid with `tmpfs`, read-denied files with `/dev/null`, and write-denied
-paths are remounted read-only. If neither backend can be probed, validation and
-launch fail closed. Bubblewrap namespace restrictions are inherited by
-descendant processes. Existing file descriptors and data already loaded into
-memory are outside this policy.
+When you run `stashbase agent run --profile coding -- codex`, Stashbase:
 
-Proxy mode clears inherited `NO_PROXY`, `ALL_PROXY`, and npm proxy override
-variables before applying its own proxy settings. Agent runs additionally limit
-the child to the loopback proxy, so clearing those variables cannot create a
-direct network fallback.
+1. Loads your profile and the secrets it references.
+2. Starts a temporary HTTP proxy on localhost.
+3. Passes placeholders to Codex (e.g., `**STASHBASE_GH_TOKEN**`) instead of real credentials.
+4. When Codex sends a request with that placeholder in an `Authorization: Bearer` header, the proxy replaces it with the actual token **only if** the destination is in the profile's allow list.
+5. Requests to unapproved hosts are denied. Audit logs record every decision.
+6. The proxy stops and cleans up when Codex exits.
 
-On macOS, profiles deny incoming listeners by default. A Node/Nx test profile
-can set `allow_network_listeners = true`; this enables localhost TCP and
-temporary Unix-socket IPC, and permits binding the host's LAN addresses, so use
-it only for a trusted test profile. Linux's systemd sandbox keeps loopback
-available for the embedded proxy, so this setting has no effect there.
+This design keeps raw secrets out of the agent's process memory and environment variables. The proxy itself necessarily handles the real secret in memory. This makes it less likely the agent accidentally exposes credentials through its environment or logs, which contain only placeholders.
 
-By default, a secret is exchanged from `Authorization: Bearer <placeholder>`.
-For providers with a different credential header, set `header` and optionally
-`value_template` (which must contain `{value}`):
+### Profile Syntax and Configuration
+
+A profile is a TOML file at `.stashbase/agents/<name>.toml`. Use `stashbase agent init <name>` to generate a starter.
+
+#### Egress and credential hosts
 
 ```toml
-# .stashbase/agents/claude.toml
-[secrets.ANTHROPIC_API_KEY]
-hosts = ["api.anthropic.com"]
-header = "x-api-key"
-env = "ANTHROPIC_API_KEY"
-# Opaque format-compatible value; never a real Anthropic key.
-placeholder = "sk-ant-api03-stashbase-placeholder-000000000000000000000000000000000000"
-```
+# All HTTP(S) destinations the agent is allowed to reach
+egress_hosts = ["api.github.com", "registry.npmjs.org"]
 
-Hosts may use a leading subdomain wildcard such as `*.githubcopilot.com`; it
-matches subdomains only, never the apex domain itself.
+# (Optional) Block specific destinations even if egress_hosts is wide
+deny_hosts = ["api.stashbase.dev"]
 
-When configured, `egress_hosts` controls where the agent may connect,
-including ordinary traffic without a Stashbase credential. A secret's `hosts`
-list is its legacy credential host allowlist; it remains active when that
-secret has no `rules`. For method-and-path restrictions, add
-credential-specific `rules`: rules are unordered, multiple allows are
-additive, any matching deny wins, and a secret with rules is default-deny when
-no allow matches. Rules never widen ordinary egress.
-Use `egress_hosts = ["*"]` only when the agent needs unrestricted HTTP(S)
-egress; it does not widen a secret's configured injection hosts.
+[secrets]
+project = "my-project"
+environment = "development"
 
-HTTP MCP server profiles use `allow_tools` and `deny_tools` as authorization
-terms. A denied tool is not merely labeled as denied: the Agent Proxy removes
-it from `tools/list`, so the agent does not discover it, and rejects any direct
-`tools/call` attempt for it. `deny_tools` takes precedence over `allow_tools`.
-An omitted or empty `allow_tools` list allows no tools; use
-`allow_tools = ["*"]` to explicitly allow every tool.
-The MCP server entry does not authorize credential injection by itself: for
-`agent run`, the binding must separately allow the MCP endpoint through its
-secret `hosts` or `rules`.
-See the [HTTP MCP profile guide](docs/agent-profiles.md#http-mcp-servers) for
-configuration examples and the `agent mcp tools`, `check`, and `verify`
-commands.
-
-```toml
-# .stashbase/agents/coding.toml
-egress_hosts = ["api.github.com"]
-
+# Each secret maps to a name in your Stashbase environment
 [secrets.GH_TOKEN]
-from = "GITHUB_TOKEN"
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET", "POST"]
+paths = ["/*"]
+```
 
+#### Credential injection headers
+
+By default, placeholders are exchanged in `Authorization: Bearer <placeholder>` headers. For other header formats:
+
+```toml
+[secrets.ANTHROPIC_API_KEY]
+header = "x-api-key"
+placeholder = "sk-ant-stashbase-placeholder-000000000000000000000000"
+[[secrets.ANTHROPIC_API_KEY.rules]]
+effect = "allow"
+hosts = ["api.anthropic.com"]
+methods = ["POST"]
+paths = ["/v1/*"]
+```
+
+#### Method and path restrictions
+
+For granular control, use `rules`:
+
+```toml
 [[secrets.GH_TOKEN.rules]]
 effect = "allow"
 hosts = ["api.github.com"]
@@ -421,192 +172,119 @@ methods = ["DELETE"]
 paths = ["*"]
 ```
 
-Egress is a developer policy choice in this local mode. If a profile allows
-your Stashbase API host (including through `egress_hosts = ["*"]`), a child may
-run ordinary Stashbase CLI commands—including `stashbase secrets list`—with the
-developer's locally stored normal authentication and retrieve authorized
-secrets. Tight profiles should allow only required tool hosts; unlisted
-Stashbase API hosts are denied and recorded as `host_denied` in the audit log.
-Some HTTPS clients report a CONNECT-level denial as a generic connection error.
-Agent runs are contained to the loopback proxy on supported platforms, preventing
-direct network bypasses. Scoped agent-session tokens will add server-enforced
-permissions in a future release.
+Rules are unordered; any matching deny wins, and a secret with rules is default-deny when no allow matches.
 
-For a practical local-agent profile, allow ordinary internet access while
-blocking the Stashbase API explicitly. `deny_hosts` always wins over both
-`egress_hosts` and a secret's `hosts` list:
+#### Local secret files
+
+Instead of fetching secrets from Stashbase, use a local file:
 
 ```toml
-egress_hosts = ["*"]
-deny_hosts = ["api.stashbase.dev"]
-```
-
-Use the hostname from `STASHBASE_API_URL` instead when targeting a custom API.
-
-For repositories with more than one agent, keep one direct profile per file in
-`.stashbase/agents/<name>.toml`. These files never store API keys or secret
-values:
-
-```toml
-# .stashbase/agents/coding.toml
-file = ".env.agent"
-egress_hosts = ["registry.npmjs.org"]
+file = "/absolute/path/to/.env.agent"
 
 [secrets.GH_TOKEN]
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
 hosts = ["api.github.com"]
+methods = ["GET", "POST"]
+paths = ["/*"]
 ```
 
-Select where the profile is loaded with `--profile-source`:
+#### Personal credentials (remote sessions only)
 
-```bash
-# Default: ./.stashbase/agents/coding.toml, otherwise global config
-stashbase agent run --profile coding -- codex
-
-# Require a repository-local profile
-stashbase agent run --profile coding --profile-source directory -- codex
-
-# Use a repository-local profile when present, otherwise global config
-stashbase agent run --profile coding --profile-source auto -- codex
-```
-
-The default is `auto`: `.stashbase/agents/<profile>.toml` is preferred;
-otherwise Stashbase falls back to global config. Treat a
-repository profile as trusted policy: it can select its Stashbase environment
-or local secret file and determines where secrets may be sent.
-When `auto` selects a directory profile, the CLI prints a warning so the policy
-choice is visible before secrets are loaded.
-
-An egress-only profile needs neither a secret source nor a `secrets` table. It
-still starts the proxy and enforces its destination policy, but grants the
-child no Stashbase-managed credentials:
+Personal credentials are your own user-specific credentials stored in your Stashbase account (as opposed to team-shared application secrets). They're accessible across workspaces and available only in remote sessions. Use `[personal_credentials.NAME]` with the same rules syntax as `[secrets.NAME]`. Personal credentials require `--remote` and are never stored or exported by the CLI:
 
 ```toml
-# .stashbase/agents/codex.toml
+[personal_credentials.LINEAR_API_KEY]
+env = "LINEAR_API_KEY"
+
+[[personal_credentials.LINEAR_API_KEY.rules]]
+effect = "allow"
+hosts = ["mcp.linear.app"]
+methods = ["GET", "POST"]
+paths = ["/mcp"]
+```
+
+Personal credentials support the same fields as application secrets: `env`, `from`, `header`, `value_template`, and `rules`. The agent receives only a placeholder, never the raw personal credential value.
+
+#### Egress-only profiles (no secrets)
+
+If the agent needs no credentials, only egress policy:
+
+```toml
 egress_hosts = ["chatgpt.com", "mcp.context7.com"]
 deny_hosts = ["api.stashbase.dev"]
 ```
 
-The CLI prints an explicit warning when this mode starts.
+Stashbase will warn when starting this mode.
 
-An agent profile may define both a Stashbase `[secrets]` project/environment source and a
-local `file`. The file is a local override: its configured source names win,
-and Stashbase requests only the remaining profile sources from the API.
+### Filesystem and Network Containment
+
+#### Read and write restrictions
+
+Profiles can deny access to sensitive paths:
 
 ```toml
-# .stashbase/agents/coding.toml
-file = ".env.local"
-
-[secrets]
-project = "platform"
-environment = "development"
-
-[secrets.GH_TOKEN]
-from = "GITHUB_TOKEN"
-hosts = ["api.github.com"]
+[filesystem]
+deny_read = [".env", "~/.ssh", "~/.aws"]
+deny_write = [".git", "~/.ssh", "~/.aws"]
 ```
 
-Here `.env.local` may provide `GITHUB_TOKEN`; otherwise the CLI fetches that
-source from the configured Stashbase environment.
+On macOS, Stashbase wraps the agent in Seatbelt, which enforces filesystem rules. On Linux and WSL2, it uses `systemd-run --user` with cgroup IP rules, or falls back to `bubblewrap` for namespace isolation. Windows native is not implemented; use WSL2 instead.
 
-File-only agent profiles do not require a Stashbase API key. A key is required
-only when the run needs one or more remote project/environment sources.
+Denied reads return `/dev/null`; denied writes go to an empty overlay. Existing file descriptors and data already in memory are not affected. These are policy-only; these profiles do not require secrets.
 
-See the [agent proxy profile cookbook](docs/agent-profiles.md) for ready-made
-GitHub Copilot and OpenAI API client profiles, plus guidance for unsupported
-header formats.
+#### Network containment
 
-Some tools, including some `gh` builds, ignore the CA-file environment variables
-used by the proxy. Opt into temporary operating-system trust-store integration
-for those tools:
+Every `agent run` denies the child direct network access. The agent communicates only through the embedded proxy on localhost. This prevents a tool from bypassing the proxy with a direct internet connection.
 
-```bash
-stashbase agent run --profile coding --trust-proxy-ca -- codex
-```
+On macOS, this uses the deprecated `sandbox-exec` utility. On Linux and WSL2, it uses `systemd-run --user --scope` with cgroup rules.
 
-The temporary CA is removed when the command finishes. On macOS this uses the
-login Keychain; on Windows it uses the current-user Root store; on Linux it uses
-the platform's system trust-store updater and may prompt for `sudo`. This option
-intentionally changes host trust only for the session and should be used only on
-a machine where the launched agent is trusted.
+This is network containment only, not filesystem, process-memory, or kernel isolation.
 
-### Network containment
+### Remote Agent Sessions
 
-Every `agent run` session denies the child direct network access while retaining
-its loopback connection to the embedded proxy, including remote sessions:
-
-```bash
-stashbase agent run --profile coding --profile-source directory -- codex
-```
-
-This prevents a tool from bypassing the proxy with a direct internet connection.
-macOS uses the deprecated `sandbox-exec` utility. Linux, including WSL2, uses
-`systemd-run --user --scope` with cgroup IP allow/deny rules, so it requires
-`systemd-run` and an active systemd user session. Native Windows is not
-implemented.
-This is network containment only, not filesystem or same-user process-memory
-isolation.
-
-#### Remote Agent Proxy sessions
-
-For a Stashbase-backed profile with `[secrets]` `project` and `environment`, add
-`--remote` to keep resolved credentials in the control plane:
+Use `--remote` to run with credentials managed entirely in the Stashbase control plane. Profiles can use either application secrets with `[secrets]` (requires `project` and `environment`) or user-specific `[personal_credentials]` (no Stashbase API key required):
 
 ```bash
 stashbase agent run --remote --profile coding -- codex
 ```
 
-The child receives only configured opaque placeholders and uses a temporary
-localhost relay through `HTTP_PROXY` and `HTTPS_PROXY`. The session token and
-resolved secret values remain out of the child environment, and the short-lived
-session is ended when the child exits. Remote sessions do not support local-file
-or egress-only profiles.
+The child receives only placeholders and connects through a temporary localhost relay. Session tokens and resolved credential values stay out of the child environment and never reach your machine. Personal credentials remain private to your account. The session is managed from Stashbase, where you can monitor and revoke it remotely before the child exits.
 
-### Threat model and security boundary
+Remote Agent Proxy is not a general network sandbox; it relays supported HTTP traffic for supported coding-agent workflows. SSH, raw TCP, and arbitrary third-party integrations are unsupported.
 
-`agent run` is designed to reduce accidental or normal agent-tool exposure of
-credentials during local development. The child receives placeholders rather
-than real secret values; the proxy replaces those placeholders only in the
-configured request header, only for that secret's approved hosts. Strict egress
-policy and audit logs make those proxied HTTP(S) decisions visible.
+### MCP Tools Authorization
 
-It is not a security boundary against a malicious or compromised process
-running as the same user. Such a process may inspect local files or process
-memory, alter the environment, invoke ordinary `stashbase run`, or otherwise
-bypass the intended workflow. The network sandbox blocks direct connections
-from the agent child, but does not provide filesystem,
-process-memory, kernel, administrator, or root isolation.
+HTTP MCP server profiles can control which tools are visible to the agent. Define a secret for authentication and an MCP server entry with tool authorization:
 
-As defense in depth, `agent run` removes the inherited `STASHBASE_API_KEY`
-environment variable from the child. This does not prevent a same-user process
-from accessing credentials stored elsewhere, such as CLI configuration or the
-operating-system credential store.
+```toml
+[secrets.MCP_TOKEN]
+[[secrets.MCP_TOKEN.rules]]
+effect = "allow"
+hosts = ["mcp.example.com"]
+methods = ["GET", "POST"]
+paths = ["/mcp"]
 
-Treat directory profiles as trusted policy: with the default `--profile-source
-auto`, a repository `.stashbase/agents/<profile>.toml` file can select a secret
-source and its allowed destinations. Do not run an agent with secrets from an
-untrusted repository, or give it unrestricted Stashbase API credentials.
+[mcp_servers.example]
+url = "https://mcp.example.com/mcp"
+binding = "MCP_TOKEN"
+allow_tools = ["search_issues", "read_file"]
+deny_tools = ["delete_repo"]
+```
 
-### Audit logs
+Denied tools are removed from `tools/list`, so the agent does not discover them. Direct `tools/call` attempts for denied tools are rejected. `deny_tools` takes precedence. An omitted or empty `allow_tools` allows no tools; use `allow_tools = ["*"]` to allow every tool.
 
-`agent run` writes a private JSONL audit log by default. It records session
-events and proxy decisions (destination host, method, secret name, status, and
-duration), never secret values, placeholders, headers, bodies, URLs, or command
-arguments. Logs are stored per session under the Stashbase config directory and
-are permission-restricted on Unix. On each agent run, logs older than 30 days
-are removed and storage is capped at 1,000 session files. Disable persistence
-for a session with:
+For configuration examples and the `agent mcp tools`, `check`, and `verify` commands, see the [agent-profile cookbook](docs/agent-profiles.md#http-mcp-servers).
+
+### Audit Logs and Session Revocation
+
+Every `agent run` writes a private JSONL audit log by default. It records session events and proxy decisions (destination host, method, secret name, status, and duration), never secret values, placeholders, headers, bodies, or command arguments. Logs are stored per session under the Stashbase config directory and are permission-restricted on Unix. Logs older than 30 days are cleaned up automatically; storage is capped at 1,000 session files. Disable persistence for a session with:
 
 ```bash
 stashbase agent run --audit-log false --profile coding -- codex
 ```
 
-Failure actions include `host_denied`, `unknown_placeholder`,
-`tls_trust_failed`, `upstream_timeout`, and `upstream_connection_failed`.
-An unknown or stale placeholder is denied before forwarding. A direct proxy
-bypass cannot be logged because the request never reaches the proxy; agent runs
-block that bypass on supported platforms.
-
-View the recent local proxy decisions without reading JSONL files directly:
+View recent proxy decisions:
 
 ```bash
 stashbase agent logs
@@ -616,10 +294,7 @@ stashbase agent logs --session <session-id>
 stashbase agent logs --follow
 ```
 
-`--json` returns a JSON array for a one-time view. With `--follow`, it emits
-one JSON event per line as new events arrive. Profile, action, host, and session
-filters use exact matches. Each audited `agent run` prints its session ID at
-startup, which can be passed to `--session`.
+Use `--json` for a JSON array; with `--follow`, events stream as one JSON object per line.
 
 List and revoke active sessions:
 
@@ -632,69 +307,157 @@ stashbase agent sessions revoke --all --local
 stashbase agent sessions revoke --all --remote
 ```
 
-The combined list includes this machine's local runs and remote sessions owned
-by the authenticated account. Local revocation stops the local proxy process;
-remote revocation ends the logical Agent Proxy session, including rotated
-tokens.
-Bulk revocation requires either `--local` or `--remote` and prompts for
-confirmation. `--silent` skips the confirmation for automation.
+Local revocation stops the local proxy process. Remote revocation ends the logical session, including rotated tokens. Bulk revocation requires either `--local` or `--remote` and prompts for confirmation; use `--silent` to skip it.
 
-This is still a local experimental mode. If a profile permits the Stashbase API
-host, a sandboxed agent can still invoke normal `stashbase` commands through the
-proxy using same-user credentials. Use `deny_hosts` for the Stashbase API host
-when that route must be blocked.
+## Threat Model and Security Boundary
 
-### Generate utility values
+`agent run` is designed to reduce accidental or normal agent-tool exposure of credentials during local development. The child receives placeholders rather than real secret values; the proxy replaces those placeholders only in configured HTTP(S) request headers and only for that secret's approved hosts. Strict egress policy and audit logs make those proxied decisions visible.
+
+**It is not a security boundary against a malicious or compromised process running as the same user.** Such a process may inspect local files or process memory, alter the environment, invoke ordinary `stashbase run`, or otherwise bypass the intended workflow. The network sandbox blocks direct connections from the agent child, but does not provide filesystem, process-memory, kernel, administrator, or root isolation.
+
+As defense in depth, `agent run` removes the inherited `STASHBASE_API_KEY` environment variable from the child. This does not prevent a same-user process from accessing credentials stored elsewhere, such as CLI configuration or the operating-system credential store.
+
+**Treat directory profiles as trusted policy.** With the default `--profile-source auto`, a repository `.stashbase/agents/<profile>.toml` can select a secret source and its allowed destinations. Do not run an agent with secrets from an untrusted repository, or give it unrestricted Stashbase API credentials.
+
+## Secret Management and Developer Workflows
+
+The CLI also supports traditional secret management for developers and CI/CD.
+
+### CLI Profiles
+
+Use profiles when you work with more than one Stashbase workspace. Each profile's API key is stored separately in the OS secure credential store; the config file contains only the profile name and optional workspace label.
 
 ```bash
-# generate random uuid v4
+# Create a profile and enter its API key when prompted.
+stashbase config profile add acme --workspace acme-production
+
+# Make it your usual profile.
+stashbase config profile use acme
+
+# Use a profile for one command or an automation run.
+STASHBASE_PROFILE=acme stashbase projects list
+```
+
+Selection uses `STASHBASE_PROFILE`, then the configured default profile (or `default`). `--api-key` and `STASHBASE_API_KEY` override the selected profile's stored key, which is useful in CI.
+
+### First-time Setup
+
+After installing Stashbase CLI, run:
+
+```bash
+stashbase setup
+```
+
+This creates your initial profile (defaults to `default`) and prompts for your Stashbase API key. If you skip the API key, set it later with `stashbase config api-key set`.
+
+For full documentation, visit [Stashbase CLI Documentation](https://docs.stashbase.dev/cli).
+
+### Authentication
+
+Generate an API Key in your Stashbase workspace at **API Keys → Personal API Keys → Create API Key**.
+
+```bash
+# Interactively set your API key
+stashbase config api-key set
+
+# Or set it via stdin (from environment variable or another secret manager)
+printf '%s' 'sb_personal_35tnv...' | stashbase config api-key set --stdin
+```
+
+API keys are stored in your OS secure credential store:
+- macOS: Keychain
+- Linux: Secret Service (`secret-tool`)
+- Windows: DPAPI-encrypted local secret file
+
+If secure storage is unavailable, the CLI falls back to config-file storage and prints a warning. The config file is written with owner-only permissions on Unix systems and contains no secret values.
+
+### List and Export Secrets
+
+```bash
+# List all projects
+stashbase projects list
+
+# List environments in a project
+stashbase environments list -p <PROJECT>
+
+# List secrets in a project/environment
+stashbase secrets list -p <PROJECT> -e <ENVIRONMENT>
+
+# Export an environment schema (names and metadata, no values)
+stashbase secrets schema pull --project <PROJECT> --environment <ENVIRONMENT>
+```
+
+The schema export writes `env.schema.yaml` with project/environment metadata and secret names, never values or IDs. Use `--output <PATH>` for a different location.
+
+### Run Commands with Injected Secrets
+
+For one-off commands or CI/CD, use `stashbase run` to load secrets and execute a command:
+
+```bash
+# Load from interactive selection
+stashbase run -- npm run dev
+
+# Load from a project and environment
+stashbase run -p <PROJECT> -e <ENVIRONMENT> -- npm run dev
+
+# Load from a local dotenv, YAML, or JSON file
+stashbase run --file .env.production -- npm run dev
+stashbase run --file secrets.yaml -- npm run dev
+```
+
+For proxy mode on `stashbase run` (not `agent run`), use `--proxy` with optional `--proxy-port`:
+
+```bash
+stashbase run --proxy --only GH_TOKEN -- gh workflow run deploy.yml
+stashbase run --proxy --proxy-port 8787 --only GH_TOKEN -- gh auth status
+```
+
+This is the same proxy mechanism as `agent run`, but designed for individual commands rather than long-lived agents. It is a feasibility experiment, not a production isolation boundary. HTTPS rewriting uses TLS interception, so the proxy creates a temporary local CA and passes its path via `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, and `GIT_SSL_CAINFO`. Tools that ignore these variables, pin certificates, use HTTP/2-only traffic, or bypass proxy environment variables will not work.
+
+### Generate Utility Values
+
+```bash
+# Generate random UUIDs and values
 stashbase generate uuid v4
-
-# generate random hex string
 stashbase generate random hex --bytes 16 --uppercase
-
-# generate random base64 string
 stashbase generate random base64 --length 32 --uppercase
 
-# generate SHA-256 hash from value
+# Generate hashes
 stashbase generate hash "my-secret-value"
-
-# generate SHA-512 hash from value
 stashbase generate hash "my-secret-value" --algorithm sha512
 
-# generate random passphrase
+# Generate passphrases and SSH key pairs
 stashbase generate passphrase --words 6 --separator "-"
-
-# generate SSH key pair
 stashbase generate ssh-keypair --out ~/.ssh/id_stashbase --comment "you@company.com"
 ```
 
-### Scan for hardcoded secrets
+### Scan for Hardcoded Secrets
+
+Detect accidental credential commits before they reach version control:
 
 ```bash
-## scan staged files to be committed
+# Scan staged files
 stashbase scan staged
 
-## scan all changed files (staged and unstaged)
+# Scan all changed files (staged and unstaged)
 stashbase scan changes
 
-## scan commits to be pushed to remote
+# Scan commits ready to push
 stashbase scan unpushed
 
-## install scan hook into Husky pre-commit file
+# Install hook into Husky pre-commit
 stashbase scan install pre-commit --file .husky/pre-commit
 
-## install both pre-commit and pre-push hooks
+# Install both pre-commit and pre-push hooks
 stashbase scan install --all
 
-## uninstall scan hook from Husky pre-commit file
+# Remove hook from Husky
 stashbase scan uninstall pre-commit --file .husky/pre-commit
 ```
 
-### Protect agent dependency installs
+### Dependency Security Hooks
 
-Install an agent dependency security hook for Codex, Claude, or Cursor. It checks
-package install commands before they run:
+Block suspicious package installs before they run. Install hooks for Codex, Claude Code, or Cursor:
 
 ```bash
 # Install in the current repository
@@ -702,62 +465,111 @@ stashbase agent hooks deps install codex
 stashbase agent hooks deps install claude
 stashbase agent hooks deps install cursor
 
-# Install for all repositories
+# Install globally (all repositories)
 stashbase agent hooks deps install codex --global
 stashbase agent hooks deps install claude --global
 stashbase agent hooks deps install cursor --global
 
-# Check whether a hook is installed (exit status is non-zero when missing)
+# Check hook status (non-zero exit if missing)
 stashbase agent hooks deps check claude
 stashbase agent hooks deps check claude --global
 
-# Remove hooks from the current repository
+# Remove hooks from current repository
 stashbase agent hooks deps uninstall codex
 stashbase agent hooks deps uninstall claude
 stashbase agent hooks deps uninstall cursor
 
-# Remove global hooks ("remove" is an alias for "uninstall")
+# Remove global hooks
 stashbase agent hooks deps uninstall codex --global
 stashbase agent hooks deps uninstall claude --global
 stashbase agent hooks deps uninstall cursor --global
 ```
 
-`dependencies` is also accepted as an alias for `deps`.
+Use `dependencies` as an alias for `deps`. The hook supports npm, Bun, pnpm, and Yarn. For package-specific installs, it sends only package names and versions to Stashbase. For project-wide installs like `npm ci`, it scans direct dependencies from `package.json` and uses versions from lockfiles when available. This is not a full dependency-tree audit; transitive dependencies are not scanned.
 
-The hook supports npm, Bun, pnpm, and Yarn. For package-specific installs it
-sends only package names and exact versions, or a package name when the install
-command omits a version, to Stashbase. For project-wide installs such as
-`npm ci` or bare `npm install`, it scans only the direct dependencies declared
-in the root `package.json` and uses exact versions from npm or pnpm lockfiles
-when available. Otherwise it sends the package name without a version. It does
-not scan transitive dependencies, so this is not a full dependency-tree audit.
-A blocked dependency stops before installation; warnings are shown and the
-install may continue according to the agent's hook behavior.
-
-### Diagnose CLI setup
+### Diagnose CLI Setup
 
 ```bash
-# run local diagnostics
+# Run local diagnostics
 stashbase doctor
 
-# include live API auth check
+# Include API authentication check
 stashbase doctor --auth-check
 
-# show detailed diagnostics
+# Show detailed output
 stashbase doctor --verbose
 ```
 
-## Contributing
+## Installation
 
-Bug fixes, documentation improvements, and improvements of all kinds are always welcome.
+Stashbase CLI is available for macOS Apple Silicon, Linux x64, and Windows x64. Intel macOS is not supported. Choose your platform:
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+### macOS
 
-## License
+Use [Homebrew](https://brew.sh) for Apple Silicon:
 
-Stashbase CLI is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
-You can find the license in the [LICENSE.txt](LICENSE.txt) file.
+```bash
+brew tap stashbase/homebrew-stashbase
+brew trust stashbase/stashbase
+brew install stashbase
+```
 
-## Contact
+Or download directly from [releases](https://github.com/stashbase/cli/releases).
 
-If you have any questions or feedback, please contact us at [support@stashbase.dev](mailto:support@stashbase.dev).
+### Linux
+
+Use the installation script:
+
+```bash
+curl -fsSL https://stashbase.dev/cli/install.sh | bash
+```
+
+Or download from [releases](https://github.com/stashbase/cli/releases).
+
+### Windows
+
+For general commands, use the native Windows CLI via [Scoop](https://scoop.sh):
+
+```bash
+scoop bucket add stashbase https://github.com/stashbase/scoop-stashbase
+scoop install stashbase
+```
+
+**For `agent run`**, use the Linux CLI in WSL2 (Stashbase needs Linux process containment). Enable systemd and disable Windows interop in `/etc/wsl.conf`:
+
+```ini
+[boot]
+systemd=true
+
+[interop]
+enabled=false
+appendWindowsPath=false
+```
+
+Then run `wsl --shutdown` from Windows, and install/run Stashbase inside WSL2. Keep agent workspaces in the WSL filesystem (not under `/mnt/c`).
+
+### Initial Setup
+
+After installing, run:
+
+```bash
+stashbase setup
+```
+
+This prompts for a profile name (defaults to `default`) and your Stashbase API key. If you skip the API key, you can set it later with `stashbase config api-key set`.
+
+For full documentation, visit [Stashbase CLI Documentation](https://docs.stashbase.dev/cli).
+
+## Contributing, License, and Contact
+
+### Contributing
+
+Bug fixes, documentation improvements, and improvements of all kinds are always welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+
+### License
+
+Stashbase CLI is licensed under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). See [LICENSE.txt](LICENSE.txt) for details.
+
+### Contact
+
+For questions or feedback, contact us at [support@stashbase.dev](mailto:support@stashbase.dev).
