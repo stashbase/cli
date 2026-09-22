@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 #[cfg(unix)]
-use std::io::{IsTerminal, Read, Write};
+use std::io::IsTerminal;
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
@@ -176,44 +176,20 @@ pub async fn run_command_with_filesystem_policy(
             std::io::stdin().is_terminal(),
             std::io::stderr().is_terminal(),
         ) {
-            let mut pipe_fds = [0; 2];
-            if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
+            let terminal_input = unsafe { libc::dup(std::io::stdin().as_raw_fd()) };
+            if terminal_input < 0 {
                 return Err(std::io::Error::last_os_error().into());
             }
-            // Drain stderr concurrently so an interactive child cannot block
-            // on a full pipe. The bytes are still forwarded to the terminal
-            // and parsed after exit for filesystem policy reporting.
-            let mut stderr_reader = unsafe { std::fs::File::from_raw_fd(pipe_fds[0]) };
-            let stderr_writer = unsafe { std::fs::File::from_raw_fd(pipe_fds[1]) };
-            let stderr_forwarder = std::thread::spawn(move || {
-                let mut captured = Vec::new();
-                let mut terminal = std::io::stderr();
-                let mut buffer = [0; 8192];
-                loop {
-                    let count = stderr_reader.read(&mut buffer)?;
-                    if count == 0 {
-                        break;
-                    }
-                    terminal.write_all(&buffer[..count])?;
-                    captured.extend_from_slice(&buffer[..count]);
-                }
-                terminal.flush()?;
-                Ok::<_, std::io::Error>(captured)
-            });
+            let terminal_error = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
+            if terminal_error < 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
             let output = cmd
+                .stdin_file(unsafe { std::fs::File::from_raw_fd(terminal_input) })
                 .stdout_file(terminal_output)
-                .stderr_file(stderr_writer)
+                .stderr_file(unsafe { std::fs::File::from_raw_fd(terminal_error) })
                 .unchecked()
                 .run()?;
-            let stderr = stderr_forwarder
-                .join()
-                .map_err(|_| anyhow::anyhow!("stderr forwarding thread panicked"))??;
-            record_child_stderr(
-                &stderr,
-                denied_read_paths,
-                denied_write_paths,
-                audit_log.as_ref(),
-            )?;
             output.status
         } else {
             let output = cmd
@@ -667,23 +643,6 @@ fn emit_child_stderr(
             emit_filesystem_denial(&path, operation, audit_log);
         } else {
             eprintln!("{line}");
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn record_child_stderr(
-    stderr: &[u8],
-    denied_read_paths: &[String],
-    denied_write_paths: &[String],
-    audit_log: Option<&super::proxy::ProxyAuditLog>,
-) -> Result<()> {
-    for line in String::from_utf8_lossy(stderr).lines() {
-        if let Some((path, operation)) =
-            filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
-        {
-            emit_filesystem_denial(&path, operation, audit_log);
         }
     }
     Ok(())

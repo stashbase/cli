@@ -280,6 +280,7 @@ pub fn render_frame(cols: u16, info: &TuiStatusInfo, status: TuiStatus) -> (Stri
 }
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const TERMINAL_MODE_RESET: &[u8] = b"\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?2026l";
 
 struct TuiState {
     screen: screen::AgentScreen,
@@ -929,28 +930,71 @@ mod imp {
     };
     use std::time::{Duration, Instant};
 
-    struct TerminalGuard(AtomicBool);
+    struct TerminalGuard {
+        restored: AtomicBool,
+        #[cfg(unix)]
+        tty: std::fs::File,
+        #[cfg(unix)]
+        mode: libc::termios,
+    }
 
     impl TerminalGuard {
         fn enter() -> Result<Self> {
+            #[cfg(unix)]
+            let (tty, mode) = terminal_mode_snapshot()?;
             enable_raw_mode().context("failed to set raw terminal mode")?;
             let mut stdout = std::io::stdout();
             if let Err(error) = execute!(stdout, EnterAlternateScreen, Hide) {
                 let _ = disable_raw_mode();
+                #[cfg(unix)]
+                restore_terminal_mode(&tty, &mode);
                 return Err(error).context("failed to prepare the terminal for --tui");
             }
-            Ok(Self(AtomicBool::new(false)))
+            Ok(Self {
+                restored: AtomicBool::new(false),
+                #[cfg(unix)]
+                tty,
+                #[cfg(unix)]
+                mode,
+            })
         }
 
         fn restore(&self) {
-            if self.0.swap(true, Ordering::SeqCst) {
+            if self.restored.swap(true, Ordering::SeqCst) {
                 return;
             }
             let mut stdout = std::io::stdout();
-            let _ = stdout.write_all(b"\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l");
+            let _ = stdout.write_all(super::TERMINAL_MODE_RESET);
             let _ = execute!(stdout, LeaveAlternateScreen, Show);
             let _ = disable_raw_mode();
+            #[cfg(unix)]
+            restore_terminal_mode(&self.tty, &self.mode);
             let _ = stdout.flush();
+        }
+    }
+
+    #[cfg(unix)]
+    fn terminal_mode_snapshot() -> Result<(std::fs::File, libc::termios)> {
+        use std::os::fd::AsRawFd;
+
+        let tty = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/tty")
+            .context("failed to open the controlling terminal")?;
+        let mut mode = unsafe { std::mem::zeroed() };
+        if unsafe { libc::tcgetattr(tty.as_raw_fd(), &mut mode) } != 0 {
+            return Err(std::io::Error::last_os_error()).context("failed to read terminal mode");
+        }
+        Ok((tty, mode))
+    }
+
+    #[cfg(unix)]
+    fn restore_terminal_mode(tty: &std::fs::File, mode: &libc::termios) {
+        use std::os::fd::AsRawFd;
+
+        unsafe {
+            libc::tcsetattr(tty.as_raw_fd(), libc::TCSANOW, mode);
         }
     }
 
@@ -1171,6 +1215,7 @@ mod imp {
             let _ = session.interrupt();
         }
         drop(session);
+        drop(terminal);
         guard.restore();
         result.map(portable_exit_status)
     }
@@ -1405,6 +1450,13 @@ mod tests {
         assert!(state.should_draw(start + Duration::from_millis(16)));
         state.did_draw(start + Duration::from_millis(16));
         assert!(!state.should_draw(start + Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn terminal_cleanup_disables_synchronized_output() {
+        assert!(TERMINAL_MODE_RESET
+            .windows(b"\x1b[?2026l".len())
+            .any(|mode| mode == b"\x1b[?2026l"));
     }
 
     #[test]
