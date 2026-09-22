@@ -75,6 +75,7 @@ impl TuiMode {
 #[derive(Debug, Clone)]
 pub struct TuiStatusInfo {
     pub profile: String,
+    pub global_profile: bool,
     pub mode: TuiMode,
     pub session_id: Option<String>,
     pub egress_host_count: usize,
@@ -118,6 +119,9 @@ fn identity_chips(info: &TuiStatusInfo) -> Vec<String> {
         chips.push(format!("session {session_id}"));
     }
     chips.push(info.profile.clone());
+    if info.global_profile {
+        chips.push("global".to_owned());
+    }
     chips.push(info.mode.label().to_owned());
     if let Some(project_environment) = &info.project_environment {
         chips.push(project_environment.clone());
@@ -1183,6 +1187,7 @@ mod tests {
     fn sample_info() -> TuiStatusInfo {
         TuiStatusInfo {
             profile: "coding".to_owned(),
+            global_profile: false,
             mode: TuiMode::Remote,
             session_id: Some("ags_wAiPhZv2K9mX".to_owned()),
             egress_host_count: 3,
@@ -1224,6 +1229,14 @@ mod tests {
         let (frame, _rows) = render_frame(80, &info);
         assert!(frame.contains("local"));
         assert!(!frame.contains("session ags_wAiPhZv2K9mX"));
+    }
+
+    #[test]
+    fn status_bar_marks_global_profiles() {
+        let mut info = sample_info();
+        info.global_profile = true;
+        let (frame, _rows) = render_frame(80, &info);
+        assert!(frame.contains("global"));
     }
 
     #[test]
@@ -1338,6 +1351,7 @@ mod tests {
     fn status_info_carries_only_counts_and_identifiers_no_secret_values() {
         let info = TuiStatusInfo {
             profile: "coding".to_owned(),
+            global_profile: false,
             mode: TuiMode::Local,
             session_id: None,
             egress_host_count: 0,

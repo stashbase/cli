@@ -841,6 +841,7 @@ pub async fn handle_cli(args: Cli) {
                     // secret is fetched.
                     let tui_status_info = agent_run.tui.then(|| crate::handlers::run::tui::TuiStatusInfo {
                         profile: agent_run.profile.clone(),
+                        global_profile: !loaded_from_directory,
                         mode: if is_remote {
                             crate::handlers::run::tui::TuiMode::Remote
                         } else {
