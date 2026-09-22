@@ -263,7 +263,25 @@ pub fn render_frame(cols: u16, info: &TuiStatusInfo) -> (String, u16) {
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const MOUSE_CAPTURE_ENABLE: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+const MOUSE_CAPTURE_DISABLE: &[u8] =
+    b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l";
 const TERMINAL_MODE_RESET: &[u8] = b"\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?2026l";
+
+fn physical_input_modes(child_modes: &[u8], child_captures_mouse: bool) -> Vec<u8> {
+    let mut modes = MOUSE_CAPTURE_DISABLE.to_vec();
+    modes.extend_from_slice(child_modes);
+    if !child_captures_mouse {
+        modes.extend_from_slice(MOUSE_CAPTURE_ENABLE);
+    }
+    modes
+}
+
+#[derive(Clone, Copy)]
+enum WheelRouting {
+    Wrapper,
+    AlternateScroll,
+    Child,
+}
 
 struct TuiState {
     screen: screen::AgentScreen,
@@ -313,8 +331,12 @@ impl TuiState {
         self.dirty = true;
     }
 
-    fn alternate_screen(&self) -> bool {
-        self.screen.alternate_screen()
+    fn child_captures_mouse(&self) -> bool {
+        self.screen.captures_mouse()
+    }
+
+    fn child_uses_alternate_scroll(&self) -> bool {
+        self.screen.alternate_scroll()
     }
 
     fn should_draw(&self, now: Instant) -> bool {
@@ -1050,7 +1072,8 @@ mod imp {
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         stop: Arc<AtomicBool>,
         scrolls: mpsc::Sender<i16>,
-        alternate_screen: Arc<AtomicBool>,
+        child_captures_mouse: Arc<AtomicBool>,
+        child_uses_alternate_scroll: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             let mut buffer = [0u8; 4096];
@@ -1069,11 +1092,18 @@ mod imp {
                     break;
                 }
                 let mut scroll = 0;
+                let routing = if child_captures_mouse.load(Ordering::Relaxed) {
+                    super::WheelRouting::Child
+                } else if child_uses_alternate_scroll.load(Ordering::Relaxed) {
+                    super::WheelRouting::AlternateScroll
+                } else {
+                    super::WheelRouting::Wrapper
+                };
                 let bytes = translate_mouse_wheel_input(
                     &mut pending,
                     &buffer[..count as usize],
                     &mut scroll,
-                    !alternate_screen.load(Ordering::Relaxed),
+                    routing,
                 );
                 if scroll != 0 {
                     let _ = scrolls.send(scroll);
@@ -1095,10 +1125,10 @@ mod imp {
         pending: &mut Vec<u8>,
         input: &[u8],
         scroll: &mut i16,
-        intercept: bool,
+        routing: super::WheelRouting,
     ) -> Vec<u8> {
         pending.extend_from_slice(input);
-        if !intercept {
+        if matches!(routing, super::WheelRouting::Child) {
             return std::mem::take(pending);
         }
         let mut forwarded = Vec::with_capacity(pending.len());
@@ -1130,9 +1160,15 @@ mod imp {
                 .and_then(|event| event.split(';').next())
                 .and_then(|button| button.parse::<u8>().ok());
             match button {
-                Some(button) if button & 0b0110_0000 == 64 => match button & 0b11 {
-                    0 => *scroll = scroll.saturating_add(3),
-                    1 => *scroll = scroll.saturating_sub(3),
+                Some(button) if button & 0b0110_0000 == 64 => match (button & 0b11, routing) {
+                    (0, super::WheelRouting::Wrapper) => *scroll = scroll.saturating_add(3),
+                    (1, super::WheelRouting::Wrapper) => *scroll = scroll.saturating_sub(3),
+                    (0, super::WheelRouting::AlternateScroll) => {
+                        forwarded.extend_from_slice(b"\x1b[A\x1b[A\x1b[A")
+                    }
+                    (1, super::WheelRouting::AlternateScroll) => {
+                        forwarded.extend_from_slice(b"\x1b[B\x1b[B\x1b[B")
+                    }
                     _ => forwarded.extend_from_slice(&remaining[..end]),
                 },
                 _ => forwarded.extend_from_slice(&remaining[..end]),
@@ -1148,7 +1184,8 @@ mod imp {
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         stop: Arc<AtomicBool>,
         _scrolls: mpsc::Sender<i16>,
-        _alternate_screen: Arc<AtomicBool>,
+        _child_captures_mouse: Arc<AtomicBool>,
+        _child_uses_alternate_scroll: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<()> {
         std::thread::spawn(move || {
             while !stop.load(Ordering::SeqCst) {
@@ -1207,12 +1244,14 @@ mod imp {
             }
         };
         let stop = Arc::new(AtomicBool::new(false));
-        let alternate_screen = Arc::new(AtomicBool::new(false));
+        let child_captures_mouse = Arc::new(AtomicBool::new(false));
+        let child_uses_alternate_scroll = Arc::new(AtomicBool::new(false));
         let input = spawn_input_forwarder(
             session.input_writer(),
             stop.clone(),
             scrolls,
-            alternate_screen.clone(),
+            child_captures_mouse.clone(),
+            child_uses_alternate_scroll.clone(),
         );
         let start = Instant::now();
         let mut state = TuiState::new(child_rows, cols, start);
@@ -1229,11 +1268,13 @@ mod imp {
             while let Ok(rows) = scroll_receiver.try_recv() {
                 state.scroll(rows);
             }
-            alternate_screen.store(state.alternate_screen(), Ordering::Relaxed);
+            child_captures_mouse.store(state.child_captures_mouse(), Ordering::Relaxed);
+            child_uses_alternate_scroll
+                .store(state.child_uses_alternate_scroll(), Ordering::Relaxed);
             if let Some(modes) = state.take_input_mode_update() {
                 let mut stdout = std::io::stdout();
+                let modes = super::physical_input_modes(&modes, state.child_captures_mouse());
                 let _ = stdout.write_all(&modes);
-                let _ = stdout.write_all(super::MOUSE_CAPTURE_ENABLE);
                 let _ = stdout.flush();
             }
             let now = Instant::now();
@@ -1586,25 +1627,40 @@ mod tests {
                 &mut pending,
                 b"x\x1b[<64;10;5M",
                 &mut scroll,
-                true
+                WheelRouting::Wrapper
             ),
             b"x"
         );
         assert_eq!(scroll, 3);
         scroll = 0;
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(&mut pending, b"\x1b[<65;", &mut scroll, true),
+            super::imp::translate_mouse_wheel_input(
+                &mut pending,
+                b"\x1b[<65;",
+                &mut scroll,
+                WheelRouting::Wrapper,
+            ),
             b""
         );
         assert_eq!(scroll, 0);
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(&mut pending, b"10;5M", &mut scroll, true),
+            super::imp::translate_mouse_wheel_input(
+                &mut pending,
+                b"10;5M",
+                &mut scroll,
+                WheelRouting::Wrapper,
+            ),
             b""
         );
         assert_eq!(scroll, -3);
         scroll = 0;
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(&mut pending, b"\x1b[A", &mut scroll, true),
+            super::imp::translate_mouse_wheel_input(
+                &mut pending,
+                b"\x1b[A",
+                &mut scroll,
+                WheelRouting::Wrapper,
+            ),
             b"\x1b[A"
         );
         assert_eq!(scroll, 0);
@@ -1613,11 +1669,31 @@ mod tests {
                 &mut pending,
                 b"\x1b[<64;10;5M",
                 &mut scroll,
-                false,
+                WheelRouting::Child,
             ),
             b"\x1b[<64;10;5M"
         );
         assert_eq!(scroll, 0);
+        assert_eq!(
+            super::imp::translate_mouse_wheel_input(
+                &mut pending,
+                b"\x1b[<64;10;5M",
+                &mut scroll,
+                WheelRouting::AlternateScroll,
+            ),
+            b"\x1b[A\x1b[A\x1b[A"
+        );
+    }
+
+    #[test]
+    fn child_mouse_protocol_is_not_overridden_by_wrapper_capture() {
+        let child_modes = b"\x1b[?1000h";
+        let owned_by_child = physical_input_modes(child_modes, true);
+        assert!(owned_by_child.starts_with(MOUSE_CAPTURE_DISABLE));
+        assert!(owned_by_child.ends_with(child_modes));
+
+        let owned_by_wrapper = physical_input_modes(child_modes, false);
+        assert!(owned_by_wrapper.ends_with(MOUSE_CAPTURE_ENABLE));
     }
 
     #[test]
