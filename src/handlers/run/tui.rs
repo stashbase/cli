@@ -156,7 +156,7 @@ impl TuiStatusInfo {
 fn identity_chips(info: &TuiStatusInfo, status_label: &str) -> Vec<String> {
     let mut chips = vec![status_label.to_owned()];
     if let Some(session_id) = &info.session_id {
-        chips.push(format_session_id(session_id));
+        chips.push(format!("session {session_id}"));
     }
     chips.push(info.profile.clone());
     chips.push(info.mode.label().to_owned());
@@ -164,15 +164,6 @@ fn identity_chips(info: &TuiStatusInfo, status_label: &str) -> Vec<String> {
         chips.push(project_environment.clone());
     }
     chips
-}
-
-fn format_session_id(session_id: &str) -> String {
-    let prefix: String = session_id.chars().take(9).collect();
-    if session_id.chars().count() > prefix.chars().count() {
-        format!("session {prefix}..")
-    } else {
-        format!("session {prefix}")
-    }
 }
 
 /// Metrics chips: counts only, never a secret name or value.
@@ -1258,8 +1249,8 @@ mod tests {
         assert!(frame.contains("RUNNING"));
         assert!(frame.contains("coding"));
         assert!(frame.contains("remote"));
-        assert!(frame.contains("session ags_wAiPh.."));
-        assert!(frame.find("RUNNING") < frame.find("session ags_wAiPh.."));
+        assert!(frame.contains("session ags_wAiPhZv2K9mX"));
+        assert!(frame.find("RUNNING") < frame.find("session ags_wAiPhZv2K9mX"));
         assert!(frame.contains("Egress: 3 hosts"));
         assert!(frame.contains("Bindings: 2 secrets, 1 personal"));
         assert!(frame.contains("MCP: 4 allowed"));
@@ -1284,7 +1275,7 @@ mod tests {
         let (frame, _rows) = render_frame(80, &info, TuiStatus::Starting);
         assert!(frame.contains("STARTING"));
         assert!(frame.contains("local"));
-        assert!(!frame.contains("session ags_wAiPh.."));
+        assert!(!frame.contains("session ags_wAiPhZv2K9mX"));
     }
 
     #[test]
@@ -1324,7 +1315,7 @@ mod tests {
         assert!(frame.contains("RUNNING"));
         assert!(frame.contains("coding"));
         assert!(frame.contains("remote"));
-        assert!(frame.contains("session ags_wAiPh.."));
+        assert!(frame.contains("session ags_wAiPhZv2K9mX"));
         assert!(frame.contains("Egress: 3 hosts"));
         assert!(frame.contains("Bindings: 2 secrets, 1 personal"));
         assert!(frame.contains("MCP: 4 allowed"));
