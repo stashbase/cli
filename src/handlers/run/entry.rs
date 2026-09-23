@@ -59,6 +59,7 @@ fn ensure_docker_sandbox_image_available(silent: bool) -> anyhow::Result<()> {
             super::docker_sandbox::DEFAULT_SANDBOX_IMAGE,
         );
     }
+    eprintln!();
     let should_build = crate::utils::interaction::confirm_opt(&format!(
         "The Docker sandbox image ({}) isn't built yet. Build it now?",
         super::docker_sandbox::DEFAULT_SANDBOX_IMAGE

@@ -1099,14 +1099,14 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use super::{
+        codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
+        run_command, sandbox_command, should_inherit_terminal_streams,
+    };
     #[cfg(target_os = "macos")]
     use super::{
         codex_args_with_outer_sandbox, codex_workspace_rules, escape_sbpl_path,
         has_outer_macos_sandbox, sandbox_command_with_filesystem_policy, CodexSandboxBoundary,
-    };
-    use super::{
-        codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
-        run_command, sandbox_command, should_inherit_terminal_streams,
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};

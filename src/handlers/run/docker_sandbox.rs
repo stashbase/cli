@@ -123,10 +123,28 @@ pub(crate) fn create_run_network() -> Result<DockerRunNetwork, String> {
     Ok(DockerRunNetwork { name, gateway_ip })
 }
 
-/// Removes a per-run network created by `create_run_network`. Best-effort:
-/// failure here should not mask the underlying run's exit status — callers
-/// should log and continue.
+/// Stops the container for this run, if one is still running. The
+/// container shares its name with the network (`docker_run_command` passes
+/// `--name network.name`), so no separate identifier needs to be tracked.
+/// Best-effort: a container that already exited (the common case — `--rm`
+/// removes it on its own when the command finishes normally) has nothing
+/// to stop, which is not an error.
+fn stop_container_if_running(name: &str) {
+    let _ = std::process::Command::new("docker")
+        .args(["stop", name])
+        .output();
+}
+
+/// Removes a per-run network created by `create_run_network`. Stops the
+/// run's container first (see `stop_container_if_running`) — `docker
+/// network rm` otherwise fails outright with "has active endpoints" if the
+/// container is somehow still attached (e.g. this process was killed
+/// non-gracefully before its normal teardown ran) rather than exiting
+/// cleanly via `--rm` on its own. Best-effort overall: failure here should
+/// not mask the underlying run's exit status — callers should log and
+/// continue.
 pub(crate) fn remove_run_network(network: &DockerRunNetwork) -> Result<(), String> {
+    stop_container_if_running(&network.name);
     let output = std::process::Command::new("docker")
         .args(["network", "rm", &network.name])
         .output()
@@ -296,6 +314,14 @@ pub(crate) fn docker_run_command(
     let mut args = vec![
         "run".to_owned(),
         "--rm".to_owned(),
+        // Reusing the per-run network's name as the container's own name
+        // gives the caller a deterministic handle to explicitly `docker
+        // stop` this exact container during teardown, rather than relying
+        // solely on `docker run`'s own SIGINT-forwarding behavior (which
+        // doesn't apply to every termination path — e.g. this process
+        // being killed non-gracefully) to have already stopped it.
+        "--name".to_owned(),
+        network.name.clone(),
         // Interactive agents (Claude Code, Cursor, Codex) need a stdin
         // stream; without `-i` the container's stdin is /dev/null and
         // every interactive TUI breaks. `-t` is only safe to add when the
@@ -343,6 +369,22 @@ pub(crate) fn docker_run_command(
     ]);
 
     args.extend(["-w".to_owned(), cwd_str]);
+
+    // Git identity (name/email) is not sensitive the way SSH keys or
+    // credentials are, so unlike everything else outside the working
+    // directory it's worth forwarding — without it, `git commit` inside
+    // the container fails outright with no identity configured, since the
+    // container never sees the host's real ~/.gitconfig. Env vars only
+    // (not the .gitconfig file itself), so unrelated host git config
+    // (aliases, signing setup pointing at host paths, etc.) doesn't leak
+    // in. Caller-provided env vars win if a profile already sets one of
+    // these explicitly.
+    for (key, value) in host_git_identity_env_vars() {
+        if !env_vars.contains_key(&key) {
+            args.push("-e".to_owned());
+            args.push(format!("{key}={value}"));
+        }
+    }
 
     for (key, value) in env_vars {
         args.push("-e".to_owned());
@@ -417,6 +459,40 @@ const CA_BUNDLE_ENV_KEYS: &[&str] = &[
     "CODEX_CA_CERTIFICATE",
 ];
 
+fn host_git_config(key: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["config", "--global", key])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+/// Reads the host's global git identity (`user.name`/`user.email`) and
+/// maps it to the env vars git itself honors for both authoring and
+/// committing. Returns an empty map if the host has neither configured —
+/// this is a convenience, not a requirement, and the container works
+/// fine without it (git commands that don't need an identity still run).
+fn host_git_identity_env_vars() -> std::collections::HashMap<String, String> {
+    let mut vars = std::collections::HashMap::new();
+    if let Some(name) = host_git_config("user.name") {
+        vars.insert("GIT_AUTHOR_NAME".to_owned(), name.clone());
+        vars.insert("GIT_COMMITTER_NAME".to_owned(), name);
+    }
+    if let Some(email) = host_git_config("user.email") {
+        vars.insert("GIT_AUTHOR_EMAIL".to_owned(), email.clone());
+        vars.insert("GIT_COMMITTER_EMAIL".to_owned(), email);
+    }
+    vars
+}
+
 /// Mounts each distinct CA-bundle path found in `env_vars` into the
 /// container read-only, as the single file — never its parent directory,
 /// which on a typical system temp path (`/tmp/stashbase-proxy-ca-*.pem`)
@@ -467,6 +543,18 @@ fn is_nested_under(path: &str, ancestor: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    /// Serializes the tests that touch the real Docker daemon (image
+    /// build/rebuild, container run) — `cargo test`'s default parallelism
+    /// otherwise lets e.g. an image rebuild race a concurrent `docker run`
+    /// of that same image, causing an intermittent "image not found" or
+    /// similar transient failure that has nothing to do with the code
+    /// under test.
+    fn docker_daemon_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn sandbox_dockerfile_is_embedded_and_non_empty() {
@@ -475,6 +563,9 @@ mod tests {
 
     #[test]
     fn sandbox_image_lifecycle_when_docker_available() {
+        let _guard = docker_daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if docker_enforcement_error().is_some() {
             eprintln!("skipping: Docker not available in this environment");
             return;
@@ -561,6 +652,9 @@ mod tests {
 
     #[test]
     fn create_and_remove_run_network_round_trips_when_docker_available() {
+        let _guard = docker_daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if docker_enforcement_error().is_some() {
             eprintln!("skipping: Docker not available in this environment");
             return;
@@ -568,6 +662,44 @@ mod tests {
         let network = create_run_network().expect("network should be created");
         assert!(!network.gateway_ip.is_empty());
         remove_run_network(&network).expect("network should be removed");
+    }
+
+    #[test]
+    fn remove_run_network_succeeds_even_with_a_still_running_container() {
+        let _guard = docker_daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if docker_enforcement_error().is_some() {
+            eprintln!("skipping: Docker not available in this environment");
+            return;
+        }
+        let network = create_run_network().expect("network should be created");
+        // Start a long-running container on this network with the same
+        // name `docker_run_command` would give it, without `--rm`, so it
+        // is still attached when teardown runs — reproducing the "network
+        // has active endpoints" failure this function exists to avoid.
+        let start = std::process::Command::new("docker")
+            .args([
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                &network.name,
+                "--network",
+                &network.name,
+                DEFAULT_SANDBOX_IMAGE,
+                "sleep",
+                "300",
+            ])
+            .output()
+            .expect("docker run should execute");
+        assert!(
+            start.status.success(),
+            "failed to start test container: {}",
+            String::from_utf8_lossy(&start.stderr)
+        );
+        remove_run_network(&network)
+            .expect("network removal should succeed by stopping the still-running container first");
     }
 
     #[test]
@@ -723,6 +855,52 @@ mod tests {
     }
 
     #[test]
+    fn docker_run_command_forwards_host_git_identity_when_configured() {
+        let Some(name) = host_git_config("user.name") else {
+            eprintln!("skipping: host has no global git user.name configured");
+            return;
+        };
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        assert!(args.contains(&format!("GIT_AUTHOR_NAME={name}")));
+        assert!(args.contains(&format!("GIT_COMMITTER_NAME={name}")));
+    }
+
+    #[test]
+    fn docker_run_command_lets_caller_env_vars_override_host_git_identity() {
+        if host_git_config("user.name").is_none() {
+            eprintln!("skipping: host has no global git user.name configured");
+            return;
+        }
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("GIT_AUTHOR_NAME".to_owned(), "Explicit Override".to_owned());
+        let (_, args) =
+            docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        assert!(args.contains(&"GIT_AUTHOR_NAME=Explicit Override".to_owned()));
+        assert_eq!(
+            args.iter()
+                .filter(|arg| arg.starts_with("GIT_AUTHOR_NAME="))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn docker_run_command_mounts_ca_bundle_file_not_its_directory() {
         let network = DockerRunNetwork {
             name: "n".to_owned(),
@@ -766,6 +944,25 @@ mod tests {
         env_vars.insert("SSL_CERT_FILE".to_owned(), "ca.pem".to_owned());
         let result = docker_run_command("claude", &network, &[], &[], &env_vars, false);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn docker_run_command_names_the_container_after_the_network() {
+        let network = DockerRunNetwork {
+            name: "stashbase-agent-run-some-uuid".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        let name_index = args.iter().position(|arg| arg == "--name").unwrap();
+        assert_eq!(args[name_index + 1], network.name);
     }
 
     #[test]
