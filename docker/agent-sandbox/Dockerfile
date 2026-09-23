@@ -13,6 +13,7 @@ RUN apt-get update \
         git \
         bubblewrap \
         iptables \
+        jq \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
