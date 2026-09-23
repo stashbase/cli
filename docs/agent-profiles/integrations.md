@@ -282,6 +282,25 @@ stashbase agent run --remote --profile full-access -- <your-tool>
 
 The profile mixes a shared GitHub token (from project/environment) with your personal Linear credential. Both are injected as placeholders; the real values never leave Stashbase servers.
 
+## Optional Terminal Status Bar (`--tui`)
+
+`agent run` supports an opt-in `--tui` flag:
+
+```bash
+stashbase agent run --tui --profile coding -- codex
+```
+
+This does not change normal usage: `stashbase agent run --profile coding -- codex` behaves exactly as before, and `--tui` has no effect on `stashbase run`. It requires an interactive terminal on both stdin and stdout; without one, `--tui` fails immediately with a clear error instead of producing corrupted output.
+
+With `--tui`, the agent still fully owns the main terminal area — keyboard input, resize events, Ctrl-C/Ctrl-D, and the exit code all behave exactly as they do without the flag. Stashbase only reserves a couple of lines at the bottom of the screen for a status bar showing:
+
+- session status (starting, running, stopping, revoked, failed, or exited)
+- profile name and local/remote mode
+- the session ID, once available
+- counts only: configured egress hosts, shared secret bindings, personal credential bindings, and allowed MCP tools (never secret names, values, or request data)
+
+`--tui` is currently supported on macOS and Linux terminals.
+
 ## Testing Policies Locally
 
 Before using a profile in CI, validate and explain policies:
