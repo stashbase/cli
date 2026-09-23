@@ -154,7 +154,7 @@ pub async fn handle_remote_agent_run(
         );
         eprintln!("Remote agent proxy session active");
     }
-    let child_env = if let Some(network) = &docker_network {
+    let mut child_env = if let Some(network) = &docker_network {
         super::docker_sandbox::rewrite_proxy_urls_for_container(
             proxy.child_env(),
             &super::docker_sandbox::proxy_bind_host(network),
@@ -163,6 +163,31 @@ pub async fn handle_remote_agent_run(
     } else {
         proxy.child_env().clone()
     };
+    if let Some(network) = &docker_network {
+        match super::docker_sandbox::start_netns_holder(network, &child_env) {
+            Ok(Some(resolved_proxy_ip)) => {
+                // The agent container joins the holder's network namespace
+                // via `--network container:<holder>`, which Docker refuses
+                // to combine with `--add-host` — so the agent has no way to
+                // resolve `host.docker.internal` itself. Point it straight
+                // at the already-resolved IP instead, sidestepping the
+                // need for any DNS/hosts lookup in the agent container.
+                child_env = super::docker_sandbox::rewrite_proxy_urls_for_container(
+                    &child_env,
+                    &super::docker_sandbox::proxy_container_host(network),
+                    &resolved_proxy_ip,
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let _ = super::docker_sandbox::remove_run_network(network);
+                proxy.stop().await;
+                return Err(anyhow::anyhow!(
+                    "failed to start Docker sandbox network namespace holder: {error}"
+                ));
+            }
+        }
+    }
     let result = subprocess::run_command_with_filesystem_policy_and_network(
         &cmd,
         args,
@@ -1293,7 +1318,7 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let child_env = if let Some(network) = &docker_network {
+        let mut child_env = if let Some(network) = &docker_network {
             super::docker_sandbox::rewrite_proxy_urls_for_container(
                 proxy.child_env(),
                 &super::docker_sandbox::proxy_bind_host(network),
@@ -1302,6 +1327,30 @@ async fn handle_run(
         } else {
             proxy.child_env().clone()
         };
+        if let Some(network) = &docker_network {
+            match super::docker_sandbox::start_netns_holder(network, &child_env) {
+                Ok(Some(resolved_proxy_ip)) => {
+                    // See the matching comment in handle_remote_agent_run:
+                    // the agent container cannot resolve
+                    // `host.docker.internal` itself once it joins the
+                    // holder's network namespace, so point it at the
+                    // already-resolved IP instead.
+                    child_env = super::docker_sandbox::rewrite_proxy_urls_for_container(
+                        &child_env,
+                        &super::docker_sandbox::proxy_container_host(network),
+                        &resolved_proxy_ip,
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                    proxy.stop().await;
+                    return Err(anyhow::anyhow!(
+                        "failed to start Docker sandbox network namespace holder: {error}"
+                    ));
+                }
+            }
+        }
         let command = Box::pin(subprocess::run_command_with_filesystem_policy_and_network(
             &cmd,
             args,

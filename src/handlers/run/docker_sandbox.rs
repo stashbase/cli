@@ -123,37 +123,201 @@ pub(crate) fn create_run_network() -> Result<DockerRunNetwork, String> {
     Ok(DockerRunNetwork { name, gateway_ip })
 }
 
-/// Stops the container for this run, if one is still running. The
-/// container shares its name with the network (`docker_run_command` passes
-/// `--name network.name`), so no separate identifier needs to be tracked.
-/// Best-effort: a container that already exited (the common case — `--rm`
-/// removes it on its own when the command finishes normally) has nothing
-/// to stop, which is not an error.
+/// Name of the short-lived helper container that holds the network
+/// namespace the agent container joins (see `start_netns_holder`).
+/// Deterministic from the network name so no extra state needs to be
+/// threaded through the run — every caller that needs it (starting it,
+/// joining it, tearing it down) can derive it the same way.
+fn netns_holder_name(network: &DockerRunNetwork) -> String {
+    format!("{}-netns-holder", network.name)
+}
+
+fn parse_proxy_host_port(
+    env_vars: &std::collections::HashMap<String, String>,
+) -> Option<(String, String)> {
+    let proxy_url = env_vars
+        .get("HTTPS_PROXY")
+        .or_else(|| env_vars.get("HTTP_PROXY"))?;
+    let hostport = proxy_url.split("://").nth(1)?;
+    let host = hostport.split(&[':', '/'][..]).next()?;
+    let port = hostport.split(':').nth(1)?.split('/').next()?;
+    Some((host.to_owned(), port.to_owned()))
+}
+
+/// Starts a short-lived helper container attached to `network` that holds
+/// `CAP_NET_ADMIN` just long enough to install one `iptables` rule
+/// (default-DROP outbound, exceptions only for loopback, DNS, and the
+/// credential proxy's specific address/port), then blocks forever holding
+/// the network namespace open. The actual agent container later joins this
+/// exact namespace via `--network container:<holder>` (see
+/// `docker_run_command`) with zero added capabilities of its own — network
+/// namespace rules are shared by anything attached to that namespace, but
+/// the *capability* to modify them is not, so the agent process can use
+/// the firewall but never touch it.
+///
+/// This exists because `setpriv`/capability-bounding-set tricks to strip
+/// `NET_ADMIN` from the agent container itself after setup turned out not
+/// to work on Docker Desktop: granting the container `CAP_SETPCAP` (needed
+/// to modify its own bounding set at all) is silently zeroed out there —
+/// confirmed directly, not assumed. Splitting privileged setup into a
+/// separate container sidesteps that limitation entirely: the agent
+/// container never needs `CAP_SETPCAP`, `CAP_NET_ADMIN`, or root, on any
+/// platform.
+///
+/// Returns the proxy's resolved IP address when a proxy was configured, so
+/// the caller can point the agent container directly at that IP instead of
+/// a hostname — the agent joins this namespace via
+/// `--network container:<holder>`, which is incompatible with `--add-host`
+/// (Docker rejects the combination outright), so the agent container has
+/// no way to resolve `host.docker.internal` itself. Using the
+/// already-resolved IP sidesteps needing DNS/hosts resolution in the agent
+/// container at all.
+pub(crate) fn start_netns_holder(
+    network: &DockerRunNetwork,
+    proxy_env_vars: &std::collections::HashMap<String, String>,
+) -> Result<Option<String>, String> {
+    let holder_name = netns_holder_name(network);
+    let start = std::process::Command::new("docker")
+        .args([
+            "run",
+            "-d",
+            "--rm",
+            "--name",
+            &holder_name,
+            "--network",
+            &network.name,
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "--cap-drop",
+            "ALL",
+            "--cap-add",
+            "NET_ADMIN",
+            "--security-opt",
+            "no-new-privileges",
+            DEFAULT_SANDBOX_IMAGE,
+            "sleep",
+            "infinity",
+        ])
+        .output()
+        .map_err(|error| {
+            format!("failed to run `docker run` for the network namespace holder: {error}")
+        })?;
+    if !start.status.success() {
+        return Err(String::from_utf8_lossy(&start.stderr).trim().to_owned());
+    }
+
+    let Some((proxy_host, proxy_port)) = parse_proxy_host_port(proxy_env_vars) else {
+        // No proxy configured for this run — leave the holder's network
+        // namespace at Docker's default (unrestricted) rather than
+        // guessing at a policy. The Docker backend always runs with the
+        // proxy in practice; this is a defensive fallback, not the normal
+        // path.
+        return Ok(None);
+    };
+    let setup_script = format!(
+        "set -e\n\
+         proxy_ip=$(getent hosts '{proxy_host}' 2>/dev/null | awk '{{print $1}}' | head -1)\n\
+         if [ -z \"$proxy_ip\" ]; then proxy_ip='{proxy_host}'; fi\n\
+         iptables -P OUTPUT DROP\n\
+         iptables -A OUTPUT -o lo -j ACCEPT\n\
+         iptables -A OUTPUT -p udp --dport 53 -j ACCEPT\n\
+         iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT\n\
+         iptables -A OUTPUT -d \"$proxy_ip\" -p tcp --dport '{proxy_port}' -j ACCEPT\n\
+         echo \"$proxy_ip\"\n"
+    );
+    // `docker exec` immediately after `docker run -d` can race the
+    // container's own network setup (DNS in particular isn't always ready
+    // the instant the process starts) — retry briefly rather than treat a
+    // transient race as a hard failure.
+    let mut last_error = String::new();
+    for attempt in 0..5 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let setup = std::process::Command::new("docker")
+            .args(["exec", &holder_name, "sh", "-c", &setup_script])
+            .output()
+            .map_err(|error| {
+                format!("failed to run the network namespace holder's firewall setup: {error}")
+            })?;
+        if setup.status.success() {
+            let resolved_ip = String::from_utf8_lossy(&setup.stdout).trim().to_owned();
+            return Ok(Some(resolved_ip));
+        }
+        last_error = String::from_utf8_lossy(&setup.stderr).trim().to_owned();
+    }
+    stop_container_if_running(&holder_name);
+    Err(last_error)
+}
+
+/// Stops and removes the container for this run, if it's still around. The
+/// agent container shares its name with the network (`docker_run_command`
+/// passes `--name network.name`), so no separate identifier needs to be
+/// tracked; the holder's name is derived the same deterministic way (see
+/// `netns_holder_name`). Best-effort: a container that already exited and
+/// self-removed (the common case — both containers run with `--rm`) has
+/// nothing to stop, which is not an error.
+///
+/// Uses `docker rm -f` rather than `docker stop`: both containers run with
+/// `--rm`, so `stop` alone only *starts* the daemon's asynchronous
+/// self-removal — it does not wait for the container to actually be gone,
+/// which left a real race where `docker network rm` (called right after)
+/// could still see the container's endpoint as attached and fail with
+/// "has active endpoints". `rm -f` stops and removes synchronously in one
+/// call, so by the time this returns the container and its network
+/// attachment are actually gone.
 fn stop_container_if_running(name: &str) {
     let _ = std::process::Command::new("docker")
-        .args(["stop", name])
+        .args(["rm", "-f", name])
         .output();
 }
 
-/// Removes a per-run network created by `create_run_network`. Stops the
-/// run's container first (see `stop_container_if_running`) — `docker
-/// network rm` otherwise fails outright with "has active endpoints" if the
-/// container is somehow still attached (e.g. this process was killed
-/// non-gracefully before its normal teardown ran) rather than exiting
-/// cleanly via `--rm` on its own. Best-effort overall: failure here should
-/// not mask the underlying run's exit status — callers should log and
-/// continue.
+/// Force-disconnects a container from a network, ignoring errors (the
+/// common case is the container is already gone, in which case there's
+/// nothing to disconnect).
+fn force_disconnect(network_name: &str, container_name: &str) {
+    let _ = std::process::Command::new("docker")
+        .args(["network", "disconnect", "-f", network_name, container_name])
+        .output();
+}
+
+/// Removes a per-run network created by `create_run_network`. Best-effort
+/// overall: failure here should not mask the underlying run's exit status
+/// — callers should log and continue.
+///
+/// Both the agent and holder containers are stopped/removed first (see
+/// `stop_container_if_running`), and the disconnect+remove sequence is
+/// retried a few times with a short delay — confirmed necessary, not just
+/// defensive: this Docker setup was observed leaving a network's own
+/// bookkeeping pointing at a holder container's endpoint as still "active"
+/// immediately after that container was already fully removed (`docker
+/// inspect` on it returned "no such object"), causing both a bare `docker
+/// network rm` *and* an immediate `disconnect` + `rm` attempt right after
+/// removal to fail with "has active endpoints" — the same disconnect+rm
+/// sequence reliably succeeds once retried a moment later, once the
+/// daemon's own bookkeeping has caught up with the removal it already
+/// performed.
 pub(crate) fn remove_run_network(network: &DockerRunNetwork) -> Result<(), String> {
     stop_container_if_running(&network.name);
-    let output = std::process::Command::new("docker")
-        .args(["network", "rm", &network.name])
-        .output()
-        .map_err(|error| format!("failed to run `docker network rm`: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+    stop_container_if_running(&netns_holder_name(network));
+
+    let mut last_error = String::new();
+    for attempt in 0..10 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        force_disconnect(&network.name, &network.name);
+        force_disconnect(&network.name, &netns_holder_name(network));
+        let output = std::process::Command::new("docker")
+            .args(["network", "rm", &network.name])
+            .output()
+            .map_err(|error| format!("failed to run `docker network rm`: {error}"))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        last_error = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     }
+    Err(last_error)
 }
 
 /// The host address the credential proxy should bind to for this Docker
@@ -332,6 +496,14 @@ pub(crate) fn docker_run_command(
         args.push("-t".to_owned());
     }
     args.extend([
+        // The agent container itself never holds NET_ADMIN or any other
+        // added capability — the network-layer egress firewall is set up
+        // by a separate, short-lived helper container this one joins the
+        // network namespace of (see `start_netns_holder` and the
+        // `--network container:<holder>` below). Namespace rules are
+        // shared by anything attached to that namespace; the capability to
+        // change them is not, so this container can use the firewall but
+        // never touch it.
         "--cap-drop".to_owned(),
         "ALL".to_owned(),
         "--security-opt".to_owned(),
@@ -349,7 +521,10 @@ pub(crate) fn docker_run_command(
             }),
         ]);
     }
-    args.extend(["--network".to_owned(), network.name.clone()]);
+    args.extend([
+        "--network".to_owned(),
+        format!("container:{}", netns_holder_name(network)),
+    ]);
 
     append_filesystem_mounts(&mut args, &cwd_str, denied_read_paths, denied_write_paths);
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
@@ -703,6 +878,147 @@ mod tests {
     }
 
     #[test]
+    fn netns_holder_name_is_derived_from_network_name() {
+        let network = DockerRunNetwork {
+            name: "stashbase-agent-run-abc123".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        assert_eq!(
+            netns_holder_name(&network),
+            "stashbase-agent-run-abc123-netns-holder"
+        );
+    }
+
+    #[test]
+    fn parse_proxy_host_port_reads_https_proxy() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert(
+            "HTTPS_PROXY".to_owned(),
+            "http://host.docker.internal:54321".to_owned(),
+        );
+        let (host, port) = parse_proxy_host_port(&env_vars).unwrap();
+        assert_eq!(host, "host.docker.internal");
+        assert_eq!(port, "54321");
+    }
+
+    #[test]
+    fn parse_proxy_host_port_falls_back_to_http_proxy() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("HTTP_PROXY".to_owned(), "http://172.17.0.1:9999".to_owned());
+        let (host, port) = parse_proxy_host_port(&env_vars).unwrap();
+        assert_eq!(host, "172.17.0.1");
+        assert_eq!(port, "9999");
+    }
+
+    #[test]
+    fn parse_proxy_host_port_returns_none_when_absent() {
+        let env_vars = std::collections::HashMap::new();
+        assert!(parse_proxy_host_port(&env_vars).is_none());
+    }
+
+    #[test]
+    fn netns_holder_blocks_direct_egress_but_allows_proxy_when_docker_available() {
+        let _guard = docker_daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if docker_enforcement_error().is_some() {
+            eprintln!("skipping: Docker not available in this environment");
+            return;
+        }
+        let network = create_run_network().expect("network should be created");
+
+        // A tiny host-side listener the holder's firewall rule should allow
+        // through (simulating the credential proxy).
+        // Short name: DNS labels cap out at 63 characters, and
+        // `network.name` (already `stashbase-agent-run-<uuid>`) plus a
+        // suffix would exceed that, making it unresolvable — a test
+        // artifact only, real usage never resolves container names.
+        let listener_container = format!("listener-{}", uuid::Uuid::new_v4().simple());
+        let listen = std::process::Command::new("docker")
+            .args([
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                &listener_container,
+                "--network",
+                &network.name,
+                DEFAULT_SANDBOX_IMAGE,
+                "node",
+                "-e",
+                "require('http').createServer((_, response) => response.end('ok')).listen(18234)",
+            ])
+            .output()
+            .expect("docker run should execute");
+        assert!(listen.status.success());
+        // Give the listener a moment to bind before anything tries to
+        // reach it.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert(
+            "HTTPS_PROXY".to_owned(),
+            format!("http://{listener_container}:18234"),
+        );
+        let holder_result = start_netns_holder(&network, &env_vars);
+        let cleanup = || {
+            stop_container_if_running(&listener_container);
+            let _ = remove_run_network(&network);
+        };
+        if let Err(error) = holder_result {
+            cleanup();
+            panic!("start_netns_holder failed: {error}");
+        }
+
+        let holder_name = netns_holder_name(&network);
+        let allowed = std::process::Command::new("docker")
+            .args([
+                "exec",
+                &holder_name,
+                "curl",
+                "-s",
+                "-m",
+                "5",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                &format!("http://{listener_container}:18234/"),
+            ])
+            .output();
+        let blocked = std::process::Command::new("docker")
+            .args([
+                "exec",
+                &holder_name,
+                "curl",
+                "-s",
+                "-m",
+                "5",
+                "-o",
+                "/dev/null",
+                "-w",
+                "%{http_code}",
+                "https://example.com",
+            ])
+            .output();
+
+        cleanup();
+
+        let allowed = allowed.expect("docker exec should run");
+        let blocked = blocked.expect("docker exec should run");
+        assert_eq!(
+            String::from_utf8_lossy(&allowed.stdout),
+            "200",
+            "the proxy-equivalent listener should be reachable through the firewall"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&blocked.stdout),
+            "000",
+            "a direct request to an arbitrary host should be blocked by the firewall"
+        );
+    }
+
+    #[test]
     fn docker_run_command_mounts_cwd_and_sets_env_with_no_denied_paths() {
         let network = DockerRunNetwork {
             name: "test-network".to_owned(),
@@ -1037,8 +1353,55 @@ mod tests {
         .unwrap();
         let cap_drop_index = args.iter().position(|arg| arg == "--cap-drop").unwrap();
         assert_eq!(args[cap_drop_index + 1], "ALL");
+        // No --cap-add: the agent container never holds any added
+        // capability. The network-layer firewall is set up by a separate
+        // helper container (see start_netns_holder) whose namespace this
+        // one joins via `--network container:<holder>`.
+        assert!(!args.contains(&"--cap-add".to_owned()));
         assert!(args.contains(&"--security-opt".to_owned()));
         assert!(args.contains(&"no-new-privileges".to_owned()));
+    }
+
+    #[test]
+    fn docker_run_command_joins_the_netns_holders_network() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        let network_index = args.iter().position(|arg| arg == "--network").unwrap();
+        assert_eq!(args[network_index + 1], "container:n-netns-holder");
+    }
+
+    #[test]
+    fn docker_run_command_uses_user_flag_only_on_linux() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        // Restoring `--user` is safe here: the agent container never runs
+        // any privileged setup itself, so it can start as the target
+        // uid/gid immediately, unlike the earlier setpriv-based approach.
+        if cfg!(target_os = "linux") {
+            assert!(args.contains(&"--user".to_owned()));
+        }
     }
 
     #[test]
