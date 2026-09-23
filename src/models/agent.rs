@@ -16,6 +16,10 @@ pub struct AgentProfile {
     /// Filesystem paths denied to the agent process tree.
     #[serde(default)]
     pub filesystem: AgentFilesystemProfile,
+    /// Selects the sandbox enforcement backend. Defaults to the platform's
+    /// native mechanism (Seatbelt/systemd-run/bubblewrap).
+    #[serde(default)]
+    pub sandbox: AgentSandboxProfile,
     /// Named HTTP MCP servers and their tool policies.
     #[serde(default)]
     pub mcp_servers: HashMap<String, AgentMcpServer>,
@@ -79,6 +83,24 @@ pub struct AgentFilesystemProfile {
     /// Paths the agent must not modify.
     #[serde(default)]
     pub deny_write: Vec<String>,
+}
+
+/// Selects which mechanism enforces filesystem/network isolation for the
+/// agent process tree. `Native` (the default) preserves today's behavior:
+/// Seatbelt on macOS, `systemd-run`/bubblewrap on Linux.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxBackend {
+    #[default]
+    Native,
+    Docker,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSandboxProfile {
+    #[serde(default)]
+    pub backend: SandboxBackend,
 }
 
 /// Project/environment-backed secret bindings. Personal credentials deliberately
@@ -166,4 +188,42 @@ pub struct AgentHttpRule {
 pub enum AgentHttpRuleEffect {
     Allow,
     Deny,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_defaults_to_native_when_omitted() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+        "#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.sandbox.backend, SandboxBackend::Native);
+    }
+
+    #[test]
+    fn sandbox_backend_docker_parses() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+
+            [sandbox]
+            backend = "docker"
+        "#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.sandbox.backend, SandboxBackend::Docker);
+    }
+
+    #[test]
+    fn sandbox_rejects_unknown_backend() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+
+            [sandbox]
+            backend = "vm"
+        "#;
+        let result: Result<AgentProfile, _> = toml::from_str(toml);
+        assert!(result.is_err());
+    }
 }
