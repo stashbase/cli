@@ -889,8 +889,7 @@ mod tests {
         };
         let mut env_vars = std::collections::HashMap::new();
         env_vars.insert("GIT_AUTHOR_NAME".to_owned(), "Explicit Override".to_owned());
-        let (_, args) =
-            docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        let (_, args) = docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
         assert!(args.contains(&"GIT_AUTHOR_NAME=Explicit Override".to_owned()));
         assert_eq!(
             args.iter()

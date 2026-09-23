@@ -178,6 +178,12 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub remote: bool,
 
+    /// Override the profile's `[sandbox] backend` for this run only: `true`
+    /// forces the Docker backend, `false` forces the native backend.
+    /// Omit to use whatever the profile declares.
+    #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
+    pub docker_sandbox: Option<bool>,
+
     /// Store metadata-only proxy audit events locally
     #[arg(
         long,

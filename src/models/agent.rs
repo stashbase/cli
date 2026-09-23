@@ -96,6 +96,20 @@ pub enum SandboxBackend {
     Docker,
 }
 
+impl SandboxBackend {
+    /// Applies a `--docker-sandbox` CLI override on top of this profile's
+    /// declared backend: `Some(true)` forces `Docker`, `Some(false)` forces
+    /// `Native`, `None` (the flag wasn't passed) leaves the profile's own
+    /// setting untouched.
+    pub fn with_cli_override(self, docker_sandbox_flag: Option<bool>) -> Self {
+        match docker_sandbox_flag {
+            Some(true) => Self::Docker,
+            Some(false) => Self::Native,
+            None => self,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentSandboxProfile {
@@ -193,6 +207,42 @@ pub enum AgentHttpRuleEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cli_override_forces_docker_regardless_of_profile() {
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(Some(true)),
+            SandboxBackend::Docker
+        );
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(Some(true)),
+            SandboxBackend::Docker
+        );
+    }
+
+    #[test]
+    fn cli_override_forces_native_regardless_of_profile() {
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(Some(false)),
+            SandboxBackend::Native
+        );
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(Some(false)),
+            SandboxBackend::Native
+        );
+    }
+
+    #[test]
+    fn cli_override_absent_keeps_profile_setting() {
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(None),
+            SandboxBackend::Docker
+        );
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(None),
+            SandboxBackend::Native
+        );
+    }
 
     #[test]
     fn sandbox_defaults_to_native_when_omitted() {

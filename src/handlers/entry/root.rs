@@ -711,7 +711,7 @@ pub async fn handle_cli(args: Cli) {
                     }};
                     let loaded_from_directory = directory_source.is_some();
 
-                    let Some(profile) = profile else {
+                    let Some(mut profile) = profile else {
                         let source = match agent_run.profile_source {
                             AgentProfileSource::Global => "global",
                             AgentProfileSource::Directory => "directory",
@@ -725,6 +725,8 @@ pub async fn handle_cli(args: Cli) {
                     };
 
                     crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
+                    profile.sandbox.backend =
+                        profile.sandbox.backend.with_cli_override(agent_run.docker_sandbox);
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
                     // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is
