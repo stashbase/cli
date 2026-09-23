@@ -70,6 +70,52 @@ Paths use explicit prefixes: `~` for home, relative paths for the current direct
 
 Existing file descriptors and data already in process memory remain unrestricted.
 
+## Sandbox Backend
+
+By default, filesystem/network enforcement uses the platform-native mechanism described above. Opt into Docker-based isolation instead:
+
+```toml
+[sandbox]
+backend = "docker"
+```
+
+With `backend = "docker"`, the agent process runs inside a container on a fresh, isolated Docker network created for that single `agent run` invocation. Compared to the native backend:
+
+- The container has its own network namespace and can reach the host's credential proxy but nothing else — no LAN, no other local processes, no host-only services. (See the Docker Desktop caveat below — this guarantee is currently weaker there.)
+- Filesystem access is allow-list, not deny-list: only the current working directory is visible inside the container. `deny_read`/`deny_write` paths outside the working directory are already invisible; paths inside it are additionally shadow-mounted (empty for `deny_read`, read-only for `deny_write`) so the same guarantee holds.
+- Requires Docker installed and the daemon running. If Docker isn't available, the run fails closed with an error — it does not fall back to running unsandboxed or to the native backend.
+- On Docker Desktop (macOS/Windows), the proxy binds to loopback and the container reaches it via `host.docker.internal`, since Desktop containers run inside a VM and cannot reach the host's bridge-network gateway directly. On native Linux Docker, the proxy binds to the per-run network's gateway address instead, and the network is additionally created `--internal` (blocking all other outbound routing) — so only that network's container can reach it. Desktop cannot use `--internal` without also breaking the `host.docker.internal` route the proxy connection depends on, so network containment on Desktop currently relies on the same `HTTPS_PROXY`/`HTTP_PROXY` convention the native backend already uses, not a kernel-enforced block.
+
+### Supported agents and the sandbox image
+
+Claude Code and Codex are pre-installed in the sandbox image and are the only agents validated against this backend so far. Other tools that don't need anything beyond what the image provides should also run.
+
+The image is built from `node:22-bookworm-slim` (Debian underneath) with `git`, `curl`, `ca-certificates`, and `bubblewrap` installed via `apt`, plus `@anthropic-ai/claude-code` and `@openai/codex` via `npm`. It is not published to a registry — the Dockerfile is embedded in the `stashbase` binary itself, so a plain installed copy of the CLI can build it locally without needing this source repository. The first `agent run` that selects the Docker backend detects the image is missing and offers to build it (interactively; `--silent` runs fail closed instead of prompting). The build streams Docker's own progress live rather than running silently. The image is fixed in this release — there is no per-profile way to select a different one.
+
+### Git identity
+
+Your global `git config user.name` and `user.email` (if configured on the host) are forwarded into the container as `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL`. This is the one piece of host configuration deliberately forwarded despite the filesystem allow-list, since it's authorship metadata, not a credential — without it, `git commit` inside the sandbox fails with no identity configured. It does not grant push access: `git push` (or any other authenticated git operation) still needs a real credential, wired through `[secrets]` like `GITHUB_TOKEN` in the example above, or run from outside the sandbox. Raw SSH keys are never forwarded. A profile that explicitly sets one of these four env vars itself takes precedence over the forwarded host value.
+
+### Login persistence
+
+Agent login/config state (e.g. Claude Code's `~/.claude`) is kept in a Docker-managed named volume, not a bind mount of your real home directory, so it survives across `agent run` invocations without exposing anything else on the host. This volume is shared across every profile and project using the Docker backend on this machine — logging in once covers all of them.
+
+### Codex and subscription login
+
+Codex's normal OAuth login flow opens a browser that redirects to a local HTTP callback server. That callback listens inside the container's own network namespace, which the host browser cannot reach — the container's `localhost` is not your machine's `localhost`. Use Codex's device-code flow instead, which doesn't depend on a local callback at all:
+
+```bash
+stashbase agent run --profile coding -- codex login --device-auth
+```
+
+### Docker backend limitations
+
+- Network isolation on Docker Desktop (macOS/Windows) is weaker than on native Linux — see the caveat above. Filesystem isolation is unaffected and equally strong on both platforms.
+- The container image is fixed and not user-configurable in this release; a workflow needing a tool outside the image's contents (a compiler, `jq`, SSH, etc.) isn't supported yet.
+- Teardown (stopping the container, removing the per-run network) runs on normal exit, including Ctrl+C. A crash or forceful kill (`SIGKILL`) of the `stashbase` process itself can leave both behind rather than cleaned up.
+
+This backend is early access, opt-in only, and does not change the default behavior of existing profiles.
+
 ## Network Access and HTTP Rules
 
 By default, the proxy denies all connections. Allow specific destinations:
@@ -205,7 +251,7 @@ The proxy is HTTP/HTTPS only and designed for standard developer tools. It does 
 - Request-body or query-parameter injection (credentials are header-only)
 - Process-level isolation (same-user processes can still access broader system credentials)
 
-For complete network isolation, use a container or VM.
+For stronger filesystem and network isolation than the native backend provides, see [Sandbox Backend](#sandbox-backend) above (experimental).
 
 ## Full Reference
 

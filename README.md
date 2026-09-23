@@ -13,6 +13,7 @@ Stashbase is an open-source access layer that gives coding agents the access the
   - [How the Agent Proxy Works](#how-the-agent-proxy-works)
   - [Profile Syntax and Configuration](#profile-syntax-and-configuration)
   - [Filesystem and Network Containment](#filesystem-and-network-containment)
+  - [Docker Sandbox Backend (Experimental)](#docker-sandbox-backend-experimental)
   - [Remote Agent Sessions](#remote-agent-sessions)
   - [MCP Tools Authorization](#mcp-tools-authorization)
   - [Audit Logs and Session Revocation](#audit-logs-and-session-revocation)
@@ -240,6 +241,44 @@ Every `agent run` denies the child direct network access. The agent communicates
 On macOS, this uses the deprecated `sandbox-exec` utility. On Linux and WSL2, it uses `systemd-run --user --scope` with cgroup rules.
 
 This is network containment only, not filesystem, process-memory, or kernel isolation.
+
+### Docker Sandbox Backend (Experimental)
+
+An opt-in alternative to the native Seatbelt/systemd-run/bubblewrap backend above: the agent runs inside a Docker container instead of a same-host sandboxed process.
+
+```toml
+[sandbox]
+backend = "docker"
+```
+
+```bash
+stashbase agent run --profile coding -- claude
+```
+
+**What it does differently from the native backend:**
+- Filesystem access is allow-list, not deny-list: only the current working directory is mounted into the container. Everything else on your machine — `~/.ssh`, other projects, system files — simply isn't visible, rather than merely denied. `deny_read`/`deny_write` paths still work the same way as the native backend for anything inside the working directory.
+- The container runs on a fresh, isolated Docker network created for that one `agent run` invocation and torn down afterward; it can reach the credential proxy but nothing else.
+- If Docker isn't installed or the daemon isn't running, the run fails closed with an error rather than falling back to running unsandboxed.
+
+**Supported agents:** Claude Code and Codex are pre-installed in the sandbox image. Other tools that don't need anything beyond what's in the image (see below) will also run, but nothing else is validated yet.
+
+**The image:** built from `node:22-bookworm-slim` with `git`, `curl`, `ca-certificates`, `bubblewrap`, and both `@anthropic-ai/claude-code` and `@openai/codex` installed via npm. It isn't published anywhere yet — on first use, `agent run` detects it's missing and offers to build it locally (from a Dockerfile embedded in the `stashbase` binary itself, so this works even without a checkout of this repository); building streams Docker's own progress live rather than sitting silently. The image is fixed in this release — not yet configurable per profile.
+
+**Git identity:** your global `git config user.name`/`user.email` (if set) are forwarded into the container as `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`, so commits made inside the sandbox are attributed to you instead of failing with no identity configured. This is metadata only, not a credential — it doesn't grant push access. `git push` (or any other authenticated git operation) still needs its own credential, e.g. a `GITHUB_TOKEN` wired through `[secrets]` like any other API credential; raw SSH keys are deliberately never forwarded into the sandbox.
+
+**Login persistence:** agent login/config state (e.g. Claude Code's `~/.claude`) is kept in a Docker-managed named volume that survives across runs, so you don't need to log in again every time. This volume is shared across every profile and project using the Docker backend on your machine — logging in once covers all of them.
+
+**Codex + subscription login:** Codex's normal browser-based OAuth login opens a local callback server that the host browser can't reach from inside an isolated container. Use the device-code flow instead, which doesn't need a local callback at all:
+
+```bash
+stashbase agent run --profile coding -- codex login --device-auth
+```
+
+**Limitations:**
+- On Docker Desktop (macOS/Windows), network isolation is weaker than on native Linux: Desktop's VM boundary means the per-run network can't apply the same egress-blocking rule Linux gets, so the container's network containment there currently relies on the same `HTTPS_PROXY`/`HTTP_PROXY` convention the native backend already uses, not a kernel-enforced block. Filesystem isolation is unaffected and equally strong on both platforms.
+- The image is fixed and not user-configurable in this release — if your workflow needs a tool that isn't in it (a compiler, `jq`, SSH, etc.), it isn't available yet.
+- A crash or forceful kill of the CLI mid-run can leave the per-run Docker network and container behind rather than cleaned up; normal exits (including Ctrl+C) tear both down correctly.
+- This backend is early access and opt-in only — it does not change the behavior of any existing profile that doesn't set `backend = "docker"`.
 
 ### Remote Agent Sessions
 
