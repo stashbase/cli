@@ -12,6 +12,7 @@ RUN apt-get update \
         curl \
         git \
         bubblewrap \
+        iptables \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
@@ -20,9 +21,13 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex
 # state (e.g. Claude Code's ~/.claude, ~/.claude.json) survives across
 # runs instead of vanishing with each --rm'd container. World-writable
 # because the container may run as an arbitrary host uid (see the --user
-# flag added on Linux in docker_run_command) with no matching passwd
-# entry, so a named volume freshly created by Docker would otherwise be
+# flag set on Linux in docker_run_command) with no matching passwd entry,
+# so a named volume freshly created by Docker would otherwise be
 # root-owned and unwritable to that uid.
 RUN mkdir -p /home/agent && chmod 777 /home/agent
 
+# `iptables` above is used by the short-lived network-namespace-holder
+# container (see start_netns_holder in docker_sandbox.rs), which uses this
+# same image — the actual agent container never runs iptables itself and
+# holds no networking capabilities at all.
 WORKDIR /workspace
