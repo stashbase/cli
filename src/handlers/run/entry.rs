@@ -38,6 +38,51 @@ use crate::{
 
 use super::format::format_env_variable_value;
 
+/// Ensures the Docker sandbox backend's default image exists locally,
+/// building it from the embedded Dockerfile on first use. There is no
+/// registry to `docker pull` from yet, so the only way an installed
+/// `stashbase` binary can get the image is to build it itself.
+///
+/// In an interactive session, asks before building (an implicit multi-
+/// minute `docker build` on first use would otherwise be a surprising side
+/// effect of `agent run`). In `--silent` mode there is no one to ask, so
+/// this fails closed with instructions rather than silently building or
+/// silently running unsandboxed.
+fn ensure_docker_sandbox_image_available(silent: bool) -> anyhow::Result<()> {
+    if super::docker_sandbox::sandbox_image_exists() {
+        return Ok(());
+    }
+    if silent {
+        anyhow::bail!(
+            "the Docker sandbox image ({}) is not built yet; build it once with `docker build -t {} <embedded Dockerfile>` or re-run without --silent to be prompted",
+            super::docker_sandbox::DEFAULT_SANDBOX_IMAGE,
+            super::docker_sandbox::DEFAULT_SANDBOX_IMAGE,
+        );
+    }
+    let should_build = crate::utils::interaction::confirm_opt(&format!(
+        "The Docker sandbox image ({}) isn't built yet. Build it now?",
+        super::docker_sandbox::DEFAULT_SANDBOX_IMAGE
+    ))
+    .unwrap_or(false);
+    // dialoguer can leave the terminal cursor hidden if the prompt is
+    // dismissed via Ctrl+C rather than answered normally (a known
+    // dialoguer/raw-mode interaction — see the Ctrl+C handler in main.rs
+    // for the same workaround applied to other prompts). Restore it
+    // unconditionally before deciding what the prompt's outcome was.
+    let _ = dialoguer::console::Term::stdout().show_cursor();
+    if !should_build {
+        anyhow::bail!("Docker sandbox backend selected, but its image was not built");
+    }
+    eprintln!(
+        "Building Docker sandbox image ({})...",
+        super::docker_sandbox::DEFAULT_SANDBOX_IMAGE
+    );
+    super::docker_sandbox::build_sandbox_image()
+        .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
+    eprintln!("Docker sandbox image built.");
+    Ok(())
+}
+
 /// Runs an agent through the localhost relay while credentials stay in the
 /// control-plane's short-lived remote agent-proxy session.
 pub async fn handle_remote_agent_run(
@@ -58,15 +103,47 @@ pub async fn handle_remote_agent_run(
     let denied_read_paths = policy.denied_read_paths.clone();
     let denied_write_paths = policy.denied_write_paths.clone();
     let allow_network_listeners = policy.allow_network_listeners;
+    let backend = policy.backend;
     let command_audit_log = audit_log.clone();
-    let proxy = super::proxy::Proxy::start_remote_with_hook(
-        remote,
-        policy,
-        audit_log,
-        proxy_port,
-        hooks_enabled.then_some(api_key),
-    )
-    .await?;
+    let docker_network = if backend == crate::models::agent::SandboxBackend::Docker {
+        ensure_docker_sandbox_image_available(silent)?;
+        Some(
+            super::docker_sandbox::create_run_network().map_err(|error| {
+                anyhow::anyhow!("failed to create Docker sandbox network: {error}")
+            })?,
+        )
+    } else {
+        None
+    };
+    let proxy_start_result = if let Some(network) = &docker_network {
+        super::proxy::Proxy::start_remote_with_hook_and_bind_host(
+            remote,
+            policy,
+            audit_log,
+            proxy_port,
+            hooks_enabled.then_some(api_key),
+            &super::docker_sandbox::proxy_bind_host(network),
+        )
+        .await
+    } else {
+        super::proxy::Proxy::start_remote_with_hook(
+            remote,
+            policy,
+            audit_log,
+            proxy_port,
+            hooks_enabled.then_some(api_key),
+        )
+        .await
+    };
+    let proxy = match proxy_start_result {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            if let Some(network) = &docker_network {
+                let _ = super::docker_sandbox::remove_run_network(network);
+            }
+            return Err(error);
+        }
+    };
     let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
     if !silent {
         let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
@@ -76,10 +153,19 @@ pub async fn handle_remote_agent_run(
         );
         eprintln!("Remote agent proxy session active");
     }
-    let result = subprocess::run_command_with_filesystem_policy(
+    let child_env = if let Some(network) = &docker_network {
+        super::docker_sandbox::rewrite_proxy_urls_for_container(
+            proxy.child_env(),
+            &super::docker_sandbox::proxy_bind_host(network),
+            &super::docker_sandbox::proxy_container_host(network),
+        )
+    } else {
+        proxy.child_env().clone()
+    };
+    let result = subprocess::run_command_with_filesystem_policy_and_network(
         &cmd,
         args,
-        proxy.child_env().clone(),
+        child_env,
         source_env_names,
         sandbox,
         allow_network_listeners,
@@ -88,9 +174,19 @@ pub async fn handle_remote_agent_run(
         &denied_read_paths,
         &denied_write_paths,
         command_audit_log,
+        backend,
+        docker_network.as_ref(),
     )
     .await;
     proxy.stop().await;
+    if let Some(network) = &docker_network {
+        if let Err(error) = super::docker_sandbox::remove_run_network(network) {
+            eprintln!(
+                "warning: failed to remove Docker sandbox network {}: {error}",
+                network.name
+            );
+        }
+    }
     if !silent {
         eprintln!("Remote agent proxy relay stopped");
     }
@@ -1137,19 +1233,54 @@ async fn handle_run(
     let allow_network_listeners = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.allow_network_listeners);
+    let backend = proxy_policy
+        .as_ref()
+        .map(|policy| policy.backend)
+        .unwrap_or_default();
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
-        let proxy = super::proxy::Proxy::start_with_hook(
-            secrets_hash_map,
-            proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
-            audit_log,
-            proxy_port,
-            dependency_hooks.then_some(hook_api_key).flatten(),
-        )
-        .await?;
+        let docker_network = if backend == crate::models::agent::SandboxBackend::Docker {
+            ensure_docker_sandbox_image_available(silent)?;
+            Some(
+                super::docker_sandbox::create_run_network().map_err(|error| {
+                    anyhow::anyhow!("failed to create Docker sandbox network: {error}")
+                })?,
+            )
+        } else {
+            None
+        };
+        let proxy_start_result = if let Some(network) = &docker_network {
+            super::proxy::Proxy::start_with_hook_and_bind_host(
+                secrets_hash_map,
+                proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
+                audit_log,
+                proxy_port,
+                dependency_hooks.then_some(hook_api_key).flatten(),
+                &super::docker_sandbox::proxy_bind_host(network),
+            )
+            .await
+        } else {
+            super::proxy::Proxy::start_with_hook(
+                secrets_hash_map,
+                proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
+                audit_log,
+                proxy_port,
+                dependency_hooks.then_some(hook_api_key).flatten(),
+            )
+            .await
+        };
+        let proxy = match proxy_start_result {
+            Ok(proxy) => proxy,
+            Err(error) => {
+                if let Some(network) = &docker_network {
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                }
+                return Err(error);
+            }
+        };
         if let Some(session) = &local_session {
             proxy.set_revocation_path(session.path());
         }
@@ -1161,8 +1292,16 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let child_env = proxy.child_env().clone();
-        let command = Box::pin(subprocess::run_command_with_filesystem_policy(
+        let child_env = if let Some(network) = &docker_network {
+            super::docker_sandbox::rewrite_proxy_urls_for_container(
+                proxy.child_env(),
+                &super::docker_sandbox::proxy_bind_host(network),
+                &super::docker_sandbox::proxy_container_host(network),
+            )
+        } else {
+            proxy.child_env().clone()
+        };
+        let command = Box::pin(subprocess::run_command_with_filesystem_policy_and_network(
             &cmd,
             args,
             child_env,
@@ -1174,13 +1313,30 @@ async fn handle_run(
             &denied_read_paths,
             &denied_write_paths,
             command_audit_log,
+            backend,
+            docker_network.as_ref(),
         ));
         let result = command.await;
         proxy.stop().await;
+        if let Some(network) = &docker_network {
+            if let Err(error) = super::docker_sandbox::remove_run_network(network) {
+                eprintln!(
+                    "warning: failed to remove Docker sandbox network {}: {error}",
+                    network.name
+                );
+            }
+        }
         if !silent {
             eprintln!("Agent proxy stopped");
         }
         result
+    } else if backend != crate::models::agent::SandboxBackend::Native {
+        // The non-proxy path has no proxy/network to attach a Docker
+        // sandbox to. Fail closed rather than silently downgrading a
+        // profile's requested backend to Native.
+        Err(anyhow::anyhow!(
+            "the selected sandbox backend requires the agent proxy; re-run with the proxy enabled"
+        ))
     } else {
         // TODO: errors: no such file or directory
         subprocess::run_command(

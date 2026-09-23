@@ -1,0 +1,874 @@
+use std::path::PathBuf;
+
+fn docker_binary_available() -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("docker").is_file()))
+}
+
+fn docker_daemon_reachable() -> Result<(), String> {
+    let output = std::process::Command::new("docker")
+        .args(["info", "--format", "{{.ServerVersion}}"])
+        .output()
+        .map_err(|error| format!("failed to run `docker info`: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+    }
+}
+
+/// Checks whether the Docker sandbox backend can run here. Returns `None`
+/// when Docker is installed and the daemon is reachable, `Some(message)`
+/// otherwise. Callers must fail the run closed on `Some` — never fall back
+/// to an unsandboxed execution path.
+pub(crate) fn docker_enforcement_error() -> Option<String> {
+    if !docker_binary_available() {
+        return Some(
+            "the Docker sandbox backend requires the `docker` CLI to be installed and on PATH"
+                .to_owned(),
+        );
+    }
+    match docker_daemon_reachable() {
+        Ok(()) => None,
+        Err(detail) => Some(format!(
+            "the Docker sandbox backend requires a reachable Docker daemon: {detail}"
+        )),
+    }
+}
+
+fn generate_run_network_name() -> String {
+    format!("stashbase-agent-run-{}", uuid::Uuid::new_v4())
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DockerRunNetwork {
+    pub name: String,
+    pub gateway_ip: String,
+}
+
+fn extract_gateway_from_inspect(json: &str) -> Result<String, String> {
+    let parsed: serde_json::Value = serde_json::from_str(json)
+        .map_err(|error| format!("invalid `docker network inspect` output: {error}"))?;
+    parsed
+        .get(0)
+        .and_then(|network| network.get("IPAM"))
+        .and_then(|ipam| ipam.get("Config"))
+        .and_then(|config| config.get(0))
+        .and_then(|entry| entry.get("Gateway"))
+        .and_then(|gateway| gateway.as_str())
+        .map(|gateway| gateway.to_owned())
+        .ok_or_else(|| "`docker network inspect` did not report a gateway address".to_owned())
+}
+
+/// Creates a fresh, isolated Docker bridge network for one `agent run`
+/// invocation. The credential proxy binds to the returned gateway address
+/// so only the container attached to this network can reach it.
+///
+/// On native Linux this network is created `--internal`: Docker drops the
+/// outbound NAT/masquerade rule that would otherwise let the container
+/// reach the wider internet or LAN directly, while containers can still
+/// reach the network's own gateway address (a directly-attached bridge
+/// interface, not a routed hop) — so the proxy stays reachable. A plain
+/// `--driver bridge` network without this flag gives the container full
+/// internet/LAN egress no different from running on the host's own
+/// network, which would defeat the point of a Docker-specific backend.
+///
+/// `--internal` is Linux-only here because it also blocks the
+/// `host.docker.internal` route Docker Desktop (macOS/Windows) uses to let
+/// a container reach the host proxy at all (see `proxy_bind_host`) — on
+/// Desktop this backend currently cannot offer kernel-enforced network
+/// containment beyond what `HTTPS_PROXY`/`HTTP_PROXY` convention already
+/// gives the native backend, and `docs/agent-profiles.md` says so.
+fn network_create_args(name: &str) -> Vec<String> {
+    let mut args = vec![
+        "network".to_owned(),
+        "create".to_owned(),
+        "--driver".to_owned(),
+        "bridge".to_owned(),
+    ];
+    if cfg!(target_os = "linux") {
+        args.push("--internal".to_owned());
+    }
+    args.push(name.to_owned());
+    args
+}
+
+pub(crate) fn create_run_network() -> Result<DockerRunNetwork, String> {
+    let name = generate_run_network_name();
+    let create = std::process::Command::new("docker")
+        .args(network_create_args(&name))
+        .output()
+        .map_err(|error| format!("failed to run `docker network create`: {error}"))?;
+    if !create.status.success() {
+        return Err(String::from_utf8_lossy(&create.stderr).trim().to_owned());
+    }
+    let inspect = std::process::Command::new("docker")
+        .args(["network", "inspect", &name])
+        .output()
+        .map_err(|error| format!("failed to run `docker network inspect`: {error}"))?;
+    if !inspect.status.success() {
+        let _ = remove_run_network(&DockerRunNetwork {
+            name: name.clone(),
+            gateway_ip: String::new(),
+        });
+        return Err(String::from_utf8_lossy(&inspect.stderr).trim().to_owned());
+    }
+    let gateway_ip = extract_gateway_from_inspect(&String::from_utf8_lossy(&inspect.stdout))
+        .inspect_err(|_| {
+            let _ = remove_run_network(&DockerRunNetwork {
+                name: name.clone(),
+                gateway_ip: String::new(),
+            });
+        })?;
+    Ok(DockerRunNetwork { name, gateway_ip })
+}
+
+/// Removes a per-run network created by `create_run_network`. Best-effort:
+/// failure here should not mask the underlying run's exit status — callers
+/// should log and continue.
+pub(crate) fn remove_run_network(network: &DockerRunNetwork) -> Result<(), String> {
+    let output = std::process::Command::new("docker")
+        .args(["network", "rm", &network.name])
+        .output()
+        .map_err(|error| format!("failed to run `docker network rm`: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
+    }
+}
+
+/// The host address the credential proxy should bind to for this Docker
+/// run. On Docker Desktop (macOS/Windows), containers run inside a VM and
+/// cannot reach a per-run bridge network's gateway address from the host
+/// side — the host process cannot even bind to it (`docker network
+/// inspect`'s gateway is only routable inside the Desktop VM). Loopback
+/// plus the `host.docker.internal` hostname (which Docker Desktop resolves
+/// back to the host) is the supported bridge there. On native Linux
+/// Docker, the bridge network's gateway is a real host interface, so
+/// binding to it directly keeps the proxy reachable only from this run's
+/// isolated network rather than every interface on the host.
+pub(crate) fn proxy_bind_host(network: &DockerRunNetwork) -> String {
+    if cfg!(target_os = "macos") {
+        "127.0.0.1".to_owned()
+    } else {
+        network.gateway_ip.clone()
+    }
+}
+
+/// The host the *container* should use to reach the proxy bound via
+/// `proxy_bind_host`. See that function's doc comment for why this differs
+/// by platform.
+pub(crate) fn proxy_container_host(network: &DockerRunNetwork) -> String {
+    if cfg!(target_os = "macos") {
+        "host.docker.internal".to_owned()
+    } else {
+        network.gateway_ip.clone()
+    }
+}
+
+/// Env vars whose value is a `http://<bind-host>:<port>[/path]` proxy URL
+/// that the container needs to reach at a different host than the proxy
+/// actually bound to (see `proxy_bind_host`'s doc comment).
+const PROXY_URL_ENV_KEYS: &[&str] = &[
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "http_proxy",
+    "https_proxy",
+    crate::api::dependencies::HOOK_BROKER_URL_ENV,
+];
+
+/// Rewrites the proxy's child-process env vars so the container reaches the
+/// proxy at `container_host` instead of whatever host the proxy actually
+/// bound to (`bind_host`) — the two differ on Docker Desktop. Only known
+/// proxy-URL keys are rewritten; opaque secret placeholders are left
+/// untouched even if they happen to contain the bind host as a substring.
+pub(crate) fn rewrite_proxy_urls_for_container(
+    env_vars: &std::collections::HashMap<String, String>,
+    bind_host: &str,
+    container_host: &str,
+) -> std::collections::HashMap<String, String> {
+    if bind_host == container_host {
+        return env_vars.clone();
+    }
+    env_vars
+        .iter()
+        .map(|(key, value)| {
+            if PROXY_URL_ENV_KEYS.contains(&key.as_str()) {
+                (key.clone(), value.replacen(bind_host, container_host, 1))
+            } else {
+                (key.clone(), value.clone())
+            }
+        })
+        .collect()
+}
+
+pub(crate) const DEFAULT_SANDBOX_IMAGE: &str = "stashbase/agent-sandbox:latest";
+
+/// Named Docker volume holding the sandboxed agent's persistent home
+/// directory (login state, config) across runs. Shared by every profile
+/// and every run on this machine — see `docker_run_command`'s doc comment.
+const PERSISTENT_HOME_VOLUME: &str = "stashbase-agent-home";
+
+/// The container-side path `PERSISTENT_HOME_VOLUME` is mounted at, and the
+/// `HOME` the sandboxed process runs with. Fixed rather than derived from
+/// the host's own home directory: on Linux the container may run under an
+/// arbitrary `--user uid:gid` with no passwd entry, so there's no
+/// meaningful host-equivalent path to mirror.
+const CONTAINER_HOME: &str = "/home/agent";
+
+/// The default sandbox image's Dockerfile, embedded at compile time so an
+/// installed `stashbase` binary can build the image itself without needing
+/// this source repository on disk or a registry to pull from (neither
+/// exists yet for this image).
+const SANDBOX_DOCKERFILE: &str = include_str!("../../../docker/agent-sandbox/Dockerfile");
+
+/// Whether `DEFAULT_SANDBOX_IMAGE` already exists locally.
+pub(crate) fn sandbox_image_exists() -> bool {
+    std::process::Command::new("docker")
+        .args(["image", "inspect", DEFAULT_SANDBOX_IMAGE])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+/// Builds `DEFAULT_SANDBOX_IMAGE` from the embedded Dockerfile. Writes it to
+/// a temporary build context directory (Docker needs a real directory to
+/// build from, not stdin, so the CA-mount-style "just pass a string"
+/// approach doesn't apply here) and cleans that directory up afterward
+/// regardless of build outcome.
+///
+/// `docker build`'s own output (BuildKit's per-step progress, including
+/// download/install progress for the apt and npm layers) is inherited
+/// straight through to this process's stdout/stderr rather than captured —
+/// the build can take a minute or more on first run (Node.js, npm
+/// packages), and a silent hang would look broken. This does mean a
+/// failure's error message comes from the already-visible build output,
+/// not a captured string.
+pub(crate) fn build_sandbox_image() -> Result<(), String> {
+    let build_dir =
+        std::env::temp_dir().join(format!("stashbase-agent-sandbox-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&build_dir)
+        .map_err(|error| format!("failed to create a temporary build directory: {error}"))?;
+    let dockerfile_path = build_dir.join("Dockerfile");
+    let write_result = std::fs::write(&dockerfile_path, SANDBOX_DOCKERFILE);
+    let build_result = write_result
+        .map_err(|error| format!("failed to write the embedded Dockerfile: {error}"))
+        .and_then(|()| {
+            std::process::Command::new("docker")
+                .args(["build", "-t", DEFAULT_SANDBOX_IMAGE])
+                .arg(&build_dir)
+                .status()
+                .map_err(|error| format!("failed to run `docker build`: {error}"))
+        })
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err("`docker build` failed; see the build output above for details".to_owned())
+            }
+        });
+    let _ = std::fs::remove_dir_all(&build_dir);
+    build_result
+}
+
+/// Builds a `docker run` invocation that mounts only the current working
+/// directory (read-write), attaches the container to `network` so it can
+/// reach the credential proxy at `network.gateway_ip`, and passes `env_vars`
+/// explicitly via `-e` (never relying on inherited process environment,
+/// since `docker run -e VAR` with no value pulls from the *calling*
+/// process's environment, which would leak host env vars into the
+/// container unintentionally).
+///
+/// Errs (fail closed) rather than building an invocation that would mount
+/// an unsafe path — see `append_ca_bundle_mount`.
+pub(crate) fn docker_run_command(
+    command: &str,
+    network: &DockerRunNetwork,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    env_vars: &std::collections::HashMap<String, String>,
+    stdin_is_terminal: bool,
+) -> Result<(String, Vec<String>), String> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    let cwd_str = cwd.to_string_lossy().into_owned();
+
+    let mut args = vec![
+        "run".to_owned(),
+        "--rm".to_owned(),
+        // Interactive agents (Claude Code, Cursor, Codex) need a stdin
+        // stream; without `-i` the container's stdin is /dev/null and
+        // every interactive TUI breaks. `-t` is only safe to add when the
+        // caller's own stdin is a real terminal.
+        "-i".to_owned(),
+    ];
+    if stdin_is_terminal {
+        args.push("-t".to_owned());
+    }
+    args.extend([
+        "--cap-drop".to_owned(),
+        "ALL".to_owned(),
+        "--security-opt".to_owned(),
+        "no-new-privileges".to_owned(),
+    ]);
+    if cfg!(target_os = "linux") {
+        // Docker Desktop already maps container-root writes on a bind
+        // mount back to the host user transparently; native Linux does
+        // not, so without this every file the agent creates in the
+        // mounted project directory would end up root-owned.
+        args.extend([
+            "--user".to_owned(),
+            format!("{}:{}", unsafe { libc::getuid() }, unsafe {
+                libc::getgid()
+            }),
+        ]);
+    }
+    args.extend(["--network".to_owned(), network.name.clone()]);
+
+    append_filesystem_mounts(&mut args, &cwd_str, denied_read_paths, denied_write_paths);
+    append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
+
+    // A named Docker volume, not a bind mount of the real host home
+    // directory, persists login/config state (e.g. Claude Code's
+    // ~/.claude) across runs. Named volumes are Docker-managed storage —
+    // they don't expose any other host path to the container — so this
+    // doesn't reopen the filesystem allow-list `append_filesystem_mounts`
+    // exists to provide. Shared across all profiles/runs by design: log
+    // in once, every docker-backend run on this machine reuses it.
+    args.extend([
+        "-v".to_owned(),
+        format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
+        "-e".to_owned(),
+        format!("HOME={CONTAINER_HOME}"),
+    ]);
+
+    args.extend(["-w".to_owned(), cwd_str]);
+
+    for (key, value) in env_vars {
+        args.push("-e".to_owned());
+        args.push(format!("{key}={value}"));
+    }
+    // FORCE_COLOR is normally set on the outer `docker` process by
+    // run_built_command, which has no effect on the container's own
+    // environment — set it explicitly here so colored output survives.
+    args.push("-e".to_owned());
+    args.push("FORCE_COLOR=true".to_owned());
+
+    args.push(DEFAULT_SANDBOX_IMAGE.to_owned());
+    args.push(command.to_owned());
+    Ok(("docker".to_owned(), args))
+}
+
+fn append_filesystem_mounts(
+    args: &mut Vec<String>,
+    cwd: &str,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) {
+    let read_paths = super::subprocess::resolve_policy_paths(denied_read_paths);
+    let write_paths = super::subprocess::resolve_policy_paths(denied_write_paths);
+
+    let cwd_is_denied_write = write_paths.iter().any(|path| path == cwd);
+    if cwd_is_denied_write {
+        args.extend(["-v".to_owned(), format!("{cwd}:{cwd}:ro")]);
+    } else {
+        args.extend(["-v".to_owned(), format!("{cwd}:{cwd}")]);
+    }
+
+    for path in &read_paths {
+        if !is_nested_under(path, cwd) {
+            continue;
+        }
+        // `--tmpfs` only accepts a directory target; a file target fails
+        // container creation outright ("not a directory"). Mirror the
+        // native Linux bubblewrap backend's approach for a denied file:
+        // bind-mount /dev/null over it read-only instead.
+        if PathBuf::from(path).is_dir() {
+            args.extend(["--tmpfs".to_owned(), path.clone()]);
+        } else {
+            args.extend(["-v".to_owned(), format!("/dev/null:{path}:ro")]);
+        }
+    }
+
+    for path in &write_paths {
+        if path == cwd || !is_nested_under(path, cwd) {
+            continue;
+        }
+        if read_paths
+            .iter()
+            .any(|read| read == path || is_nested_under(path, read))
+        {
+            continue;
+        }
+        args.extend(["-v".to_owned(), format!("{path}:{path}:ro")]);
+    }
+}
+
+/// Env vars whose value is a filesystem path to the proxy's temporary CA
+/// certificate (see `Proxy::start_inner`'s `child_env` construction in
+/// `proxy.rs`). The container only sees the working directory by default,
+/// so these paths must be bind-mounted read-only or TLS interception
+/// breaks for every tool that reads one of them to trust the proxy.
+const CA_BUNDLE_ENV_KEYS: &[&str] = &[
+    "SSL_CERT_FILE",
+    "CURL_CA_BUNDLE",
+    "GIT_SSL_CAINFO",
+    "NODE_EXTRA_CA_CERTS",
+    "CODEX_CA_CERTIFICATE",
+];
+
+/// Mounts each distinct CA-bundle path found in `env_vars` into the
+/// container read-only, as the single file — never its parent directory,
+/// which on a typical system temp path (`/tmp/stashbase-proxy-ca-*.pem`)
+/// would otherwise expose every other process's and every other agent
+/// run's temp files to the container. Refuses (fails closed, per this
+/// project's sandboxing policy) rather than mounting a path that is not
+/// absolute or that resolves to the filesystem root — both would defeat
+/// the filesystem allow-list this backend exists to provide.
+fn append_ca_bundle_mount(
+    args: &mut Vec<String>,
+    cwd: &str,
+    env_vars: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    let mut mounted_paths: Vec<String> = Vec::new();
+    for key in CA_BUNDLE_ENV_KEYS {
+        let Some(path) = env_vars.get(*key) else {
+            continue;
+        };
+        if path.is_empty() || is_nested_under(path, cwd) || path == cwd {
+            // Already visible through the cwd mount.
+            continue;
+        }
+        if !PathBuf::from(path).is_absolute() {
+            return Err(format!(
+                "refusing to mount non-absolute CA bundle path into the Docker sandbox: {path}"
+            ));
+        }
+        if path == "/" {
+            return Err(
+                "refusing to mount the filesystem root into the Docker sandbox as a CA bundle path"
+                    .to_owned(),
+            );
+        }
+        if mounted_paths.iter().any(|mounted| mounted == path) {
+            continue;
+        }
+        args.extend(["-v".to_owned(), format!("{path}:{path}:ro")]);
+        mounted_paths.push(path.clone());
+    }
+    Ok(())
+}
+
+fn is_nested_under(path: &str, ancestor: &str) -> bool {
+    PathBuf::from(path) != PathBuf::from(ancestor)
+        && PathBuf::from(path).starts_with(PathBuf::from(ancestor))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_dockerfile_is_embedded_and_non_empty() {
+        assert!(SANDBOX_DOCKERFILE.contains("FROM"));
+    }
+
+    #[test]
+    fn sandbox_image_lifecycle_when_docker_available() {
+        if docker_enforcement_error().is_some() {
+            eprintln!("skipping: Docker not available in this environment");
+            return;
+        }
+        // Don't assert on the starting state — a prior test run or the
+        // developer's own machine may already have the image built.
+        // Just prove building it results in it existing.
+        build_sandbox_image().expect("building the embedded Dockerfile should succeed");
+        assert!(sandbox_image_exists());
+    }
+
+    #[test]
+    fn docker_binary_lookup_matches_which_docker() {
+        let expected = std::env::var_os("PATH").is_some_and(|path| {
+            std::env::split_paths(&path).any(|dir| dir.join("docker").is_file())
+        });
+        assert_eq!(docker_binary_available(), expected);
+    }
+
+    #[test]
+    fn proxy_bind_and_container_host_differ_only_on_macos() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let bind_host = proxy_bind_host(&network);
+        let container_host = proxy_container_host(&network);
+        if cfg!(target_os = "macos") {
+            assert_eq!(bind_host, "127.0.0.1");
+            assert_eq!(container_host, "host.docker.internal");
+        } else {
+            assert_eq!(bind_host, "172.30.0.1");
+            assert_eq!(container_host, "172.30.0.1");
+        }
+    }
+
+    #[test]
+    fn rewrite_proxy_urls_replaces_only_known_proxy_keys() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("HTTPS_PROXY".to_owned(), "http://127.0.0.1:9999".to_owned());
+        env_vars.insert("STASHBASE_GH_TOKEN".to_owned(), "127.0.0.1".to_owned());
+
+        let rewritten =
+            rewrite_proxy_urls_for_container(&env_vars, "127.0.0.1", "host.docker.internal");
+
+        assert_eq!(rewritten["HTTPS_PROXY"], "http://host.docker.internal:9999");
+        // A placeholder that happens to contain the bind host as a
+        // substring must not be rewritten — only known proxy-URL keys are.
+        assert_eq!(rewritten["STASHBASE_GH_TOKEN"], "127.0.0.1");
+    }
+
+    #[test]
+    fn rewrite_proxy_urls_is_a_no_op_when_hosts_match() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert(
+            "HTTPS_PROXY".to_owned(),
+            "http://172.30.0.1:9999".to_owned(),
+        );
+        let rewritten = rewrite_proxy_urls_for_container(&env_vars, "172.30.0.1", "172.30.0.1");
+        assert_eq!(rewritten, env_vars);
+    }
+
+    #[test]
+    fn run_network_names_are_unique_per_call() {
+        let first = generate_run_network_name();
+        let second = generate_run_network_name();
+        assert_ne!(first, second);
+        assert!(first.starts_with("stashbase-agent-run-"));
+    }
+
+    #[test]
+    fn extract_gateway_parses_docker_network_inspect_output() {
+        let inspect_json =
+            r#"[{"IPAM":{"Config":[{"Subnet":"172.30.0.0/16","Gateway":"172.30.0.1"}]}}]"#;
+        let gateway = extract_gateway_from_inspect(inspect_json).unwrap();
+        assert_eq!(gateway, "172.30.0.1");
+    }
+
+    #[test]
+    fn extract_gateway_errors_on_missing_gateway() {
+        let inspect_json = r#"[{"IPAM":{"Config":[{"Subnet":"172.30.0.0/16"}]}}]"#;
+        assert!(extract_gateway_from_inspect(inspect_json).is_err());
+    }
+
+    #[test]
+    fn create_and_remove_run_network_round_trips_when_docker_available() {
+        if docker_enforcement_error().is_some() {
+            eprintln!("skipping: Docker not available in this environment");
+            return;
+        }
+        let network = create_run_network().expect("network should be created");
+        assert!(!network.gateway_ip.is_empty());
+        remove_run_network(&network).expect("network should be removed");
+    }
+
+    #[test]
+    fn docker_run_command_mounts_cwd_and_sets_env_with_no_denied_paths() {
+        let network = DockerRunNetwork {
+            name: "test-network".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert(
+            "HTTPS_PROXY".to_owned(),
+            "https://172.30.0.1:9999".to_owned(),
+        );
+
+        let (program, args) =
+            docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+
+        assert_eq!(program, "docker");
+        assert!(args.contains(&"run".to_owned()));
+        assert!(args.contains(&"--rm".to_owned()));
+        assert!(args.contains(&"--network".to_owned()));
+        assert!(args.contains(&"test-network".to_owned()));
+        assert!(args.contains(&"-e".to_owned()));
+        assert!(args.contains(&"HTTPS_PROXY=https://172.30.0.1:9999".to_owned()));
+        assert!(args.contains(&DEFAULT_SANDBOX_IMAGE.to_owned()));
+        assert_eq!(args[args.len() - 2], DEFAULT_SANDBOX_IMAGE);
+        assert_eq!(args[args.len() - 1], "claude");
+    }
+
+    #[test]
+    fn docker_run_command_mounts_cwd_readwrite_when_no_deny_paths() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(args.contains(&"-v".to_owned()));
+        let mount_index = args.iter().position(|arg| arg == "-v").unwrap();
+        assert_eq!(args[mount_index + 1], format!("{cwd}:{cwd}"));
+    }
+
+    #[test]
+    fn docker_run_command_shadow_mounts_nested_deny_read_path_as_tmpfs() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let cwd = std::env::current_dir().unwrap();
+        let nested = cwd.join(".git").to_string_lossy().into_owned();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            std::slice::from_ref(&nested),
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        assert!(args.contains(&"--tmpfs".to_owned()));
+        let tmpfs_index = args.iter().position(|arg| arg == "--tmpfs").unwrap();
+        assert_eq!(args[tmpfs_index + 1], nested);
+    }
+
+    #[test]
+    fn docker_run_command_shadow_mounts_nested_deny_read_file_as_dev_null_bind() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let cwd = std::env::current_dir().unwrap();
+        // Cargo.toml is a real file (not a directory) inside this repo's
+        // cwd — `--tmpfs` on a file target fails container creation
+        // outright ("not a directory"), so a denied file must be shadowed
+        // with a read-only /dev/null bind mount instead.
+        let nested = cwd.join("Cargo.toml").to_string_lossy().into_owned();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            std::slice::from_ref(&nested),
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        assert!(!args.contains(&"--tmpfs".to_owned()));
+        let mount = args
+            .windows(2)
+            .find(|pair| pair[0] == "-v" && pair[1] == format!("/dev/null:{nested}:ro"))
+            .unwrap_or_else(|| panic!("expected a /dev/null bind mount for the denied file"));
+        assert_eq!(mount[1], format!("/dev/null:{nested}:ro"));
+    }
+
+    #[test]
+    fn docker_run_command_shadow_mounts_nested_deny_write_path_readonly() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let cwd = std::env::current_dir().unwrap();
+        let nested = cwd.join("Cargo.lock").to_string_lossy().into_owned();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            std::slice::from_ref(&nested),
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        let nested_mount = args
+            .windows(2)
+            .find(|pair| pair[0] == "-v" && pair[1].starts_with(&format!("{nested}:")))
+            .unwrap_or_else(|| panic!("no -v mount found for nested path {nested}"));
+        assert_eq!(nested_mount[1], format!("{nested}:{nested}:ro"));
+    }
+
+    #[test]
+    fn docker_run_command_mounts_cwd_readonly_when_cwd_itself_is_denied_write() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            std::slice::from_ref(&cwd),
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        let mount_index = args.iter().position(|arg| arg == "-v").unwrap();
+        assert_eq!(args[mount_index + 1], format!("{cwd}:{cwd}:ro"));
+        // The cwd mount plus the persistent home volume mount — no extra
+        // shadow mount, since the cwd mount itself is already read-only.
+        assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 2);
+    }
+
+    #[test]
+    fn docker_run_command_mounts_ca_bundle_file_not_its_directory() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert(
+            "SSL_CERT_FILE".to_owned(),
+            "/tmp/stashbase-ca/ca.pem".to_owned(),
+        );
+        let (_, args) = docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        // Must mount only the exact file — mounting its parent directory
+        // would expose every other file in it (other processes' temp
+        // files, other agent runs' audit/revocation state) to the
+        // container, defeating the filesystem allow-list.
+        assert!(args.contains(&"/tmp/stashbase-ca/ca.pem:/tmp/stashbase-ca/ca.pem:ro".to_owned()));
+        assert!(!args
+            .iter()
+            .any(|arg| arg == "/tmp/stashbase-ca:/tmp/stashbase-ca:ro"));
+    }
+
+    #[test]
+    fn docker_run_command_refuses_ca_bundle_path_at_filesystem_root() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("SSL_CERT_FILE".to_owned(), "/".to_owned());
+        let result = docker_run_command("claude", &network, &[], &[], &env_vars, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn docker_run_command_refuses_non_absolute_ca_bundle_path() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("SSL_CERT_FILE".to_owned(), "ca.pem".to_owned());
+        let result = docker_run_command("claude", &network, &[], &[], &env_vars, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn docker_run_command_always_passes_interactive_stdin_flag() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        assert!(args.contains(&"-i".to_owned()));
+        assert!(!args.contains(&"-t".to_owned()));
+    }
+
+    #[test]
+    fn docker_run_command_adds_pty_flag_only_when_stdin_is_a_terminal() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            true,
+        )
+        .unwrap();
+        assert!(args.contains(&"-t".to_owned()));
+    }
+
+    #[test]
+    fn docker_run_command_mounts_persistent_home_volume_and_sets_home() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        assert!(args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
+        assert!(args.contains(&format!("HOME={CONTAINER_HOME}")));
+    }
+
+    #[test]
+    fn docker_run_command_drops_capabilities_and_denies_new_privileges() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+        )
+        .unwrap();
+        let cap_drop_index = args.iter().position(|arg| arg == "--cap-drop").unwrap();
+        assert_eq!(args[cap_drop_index + 1], "ALL");
+        assert!(args.contains(&"--security-opt".to_owned()));
+        assert!(args.contains(&"no-new-privileges".to_owned()));
+    }
+
+    #[test]
+    fn network_create_args_add_internal_flag_only_on_linux() {
+        let args = network_create_args("n");
+        if cfg!(target_os = "linux") {
+            assert!(args.iter().any(|arg| arg == "--internal"));
+        } else {
+            assert!(!args.iter().any(|arg| arg == "--internal"));
+        }
+    }
+
+    #[test]
+    fn docker_run_command_skips_ca_bundle_mount_when_already_under_cwd() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let cwd = std::env::current_dir().unwrap();
+        let ca_path = cwd.join("ca.pem").to_string_lossy().into_owned();
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("SSL_CERT_FILE".to_owned(), ca_path);
+        let (_, args) = docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        // Only the cwd mount and the persistent home volume mount should
+        // exist; no extra mount for a CA path that's already inside the
+        // working directory.
+        assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 2);
+    }
+}

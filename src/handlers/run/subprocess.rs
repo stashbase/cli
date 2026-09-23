@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::env;
+use std::io::IsTerminal;
 #[cfg(unix)]
-use std::io::{IsTerminal, Read, Write};
+use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use duct::{cmd, Expression};
 use thiserror::Error;
 
@@ -65,6 +66,7 @@ pub async fn run_command(
         &[],
         &[],
         None,
+        crate::models::agent::SandboxBackend::Native,
     )
     .await
 }
@@ -81,8 +83,82 @@ pub async fn run_command_with_filesystem_policy(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     audit_log: Option<super::proxy::ProxyAuditLog>,
+    backend: crate::models::agent::SandboxBackend,
+) -> Result<ExitStatus> {
+    run_command_with_filesystem_policy_and_network(
+        command,
+        args,
+        env_vars,
+        env_removals,
+        sandbox,
+        allow_network_listeners,
+        proxy_mode,
+        restrict_stashbase_credentials,
+        denied_read_paths,
+        denied_write_paths,
+        audit_log,
+        backend,
+        None,
+    )
+    .await
+}
+
+/// Like `run_command_with_filesystem_policy`, but for the Docker backend
+/// takes an already-created per-run network instead of creating its own —
+/// the caller creates it once and binds the credential proxy to the same
+/// network's gateway, so the proxy and the container agree on which
+/// network they share. `docker_network` must be `Some` when `backend` is
+/// `SandboxBackend::Docker`; it is ignored for the native backend.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_command_with_filesystem_policy_and_network(
+    command: &str,
+    args: Vec<String>,
+    env_vars: HashMap<String, String>,
+    env_removals: Vec<String>,
+    sandbox: bool,
+    allow_network_listeners: bool,
+    proxy_mode: bool,
+    restrict_stashbase_credentials: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    audit_log: Option<super::proxy::ProxyAuditLog>,
+    backend: crate::models::agent::SandboxBackend,
+    docker_network: Option<&super::docker_sandbox::DockerRunNetwork>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
+
+    if backend == crate::models::agent::SandboxBackend::Docker {
+        if let Some(error) = super::docker_sandbox::docker_enforcement_error() {
+            anyhow::bail!("Docker sandbox backend unavailable: {error}");
+        }
+        let network =
+            docker_network.context("Docker sandbox backend selected without a per-run network")?;
+        let args = codex_args_forcing_full_access(command, args);
+        let (program, launcher_args) = super::docker_sandbox::docker_run_command(
+            command,
+            network,
+            denied_read_paths,
+            denied_write_paths,
+            &env_vars,
+            std::io::stdin().is_terminal(),
+        )
+        .map_err(|error| anyhow::anyhow!("failed to build Docker sandbox invocation: {error}"))?;
+        return run_built_command(
+            program,
+            launcher_args,
+            args,
+            env_vars,
+            env_removals,
+            restrict_stashbase_credentials,
+            proxy_mode,
+            denied_read_paths,
+            denied_write_paths,
+            audit_log,
+            current_dir,
+        )
+        .await;
+    }
+
     #[cfg(target_os = "macos")]
     let (args, codex_boundary) = codex_args_with_outer_sandbox(
         command,
@@ -100,6 +176,44 @@ pub async fn run_command_with_filesystem_policy(
         denied_write_paths,
         codex_boundary,
     )?;
+    run_built_command(
+        program,
+        launcher_args,
+        args,
+        env_vars,
+        env_removals,
+        restrict_stashbase_credentials,
+        proxy_mode,
+        denied_read_paths,
+        denied_write_paths,
+        audit_log,
+        current_dir,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_built_command(
+    program: String,
+    launcher_args: Vec<String>,
+    args: Vec<String>,
+    env_vars: HashMap<String, String>,
+    env_removals: Vec<String>,
+    restrict_stashbase_credentials: bool,
+    proxy_mode: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    audit_log: Option<super::proxy::ProxyAuditLog>,
+    current_dir: PathBuf,
+) -> Result<ExitStatus> {
+    // NOTE: for the Docker backend, `program` is `docker` — every
+    // `cmd.env_remove`/`cmd.env` call below acts on the `docker` CLI
+    // process's own environment, not the container's. The container only
+    // ever sees what `docker_run_command` explicitly passed via `-e`, so
+    // these removals are inert (harmlessly so, since nothing is inherited
+    // into the container to begin with) for that path. Do not rely on this
+    // block to enforce a Docker-path env restriction — enforce it in
+    // `docker_run_command` instead.
     let cmd: Expression = cmd(program, launcher_args)
         .before_spawn(move |cmd| {
             // Agent profiles may rename a project secret for the child process.
@@ -317,6 +431,60 @@ fn codex_boundary_for_mode(mode: &str) -> CodexSandboxBoundary {
     }
 }
 
+/// Rewrites Codex's own `--sandbox <mode>` argument to `danger-full-access`
+/// (or injects it if absent), the same way `codex_args_with_outer_sandbox`
+/// does for the native macOS backend when an outer Seatbelt profile is
+/// already active. Unlike that macOS-only helper, this one runs
+/// unconditionally for the Docker backend on every host platform: the
+/// Docker container is *always* an outer sandbox once selected, and
+/// Codex's own inner sandbox (bubblewrap on Linux, Seatbelt on macOS) is
+/// both redundant — the container is already the enforcement boundary —
+/// and, for bubblewrap specifically, non-functional inside a container
+/// that has already dropped all capabilities (`bwrap` needs to create a
+/// new user/mount namespace, which `--cap-drop ALL` blocks outright).
+/// Codex's approval policy is left untouched; only its own filesystem
+/// sandboxing is disabled.
+fn codex_args_forcing_full_access(command: &str, mut args: Vec<String>) -> Vec<String> {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    if !is_codex {
+        return args;
+    }
+    if args
+        .iter()
+        .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
+    {
+        return args;
+    }
+    let mut found_sandbox = false;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--sandbox" {
+            if let Some(mode) = args.get_mut(index + 1) {
+                *mode = "danger-full-access".to_owned();
+            } else {
+                args.push("danger-full-access".to_owned());
+            }
+            found_sandbox = true;
+            index += 2;
+        } else if args[index].starts_with("--sandbox=") {
+            args[index] = "--sandbox=danger-full-access".to_owned();
+            found_sandbox = true;
+            index += 1;
+        } else {
+            index += 1;
+        }
+    }
+    if !found_sandbox {
+        args.splice(
+            0..0,
+            ["--sandbox".to_owned(), "danger-full-access".to_owned()],
+        );
+    }
+    args
+}
+
 fn should_inherit_terminal_streams(stdin_is_terminal: bool, stderr_is_terminal: bool) -> bool {
     stdin_is_terminal && stderr_is_terminal
 }
@@ -530,7 +698,7 @@ fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
     }
 }
 
-fn resolve_policy_paths(paths: &[String]) -> Vec<String> {
+pub(super) fn resolve_policy_paths(paths: &[String]) -> Vec<String> {
     let home = env::var_os("HOME").map(PathBuf::from);
     let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut resolved = paths
@@ -937,8 +1105,8 @@ mod tests {
         has_outer_macos_sandbox, sandbox_command_with_filesystem_policy, CodexSandboxBoundary,
     };
     use super::{
-        filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
-        should_inherit_terminal_streams,
+        codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
+        run_command, sandbox_command, should_inherit_terminal_streams,
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -946,6 +1114,76 @@ mod tests {
     fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_leaves_non_codex_commands_untouched() {
+        let args = vec!["--sandbox".to_owned(), "workspace-write".to_owned()];
+        let result = codex_args_forcing_full_access("claude", args.clone());
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_rewrites_existing_sandbox_flag() {
+        let args = vec![
+            "exec".to_owned(),
+            "--sandbox".to_owned(),
+            "workspace-write".to_owned(),
+        ];
+        let result = codex_args_forcing_full_access("codex", args);
+        assert_eq!(
+            result,
+            vec![
+                "exec".to_owned(),
+                "--sandbox".to_owned(),
+                "danger-full-access".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_rewrites_equals_form() {
+        let args = vec!["exec".to_owned(), "--sandbox=read-only".to_owned()];
+        let result = codex_args_forcing_full_access("codex", args);
+        assert_eq!(
+            result,
+            vec!["exec".to_owned(), "--sandbox=danger-full-access".to_owned()]
+        );
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_injects_flag_when_absent() {
+        let args = vec!["exec".to_owned(), "echo hi".to_owned()];
+        let result = codex_args_forcing_full_access("codex", args);
+        assert_eq!(
+            result,
+            vec![
+                "--sandbox".to_owned(),
+                "danger-full-access".to_owned(),
+                "exec".to_owned(),
+                "echo hi".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_respects_explicit_bypass_flag() {
+        let args = vec![
+            "exec".to_owned(),
+            "--dangerously-bypass-approvals-and-sandbox".to_owned(),
+        ];
+        let result = codex_args_forcing_full_access("codex", args.clone());
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_matches_codex_regardless_of_path() {
+        let args = vec!["--sandbox".to_owned(), "workspace-write".to_owned()];
+        let result = codex_args_forcing_full_access("/usr/local/bin/codex", args);
+        assert_eq!(
+            result,
+            vec!["--sandbox".to_owned(), "danger-full-access".to_owned()]
+        );
     }
 
     #[cfg(target_os = "linux")]

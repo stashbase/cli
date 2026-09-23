@@ -676,6 +676,7 @@ async fn proxied_client(
         egress_hosts_configured: profile.egress_hosts.is_some(),
         strict_deny: true,
         mcp_rules: mcp_rules.clone(),
+        backend: profile.sandbox.backend,
     };
     let proxy = Proxy::start_with_port(secrets, policy, None, None).await?;
     let proxy_url = proxy.child_env()["HTTPS_PROXY"].clone();
@@ -824,6 +825,7 @@ async fn remote_proxied_client(
                 tools: rule.tools.clone(),
             })
             .collect(),
+        backend: profile.sandbox.backend,
     };
     let proxy = Proxy::start_remote_with_port(
         RemoteProxyConfig {

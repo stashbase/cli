@@ -761,6 +761,11 @@ pub async fn handle_cli(args: Cli) {
                     let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !silent {
                         eprintln!("Network sandbox: enabled");
+                        if profile.sandbox.backend
+                            == crate::models::agent::SandboxBackend::Docker
+                        {
+                            eprintln!("Sandbox backend: Docker (container-isolated)");
+                        }
                         print_agent_egress_warnings(&profile);
                         eprintln!(
                             "API hook broker: {}",
@@ -913,6 +918,7 @@ pub async fn handle_cli(args: Cli) {
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                         mcp_rules: compiled_mcp_rules(&profile),
+                        backend: profile.sandbox.backend,
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -2225,6 +2231,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),

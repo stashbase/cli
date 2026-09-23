@@ -63,7 +63,7 @@ use crate::{
         evaluate_secret_authorization, host_matches, normalize_secret_http_policy,
         SecretAuthorizationDecision, SecretHttpPolicy,
     },
-    models::agent::{AgentHttpRuleEffect, AgentMcpRule},
+    models::agent::{AgentHttpRuleEffect, AgentMcpRule, SandboxBackend},
     REQUEST_TIMEOUT_SECS,
 };
 
@@ -664,6 +664,8 @@ pub struct ProxyPolicy {
     pub egress_hosts_configured: bool,
     pub strict_deny: bool,
     pub mcp_rules: Vec<AgentMcpRule>,
+    /// Selects which enforcement backend the sandboxed child runs under.
+    pub backend: SandboxBackend,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -770,6 +772,7 @@ impl ProxyPolicy {
             egress_hosts_configured: false,
             strict_deny: false,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         }
     }
 
@@ -955,7 +958,17 @@ impl Proxy {
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
     ) -> Result<Self> {
-        Self::start_inner(secrets, policy, audit_log, proxy_port, None, None, false).await
+        Self::start_inner(
+            secrets,
+            policy,
+            audit_log,
+            proxy_port,
+            None,
+            None,
+            false,
+            "127.0.0.1",
+        )
+        .await
     }
 
     pub async fn start_with_hook(
@@ -965,7 +978,35 @@ impl Proxy {
         proxy_port: Option<u16>,
         api_key: Option<String>,
     ) -> Result<Self> {
-        Self::start_inner(secrets, policy, audit_log, proxy_port, None, api_key, true).await
+        Self::start_inner(
+            secrets,
+            policy,
+            audit_log,
+            proxy_port,
+            None,
+            api_key,
+            true,
+            "127.0.0.1",
+        )
+        .await
+    }
+
+    /// Like `start_with_hook`, but binds the proxy to `bind_host` instead of
+    /// loopback. Used by the Docker sandbox backend, which binds the proxy
+    /// to a per-run Docker network's gateway address so only the sandboxed
+    /// container (not the whole LAN) can reach it.
+    pub async fn start_with_hook_and_bind_host(
+        secrets: HashMap<String, String>,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+        api_key: Option<String>,
+        bind_host: &str,
+    ) -> Result<Self> {
+        Self::start_inner(
+            secrets, policy, audit_log, proxy_port, None, api_key, true, bind_host,
+        )
+        .await
     }
 
     pub async fn start_remote_with_port(
@@ -983,6 +1024,7 @@ impl Proxy {
             Some(remote),
             None,
             false,
+            "127.0.0.1",
         )
         .await
     }
@@ -1003,6 +1045,31 @@ impl Proxy {
             Some(remote),
             api_key,
             true,
+            "127.0.0.1",
+        )
+        .await
+    }
+
+    /// Like `start_remote_with_hook`, but binds the proxy to `bind_host`
+    /// instead of loopback. See `start_with_hook_and_bind_host`.
+    pub async fn start_remote_with_hook_and_bind_host(
+        remote: RemoteProxyConfig,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+        api_key: Option<String>,
+        bind_host: &str,
+    ) -> Result<Self> {
+        let placeholders = remote.placeholders.clone();
+        Self::start_inner(
+            placeholders,
+            policy,
+            audit_log,
+            proxy_port,
+            Some(remote),
+            api_key,
+            true,
+            bind_host,
         )
         .await
     }
@@ -1015,6 +1082,7 @@ impl Proxy {
         remote: Option<RemoteProxyConfig>,
         hook_api_key: Option<String>,
         hook_mode_set: bool,
+        bind_host: &str,
     ) -> Result<Self> {
         if proxy_port == Some(0) {
             anyhow::bail!("--proxy-port must be between 1 and 65535");
@@ -1034,7 +1102,7 @@ impl Proxy {
             ca_file = remote_ca;
             remove_ca_file = false;
         }
-        let bind_address = format!("127.0.0.1:{}", proxy_port.unwrap_or(0));
+        let bind_address = format!("{bind_host}:{}", proxy_port.unwrap_or(0));
         let listener = TcpListener::bind(&bind_address)
             .await
             .with_context(|| format!("failed to bind credential proxy to {bind_address}"))?;
@@ -3440,6 +3508,7 @@ mod tests {
                     tools: vec!["list_projects".to_owned()],
                 },
             ],
+            backend: SandboxBackend::Native,
         }
     }
 
@@ -3819,6 +3888,7 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -3945,6 +4015,7 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         }
     }
 
@@ -4175,6 +4246,25 @@ mod tests {
             proxy.child_env()["HTTP_PROXY"],
             format!("http://127.0.0.1:{port}")
         );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn proxy_binds_to_provided_host_instead_of_loopback() {
+        // 0.0.0.0 is used here only to prove the parameter is honored
+        // without depending on a real Docker network gateway in CI.
+        let proxy = Proxy::start_with_hook_and_bind_host(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            None,
+            "0.0.0.0",
+        )
+        .await
+        .unwrap();
+
+        assert!(proxy.child_env()["HTTP_PROXY"].starts_with("http://0.0.0.0:"));
         proxy.stop().await;
     }
 
@@ -4438,6 +4528,7 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -4479,6 +4570,7 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         }
     }
 
@@ -4611,6 +4703,7 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         };
         assert!(secret_allows_request(
             &policy,
@@ -4733,6 +4826,7 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -4773,6 +4867,7 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -4799,6 +4894,7 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -4864,6 +4960,7 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -5226,6 +5323,7 @@ mod tests {
                 egress_hosts_configured: false,
                 strict_deny: true,
                 mcp_rules: Vec::new(),
+                backend: SandboxBackend::Native,
             },
             None,
         )
@@ -5263,6 +5361,7 @@ mod tests {
                 egress_hosts_configured: false,
                 strict_deny: true,
                 mcp_rules: Vec::new(),
+                backend: SandboxBackend::Native,
             },
             None,
         )
@@ -5301,6 +5400,7 @@ mod tests {
                 egress_hosts_configured: true,
                 strict_deny: true,
                 mcp_rules: Vec::new(),
+                backend: SandboxBackend::Native,
             },
             None,
         )
