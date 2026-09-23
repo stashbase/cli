@@ -1,20 +1,17 @@
-FROM debian:bookworm-slim
+# The official Node.js LTS image already bundles a known-good Node/npm —
+# the runtime most coding-agent CLIs (Claude Code, Codex, Cursor's CLI)
+# ship as npm packages and need at container run time. This is still a
+# Debian base underneath (bookworm-slim variant), so apt-get below works
+# the same as it would on `debian:bookworm-slim`; it just skips having to
+# add Node ourselves via NodeSource's curl-pipe-bash setup script.
+FROM node:22-bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         git \
-        gnupg \
         bubblewrap \
-    && rm -rf /var/lib/apt/lists/*
-
-# Node.js LTS: the runtime most coding-agent CLIs (Claude Code, Codex,
-# Cursor's CLI) ship as npm packages and need at container run time.
-# Debian bookworm's own nodejs package is too old for these tools, so pull
-# the current LTS from NodeSource instead.
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
