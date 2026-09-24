@@ -1,17 +1,20 @@
 use std::path::PathBuf;
 
-fn docker_binary_available() -> bool {
+pub(crate) fn docker_binary_available() -> bool {
     std::env::var_os("PATH")
         .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join("docker").is_file()))
 }
 
-fn docker_daemon_reachable() -> Result<(), String> {
+/// Checks whether the Docker daemon is reachable, returning its reported
+/// server version on success (used by `agent docker doctor` to show what
+/// version is actually running, not just that a check passed).
+pub(crate) fn docker_daemon_version() -> Result<String, String> {
     let output = std::process::Command::new("docker")
         .args(["info", "--format", "{{.ServerVersion}}"])
         .output()
         .map_err(|error| format!("failed to run `docker info`: {error}"))?;
     if output.status.success() {
-        Ok(())
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
     } else {
         Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
     }
@@ -28,8 +31,8 @@ pub(crate) fn docker_enforcement_error() -> Option<String> {
                 .to_owned(),
         );
     }
-    match docker_daemon_reachable() {
-        Ok(()) => None,
+    match docker_daemon_version() {
+        Ok(_) => None,
         Err(detail) => Some(format!(
             "the Docker sandbox backend requires a reachable Docker daemon: {detail}"
         )),

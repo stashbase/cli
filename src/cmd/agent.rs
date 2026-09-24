@@ -69,7 +69,12 @@ pub enum AgentDockerSubcommand {
     Status(AgentDockerStatusCommand),
     /// Build (or rebuild) the default Docker sandbox image
     Build(AgentDockerBuildCommand),
+    /// Check whether the Docker sandbox backend can run on this machine
+    Doctor(AgentDockerDoctorCommand),
 }
+
+#[derive(Debug, Args)]
+pub struct AgentDockerDoctorCommand {}
 
 #[derive(Debug, Args)]
 pub struct AgentDockerCleanupCommand {

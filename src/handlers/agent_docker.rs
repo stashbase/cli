@@ -3,9 +3,11 @@ use std::collections::HashSet;
 use anyhow::Result;
 
 use crate::cmd::agent::{
-    AgentDockerBuildCommand, AgentDockerCleanupCommand, AgentDockerStatusCommand,
+    AgentDockerBuildCommand, AgentDockerCleanupCommand, AgentDockerDoctorCommand,
+    AgentDockerStatusCommand,
 };
 use crate::handlers::run::docker_sandbox::ExistingRunNetwork;
+use crate::utils::output::{get_formatted_json_string, ColorizeIfColoredOutput};
 
 /// Whether `network` should be skipped as a cleanup candidate because it's
 /// tied to a session this machine still has a live local record for. Pure
@@ -62,7 +64,7 @@ pub async fn handle_docker_status_command(
                 })
             })
             .collect::<Vec<_>>();
-        println!("{}", serde_json::to_string_pretty(&json)?);
+        println!("{}", get_formatted_json_string(&json, true)?);
         return Ok(());
     }
     if entries.is_empty() {
@@ -70,15 +72,19 @@ pub async fn handle_docker_status_command(
         return Ok(());
     }
     for (network, live) in &entries {
+        let live_label = if *live {
+            format!("  {}", "(live local session)".blue_if_tty())
+        } else {
+            String::new()
+        };
         println!(
-            "{}  created {}{}",
+            "{}  created {}{live_label}",
             network.name,
             if network.created_at.is_empty() {
                 "unknown"
             } else {
                 network.created_at.as_str()
             },
-            if *live { "  (live local session)" } else { "" }
         );
     }
     Ok(())
@@ -285,6 +291,86 @@ pub async fn handle_docker_cleanup_command(
     }
 
     Ok(())
+}
+
+/// Checks whether the Docker sandbox backend can actually run on this
+/// machine, without starting a real sandboxed run to find out. Reports
+/// each check independently (the `docker` CLI on PATH, the daemon
+/// reachable, its version, and whether the default image is already
+/// built) rather than the single combined error message
+/// `docker_enforcement_error` gives a real `agent run` failing closed,
+/// since a standalone diagnostic is exactly where naming which part
+/// failed is most useful.
+pub async fn handle_docker_doctor_command(
+    _command: AgentDockerDoctorCommand,
+    raw_output: bool,
+) -> Result<bool> {
+    let binary_available = crate::handlers::run::docker_sandbox::docker_binary_available();
+    let daemon_version = if binary_available {
+        crate::handlers::run::docker_sandbox::docker_daemon_version()
+    } else {
+        Err("skipped: `docker` CLI not found".to_owned())
+    };
+    let image_built = crate::handlers::run::docker_sandbox::sandbox_image_exists(
+        &crate::handlers::run::docker_sandbox::AgentImageSource::Default,
+    );
+    let all_ok = binary_available && daemon_version.is_ok();
+
+    if raw_output {
+        let json = serde_json::json!({
+            "docker_cli_available": binary_available,
+            "daemon_reachable": daemon_version.is_ok(),
+            "daemon_version": daemon_version.as_ref().ok(),
+            "daemon_error": daemon_version.as_ref().err(),
+            "default_image_built": image_built,
+            "ready": all_ok,
+        });
+        println!("{}", get_formatted_json_string(&json, true)?);
+        return Ok(!all_ok);
+    }
+
+    println!(
+        "{} Docker CLI on PATH",
+        if binary_available {
+            "✓".green_if_tty()
+        } else {
+            "✗".red_if_tty()
+        }
+    );
+    match &daemon_version {
+        Ok(version) => println!(
+            "{} Docker daemon reachable (server version {version})",
+            "✓".green_if_tty()
+        ),
+        Err(error) => println!("{} Docker daemon reachable: {error}", "✗".red_if_tty()),
+    }
+    println!(
+        "{} Default sandbox image built",
+        if image_built {
+            "✓".green_if_tty()
+        } else {
+            "○".yellow_if_tty()
+        }
+    );
+    if !image_built {
+        println!(
+            "  (not required — `agent run` builds it on first use, or run `agent docker build`)"
+        );
+    }
+    println!();
+    if all_ok {
+        println!(
+            "{}",
+            "Docker sandbox backend is ready to use.".green_if_tty()
+        );
+    } else {
+        println!(
+            "{}",
+            "Docker sandbox backend is not ready — see the failed check(s) above.".red_if_tty()
+        );
+    }
+
+    Ok(!all_ok)
 }
 
 #[cfg(test)]
