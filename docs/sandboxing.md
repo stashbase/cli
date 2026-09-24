@@ -109,10 +109,37 @@ stashbase agent run --profile coding -- codex login --device-auth
 
 Claude Code has the same kind of gap: `platform.claude.com` must be in `egress_hosts` alongside `api.anthropic.com` for OAuth login (`/login`) and silent token refresh to work. Without it, login fails with "OAuth error: proxy refused the connection," or — if you were already logged in before restricting egress — the session works until the access token's next refresh is silently blocked, then fails hours later with "OAuth access token has expired."
 
+### Cleaning up after a crash
+
+Every per-run Docker network (and its two containers) is named after that run's own session id — the same `ags_...` id shown in "Agent session"/"Audit session" and used for the audit log filename — specifically so leftovers can be traced back to the run that created them. Normal exit paths, including Ctrl+C, tear both containers and the network down as part of `agent run` itself; only a crash or a forceful `SIGKILL` of the `stashbase` process can leave them behind.
+
+```bash
+stashbase agent docker cleanup
+```
+
+Lists any `stashbase-agent-run-*` networks still present, skips ones tied to a session this machine still has a live local record for, and asks for confirmation before removing the rest (`--yes` skips the prompt). A `--remote` run has no local record to check against at all, so a listed network could in principle still belong to a remote session genuinely in progress — the command shows each one's creation time so you can judge, rather than guessing on your behalf.
+
+To just look without removing anything:
+
+```bash
+stashbase agent docker status
+```
+
+Lists the same networks (name, session id, creation time, and whether it's tied to a live local session) — pass `--json` for machine-readable output.
+
+### Managing the default image
+
+```bash
+stashbase agent docker build [--force]
+```
+
+Builds the default sandbox image ahead of time instead of waiting to be prompted on first `agent run`, or rebuilds it with `--force` (e.g. after the embedded Dockerfile picks up new apt packages or a security patch) without needing to `docker rmi` it by hand first.
+
+Add `--profile <name>` to target that profile's own `sandbox.image`/`sandbox.dockerfile` instead of the default — useful for pre-building or force-refreshing a custom image the same way, without needing to trigger a real `agent run` first. `--profile-source auto|global|directory` controls where `--profile` is loaded from, same as `agent run`/`agent validate`. A profile using a plain `image` reference has nothing to build (`docker run` pulls it automatically), so this reports that and does nothing rather than erroring.
+
 ### Docker backend limitations
 
 - Two containers run per invocation (the network namespace holder plus the agent container itself), not one — slightly more setup overhead per run than a single-container approach, in exchange for the firewall being enforced by capability separation rather than a privilege drop inside the agent container.
-- Teardown (stopping both containers, removing the per-run network) runs on normal exit, including Ctrl+C. A crash or forceful kill (`SIGKILL`) of the `stashbase` process itself can leave them behind rather than cleaned up.
 - The persistent home volume is shared across every profile and project — chat history and config from one profile's sandboxed sessions are visible to another profile's sandboxed sessions on the same machine. This is a privacy boundary, not a security one: it never grants access beyond what each run's own profile allows, since egress/credential policy is enforced per-run regardless of what's in the shared volume.
 
 This backend is early access, opt-in only, and does not change the default behavior of existing profiles.
