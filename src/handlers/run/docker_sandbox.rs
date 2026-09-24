@@ -234,9 +234,13 @@ pub(crate) fn start_netns_holder(
          set +e\n\
          # DROP (vs. REJECT) means a blocked connection gets no response at\n\
          # all, so this waits out its own timeout on the success path (the\n\
-         # firewall is working). Kept short since it's a same-host SYN with\n\
-         # nothing slow in the way.\n\
-         curl -s -m 1 -o /dev/null 'http://1.1.1.1/'\n\
+         # firewall is working) — that wait is pure per-run startup latency,\n\
+         # so keep it as short as still reliably catches a real leak. A SYN\n\
+         # to a genuinely reachable host resolves in low tens of ms even over\n\
+         # the public internet, let alone from a container's own network\n\
+         # stack, so 300ms leaves ample margin above any real response time\n\
+         # while capping the wasted wait on the (expected) blocked outcome.\n\
+         curl -s -m 0.3 -o /dev/null 'http://1.1.1.1/'\n\
          arbitrary_reachable=$?\n\
          curl -s -m 3 -o /dev/null \"http://$proxy_ip:{proxy_port}/\"\n\
          proxy_reachable=$?\n\

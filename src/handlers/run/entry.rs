@@ -112,6 +112,8 @@ pub async fn handle_remote_agent_run(
         policy.sandbox_dockerfile.as_deref(),
     );
     let command_audit_log = audit_log.clone();
+    let mut setup_spinner = (!silent && backend == crate::models::agent::SandboxBackend::Docker)
+        .then(|| crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr));
     let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
         let agent_image = ensure_docker_sandbox_image_available(&agent_image_source, silent)?;
         (
@@ -148,6 +150,9 @@ pub async fn handle_remote_agent_run(
     let proxy = match proxy_start_result {
         Ok(proxy) => proxy,
         Err(error) => {
+            if let Some(mut spinner) = setup_spinner.take() {
+                spinner.clear();
+            }
             if let Some(network) = &docker_network {
                 let _ = super::docker_sandbox::remove_run_network(network);
             }
@@ -155,6 +160,13 @@ pub async fn handle_remote_agent_run(
         }
     };
     let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
+    // Stop the spinner before any plain `eprintln!` — spinoff redraws its
+    // line from a background thread, and interleaving that with ordinary
+    // stderr writes garbles both. Re-created below to cover the remaining
+    // netns-holder setup phase.
+    if let Some(mut spinner) = setup_spinner.take() {
+        spinner.clear();
+    }
     if !silent {
         let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
         eprintln!(
@@ -172,6 +184,8 @@ pub async fn handle_remote_agent_run(
     } else {
         proxy.child_env().clone()
     };
+    let mut setup_spinner = (!silent && docker_network.is_some())
+        .then(|| crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr));
     if let Some(network) = &docker_network {
         match super::docker_sandbox::start_netns_holder(network, &child_env) {
             Ok(Some(resolved_proxy_ip)) => {
@@ -189,6 +203,9 @@ pub async fn handle_remote_agent_run(
             }
             Ok(None) => {}
             Err(error) => {
+                if let Some(mut spinner) = setup_spinner.take() {
+                    spinner.clear();
+                }
                 let _ = super::docker_sandbox::remove_run_network(network);
                 proxy.stop().await;
                 return Err(anyhow::anyhow!(
@@ -196,6 +213,9 @@ pub async fn handle_remote_agent_run(
                 ));
             }
         }
+    }
+    if let Some(mut spinner) = setup_spinner.take() {
+        spinner.clear();
     }
     let result = subprocess::run_command_with_filesystem_policy_and_network(
         &cmd,
@@ -1286,6 +1306,10 @@ async fn handle_run(
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
+        let mut setup_spinner =
+            (!silent && backend == crate::models::agent::SandboxBackend::Docker).then(|| {
+                crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr)
+            });
         let (docker_network, agent_image) = if backend
             == crate::models::agent::SandboxBackend::Docker
         {
@@ -1324,6 +1348,9 @@ async fn handle_run(
         let proxy = match proxy_start_result {
             Ok(proxy) => proxy,
             Err(error) => {
+                if let Some(mut spinner) = setup_spinner.take() {
+                    spinner.clear();
+                }
                 if let Some(network) = &docker_network {
                     let _ = super::docker_sandbox::remove_run_network(network);
                 }
@@ -1334,6 +1361,13 @@ async fn handle_run(
             proxy.set_revocation_path(session.path());
         }
         let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
+        // Stop the spinner before any plain `eprintln!` — spinoff redraws
+        // its line from a background thread, and interleaving that with
+        // ordinary stderr writes garbles both. Re-created below to cover
+        // the remaining netns-holder setup phase.
+        if let Some(mut spinner) = setup_spinner.take() {
+            spinner.clear();
+        }
         if !silent {
             let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
             eprintln!(
@@ -1350,6 +1384,9 @@ async fn handle_run(
         } else {
             proxy.child_env().clone()
         };
+        let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
+            crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr)
+        });
         if let Some(network) = &docker_network {
             match super::docker_sandbox::start_netns_holder(network, &child_env) {
                 Ok(Some(resolved_proxy_ip)) => {
@@ -1366,6 +1403,9 @@ async fn handle_run(
                 }
                 Ok(None) => {}
                 Err(error) => {
+                    if let Some(mut spinner) = setup_spinner.take() {
+                        spinner.clear();
+                    }
                     let _ = super::docker_sandbox::remove_run_network(network);
                     proxy.stop().await;
                     return Err(anyhow::anyhow!(
@@ -1373,6 +1413,9 @@ async fn handle_run(
                     ));
                 }
             }
+        }
+        if let Some(mut spinner) = setup_spinner.take() {
+            spinner.clear();
         }
         let command = Box::pin(subprocess::run_command_with_filesystem_policy_and_network(
             &cmd,
