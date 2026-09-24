@@ -65,6 +65,10 @@ pub struct AgentDockerCommand {
 pub enum AgentDockerSubcommand {
     /// Find and remove Docker sandbox networks/containers left behind by a run that didn't tear down cleanly (e.g. `stashbase` was killed with SIGKILL mid-run)
     Cleanup(AgentDockerCleanupCommand),
+    /// List Docker sandbox networks/containers currently present on this machine
+    Status(AgentDockerStatusCommand),
+    /// Build (or rebuild) the default Docker sandbox image
+    Build(AgentDockerBuildCommand),
 }
 
 #[derive(Debug, Args)]
@@ -72,6 +76,20 @@ pub struct AgentDockerCleanupCommand {
     /// Remove every leftover resource without prompting for confirmation
     #[arg(long)]
     pub yes: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerStatusCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerBuildCommand {
+    /// Rebuild even if the image already exists locally
+    #[arg(long)]
+    pub force: bool,
+
+    /// Build the given profile's `sandbox.image`/`sandbox.dockerfile` instead of the built-in default image
+    #[arg(long)]
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Args)]

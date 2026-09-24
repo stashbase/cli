@@ -584,6 +584,18 @@ pub async fn handle_cli(args: Cli) {
                         )
                         .await
                     }
+                    crate::cmd::agent::AgentDockerSubcommand::Status(command) => {
+                        crate::handlers::agent_docker::handle_docker_status_command(
+                            command, raw_output,
+                        )
+                        .await
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Build(command) => {
+                        crate::handlers::agent_docker::handle_docker_build_command(
+                            command, &config, silent,
+                        )
+                        .await
+                    }
                 },
                 AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
