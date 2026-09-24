@@ -604,6 +604,20 @@ pub(crate) fn docker_run_command(
     args.push("-e".to_owned());
     args.push("FORCE_COLOR=true".to_owned());
 
+    // TERM/COLORTERM drive terminal-capability detection (truecolor
+    // support, theme selection) in TUIs like Codex's — FORCE_COLOR alone
+    // only covers basic on/off color, not that. Forwarded from the host
+    // since the container has no controlling terminal of its own to
+    // detect these from; caller-provided env vars still win.
+    for key in ["TERM", "COLORTERM"] {
+        if !env_vars.contains_key(key) {
+            if let Ok(value) = std::env::var(key) {
+                args.push("-e".to_owned());
+                args.push(format!("{key}={value}"));
+            }
+        }
+    }
+
     args.push(DEFAULT_SANDBOX_IMAGE.to_owned());
     args.push(command.to_owned());
     Ok(("docker".to_owned(), args))
