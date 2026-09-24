@@ -1,9 +1,9 @@
-# The official Node.js LTS image already bundles a known-good Node/npm —
-# the runtime most coding-agent CLIs (Claude Code, Codex, Cursor's CLI)
-# ship as npm packages and need at container run time. This is still a
+# Node.js is still needed here even though Claude Code and Codex are
+# installed as native binaries below (neither invokes Node itself at
+# runtime): MCP servers agents commonly connect to are typically run via
+# `npx`, so `npm`/`node` need to be on PATH for those to work. This is a
 # Debian base underneath (bookworm-slim variant), so apt-get below works
-# the same as it would on `debian:bookworm-slim`; it just skips having to
-# add Node ourselves via NodeSource's curl-pipe-bash setup script.
+# the same as it would on `debian:bookworm-slim`.
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
@@ -11,12 +11,43 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
+        gh \
         bubblewrap \
         iptables \
         jq \
+        dnsutils \
+        unzip \
+        less \
+        procps \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code @openai/codex
+# Claude Code and Codex are installed via their own official native
+# installers rather than `npm install -g` — both projects document this as
+# the recommended method: it installs a self-contained platform binary
+# (no Node runtime involved for the tool itself, unlike the npm package
+# which just wraps the same binary), and pulls from Anthropic's/OpenAI's
+# own signed release infrastructure rather than the npm registry.
+#
+# Both installers default to installing under $HOME (`/root` during this
+# build) and only add `~/.local/bin` to *root's* shell profile — neither
+# knows this container will later run as an arbitrary uid (see the --user
+# flag set on Linux in docker_run_command). So: make the installed trees
+# world-readable/executable (`chmod -R a+rX`, never +w — nothing here
+# should be writable by the sandboxed process) and symlink both into
+# `/usr/local/bin`, which is on PATH for every user by default. Verified
+# directly that both `claude --version` and `codex --version` work when
+# invoked as a non-root uid with this layout, not just as root.
+#
+# Codex ships helper binaries (a code-mode host, voice tools) alongside
+# its main executable, so its install tree is kept intact and symlinked
+# rather than copying a single binary out the way Claude Code's simpler,
+# single-file layout would allow.
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && curl -fsSL https://chatgpt.com/codex/install.sh | sh \
+    && chmod 755 /root \
+    && chmod -R a+rX /root/.local /root/.codex \
+    && ln -s /root/.local/bin/claude /usr/local/bin/claude \
+    && ln -s /root/.local/bin/codex /usr/local/bin/codex
 
 # A persistent volume is mounted here (see docker_sandbox.rs) so login
 # state (e.g. Claude Code's ~/.claude, ~/.claude.json) survives across
