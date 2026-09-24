@@ -113,7 +113,12 @@ pub async fn handle_remote_agent_run(
     );
     let command_audit_log = audit_log.clone();
     let mut setup_spinner = (!silent && backend == crate::models::agent::SandboxBackend::Docker)
-        .then(|| crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr));
+        .then(|| {
+            crate::utils::spinner::new_spinner(
+                "Preparing sandbox image and network...",
+                Streams::Stderr,
+            )
+        });
     let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
         let agent_image = ensure_docker_sandbox_image_available(&agent_image_source, silent)?;
         (
@@ -184,8 +189,12 @@ pub async fn handle_remote_agent_run(
     } else {
         proxy.child_env().clone()
     };
-    let mut setup_spinner = (!silent && docker_network.is_some())
-        .then(|| crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr));
+    let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
+        crate::utils::spinner::new_spinner(
+            "Starting network namespace holder and firewall...",
+            Streams::Stderr,
+        )
+    });
     if let Some(network) = &docker_network {
         match super::docker_sandbox::start_netns_holder(network, &child_env) {
             Ok(Some(resolved_proxy_ip)) => {
@@ -1308,7 +1317,10 @@ async fn handle_run(
         let command_audit_log = audit_log.clone();
         let mut setup_spinner =
             (!silent && backend == crate::models::agent::SandboxBackend::Docker).then(|| {
-                crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr)
+                crate::utils::spinner::new_spinner(
+                    "Preparing sandbox image and network...",
+                    Streams::Stderr,
+                )
             });
         let (docker_network, agent_image) = if backend
             == crate::models::agent::SandboxBackend::Docker
@@ -1385,7 +1397,10 @@ async fn handle_run(
             proxy.child_env().clone()
         };
         let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
-            crate::utils::spinner::new_spinner("Starting Docker sandbox...", Streams::Stderr)
+            crate::utils::spinner::new_spinner(
+                "Starting network namespace holder and firewall...",
+                Streams::Stderr,
+            )
         });
         if let Some(network) = &docker_network {
             match super::docker_sandbox::start_netns_holder(network, &child_env) {
