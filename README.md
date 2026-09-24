@@ -255,14 +255,33 @@ backend = "docker"
 stashbase agent run --profile coding -- claude
 ```
 
+Or override the profile's choice for one invocation without editing the file:
+
+```bash
+stashbase agent run --profile coding --docker-sandbox true -- claude   # force Docker
+stashbase agent run --profile coding --docker-sandbox false -- claude  # force native
+```
+
 **What it does differently from the native backend:**
 - Filesystem access is allow-list, not deny-list: only the current working directory is mounted into the container. Everything else on your machine — `~/.ssh`, other projects, system files — simply isn't visible, rather than merely denied. `deny_read`/`deny_write` paths still work the same way as the native backend for anything inside the working directory.
-- The container runs on a fresh, isolated Docker network created for that one `agent run` invocation and torn down afterward; it can reach the credential proxy but nothing else.
+- The container runs on a fresh, isolated Docker network created for that one `agent run` invocation and torn down afterward; it can reach the credential proxy but nothing else. This is a real network-layer block, not just a convention the agent could ignore: a small short-lived helper container installs an `iptables` rule (default-DROP outbound except the proxy) in that network's namespace, and the agent container joins the namespace but never holds the capability needed to touch the rule itself. Verified directly — a deliberate bypass (unsetting `HTTP_PROXY`, raw socket to an arbitrary host) is blocked, and even trying to flush the firewall from inside the agent container fails with "Permission denied."
 - If Docker isn't installed or the daemon isn't running, the run fails closed with an error rather than falling back to running unsandboxed.
 
 **Supported agents:** Claude Code and Codex are pre-installed in the sandbox image. Other tools that don't need anything beyond what's in the image (see below) will also run, but nothing else is validated yet.
 
-**The image:** built from `node:22-bookworm-slim` with `git`, `curl`, `ca-certificates`, `bubblewrap`, and both `@anthropic-ai/claude-code` and `@openai/codex` installed via npm. It isn't published anywhere yet — on first use, `agent run` detects it's missing and offers to build it locally (from a Dockerfile embedded in the `stashbase` binary itself, so this works even without a checkout of this repository); building streams Docker's own progress live rather than sitting silently. The image is fixed in this release — not yet configurable per profile.
+**The default image:** built from `node:22-bookworm-slim` with `git`, `curl`, `ca-certificates`, `bubblewrap`, `iptables`, `jq`, `gh`, `dnsutils`, `unzip`, `less`, and `procps` installed via apt, plus Claude Code and Codex installed via their own official native installer scripts (not npm — see the Dockerfile for why). It isn't published anywhere yet — on first use, `agent run` detects it's missing and offers to build it locally (from a Dockerfile embedded in the `stashbase` binary itself, so this works even without a checkout of this repository); building streams Docker's own progress live rather than sitting silently.
+
+**Custom images:** a profile can run its own image instead, either pre-built or from a local Dockerfile:
+
+```toml
+[sandbox]
+backend = "docker"
+image = "myorg/my-agent-image:latest"   # pulled automatically by `docker run` if not present locally
+# or:
+dockerfile = "./sandbox.Dockerfile"     # built and tagged locally by stashbase (path relative to cwd)
+```
+
+Set at most one of `image`/`dockerfile`. Either way, the sandbox constraints themselves never change — `--cap-drop ALL`, `no-new-privileges`, and the network-namespace-holder firewall all still apply regardless of which image runs; a custom image can add tools but can't loosen the sandbox.
 
 **Git identity:** your global `git config user.name`/`user.email` (if set) are forwarded into the container as `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`/`GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`, so commits made inside the sandbox are attributed to you instead of failing with no identity configured. This is metadata only, not a credential — it doesn't grant push access. `git push` (or any other authenticated git operation) still needs its own credential, e.g. a `GITHUB_TOKEN` wired through `[secrets]` like any other API credential; raw SSH keys are deliberately never forwarded into the sandbox.
 
@@ -275,8 +294,7 @@ stashbase agent run --profile coding -- codex login --device-auth
 ```
 
 **Limitations:**
-- On Docker Desktop (macOS/Windows), network isolation is weaker than on native Linux: Desktop's VM boundary means the per-run network can't apply the same egress-blocking rule Linux gets, so the container's network containment there currently relies on the same `HTTPS_PROXY`/`HTTP_PROXY` convention the native backend already uses, not a kernel-enforced block. Filesystem isolation is unaffected and equally strong on both platforms.
-- The image is fixed and not user-configurable in this release — if your workflow needs a tool that isn't in it (a compiler, `jq`, SSH, etc.), it isn't available yet.
+- The image is fixed and not user-configurable in this release — if your workflow needs a tool that isn't in it (a compiler, SSH, etc.), it isn't available yet.
 - A crash or forceful kill of the CLI mid-run can leave the per-run Docker network and container behind rather than cleaned up; normal exits (including Ctrl+C) tear both down correctly.
 - This backend is early access and opt-in only — it does not change the behavior of any existing profile that doesn't set `backend = "docker"`.
 
