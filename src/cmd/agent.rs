@@ -184,6 +184,22 @@ pub struct AgentRunCommand {
     #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
     pub docker_sandbox: Option<bool>,
 
+    /// Override the profile's `[sandbox] image` for this run only: run this
+    /// image instead of the profile's configured one (or the built-in
+    /// default). Implies the Docker backend even if the profile or
+    /// `--docker-sandbox` says otherwise. Mutually exclusive with
+    /// `--docker-dockerfile`.
+    #[arg(long, conflicts_with = "docker_dockerfile")]
+    pub docker_image: Option<String>,
+
+    /// Override the profile's `[sandbox] dockerfile` for this run only:
+    /// build and run this Dockerfile instead of the profile's configured
+    /// one (or the built-in default). Implies the Docker backend even if
+    /// the profile or `--docker-sandbox` says otherwise. Mutually
+    /// exclusive with `--docker-image`.
+    #[arg(long, conflicts_with = "docker_image")]
+    pub docker_dockerfile: Option<String>,
+
     /// Store metadata-only proxy audit events locally
     #[arg(
         long,

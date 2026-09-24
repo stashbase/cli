@@ -724,9 +724,18 @@ pub async fn handle_cli(args: Cli) {
                         return Ok(());
                     };
 
-                    crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
                     profile.sandbox.backend =
                         profile.sandbox.backend.with_cli_override(agent_run.docker_sandbox);
+                    if let Some(image) = &agent_run.docker_image {
+                        profile.sandbox.image = Some(image.clone());
+                        profile.sandbox.dockerfile = None;
+                        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+                    } else if let Some(dockerfile) = &agent_run.docker_dockerfile {
+                        profile.sandbox.dockerfile = Some(dockerfile.clone());
+                        profile.sandbox.image = None;
+                        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+                    }
+                    crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
                     // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is
@@ -921,6 +930,8 @@ pub async fn handle_cli(args: Cli) {
                         strict_deny: true,
                         mcp_rules: compiled_mcp_rules(&profile),
                         backend: profile.sandbox.backend,
+                        sandbox_image: profile.sandbox.image.clone(),
+                        sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source

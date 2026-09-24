@@ -438,17 +438,86 @@ const CONTAINER_HOME: &str = "/home/agent";
 /// exists yet for this image).
 const SANDBOX_DOCKERFILE: &str = include_str!("../../../docker/agent-sandbox/Dockerfile");
 
-/// Whether `DEFAULT_SANDBOX_IMAGE` already exists locally.
-pub(crate) fn sandbox_image_exists() -> bool {
+/// Where the agent container's image comes from for a given run. The
+/// network-namespace holder (privileged, holds `NET_ADMIN`) always uses
+/// `DEFAULT_SANDBOX_IMAGE` regardless of this choice — a custom image must
+/// never run with elevated capabilities, only the unprivileged agent
+/// container it's paired with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AgentImageSource {
+    /// The built-in image, built from the embedded Dockerfile.
+    Default,
+    /// A pre-built image reference the caller is responsible for (`docker
+    /// run` pulls it automatically if not already present locally).
+    Image(String),
+    /// A local Dockerfile to build. Tagged deterministically from its
+    /// canonicalized path so repeated runs reuse the same build instead of
+    /// rebuilding every time.
+    Dockerfile(PathBuf),
+}
+
+impl AgentImageSource {
+    /// Resolves an `AgentSandboxProfile`'s `image`/`dockerfile` fields (the
+    /// two are mutually exclusive — enforced separately at profile
+    /// validation time) into a concrete image source.
+    pub(crate) fn from_profile(image: Option<&str>, dockerfile: Option<&str>) -> AgentImageSource {
+        if let Some(image) = image {
+            AgentImageSource::Image(image.to_owned())
+        } else if let Some(dockerfile) = dockerfile {
+            AgentImageSource::Dockerfile(PathBuf::from(dockerfile))
+        } else {
+            AgentImageSource::Default
+        }
+    }
+
+    /// The tag this source's image is built/referenced under. Only
+    /// meaningful for `Default`/`Dockerfile` (build targets); `Image`
+    /// already names its own reference directly.
+    fn build_tag(&self) -> Option<String> {
+        match self {
+            AgentImageSource::Default => Some(DEFAULT_SANDBOX_IMAGE.to_owned()),
+            AgentImageSource::Dockerfile(path) => {
+                use sha2::{Digest, Sha256};
+                let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+                let digest = Sha256::digest(canonical.to_string_lossy().as_bytes());
+                Some(format!(
+                    "stashbase/agent-sandbox-custom:{}",
+                    &hex::encode(digest)[..16]
+                ))
+            }
+            AgentImageSource::Image(_) => None,
+        }
+    }
+
+    /// The image reference `docker run` should use for the agent container.
+    pub(crate) fn image_tag(&self) -> String {
+        match self {
+            AgentImageSource::Image(reference) => reference.clone(),
+            AgentImageSource::Default | AgentImageSource::Dockerfile(_) => self
+                .build_tag()
+                .expect("build_tag is Some for Default and Dockerfile variants"),
+        }
+    }
+}
+
+/// Whether this image source's image already exists locally. A plain
+/// `Image` reference is always reported as "available" — `docker run` pulls
+/// it automatically if missing, the same as any ordinary `docker run
+/// <image>` invocation, so there's nothing for `stashbase` itself to build.
+pub(crate) fn sandbox_image_exists(source: &AgentImageSource) -> bool {
+    if matches!(source, AgentImageSource::Image(_)) {
+        return true;
+    }
     std::process::Command::new("docker")
-        .args(["image", "inspect", DEFAULT_SANDBOX_IMAGE])
+        .args(["image", "inspect", &source.image_tag()])
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
 }
 
-/// Builds `DEFAULT_SANDBOX_IMAGE` from the embedded Dockerfile. Writes it to
-/// a temporary build context directory (Docker needs a real directory to
+/// Builds the image for `source` (`Default` or `Dockerfile` only — `Image`
+/// has nothing to build and is rejected). Writes the Dockerfile to a
+/// temporary build context directory (Docker needs a real directory to
 /// build from, not stdin, so the CA-mount-style "just pass a string"
 /// approach doesn't apply here) and cleans that directory up afterward
 /// regardless of build outcome.
@@ -460,29 +529,47 @@ pub(crate) fn sandbox_image_exists() -> bool {
 /// packages), and a silent hang would look broken. This does mean a
 /// failure's error message comes from the already-visible build output,
 /// not a captured string.
-pub(crate) fn build_sandbox_image() -> Result<(), String> {
+pub(crate) fn build_sandbox_image(source: &AgentImageSource) -> Result<(), String> {
+    let tag = source
+        .build_tag()
+        .ok_or_else(|| "a custom image reference has nothing to build".to_owned())?;
     let build_dir =
         std::env::temp_dir().join(format!("stashbase-agent-sandbox-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&build_dir)
         .map_err(|error| format!("failed to create a temporary build directory: {error}"))?;
-    let dockerfile_path = build_dir.join("Dockerfile");
-    let write_result = std::fs::write(&dockerfile_path, SANDBOX_DOCKERFILE);
-    let build_result = write_result
-        .map_err(|error| format!("failed to write the embedded Dockerfile: {error}"))
-        .and_then(|()| {
-            std::process::Command::new("docker")
-                .args(["build", "-t", DEFAULT_SANDBOX_IMAGE])
-                .arg(&build_dir)
-                .status()
-                .map_err(|error| format!("failed to run `docker build`: {error}"))
-        })
-        .and_then(|status| {
-            if status.success() {
-                Ok(())
-            } else {
-                Err("`docker build` failed; see the build output above for details".to_owned())
-            }
-        });
+    let build_result = match source {
+        AgentImageSource::Default => {
+            std::fs::write(build_dir.join("Dockerfile"), SANDBOX_DOCKERFILE)
+                .map_err(|error| format!("failed to write the embedded Dockerfile: {error}"))
+                .map(|()| build_dir.clone())
+        }
+        AgentImageSource::Dockerfile(path) => {
+            let contents = std::fs::read_to_string(path)
+                .map_err(|error| format!("failed to read {}: {error}", path.display()));
+            contents.and_then(|contents| {
+                std::fs::write(build_dir.join("Dockerfile"), contents)
+                    .map_err(|error| {
+                        format!("failed to copy the Dockerfile into the build context: {error}")
+                    })
+                    .map(|()| build_dir.clone())
+            })
+        }
+        AgentImageSource::Image(_) => unreachable!("checked by build_tag above"),
+    }
+    .and_then(|build_dir| {
+        std::process::Command::new("docker")
+            .args(["build", "-t", &tag])
+            .arg(&build_dir)
+            .status()
+            .map_err(|error| format!("failed to run `docker build`: {error}"))
+    })
+    .and_then(|status| {
+        if status.success() {
+            Ok(())
+        } else {
+            Err("`docker build` failed; see the build output above for details".to_owned())
+        }
+    });
     let _ = std::fs::remove_dir_all(&build_dir);
     build_result
 }
@@ -504,6 +591,7 @@ pub(crate) fn docker_run_command(
     denied_write_paths: &[String],
     env_vars: &std::collections::HashMap<String, String>,
     stdin_is_terminal: bool,
+    agent_image: &str,
 ) -> Result<(String, Vec<String>), String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let cwd_str = cwd.to_string_lossy().into_owned();
@@ -618,7 +706,7 @@ pub(crate) fn docker_run_command(
         }
     }
 
-    args.push(DEFAULT_SANDBOX_IMAGE.to_owned());
+    args.push(agent_image.to_owned());
     args.push(command.to_owned());
     Ok(("docker".to_owned(), args))
 }
@@ -784,6 +872,65 @@ mod tests {
     }
 
     #[test]
+    fn agent_image_source_defaults_when_neither_field_is_set() {
+        assert_eq!(
+            AgentImageSource::from_profile(None, None),
+            AgentImageSource::Default
+        );
+    }
+
+    #[test]
+    fn agent_image_source_prefers_image_over_dockerfile() {
+        // Profile validation rejects setting both, but resolution still
+        // needs a defined priority for defense in depth.
+        assert_eq!(
+            AgentImageSource::from_profile(Some("myorg/img:tag"), Some("./custom.Dockerfile")),
+            AgentImageSource::Image("myorg/img:tag".to_owned())
+        );
+    }
+
+    #[test]
+    fn agent_image_source_image_tag_uses_the_reference_directly() {
+        let source = AgentImageSource::from_profile(Some("myorg/img:tag"), None);
+        assert_eq!(source.image_tag(), "myorg/img:tag");
+    }
+
+    #[test]
+    fn agent_image_source_default_tag_is_the_builtin_image() {
+        assert_eq!(AgentImageSource::Default.image_tag(), DEFAULT_SANDBOX_IMAGE);
+    }
+
+    #[test]
+    fn agent_image_source_dockerfile_tag_is_deterministic_for_the_same_path() {
+        let a = AgentImageSource::from_profile(None, Some("./docker/agent-sandbox/Dockerfile"));
+        let b = AgentImageSource::from_profile(None, Some("./docker/agent-sandbox/Dockerfile"));
+        assert_eq!(a.image_tag(), b.image_tag());
+        assert!(a.image_tag().starts_with("stashbase/agent-sandbox-custom:"));
+    }
+
+    #[test]
+    fn agent_image_source_dockerfile_tag_differs_for_different_paths() {
+        let a = AgentImageSource::from_profile(None, Some("./docker/agent-sandbox/Dockerfile"));
+        let b = AgentImageSource::from_profile(None, Some("./Cargo.toml"));
+        assert_ne!(a.image_tag(), b.image_tag());
+    }
+
+    #[test]
+    fn a_plain_image_reference_is_always_reported_as_already_available() {
+        // No local build is possible for an image reference — `docker run`
+        // pulls it automatically, same as any ordinary invocation.
+        let source = AgentImageSource::Image("myorg/img:tag".to_owned());
+        assert!(sandbox_image_exists(&source));
+    }
+
+    #[test]
+    fn building_a_plain_image_reference_is_rejected() {
+        let source = AgentImageSource::Image("myorg/img:tag".to_owned());
+        let error = build_sandbox_image(&source).expect_err("nothing to build for an image ref");
+        assert!(error.contains("nothing to build"));
+    }
+
+    #[test]
     fn sandbox_image_lifecycle_when_docker_available() {
         let _guard = docker_daemon_lock()
             .lock()
@@ -795,8 +942,9 @@ mod tests {
         // Don't assert on the starting state — a prior test run or the
         // developer's own machine may already have the image built.
         // Just prove building it results in it existing.
-        build_sandbox_image().expect("building the embedded Dockerfile should succeed");
-        assert!(sandbox_image_exists());
+        build_sandbox_image(&AgentImageSource::Default)
+            .expect("building the embedded Dockerfile should succeed");
+        assert!(sandbox_image_exists(&AgentImageSource::Default));
     }
 
     #[test]
@@ -1077,8 +1225,16 @@ mod tests {
             "https://172.30.0.1:9999".to_owned(),
         );
 
-        let (program, args) =
-            docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        let (program, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &env_vars,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+        )
+        .unwrap();
 
         assert_eq!(program, "docker");
         assert!(args.contains(&"run".to_owned()));
@@ -1105,6 +1261,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         let cwd = std::env::current_dir()
@@ -1131,6 +1288,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         assert!(args.contains(&"--tmpfs".to_owned()));
@@ -1157,6 +1315,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         assert!(!args.contains(&"--tmpfs".to_owned()));
@@ -1182,6 +1341,7 @@ mod tests {
             std::slice::from_ref(&nested),
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         let nested_mount = args
@@ -1208,6 +1368,7 @@ mod tests {
             std::slice::from_ref(&cwd),
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         let mount_index = args.iter().position(|arg| arg == "-v").unwrap();
@@ -1234,6 +1395,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         assert!(args.contains(&format!("GIT_AUTHOR_NAME={name}")));
@@ -1252,7 +1414,16 @@ mod tests {
         };
         let mut env_vars = std::collections::HashMap::new();
         env_vars.insert("GIT_AUTHOR_NAME".to_owned(), "Explicit Override".to_owned());
-        let (_, args) = docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &env_vars,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+        )
+        .unwrap();
         assert!(args.contains(&"GIT_AUTHOR_NAME=Explicit Override".to_owned()));
         assert_eq!(
             args.iter()
@@ -1273,7 +1444,16 @@ mod tests {
             "SSL_CERT_FILE".to_owned(),
             "/tmp/stashbase-ca/ca.pem".to_owned(),
         );
-        let (_, args) = docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &env_vars,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+        )
+        .unwrap();
         // Must mount only the exact file — mounting its parent directory
         // would expose every other file in it (other processes' temp
         // files, other agent runs' audit/revocation state) to the
@@ -1292,7 +1472,15 @@ mod tests {
         };
         let mut env_vars = std::collections::HashMap::new();
         env_vars.insert("SSL_CERT_FILE".to_owned(), "/".to_owned());
-        let result = docker_run_command("claude", &network, &[], &[], &env_vars, false);
+        let result = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &env_vars,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+        );
         assert!(result.is_err());
     }
 
@@ -1304,7 +1492,15 @@ mod tests {
         };
         let mut env_vars = std::collections::HashMap::new();
         env_vars.insert("SSL_CERT_FILE".to_owned(), "ca.pem".to_owned());
-        let result = docker_run_command("claude", &network, &[], &[], &env_vars, false);
+        let result = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &env_vars,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+        );
         assert!(result.is_err());
     }
 
@@ -1321,6 +1517,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         let name_index = args.iter().position(|arg| arg == "--name").unwrap();
@@ -1340,6 +1537,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         assert!(args.contains(&"-i".to_owned()));
@@ -1359,6 +1557,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             true,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         assert!(args.contains(&"-t".to_owned()));
@@ -1377,6 +1576,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         assert!(args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
@@ -1396,6 +1596,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         let cap_drop_index = args.iter().position(|arg| arg == "--cap-drop").unwrap();
@@ -1422,6 +1623,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         let network_index = args.iter().position(|arg| arg == "--network").unwrap();
@@ -1441,6 +1643,7 @@ mod tests {
             &[],
             &std::collections::HashMap::new(),
             false,
+            DEFAULT_SANDBOX_IMAGE,
         )
         .unwrap();
         // Restoring `--user` is safe here: the agent container never runs
@@ -1471,7 +1674,16 @@ mod tests {
         let ca_path = cwd.join("ca.pem").to_string_lossy().into_owned();
         let mut env_vars = std::collections::HashMap::new();
         env_vars.insert("SSL_CERT_FILE".to_owned(), ca_path);
-        let (_, args) = docker_run_command("claude", &network, &[], &[], &env_vars, false).unwrap();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &env_vars,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+        )
+        .unwrap();
         // Only the cwd mount and the persistent home volume mount should
         // exist; no extra mount for a CA path that's already inside the
         // working directory.

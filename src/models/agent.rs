@@ -115,6 +115,15 @@ impl SandboxBackend {
 pub struct AgentSandboxProfile {
     #[serde(default)]
     pub backend: SandboxBackend,
+    /// Docker backend only: run this image instead of the built-in default.
+    /// Mutually exclusive with `dockerfile` — see `ensure_profile_is_valid_for_run`.
+    #[serde(default)]
+    pub image: Option<String>,
+    /// Docker backend only: build and run this Dockerfile (path relative to
+    /// the current working directory) instead of the built-in default image.
+    /// Mutually exclusive with `image`.
+    #[serde(default)]
+    pub dockerfile: Option<String>,
 }
 
 /// Project/environment-backed secret bindings. Personal credentials deliberately

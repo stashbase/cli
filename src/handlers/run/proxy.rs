@@ -666,6 +666,13 @@ pub struct ProxyPolicy {
     pub mcp_rules: Vec<AgentMcpRule>,
     /// Selects which enforcement backend the sandboxed child runs under.
     pub backend: SandboxBackend,
+    /// Docker backend only: a custom image reference to run instead of the
+    /// built-in default. Takes priority over `sandbox_dockerfile` if both
+    /// are somehow set (profile loading rejects setting both).
+    pub sandbox_image: Option<String>,
+    /// Docker backend only: path to a custom Dockerfile to build and run
+    /// instead of the built-in default image.
+    pub sandbox_dockerfile: Option<String>,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -773,6 +780,8 @@ impl ProxyPolicy {
             strict_deny: false,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         }
     }
 
@@ -3509,6 +3518,8 @@ mod tests {
                 },
             ],
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         }
     }
 
@@ -3889,6 +3900,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -4016,6 +4029,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         }
     }
 
@@ -4529,6 +4544,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -4571,6 +4588,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         }
     }
 
@@ -4704,6 +4723,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         };
         assert!(secret_allows_request(
             &policy,
@@ -4827,6 +4848,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -4868,6 +4891,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -4895,6 +4920,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -4961,6 +4988,8 @@ mod tests {
             strict_deny: true,
             mcp_rules: Vec::new(),
             backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -5324,6 +5353,8 @@ mod tests {
                 strict_deny: true,
                 mcp_rules: Vec::new(),
                 backend: SandboxBackend::Native,
+                sandbox_image: None,
+                sandbox_dockerfile: None,
             },
             None,
         )
@@ -5362,6 +5393,8 @@ mod tests {
                 strict_deny: true,
                 mcp_rules: Vec::new(),
                 backend: SandboxBackend::Native,
+                sandbox_image: None,
+                sandbox_dockerfile: None,
             },
             None,
         )
@@ -5401,6 +5434,8 @@ mod tests {
                 strict_deny: true,
                 mcp_rules: Vec::new(),
                 backend: SandboxBackend::Native,
+                sandbox_image: None,
+                sandbox_dockerfile: None,
             },
             None,
         )

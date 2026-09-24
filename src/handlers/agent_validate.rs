@@ -363,6 +363,36 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
         }
     }
 
+    if profile.sandbox.image.is_some() && profile.sandbox.dockerfile.is_some() {
+        checks.push(fail(
+            "Sandbox image",
+            "'sandbox.image' and 'sandbox.dockerfile' are mutually exclusive; set at most one."
+                .to_owned(),
+        ));
+    }
+    if let Some(image) = &profile.sandbox.image {
+        if image.trim().is_empty() {
+            checks.push(fail(
+                "Sandbox image",
+                "'sandbox.image' must not be empty or whitespace.".to_owned(),
+            ));
+        }
+    }
+    if let Some(dockerfile) = &profile.sandbox.dockerfile {
+        let path = Path::new(dockerfile);
+        if !path.is_file() {
+            checks.push(fail(
+                "Sandbox Dockerfile",
+                format!("File not found: {}", path.display()),
+            ));
+        } else {
+            checks.push(ok(
+                "Sandbox Dockerfile",
+                format!("Readable: {}", path.display()),
+            ));
+        }
+    }
+
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut child_envs: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut placeholders: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -997,6 +1027,53 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Unsupported hook capability 'anything_else'"));
+    }
+
+    #[test]
+    fn rejects_sandbox_image_and_dockerfile_set_together() {
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.sandbox.image = Some("myorg/img:tag".to_owned());
+        profile.sandbox.dockerfile = Some("./Cargo.toml".to_owned());
+
+        assert!(validate_profile(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail
+                && check.name == "Sandbox image"
+                && check.message.contains("mutually exclusive")));
+    }
+
+    #[test]
+    fn rejects_a_missing_sandbox_dockerfile() {
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.sandbox.dockerfile = Some("./does-not-exist.Dockerfile".to_owned());
+
+        assert!(validate_profile(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail && check.name == "Sandbox Dockerfile"));
     }
 
     #[test]
