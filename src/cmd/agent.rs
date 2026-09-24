@@ -43,6 +43,8 @@ pub enum AgentSubcommand {
     McpCheck(AgentMcpCheckCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
+    /// Manage Docker sandbox backend resources
+    Docker(AgentDockerCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -51,6 +53,25 @@ pub enum AgentSessionsSubcommand {
     List(AgentSessionsCommand),
     /// Revoke an active local or remote agent session
     Revoke(AgentRevokeCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerCommand {
+    #[command(subcommand)]
+    pub subcommand: AgentDockerSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentDockerSubcommand {
+    /// Find and remove Docker sandbox networks/containers left behind by a run that didn't tear down cleanly (e.g. `stashbase` was killed with SIGKILL mid-run)
+    Cleanup(AgentDockerCleanupCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerCleanupCommand {
+    /// Remove every leftover resource without prompting for confirmation
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Args)]

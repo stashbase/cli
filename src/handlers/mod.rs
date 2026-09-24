@@ -1,3 +1,4 @@
+pub mod agent_docker;
 pub mod agent_doctor;
 pub mod agent_explain;
 pub mod agent_init;

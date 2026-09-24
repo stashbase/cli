@@ -112,18 +112,23 @@ pub async fn handle_remote_agent_run(
         policy.sandbox_dockerfile.as_deref(),
     );
     let command_audit_log = audit_log.clone();
-    let mut setup_spinner = (!silent && backend == crate::models::agent::SandboxBackend::Docker)
-        .then(|| {
-            crate::utils::spinner::new_spinner(
-                "Preparing sandbox image and network...",
-                Streams::Stderr,
-            )
-        });
+    let mut setup_spinner: Option<spinoff::Spinner> = None;
     let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
+        // Resolved before the spinner starts: this can print its own
+        // interactive "build the image now?" prompt on first use, which
+        // must never race a concurrently animating spinner writing to the
+        // same stream (see the same reasoning for the proxy-started
+        // message below).
         let agent_image = ensure_docker_sandbox_image_available(&agent_image_source, silent)?;
+        setup_spinner = (!silent).then(|| {
+            crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
+        });
         (
             Some(
-                super::docker_sandbox::create_run_network().map_err(|error| {
+                super::docker_sandbox::create_run_network(
+                    audit_log.as_ref().map(|log| log.session_id()),
+                )
+                .map_err(|error| {
                     anyhow::anyhow!("failed to create Docker sandbox network: {error}")
                 })?,
             ),
@@ -1315,20 +1320,26 @@ async fn handle_run(
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
-        let mut setup_spinner =
-            (!silent && backend == crate::models::agent::SandboxBackend::Docker).then(|| {
-                crate::utils::spinner::new_spinner(
-                    "Preparing sandbox image and network...",
-                    Streams::Stderr,
-                )
-            });
+        let mut setup_spinner: Option<spinoff::Spinner> = None;
         let (docker_network, agent_image) = if backend
             == crate::models::agent::SandboxBackend::Docker
         {
+            // Resolved before the spinner starts: this can print its own
+            // interactive "build the image now?" prompt on first use, which
+            // must never race a concurrently animating spinner writing to
+            // the same stream (see the same reasoning for the
+            // proxy-started message below).
             let agent_image = ensure_docker_sandbox_image_available(&agent_image_source, silent)?;
+            setup_spinner = (!silent).then(|| {
+                crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
+            });
+            let run_session_id = local_session
+                .as_ref()
+                .map(|session| session.session_id())
+                .or_else(|| audit_log.as_ref().map(|log| log.session_id()));
             (
                 Some(
-                    super::docker_sandbox::create_run_network().map_err(|error| {
+                    super::docker_sandbox::create_run_network(run_session_id).map_err(|error| {
                         anyhow::anyhow!("failed to create Docker sandbox network: {error}")
                     })?,
                 ),

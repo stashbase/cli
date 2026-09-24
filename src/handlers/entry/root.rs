@@ -577,6 +577,14 @@ pub async fn handle_cli(args: Cli) {
                     )
                     .await
                 }
+                AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
+                    crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
+                        crate::handlers::agent_docker::handle_docker_cleanup_command(
+                            command, silent,
+                        )
+                        .await
+                    }
+                },
                 AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
                         handle_agent_logs(list.into(), raw_output).await

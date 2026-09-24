@@ -36,8 +36,19 @@ pub(crate) fn docker_enforcement_error() -> Option<String> {
     }
 }
 
-fn generate_run_network_name() -> String {
-    format!("stashbase-agent-run-{}", uuid::Uuid::new_v4())
+/// Named after the run's own session id (the same `ags_...` id shown in
+/// "Agent session"/"Audit session" and used for the audit log filename) so
+/// a stray container or network left behind after a crash can be traced
+/// back to the session that created it, instead of an unrelated random
+/// UUID. Falls back to a fresh UUID only when no session id is available
+/// (e.g. audit logging disabled and no local session guard, which
+/// shouldn't happen in practice for either the local or remote run paths).
+fn generate_run_network_name(session_id: Option<&str>) -> String {
+    let suffix = session_id
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    format!("stashbase-agent-run-{suffix}")
 }
 
 #[derive(Debug, Clone)]
@@ -93,8 +104,8 @@ fn network_create_args(name: &str) -> Vec<String> {
     args
 }
 
-pub(crate) fn create_run_network() -> Result<DockerRunNetwork, String> {
-    let name = generate_run_network_name();
+pub(crate) fn create_run_network(session_id: Option<&str>) -> Result<DockerRunNetwork, String> {
+    let name = generate_run_network_name(session_id);
     let create = std::process::Command::new("docker")
         .args(network_create_args(&name))
         .output()
@@ -232,6 +243,13 @@ pub(crate) fn start_netns_holder(
          # must still be reachable — either failing means this run is not\n\
          # actually contained and must not proceed.\n\
          set +e\n\
+         # 192.0.2.1 is TEST-NET-1 (RFC 5737) — reserved for documentation\n\
+         # and testing, never routed on the real internet. Used here purely\n\
+         # as an arbitrary destination the firewall must never let through,\n\
+         # deliberately not a live third party's real IP (e.g. a public DNS\n\
+         # resolver), so this check's correctness never depends on what\n\
+         # that company's infrastructure happens to be doing right now.\n\
+         #\n\
          # DROP (vs. REJECT) means a blocked connection gets no response at\n\
          # all, so this waits out its own timeout on the success path (the\n\
          # firewall is working) — that wait is pure per-run startup latency,\n\
@@ -240,7 +258,7 @@ pub(crate) fn start_netns_holder(
          # the public internet, let alone from a container's own network\n\
          # stack, so 300ms leaves ample margin above any real response time\n\
          # while capping the wasted wait on the (expected) blocked outcome.\n\
-         curl -s -m 0.3 -o /dev/null 'http://1.1.1.1/'\n\
+         curl -s -m 0.3 -o /dev/null 'http://192.0.2.1/'\n\
          arbitrary_reachable=$?\n\
          curl -s -m 3 -o /dev/null \"http://$proxy_ip:{proxy_port}/\"\n\
          proxy_reachable=$?\n\
@@ -355,6 +373,84 @@ pub(crate) fn remove_run_network(network: &DockerRunNetwork) -> Result<(), Strin
         last_error = String::from_utf8_lossy(&output.stderr).trim().to_owned();
     }
     Err(last_error)
+}
+
+/// Prefix shared by every per-run Docker network this backend creates —
+/// used both to name new networks and to find existing ones left behind by
+/// a run that didn't tear down cleanly (a crash or `SIGKILL` of the
+/// `stashbase` process itself, which no normal exit path — including
+/// Ctrl+C — leaves behind).
+const RUN_NETWORK_NAME_PREFIX: &str = "stashbase-agent-run-";
+
+/// A per-run Docker network still present on this machine, found by name
+/// rather than tracked in memory (this process may not be the one that
+/// created it) — see `list_run_networks`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExistingRunNetwork {
+    pub name: String,
+    /// The session id embedded in the network's name (`ags_...`), or
+    /// `None` for the pre-session-naming fallback (a bare UUID) — see
+    /// `generate_run_network_name`.
+    pub session_id: Option<String>,
+    /// RFC 3339 creation timestamp, straight from `docker network inspect`.
+    pub created_at: String,
+}
+
+/// Lists every Docker network this backend has ever created that still
+/// exists, regardless of which process (or machine session) created it.
+/// Used by `agent docker cleanup` to find networks a crashed run left
+/// behind; deliberately does not attempt to guess which ones are still
+/// legitimately in use by a live run elsewhere — that judgment is left to
+/// the caller (comparing against locally tracked sessions, prompting the
+/// user, etc.), since this function has no way to know about a live
+/// *remote* run's session at all.
+pub(crate) fn list_run_networks() -> Result<Vec<ExistingRunNetwork>, String> {
+    let list = std::process::Command::new("docker")
+        .args([
+            "network",
+            "ls",
+            "--filter",
+            &format!("name={RUN_NETWORK_NAME_PREFIX}"),
+            "--format",
+            "{{.Name}}",
+        ])
+        .output()
+        .map_err(|error| format!("failed to run `docker network ls`: {error}"))?;
+    if !list.status.success() {
+        return Err(String::from_utf8_lossy(&list.stderr).trim().to_owned());
+    }
+    String::from_utf8_lossy(&list.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        // `docker network ls --filter name=X` matches X anywhere in the
+        // name, not just as a prefix — filter again to be exact.
+        .filter(|name| name.starts_with(RUN_NETWORK_NAME_PREFIX))
+        .map(|name| {
+            let inspect = std::process::Command::new("docker")
+                .args(["network", "inspect", name, "--format", "{{.Created}}"])
+                .output()
+                .map_err(|error| format!("failed to run `docker network inspect`: {error}"))?;
+            let created_at = if inspect.status.success() {
+                String::from_utf8_lossy(&inspect.stdout).trim().to_owned()
+            } else {
+                // The network could have been removed between the `ls` and
+                // this `inspect` (e.g. a concurrent run finishing normally)
+                // — report it as unknown rather than failing the whole
+                // listing over a race that isn't this caller's problem.
+                String::new()
+            };
+            let session_id = name
+                .strip_prefix(RUN_NETWORK_NAME_PREFIX)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned);
+            Ok(ExistingRunNetwork {
+                name: name.to_owned(),
+                session_id,
+                created_at,
+            })
+        })
+        .collect()
 }
 
 /// The host address the credential proxy should bind to for this Docker
@@ -1003,11 +1099,28 @@ mod tests {
     }
 
     #[test]
-    fn run_network_names_are_unique_per_call() {
-        let first = generate_run_network_name();
-        let second = generate_run_network_name();
+    fn run_network_names_are_unique_per_call_without_a_session_id() {
+        let first = generate_run_network_name(None);
+        let second = generate_run_network_name(None);
         assert_ne!(first, second);
         assert!(first.starts_with("stashbase-agent-run-"));
+    }
+
+    #[test]
+    fn run_network_name_uses_the_session_id_when_given() {
+        // Naming the network after the run's own session id (rather than an
+        // unrelated random UUID) lets a stray container/network left behind
+        // after a crash be traced back to the "Agent session"/"Audit
+        // session" id already shown for that run.
+        let name = generate_run_network_name(Some("ags_test123"));
+        assert_eq!(name, "stashbase-agent-run-ags_test123");
+    }
+
+    #[test]
+    fn run_network_name_falls_back_to_a_uuid_for_an_empty_session_id() {
+        let first = generate_run_network_name(Some(""));
+        let second = generate_run_network_name(Some(""));
+        assert_ne!(first, second);
     }
 
     #[test]
@@ -1033,9 +1146,37 @@ mod tests {
             eprintln!("skipping: Docker not available in this environment");
             return;
         }
-        let network = create_run_network().expect("network should be created");
+        let network = create_run_network(None).expect("network should be created");
         assert!(!network.gateway_ip.is_empty());
         remove_run_network(&network).expect("network should be removed");
+    }
+
+    #[test]
+    fn list_run_networks_finds_a_network_and_extracts_its_session_id_when_docker_available() {
+        let _guard = docker_daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if docker_enforcement_error().is_some() {
+            eprintln!("skipping: Docker not available in this environment");
+            return;
+        }
+        let session_id = format!("ags_listtest{}", uuid::Uuid::new_v4().simple());
+        let network = create_run_network(Some(&session_id)).expect("network should be created");
+
+        let found = list_run_networks()
+            .expect("listing should succeed")
+            .into_iter()
+            .find(|entry| entry.name == network.name);
+        let entry = found.expect("the just-created network should be in the listing");
+        assert_eq!(entry.session_id.as_deref(), Some(session_id.as_str()));
+        assert!(!entry.created_at.is_empty());
+
+        remove_run_network(&network).expect("network should be removed");
+        let still_listed = list_run_networks()
+            .expect("listing should succeed")
+            .into_iter()
+            .any(|entry| entry.name == network.name);
+        assert!(!still_listed, "removed network should no longer be listed");
     }
 
     #[test]
@@ -1047,7 +1188,7 @@ mod tests {
             eprintln!("skipping: Docker not available in this environment");
             return;
         }
-        let network = create_run_network().expect("network should be created");
+        let network = create_run_network(None).expect("network should be created");
         // Start a long-running container on this network with the same
         // name `docker_run_command` would give it, without `--rm`, so it
         // is still attached when teardown runs — reproducing the "network
@@ -1124,7 +1265,7 @@ mod tests {
             eprintln!("skipping: Docker not available in this environment");
             return;
         }
-        let network = create_run_network().expect("network should be created");
+        let network = create_run_network(None).expect("network should be created");
 
         // A tiny host-side listener the holder's firewall rule should allow
         // through (simulating the credential proxy).
