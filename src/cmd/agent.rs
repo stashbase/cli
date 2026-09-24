@@ -90,6 +90,10 @@ pub struct AgentDockerBuildCommand {
     /// Build the given profile's `sandbox.image`/`sandbox.dockerfile` instead of the built-in default image
     #[arg(long)]
     pub profile: Option<String>,
+
+    /// Where to load --profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
 }
 
 #[derive(Debug, Args)]

@@ -104,15 +104,26 @@ pub async fn handle_docker_build_command(
     let source = match &command.profile {
         None => crate::handlers::run::docker_sandbox::AgentImageSource::Default,
         Some(profile_name) => {
-            let directory_profile =
-                crate::config::config::get_directory_agent_profile(profile_name)?
-                    .map(|loaded| loaded.profile);
-            let global_profile = global_config
-                .agent_profiles
-                .as_ref()
-                .and_then(|profiles| profiles.get(profile_name))
-                .cloned();
-            let Some(profile) = directory_profile.or(global_profile) else {
+            let global_profile = || {
+                global_config
+                    .agent_profiles
+                    .as_ref()
+                    .and_then(|profiles| profiles.get(profile_name))
+                    .cloned()
+            };
+            let profile = match command.profile_source {
+                crate::cmd::agent::AgentProfileSource::Global => global_profile(),
+                crate::cmd::agent::AgentProfileSource::Directory => {
+                    crate::config::config::get_directory_agent_profile(profile_name)?
+                        .map(|loaded| loaded.profile)
+                }
+                crate::cmd::agent::AgentProfileSource::Auto => {
+                    crate::config::config::get_directory_agent_profile(profile_name)?
+                        .map(|loaded| loaded.profile)
+                        .or_else(global_profile)
+                }
+            };
+            let Some(profile) = profile else {
                 anyhow::bail!("Agent profile '{profile_name}' was not found.");
             };
             crate::handlers::run::docker_sandbox::AgentImageSource::from_profile(
