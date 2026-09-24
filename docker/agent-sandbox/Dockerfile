@@ -19,7 +19,20 @@ RUN apt-get update \
         unzip \
         less \
         procps \
+        python3 \
+        python3-pip \
+        python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+# Debian's system pip refuses a bare `pip install` (PEP 668,
+# "externally-managed-environment") to protect the OS's own Python install
+# from being clobbered by unrelated packages. That protection matters far
+# less for an ephemeral sandbox container than it does on a real host — the
+# base image itself is never mutated at runtime, so there's nothing lasting
+# to corrupt — so it's relaxed here for a working `pip install` out of the
+# box. `python3-venv` is still included for anyone who wants an isolated
+# environment anyway.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Claude Code and Codex are installed via their own official native
 # installers rather than `npm install -g` — both projects document this as
