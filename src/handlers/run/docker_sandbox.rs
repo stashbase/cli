@@ -223,6 +223,39 @@ pub(crate) fn start_netns_holder(
          iptables -A OUTPUT -p udp --dport 53 -j ACCEPT\n\
          iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT\n\
          iptables -A OUTPUT -d \"$proxy_ip\" -p tcp --dport '{proxy_port}' -j ACCEPT\n\
+         \n\
+         # Verify the rule actually took effect before trusting it, rather\n\
+         # than assuming `iptables` exiting 0 means the running kernel\n\
+         # honored it (inspired by Anthropic's own Claude Code devcontainer\n\
+         # firewall script, which does the same kind of self-check). A\n\
+         # known-arbitrary host must be unreachable, and the proxy itself\n\
+         # must still be reachable — either failing means this run is not\n\
+         # actually contained and must not proceed.\n\
+         set +e\n\
+         # DROP (vs. REJECT) means a blocked connection gets no response at\n\
+         # all, so this waits out its own timeout on the success path (the\n\
+         # firewall is working). Kept short since it's a same-host SYN with\n\
+         # nothing slow in the way.\n\
+         curl -s -m 1 -o /dev/null 'http://1.1.1.1/'\n\
+         arbitrary_reachable=$?\n\
+         curl -s -m 3 -o /dev/null \"http://$proxy_ip:{proxy_port}/\"\n\
+         proxy_reachable=$?\n\
+         set -e\n\
+         \n\
+         if [ \"$arbitrary_reachable\" -eq 0 ]; then\n\
+             echo 'firewall verification failed: an arbitrary external host was reachable' >&2\n\
+             exit 1\n\
+         fi\n\
+         # curl exit 7 = couldn't connect, 28 = timeout — both mean the\n\
+         # proxy's own ACCEPT rule didn't take effect. Any other non-zero\n\
+         # exit (e.g. a protocol complaint about a non-HTTP response from\n\
+         # the forward-proxy port) still proves the TCP connection itself\n\
+         # succeeded, which is all this check needs.\n\
+         if [ \"$proxy_reachable\" -eq 7 ] || [ \"$proxy_reachable\" -eq 28 ]; then\n\
+             echo \"firewall verification failed: proxy unreachable (curl exit $proxy_reachable)\" >&2\n\
+             exit 1\n\
+         fi\n\
+         \n\
          echo \"$proxy_ip\"\n"
     );
     // `docker exec` immediately after `docker run -d` can race the
