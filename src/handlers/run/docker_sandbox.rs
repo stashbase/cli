@@ -1074,6 +1074,29 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
+    /// Builds the default sandbox image once per test binary run, for any
+    /// test that actually executes `docker run`/`exec` against it (as
+    /// opposed to the many tests that only build a `docker_run_command`
+    /// argv list without ever invoking Docker for real). `cargo test`'s
+    /// default order is not "this file's declaration order" and isn't
+    /// guaranteed at all — on a fresh machine with no image already built
+    /// (a clean CI runner, unlike a developer's machine that's likely
+    /// built it before), a test needing the image can and did run before
+    /// `sandbox_image_lifecycle_when_docker_available` (the only test that
+    /// used to build it), failing with "image not found" since Docker then
+    /// tries to pull a nonexistent, unpublished image instead. Call this
+    /// after acquiring `docker_daemon_lock()` and confirming Docker is
+    /// reachable, in every test that runs a real container.
+    fn ensure_default_sandbox_image_for_tests() {
+        static BUILD_ONCE: OnceLock<()> = OnceLock::new();
+        BUILD_ONCE.get_or_init(|| {
+            if !sandbox_image_exists(&AgentImageSource::Default) {
+                build_sandbox_image(&AgentImageSource::Default)
+                    .expect("building the embedded Dockerfile should succeed for tests");
+            }
+        });
+    }
+
     #[test]
     fn sandbox_dockerfile_is_embedded_and_non_empty() {
         assert!(SANDBOX_DOCKERFILE.contains("FROM"));
@@ -1299,6 +1322,7 @@ mod tests {
             eprintln!("skipping: Docker not available in this environment");
             return;
         }
+        ensure_default_sandbox_image_for_tests();
         let network = create_run_network(None).expect("network should be created");
         // Start a long-running container on this network with the same
         // name `docker_run_command` would give it, without `--rm`, so it
@@ -1376,6 +1400,7 @@ mod tests {
             eprintln!("skipping: Docker not available in this environment");
             return;
         }
+        ensure_default_sandbox_image_for_tests();
         let network = create_run_network(None).expect("network should be created");
 
         // A tiny host-side listener the holder's firewall rule should allow
