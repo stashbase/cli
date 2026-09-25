@@ -695,6 +695,35 @@ pub(crate) fn build_sandbox_image(source: &AgentImageSource) -> Result<(), Strin
     build_result
 }
 
+/// `--user uid:gid` args for the agent container, Linux only: Docker
+/// Desktop already maps container-root writes on a bind mount back to the
+/// host user transparently; native Linux does not, so without this every
+/// file the agent creates in the mounted project directory would end up
+/// root-owned.
+///
+/// Split into two `#[cfg]`-gated functions rather than one function with a
+/// runtime `if cfg!(target_os = "linux")` check: `cfg!()` is a runtime
+/// boolean, not conditional compilation, so code behind it still has to
+/// *compile* on every target — and `libc::getuid`/`getgid` don't exist on
+/// Windows at all (there's no POSIX uid/gid concept there), which broke the
+/// Windows CI build under the old approach. An actual `#[cfg(...)]`
+/// attribute excludes the Linux-only body from non-Linux compilation
+/// entirely, not just from running.
+#[cfg(target_os = "linux")]
+fn docker_run_user_flag_args() -> Vec<String> {
+    vec![
+        "--user".to_owned(),
+        format!("{}:{}", unsafe { libc::getuid() }, unsafe {
+            libc::getgid()
+        }),
+    ]
+}
+
+#[cfg(not(target_os = "linux"))]
+fn docker_run_user_flag_args() -> Vec<String> {
+    Vec::new()
+}
+
 /// Builds a `docker run` invocation that mounts only the current working
 /// directory (read-write), attaches the container to `network` so it can
 /// reach the credential proxy at `network.gateway_ip`, and passes `env_vars`
@@ -770,18 +799,7 @@ pub(crate) fn docker_run_command(
         "--pids-limit".to_owned(),
         "2048".to_owned(),
     ]);
-    if cfg!(target_os = "linux") {
-        // Docker Desktop already maps container-root writes on a bind
-        // mount back to the host user transparently; native Linux does
-        // not, so without this every file the agent creates in the
-        // mounted project directory would end up root-owned.
-        args.extend([
-            "--user".to_owned(),
-            format!("{}:{}", unsafe { libc::getuid() }, unsafe {
-                libc::getgid()
-            }),
-        ]);
-    }
+    args.extend(docker_run_user_flag_args());
     args.extend([
         "--network".to_owned(),
         format!("container:{}", netns_holder_name(network)),
