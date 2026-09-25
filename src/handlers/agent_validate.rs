@@ -153,6 +153,27 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
 
 fn validate_runtime_requirements(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
+
+    // A Docker-backend profile never touches the native
+    // Seatbelt/systemd-run/bubblewrap mechanisms the checks below test —
+    // it's contained by the Docker sandbox instead, which is checked
+    // separately. Reporting a native-backend failure for a profile that
+    // will never use the native backend is actively misleading: it's the
+    // difference between "this profile can't run here" (true) and "this
+    // profile can't run *natively* here" (irrelevant to a Docker-backend
+    // profile, and would wrongly report Windows as unsupported even though
+    // Docker Desktop makes this backend work there too).
+    if profile.sandbox.backend == crate::models::agent::SandboxBackend::Docker {
+        match crate::handlers::run::docker_sandbox::docker_enforcement_error() {
+            Some(error) => checks.push(fail("Docker sandbox backend", error)),
+            None => checks.push(ok(
+                "Docker sandbox backend",
+                "Docker is installed and the daemon is reachable.".to_owned(),
+            )),
+        }
+        return checks;
+    }
+
     match crate::handlers::run::subprocess::network_enforcement_error() {
         Some(error) => checks.push(fail("Network enforcement", error)),
         None => checks.push(ok(
@@ -1027,6 +1048,39 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Unsupported hook capability 'anything_else'"));
+    }
+
+    #[test]
+    fn docker_backend_profile_gets_a_docker_runtime_check_not_native_ones() {
+        // A Docker-backend profile never touches Seatbelt/systemd-run/
+        // bubblewrap, so it must not be reported as unsupported on a
+        // platform where only those native mechanisms are unavailable
+        // (e.g. Windows) — it should get a Docker-specific check instead.
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+
+        let checks = validate_runtime_requirements(&profile);
+        assert!(checks
+            .iter()
+            .any(|check| check.name == "Docker sandbox backend"));
+        assert!(!checks
+            .iter()
+            .any(|check| check.name == "Network enforcement"));
+        assert!(!checks
+            .iter()
+            .any(|check| check.name == "Filesystem enforcement"));
     }
 
     #[test]
