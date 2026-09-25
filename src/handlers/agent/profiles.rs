@@ -12,7 +12,7 @@ use crate::{
         AgentProfilesShowCommand, AgentProfilesSubcommand,
     },
     config::config,
-    handlers::agent_policy::{normalize_secret_http_policy, SecretHttpPolicy},
+    handlers::agent::policy::{normalize_secret_http_policy, SecretHttpPolicy},
     models::{
         agent::AgentProfile,
         config::Config,

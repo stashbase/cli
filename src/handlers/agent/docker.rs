@@ -30,7 +30,7 @@ fn belongs_to_a_live_local_session(
 fn list_networks_with_liveness() -> Result<Vec<(ExistingRunNetwork, bool)>> {
     let networks = crate::handlers::run::docker_sandbox::list_run_networks()
         .map_err(|error| anyhow::anyhow!("failed to list Docker sandbox networks: {error}"))?;
-    let local_sessions = crate::handlers::agent_sessions::list_local_sessions()
+    let local_sessions = super::sessions::list_local_sessions()
         .unwrap_or_default()
         .into_iter()
         .map(|session| session.session_id)

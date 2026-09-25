@@ -26,8 +26,8 @@ use crate::{
     },
     config::config,
     handlers::{
-        agent_policy::SecretHttpPolicy,
-        agent_profiles::{
+        agent::policy::SecretHttpPolicy,
+        agent::profiles::{
             profile_not_found_error, profile_not_found_error_with_output, source_label,
         },
         entry::root::{provision_remote_session_ca, remote_bindings, remote_session_state},

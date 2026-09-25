@@ -326,7 +326,7 @@ pub struct HandleRunArgs {
     pub silent: bool,
     pub scope: Option<Scope>,
     pub dependency_hooks: bool,
-    pub local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    pub local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
@@ -1210,7 +1210,7 @@ async fn handle_run(
     json_format: bool,
     dependency_hooks: bool,
     hook_api_key: Option<String>,
-    local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 ) -> anyhow::Result<()> {
     apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = env::expand_and_inject_env(&mut secrets);

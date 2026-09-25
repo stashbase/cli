@@ -59,7 +59,7 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 use uuid::Uuid;
 
 use crate::{
-    handlers::agent_policy::{
+    handlers::agent::policy::{
         evaluate_secret_authorization, host_matches, normalize_secret_http_policy,
         SecretAuthorizationDecision, SecretHttpPolicy,
     },
@@ -2916,7 +2916,7 @@ impl ProxyState {
             .read()
             .ok()
             .and_then(|path| path.clone())
-            .is_some_and(|path| crate::handlers::agent_sessions::is_local_session_revoked(&path))
+            .is_some_and(|path| crate::handlers::agent::sessions::is_local_session_revoked(&path))
     }
 
     fn host_is_denied(&self, host: Option<&str>) -> bool {

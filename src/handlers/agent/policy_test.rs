@@ -9,11 +9,11 @@ use crate::{
     cmd::agent::{AgentPolicyTestCommand, AgentProfileSource},
     config::config,
     handlers::{
-        agent_policy::{
+        agent::policy::{
             configured_host_matches, evaluate_secret_authorization, SecretAuthorizationDecision,
             SecretHttpPolicy,
         },
-        agent_validate::ensure_profile_is_valid_for_run,
+        agent::validate::ensure_profile_is_valid_for_run,
     },
     models::{
         agent::{AgentPolicyTestCase, AgentPolicyTestExpectation, AgentProfile},
