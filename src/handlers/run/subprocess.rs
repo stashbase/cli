@@ -100,6 +100,8 @@ pub async fn run_command_with_filesystem_policy(
         backend,
         None,
         super::docker_sandbox::DEFAULT_SANDBOX_IMAGE,
+        None,
+        None,
     )
     .await
 }
@@ -126,6 +128,8 @@ pub async fn run_command_with_filesystem_policy_and_network(
     backend: crate::models::agent::SandboxBackend,
     docker_network: Option<&super::docker_sandbox::DockerRunNetwork>,
     agent_image: &str,
+    sandbox_memory: Option<&str>,
+    sandbox_cpus: Option<&str>,
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
 
@@ -144,6 +148,8 @@ pub async fn run_command_with_filesystem_policy_and_network(
             &env_vars,
             std::io::stdin().is_terminal(),
             agent_image,
+            sandbox_memory,
+            sandbox_cpus,
         )
         .map_err(|error| anyhow::anyhow!("failed to build Docker sandbox invocation: {error}"))?;
         return run_built_command(

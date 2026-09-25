@@ -124,6 +124,17 @@ pub struct AgentSandboxProfile {
     /// Mutually exclusive with `image`.
     #[serde(default)]
     pub dockerfile: Option<String>,
+    /// Docker backend only: cap the agent container's memory, passed
+    /// straight through to `docker run --memory` (e.g. "2g", "512m"). No
+    /// cap by default — this is opt-in, since an automatic default could
+    /// silently break a legitimately memory-hungry task with no warning.
+    #[serde(default)]
+    pub memory: Option<String>,
+    /// Docker backend only: cap the agent container's CPU allocation,
+    /// passed straight through to `docker run --cpus` (e.g. "1.5", "2").
+    /// No cap by default, for the same reason as `memory`.
+    #[serde(default)]
+    pub cpus: Option<String>,
 }
 
 /// Project/environment-backed secret bindings. Personal credentials deliberately

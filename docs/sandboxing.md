@@ -120,6 +120,19 @@ stashbase agent run --profile coding -- codex login --device-auth
 
 Claude Code has the same kind of gap: `platform.claude.com` must be in `egress_hosts` alongside `api.anthropic.com` for OAuth login (`/login`) and silent token refresh to work. Without it, login fails with "OAuth error: proxy refused the connection," or — if you were already logged in before restricting egress — the session works until the access token's next refresh is silently blocked, then fails hours later with "OAuth access token has expired."
 
+### Resource limits
+
+No CPU or memory cap is applied by default — an automatic one could silently break a legitimately heavy task with no warning. Opt in per profile:
+
+```toml
+[sandbox]
+backend = "docker"
+memory = "2g"   # docker run --memory
+cpus = "1.5"    # docker run --cpus
+```
+
+Or per invocation, without editing the file: `--docker-memory <value>` / `--docker-cpus <value>` (same override precedence as `--docker-image`/`--docker-dockerfile`, but these don't imply the Docker backend on their own — they're only meaningful once Docker is already selected). `agent validate` checks the value looks like something Docker would accept before you ever try to run it.
+
 ### Cleaning up after a crash
 
 Every per-run Docker network (and its two containers) is named after that run's own session id — the same `ags_...` id shown in "Agent session"/"Audit session" and used for the audit log filename — specifically so leftovers can be traced back to the run that created them. Normal exit paths, including Ctrl+C, tear both containers and the network down as part of `agent run` itself; only a crash or a forceful `SIGKILL` of the `stashbase` process can leave them behind.

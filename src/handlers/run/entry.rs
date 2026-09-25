@@ -111,6 +111,8 @@ pub async fn handle_remote_agent_run(
         policy.sandbox_image.as_deref(),
         policy.sandbox_dockerfile.as_deref(),
     );
+    let sandbox_memory = policy.sandbox_memory.clone();
+    let sandbox_cpus = policy.sandbox_cpus.clone();
     let command_audit_log = audit_log.clone();
     let mut setup_spinner: Option<spinoff::Spinner> = None;
     let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
@@ -246,6 +248,8 @@ pub async fn handle_remote_agent_run(
         backend,
         docker_network.as_ref(),
         &agent_image,
+        sandbox_memory.as_deref(),
+        sandbox_cpus.as_deref(),
     )
     .await;
     proxy.stop().await;
@@ -1315,6 +1319,12 @@ async fn handle_run(
             .as_ref()
             .and_then(|policy| policy.sandbox_dockerfile.as_deref()),
     );
+    let sandbox_memory = proxy_policy
+        .as_ref()
+        .and_then(|policy| policy.sandbox_memory.clone());
+    let sandbox_cpus = proxy_policy
+        .as_ref()
+        .and_then(|policy| policy.sandbox_cpus.clone());
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
@@ -1458,6 +1468,8 @@ async fn handle_run(
             backend,
             docker_network.as_ref(),
             &agent_image,
+            sandbox_memory.as_deref(),
+            sandbox_cpus.as_deref(),
         ));
         let result = command.await;
         proxy.stop().await;

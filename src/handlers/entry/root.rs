@@ -766,6 +766,12 @@ pub async fn handle_cli(args: Cli) {
                         profile.sandbox.image = None;
                         profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
                     }
+                    if let Some(memory) = &agent_run.docker_memory {
+                        profile.sandbox.memory = Some(memory.clone());
+                    }
+                    if let Some(cpus) = &agent_run.docker_cpus {
+                        profile.sandbox.cpus = Some(cpus.clone());
+                    }
                     crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
@@ -963,6 +969,8 @@ pub async fn handle_cli(args: Cli) {
                         backend: profile.sandbox.backend,
                         sandbox_image: profile.sandbox.image.clone(),
                         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
+                        sandbox_memory: profile.sandbox.memory.clone(),
+                        sandbox_cpus: profile.sandbox.cpus.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source

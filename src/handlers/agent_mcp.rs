@@ -679,6 +679,8 @@ async fn proxied_client(
         backend: profile.sandbox.backend,
         sandbox_image: profile.sandbox.image.clone(),
         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
+        sandbox_memory: profile.sandbox.memory.clone(),
+        sandbox_cpus: profile.sandbox.cpus.clone(),
     };
     let proxy = Proxy::start_with_port(secrets, policy, None, None).await?;
     let proxy_url = proxy.child_env()["HTTPS_PROXY"].clone();
@@ -830,6 +832,8 @@ async fn remote_proxied_client(
         backend: profile.sandbox.backend,
         sandbox_image: profile.sandbox.image.clone(),
         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
+        sandbox_memory: profile.sandbox.memory.clone(),
+        sandbox_cpus: profile.sandbox.cpus.clone(),
     };
     let proxy = Proxy::start_remote_with_port(
         RemoteProxyConfig {

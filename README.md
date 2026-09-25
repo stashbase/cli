@@ -257,7 +257,7 @@ backend = "docker"
 stashbase agent run --profile coding -- claude
 ```
 
-Or override the profile's choice for one invocation without editing the file: `--docker-sandbox true|false`, and per-run image overrides with `--docker-image <ref>` / `--docker-dockerfile <path>`.
+Or override the profile's choice for one invocation without editing the file: `--docker-sandbox true|false`, per-run image overrides with `--docker-image <ref>` / `--docker-dockerfile <path>`, and resource caps with `--docker-memory <value>` / `--docker-cpus <value>` (also settable per profile via `[sandbox] memory`/`cpus`; no cap by default).
 
 Claude Code and Codex are pre-installed in the default sandbox image; a profile can also run its own image or Dockerfile instead (`[sandbox] image`/`dockerfile`) to add other tools, without loosening any of the sandbox constraints themselves.
 

@@ -248,6 +248,16 @@ pub struct AgentRunCommand {
     #[arg(long, conflicts_with = "docker_image")]
     pub docker_dockerfile: Option<String>,
 
+    /// Override the profile's `[sandbox] memory` for this run only:
+    /// `docker run --memory` value, e.g. "2g". No cap by default.
+    #[arg(long)]
+    pub docker_memory: Option<String>,
+
+    /// Override the profile's `[sandbox] cpus` for this run only: `docker
+    /// run --cpus` value, e.g. "1.5". No cap by default.
+    #[arg(long)]
+    pub docker_cpus: Option<String>,
+
     /// Store metadata-only proxy audit events locally
     #[arg(
         long,

@@ -687,6 +687,7 @@ pub(crate) fn build_sandbox_image(source: &AgentImageSource) -> Result<(), Strin
 ///
 /// Errs (fail closed) rather than building an invocation that would mount
 /// an unsafe path — see `append_ca_bundle_mount`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn docker_run_command(
     command: &str,
     network: &DockerRunNetwork,
@@ -695,6 +696,8 @@ pub(crate) fn docker_run_command(
     env_vars: &std::collections::HashMap<String, String>,
     stdin_is_terminal: bool,
     agent_image: &str,
+    memory_limit: Option<&str>,
+    cpus_limit: Option<&str>,
 ) -> Result<(String, Vec<String>), String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let cwd_str = cwd.to_string_lossy().into_owned();
@@ -749,6 +752,16 @@ pub(crate) fn docker_run_command(
         "--network".to_owned(),
         format!("container:{}", netns_holder_name(network)),
     ]);
+    // Opt-in only — see `AgentSandboxProfile::memory`/`cpus`. No default
+    // cap: an automatic one could silently break a legitimately
+    // memory/CPU-hungry task with no warning, so this only applies when a
+    // profile explicitly asks for it.
+    if let Some(memory) = memory_limit {
+        args.extend(["--memory".to_owned(), memory.to_owned()]);
+    }
+    if let Some(cpus) = cpus_limit {
+        args.extend(["--cpus".to_owned(), cpus.to_owned()]);
+    }
 
     append_filesystem_mounts(&mut args, &cwd_str, denied_read_paths, denied_write_paths);
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
@@ -1381,6 +1394,8 @@ mod tests {
             &env_vars,
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
 
@@ -1410,6 +1425,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         let cwd = std::env::current_dir()
@@ -1437,6 +1454,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         assert!(args.contains(&"--tmpfs".to_owned()));
@@ -1464,6 +1483,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         assert!(!args.contains(&"--tmpfs".to_owned()));
@@ -1490,6 +1511,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         let nested_mount = args
@@ -1517,6 +1540,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         let mount_index = args.iter().position(|arg| arg == "-v").unwrap();
@@ -1544,6 +1569,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         assert!(args.contains(&format!("GIT_AUTHOR_NAME={name}")));
@@ -1570,6 +1597,8 @@ mod tests {
             &env_vars,
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         assert!(args.contains(&"GIT_AUTHOR_NAME=Explicit Override".to_owned()));
@@ -1600,6 +1629,8 @@ mod tests {
             &env_vars,
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         // Must mount only the exact file — mounting its parent directory
@@ -1628,6 +1659,8 @@ mod tests {
             &env_vars,
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         );
         assert!(result.is_err());
     }
@@ -1648,6 +1681,8 @@ mod tests {
             &env_vars,
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         );
         assert!(result.is_err());
     }
@@ -1666,6 +1701,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         let name_index = args.iter().position(|arg| arg == "--name").unwrap();
@@ -1686,6 +1723,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         assert!(args.contains(&"-i".to_owned()));
@@ -1706,6 +1745,8 @@ mod tests {
             &std::collections::HashMap::new(),
             true,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         assert!(args.contains(&"-t".to_owned()));
@@ -1725,6 +1766,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         assert!(args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
@@ -1745,6 +1788,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         let cap_drop_index = args.iter().position(|arg| arg == "--cap-drop").unwrap();
@@ -1756,6 +1801,52 @@ mod tests {
         assert!(!args.contains(&"--cap-add".to_owned()));
         assert!(args.contains(&"--security-opt".to_owned()));
         assert!(args.contains(&"no-new-privileges".to_owned()));
+    }
+
+    #[test]
+    fn docker_run_command_omits_resource_limits_by_default() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!args.contains(&"--memory".to_owned()));
+        assert!(!args.contains(&"--cpus".to_owned()));
+    }
+
+    #[test]
+    fn docker_run_command_adds_memory_and_cpu_limits_when_configured() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            Some("2g"),
+            Some("1.5"),
+        )
+        .unwrap();
+        let memory_index = args.iter().position(|arg| arg == "--memory").unwrap();
+        assert_eq!(args[memory_index + 1], "2g");
+        let cpus_index = args.iter().position(|arg| arg == "--cpus").unwrap();
+        assert_eq!(args[cpus_index + 1], "1.5");
     }
 
     #[test]
@@ -1772,6 +1863,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         let network_index = args.iter().position(|arg| arg == "--network").unwrap();
@@ -1792,6 +1885,8 @@ mod tests {
             &std::collections::HashMap::new(),
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         // Restoring `--user` is safe here: the agent container never runs
@@ -1830,6 +1925,8 @@ mod tests {
             &env_vars,
             false,
             DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
         )
         .unwrap();
         // Only the cwd mount and the persistent home volume mount should
