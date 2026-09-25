@@ -2,6 +2,15 @@
 
 `stashbase agent run` isolates the child process's filesystem and network access using one of two backends. Both are configured per profile under `[sandbox]` and `[filesystem]` — see [Agent Profiles](agent-profiles.md) for the rest of the profile schema (secrets, egress rules, MCP tool restrictions, etc.).
 
+**Recommendation: use the Docker backend whenever Docker is available.** It's meaningfully stronger on every axis that matters for running an agent you don't fully trust:
+
+- **Filesystem**: allow-list (only the working directory is visible at all) instead of deny-list (specific paths blocked, everything else still reachable).
+- **Network**: enforced by a real firewall inside the container's network namespace, not by the agent choosing to honor `HTTPS_PROXY`/`HTTP_PROXY` — a process that deliberately opens a raw socket is blocked the same as one that respects the proxy.
+- **Platform coverage**: works identically on macOS, Linux, and Windows (via Docker Desktop), rather than the native backend's platform-specific mechanisms that don't exist on Windows at all.
+- **Extensibility**: `sandbox.image`/`sandbox.dockerfile` let a profile add exactly the tools it needs (Python, a compiler, whatever) without weakening the sandbox itself.
+
+The native backend stays the default because it needs nothing beyond the CLI itself — no Docker install, no daemon, no image to build — which matters for a quick first run. But once Docker is available, there's no real reason to prefer the weaker guarantees of the native backend over it.
+
 ## Native backend (default)
 
 No configuration needed — this is what every profile gets unless `[sandbox] backend = "docker"` is set. Filesystem restrictions are opt-in:
@@ -15,9 +24,11 @@ deny_write = ["~/.git"]
 Paths use explicit prefixes: `~` for home, relative paths for the current directory. Enforcement uses platform-native mechanisms:
 - **macOS**: Seatbelt sandbox
 - **Linux**: `systemd-run` or `bubblewrap` (automatic fallback)
-- **Unsupported platforms**: Validation fails closed; the run does not proceed
+- **Windows and other unsupported platforms**: Validation fails closed; the run does not proceed with the native backend
 
 Existing file descriptors and data already in process memory remain unrestricted. Network egress is still enforced the same way it is under the Docker backend — through the loopback credential proxy and `egress_hosts`/`deny_hosts` — but there is no network-layer firewall backing that up the way there is for Docker; a process that ignores `HTTPS_PROXY`/`HTTP_PROXY` entirely and opens a raw connection can reach the network directly under the native backend.
+
+**Windows users**: the native backend doesn't support Windows at all, but the Docker backend does — it only needs Docker Desktop, not any platform-native sandboxing primitive. `agent validate` correctly checks Docker readiness instead of the native mechanisms for a Docker-backend profile, so it won't falsely report Windows as unsupported for a profile that sets `backend = "docker"`.
 
 ## Docker backend
 

@@ -65,7 +65,7 @@ deny_write = ["~/.git"]
 
 Paths use explicit prefixes: `~` for home, relative paths for the current directory.
 
-By default, enforcement uses the platform-native mechanism (Seatbelt on macOS, `systemd-run`/`bubblewrap` on Linux). Opt into stronger, container-based isolation instead with `[sandbox] backend = "docker"`, which runs the agent in an isolated Docker container with allow-list filesystem access and a network-layer firewall.
+By default, enforcement uses the platform-native mechanism (Seatbelt on macOS, `systemd-run`/`bubblewrap` on Linux). **If Docker is available, prefer `[sandbox] backend = "docker"` instead** — it's meaningfully stronger (allow-list filesystem access, a real network-layer firewall, and it works on Windows too, unlike the native backend).
 
 See **[Sandboxing](sandboxing.md)** for the full picture: both backends, how the Docker backend's network firewall is enforced, custom images, git identity forwarding, login persistence, and Codex/Claude Code OAuth quirks.
 

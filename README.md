@@ -242,9 +242,11 @@ On macOS, this uses the deprecated `sandbox-exec` utility. On Linux and WSL2, it
 
 This is network containment only, not filesystem, process-memory, or kernel isolation.
 
+**If Docker is available, prefer the Docker sandbox backend below over the native one** — it's meaningfully stronger: filesystem access is allow-list rather than deny-list (nothing outside the working directory is visible at all, instead of specific paths being blocked), network egress is enforced at the network layer rather than relying on the agent to honor its proxy environment variables, and it works identically across macOS, Linux, and Windows (via Docker Desktop) instead of needing platform-specific mechanisms with a Windows gap. The native backend remains the default for now since it needs nothing beyond the CLI itself, but Docker is the recommended choice whenever it's an option.
+
 ### Docker Sandbox Backend (Experimental)
 
-An opt-in alternative to the native Seatbelt/systemd-run/bubblewrap backend above: the agent runs inside a Docker container instead of a same-host sandboxed process, with allow-list filesystem access and a network-layer firewall (enforced even against an agent that deliberately ignores its proxy env vars).
+The recommended backend when Docker is available: the agent runs inside a Docker container instead of a same-host sandboxed process, with allow-list filesystem access and a network-layer firewall (enforced even against an agent that deliberately ignores its proxy env vars).
 
 ```toml
 [sandbox]
