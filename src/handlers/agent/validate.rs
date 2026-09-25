@@ -153,6 +153,27 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
 
 fn validate_runtime_requirements(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
+
+    // A Docker-backend profile never touches the native
+    // Seatbelt/systemd-run/bubblewrap mechanisms the checks below test —
+    // it's contained by the Docker sandbox instead, which is checked
+    // separately. Reporting a native-backend failure for a profile that
+    // will never use the native backend is actively misleading: it's the
+    // difference between "this profile can't run here" (true) and "this
+    // profile can't run *natively* here" (irrelevant to a Docker-backend
+    // profile, and would wrongly report Windows as unsupported even though
+    // Docker Desktop makes this backend work there too).
+    if profile.sandbox.backend == crate::models::agent::SandboxBackend::Docker {
+        match crate::handlers::run::docker_sandbox::docker_enforcement_error() {
+            Some(error) => checks.push(fail("Docker sandbox backend", error)),
+            None => checks.push(ok(
+                "Docker sandbox backend",
+                "Docker is installed and the daemon is reachable.".to_owned(),
+            )),
+        }
+        return checks;
+    }
+
     match crate::handlers::run::subprocess::network_enforcement_error() {
         Some(error) => checks.push(fail("Network enforcement", error)),
         None => checks.push(ok(
@@ -359,6 +380,56 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             checks.push(ok(
                 "Local secret file",
                 format!("Readable: {}", path.display()),
+            ));
+        }
+    }
+
+    if profile.sandbox.image.is_some() && profile.sandbox.dockerfile.is_some() {
+        checks.push(fail(
+            "Sandbox image",
+            "'sandbox.image' and 'sandbox.dockerfile' are mutually exclusive; set at most one."
+                .to_owned(),
+        ));
+    }
+    if let Some(image) = &profile.sandbox.image {
+        if image.trim().is_empty() {
+            checks.push(fail(
+                "Sandbox image",
+                "'sandbox.image' must not be empty or whitespace.".to_owned(),
+            ));
+        }
+    }
+    if let Some(dockerfile) = &profile.sandbox.dockerfile {
+        let path = Path::new(dockerfile);
+        if !path.is_file() {
+            checks.push(fail(
+                "Sandbox Dockerfile",
+                format!("File not found: {}", path.display()),
+            ));
+        } else {
+            checks.push(ok(
+                "Sandbox Dockerfile",
+                format!("Readable: {}", path.display()),
+            ));
+        }
+    }
+    if let Some(memory) = &profile.sandbox.memory {
+        if !valid_docker_memory_value(memory) {
+            checks.push(fail(
+                "Sandbox memory limit",
+                format!(
+                    "'{memory}' is not a valid `docker run --memory` value (expected a positive number optionally suffixed with b/k/m/g, e.g. \"2g\")."
+                ),
+            ));
+        }
+    }
+    if let Some(cpus) = &profile.sandbox.cpus {
+        if !valid_docker_cpus_value(cpus) {
+            checks.push(fail(
+                "Sandbox CPU limit",
+                format!(
+                    "'{cpus}' is not a valid `docker run --cpus` value (expected a positive number, e.g. \"1.5\")."
+                ),
             ));
         }
     }
@@ -970,6 +1041,30 @@ fn fail(name: impl Into<String>, message: String) -> Check {
     }
 }
 
+/// A `docker run --memory` value: a positive number optionally suffixed
+/// with a case-insensitive `b`/`k`/`m`/`g` unit (Docker's own accepted
+/// format). Not an exhaustive re-implementation of Docker's own parser —
+/// just enough to catch an obviously malformed value before it reaches
+/// `docker run` and fails there instead.
+fn valid_docker_memory_value(value: &str) -> bool {
+    let value = value.trim();
+    let number_part = match value.chars().last() {
+        Some(suffix) if suffix.is_ascii_alphabetic() => {
+            if !matches!(suffix.to_ascii_lowercase(), 'b' | 'k' | 'm' | 'g') {
+                return false;
+            }
+            &value[..value.len() - 1]
+        }
+        _ => value,
+    };
+    number_part.parse::<f64>().is_ok_and(|number| number > 0.0)
+}
+
+/// A `docker run --cpus` value: a positive decimal number.
+fn valid_docker_cpus_value(value: &str) -> bool {
+    value.trim().parse::<f64>().is_ok_and(|number| number > 0.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -982,6 +1077,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -996,6 +1092,145 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Unsupported hook capability 'anything_else'"));
+    }
+
+    #[test]
+    fn docker_backend_profile_gets_a_docker_runtime_check_not_native_ones() {
+        // A Docker-backend profile never touches Seatbelt/systemd-run/
+        // bubblewrap, so it must not be reported as unsupported on a
+        // platform where only those native mechanisms are unavailable
+        // (e.g. Windows) — it should get a Docker-specific check instead.
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+
+        let checks = validate_runtime_requirements(&profile);
+        assert!(checks
+            .iter()
+            .any(|check| check.name == "Docker sandbox backend"));
+        assert!(!checks
+            .iter()
+            .any(|check| check.name == "Network enforcement"));
+        assert!(!checks
+            .iter()
+            .any(|check| check.name == "Filesystem enforcement"));
+    }
+
+    #[test]
+    fn rejects_sandbox_image_and_dockerfile_set_together() {
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.sandbox.image = Some("myorg/img:tag".to_owned());
+        profile.sandbox.dockerfile = Some("./Cargo.toml".to_owned());
+
+        assert!(validate_profile(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail
+                && check.name == "Sandbox image"
+                && check.message.contains("mutually exclusive")));
+    }
+
+    #[test]
+    fn rejects_a_missing_sandbox_dockerfile() {
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.sandbox.dockerfile = Some("./does-not-exist.Dockerfile".to_owned());
+
+        assert!(validate_profile(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail && check.name == "Sandbox Dockerfile"));
+    }
+
+    #[test]
+    fn accepts_valid_docker_memory_and_cpu_values() {
+        for value in ["2g", "512m", "1024k", "1", "1.5"] {
+            assert!(
+                valid_docker_memory_value(value),
+                "expected '{value}' to be a valid memory value"
+            );
+        }
+        for value in ["1", "1.5", "0.5", "4"] {
+            assert!(
+                valid_docker_cpus_value(value),
+                "expected '{value}' to be a valid cpus value"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_docker_memory_and_cpu_values() {
+        for value in ["", "abc", "2x", "-1g", "0g"] {
+            assert!(
+                !valid_docker_memory_value(value),
+                "expected '{value}' to be rejected as a memory value"
+            );
+        }
+        for value in ["", "abc", "-1", "0"] {
+            assert!(
+                !valid_docker_cpus_value(value),
+                "expected '{value}' to be rejected as a cpus value"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_malformed_sandbox_memory_or_cpus_value() {
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.sandbox.memory = Some("not-a-memory-value".to_owned());
+        profile.sandbox.cpus = Some("not-a-number".to_owned());
+
+        let checks = validate_profile(&profile);
+        assert!(checks
+            .iter()
+            .any(|check| check.status == Status::Fail && check.name == "Sandbox memory limit"));
+        assert!(checks
+            .iter()
+            .any(|check| check.status == Status::Fail && check.name == "Sandbox CPU limit"));
     }
 
     #[test]
@@ -1075,6 +1310,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1109,6 +1345,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1144,6 +1381,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1164,6 +1402,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
@@ -1198,6 +1437,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1257,6 +1497,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),

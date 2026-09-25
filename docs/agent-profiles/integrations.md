@@ -8,7 +8,7 @@ Claude Code can access external tools and APIs through agent profiles. For examp
 
 ```toml
 # .stashbase/agents/claude.toml
-egress_hosts = ["api.anthropic.com", "mcp.linear.app"]
+egress_hosts = ["api.anthropic.com", "platform.claude.com", "mcp.linear.app"]
 
 [secrets]
 project = "my-project"
@@ -37,13 +37,15 @@ stashbase agent run --profile claude -- claude
 
 Claude Code receives only the Linear credential placeholder and can use allowed MCP tools through the proxy.
 
+`platform.claude.com` is required alongside `api.anthropic.com` if you're logged in via OAuth (`/login` in Claude Code) rather than an API key — Claude Code's OAuth login and silent token refresh both go through `platform.claude.com`, a different host than the one used for actual model requests. Without it, login itself fails with "OAuth error: proxy refused the connection", or — if you were already logged in before restricting egress — the session works until the access token's next refresh is silently blocked, then fails hours later with "OAuth access token has expired."
+
 ## Codex
 
 Codex needs GitHub access for repository operations and OpenAI for completions:
 
 ```toml
 # .stashbase/agents/codex.toml
-egress_hosts = ["api.openai.com", "chatgpt.com", "api.github.com"]
+egress_hosts = ["api.openai.com", "chatgpt.com", "auth.openai.com", "api.github.com"]
 allow_hooks = ["dependency_check"]
 
 [secrets]
@@ -80,6 +82,8 @@ Run:
 ```bash
 stashbase agent run --profile codex -- codex
 ```
+
+`auth.openai.com` is required for `codex login --device-auth` (and its silent token refresh) — it's a different host than `api.openai.com`, which only serves completions. Without it, device-code login fails with an error like "failed to request device code: error sending request for url (https://auth.openai.com/api/accounts/deviceauth/usercode)".
 
 ## HTTP MCP Server
 

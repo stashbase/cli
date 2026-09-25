@@ -43,6 +43,8 @@ pub enum AgentSubcommand {
     McpCheck(AgentMcpCheckCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
+    /// Manage Docker sandbox backend resources
+    Docker(AgentDockerCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -51,6 +53,52 @@ pub enum AgentSessionsSubcommand {
     List(AgentSessionsCommand),
     /// Revoke an active local or remote agent session
     Revoke(AgentRevokeCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerCommand {
+    #[command(subcommand)]
+    pub subcommand: AgentDockerSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentDockerSubcommand {
+    /// Find and remove Docker sandbox networks/containers left behind by a run that didn't tear down cleanly (e.g. `stashbase` was killed with SIGKILL mid-run)
+    Cleanup(AgentDockerCleanupCommand),
+    /// List Docker sandbox networks/containers currently present on this machine
+    Status(AgentDockerStatusCommand),
+    /// Build (or rebuild) the default Docker sandbox image
+    Build(AgentDockerBuildCommand),
+    /// Check whether the Docker sandbox backend can run on this machine
+    Doctor(AgentDockerDoctorCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerDoctorCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerCleanupCommand {
+    /// Remove every leftover resource without prompting for confirmation
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerStatusCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerBuildCommand {
+    /// Rebuild even if the image already exists locally
+    #[arg(long)]
+    pub force: bool,
+
+    /// Build the given profile's `sandbox.image`/`sandbox.dockerfile` instead of the built-in default image
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Where to load --profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
 }
 
 #[derive(Debug, Args)]
@@ -177,6 +225,38 @@ pub struct AgentRunCommand {
     /// Resolve Stashbase secrets in a short-lived remote agent proxy session
     #[arg(long)]
     pub remote: bool,
+
+    /// Override the profile's `[sandbox] backend` for this run only: `true`
+    /// forces the Docker backend, `false` forces the native backend.
+    /// Omit to use whatever the profile declares.
+    #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
+    pub docker_sandbox: Option<bool>,
+
+    /// Override the profile's `[sandbox] image` for this run only: run this
+    /// image instead of the profile's configured one (or the built-in
+    /// default). Implies the Docker backend even if the profile or
+    /// `--docker-sandbox` says otherwise. Mutually exclusive with
+    /// `--docker-dockerfile`.
+    #[arg(long, conflicts_with = "docker_dockerfile")]
+    pub docker_image: Option<String>,
+
+    /// Override the profile's `[sandbox] dockerfile` for this run only:
+    /// build and run this Dockerfile instead of the profile's configured
+    /// one (or the built-in default). Implies the Docker backend even if
+    /// the profile or `--docker-sandbox` says otherwise. Mutually
+    /// exclusive with `--docker-image`.
+    #[arg(long, conflicts_with = "docker_image")]
+    pub docker_dockerfile: Option<String>,
+
+    /// Override the profile's `[sandbox] memory` for this run only:
+    /// `docker run --memory` value, e.g. "2g". No cap by default.
+    #[arg(long)]
+    pub docker_memory: Option<String>,
+
+    /// Override the profile's `[sandbox] cpus` for this run only: `docker
+    /// run --cpus` value, e.g. "1.5". No cap by default.
+    #[arg(long)]
+    pub docker_cpus: Option<String>,
 
     /// Store metadata-only proxy audit events locally
     #[arg(

@@ -56,6 +56,16 @@ impl LocalAgentSessionGuard {
     pub fn path(&self) -> PathBuf {
         self.0.clone()
     }
+
+    /// The session id this guard was started with, recovered from its
+    /// backing file's name (`<session_id>.json`) rather than stored
+    /// separately, since the two must always agree.
+    pub fn session_id(&self) -> &str {
+        self.0
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default()
+    }
 }
 
 impl Drop for LocalAgentSessionGuard {

@@ -16,6 +16,10 @@ pub struct AgentProfile {
     /// Filesystem paths denied to the agent process tree.
     #[serde(default)]
     pub filesystem: AgentFilesystemProfile,
+    /// Selects the sandbox enforcement backend. Defaults to the platform's
+    /// native mechanism (Seatbelt/systemd-run/bubblewrap).
+    #[serde(default)]
+    pub sandbox: AgentSandboxProfile,
     /// Named HTTP MCP servers and their tool policies.
     #[serde(default)]
     pub mcp_servers: HashMap<String, AgentMcpServer>,
@@ -79,6 +83,58 @@ pub struct AgentFilesystemProfile {
     /// Paths the agent must not modify.
     #[serde(default)]
     pub deny_write: Vec<String>,
+}
+
+/// Selects which mechanism enforces filesystem/network isolation for the
+/// agent process tree. `Native` (the default) preserves today's behavior:
+/// Seatbelt on macOS, `systemd-run`/bubblewrap on Linux.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxBackend {
+    #[default]
+    Native,
+    Docker,
+}
+
+impl SandboxBackend {
+    /// Applies a `--docker-sandbox` CLI override on top of this profile's
+    /// declared backend: `Some(true)` forces `Docker`, `Some(false)` forces
+    /// `Native`, `None` (the flag wasn't passed) leaves the profile's own
+    /// setting untouched.
+    pub fn with_cli_override(self, docker_sandbox_flag: Option<bool>) -> Self {
+        match docker_sandbox_flag {
+            Some(true) => Self::Docker,
+            Some(false) => Self::Native,
+            None => self,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSandboxProfile {
+    #[serde(default)]
+    pub backend: SandboxBackend,
+    /// Docker backend only: run this image instead of the built-in default.
+    /// Mutually exclusive with `dockerfile` — see `ensure_profile_is_valid_for_run`.
+    #[serde(default)]
+    pub image: Option<String>,
+    /// Docker backend only: build and run this Dockerfile (path relative to
+    /// the current working directory) instead of the built-in default image.
+    /// Mutually exclusive with `image`.
+    #[serde(default)]
+    pub dockerfile: Option<String>,
+    /// Docker backend only: cap the agent container's memory, passed
+    /// straight through to `docker run --memory` (e.g. "2g", "512m"). No
+    /// cap by default — this is opt-in, since an automatic default could
+    /// silently break a legitimately memory-hungry task with no warning.
+    #[serde(default)]
+    pub memory: Option<String>,
+    /// Docker backend only: cap the agent container's CPU allocation,
+    /// passed straight through to `docker run --cpus` (e.g. "1.5", "2").
+    /// No cap by default, for the same reason as `memory`.
+    #[serde(default)]
+    pub cpus: Option<String>,
 }
 
 /// Project/environment-backed secret bindings. Personal credentials deliberately
@@ -166,4 +222,78 @@ pub struct AgentHttpRule {
 pub enum AgentHttpRuleEffect {
     Allow,
     Deny,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_override_forces_docker_regardless_of_profile() {
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(Some(true)),
+            SandboxBackend::Docker
+        );
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(Some(true)),
+            SandboxBackend::Docker
+        );
+    }
+
+    #[test]
+    fn cli_override_forces_native_regardless_of_profile() {
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(Some(false)),
+            SandboxBackend::Native
+        );
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(Some(false)),
+            SandboxBackend::Native
+        );
+    }
+
+    #[test]
+    fn cli_override_absent_keeps_profile_setting() {
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(None),
+            SandboxBackend::Docker
+        );
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(None),
+            SandboxBackend::Native
+        );
+    }
+
+    #[test]
+    fn sandbox_defaults_to_native_when_omitted() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+        "#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.sandbox.backend, SandboxBackend::Native);
+    }
+
+    #[test]
+    fn sandbox_backend_docker_parses() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+
+            [sandbox]
+            backend = "docker"
+        "#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.sandbox.backend, SandboxBackend::Docker);
+    }
+
+    #[test]
+    fn sandbox_rejects_unknown_backend() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+
+            [sandbox]
+            backend = "vm"
+        "#;
+        let result: Result<AgentProfile, _> = toml::from_str(toml);
+        assert!(result.is_err());
+    }
 }

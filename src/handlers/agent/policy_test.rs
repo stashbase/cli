@@ -9,11 +9,11 @@ use crate::{
     cmd::agent::{AgentPolicyTestCommand, AgentProfileSource},
     config::config,
     handlers::{
-        agent_policy::{
+        agent::policy::{
             configured_host_matches, evaluate_secret_authorization, SecretAuthorizationDecision,
             SecretHttpPolicy,
         },
-        agent_validate::ensure_profile_is_valid_for_run,
+        agent::validate::ensure_profile_is_valid_for_run,
     },
     models::{
         agent::{AgentPolicyTestCase, AgentPolicyTestExpectation, AgentProfile},
@@ -329,6 +329,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),

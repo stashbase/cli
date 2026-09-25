@@ -12,7 +12,7 @@ use crate::{
         AgentProfilesShowCommand, AgentProfilesSubcommand,
     },
     config::config,
-    handlers::agent_policy::{normalize_secret_http_policy, SecretHttpPolicy},
+    handlers::agent::policy::{normalize_secret_http_policy, SecretHttpPolicy},
     models::{
         agent::AgentProfile,
         config::Config,
@@ -347,6 +347,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
@@ -390,6 +391,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "API_KEY".to_owned(),
@@ -431,6 +433,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([("GITHUB_TOKEN".to_owned(), binding.clone())]).into(),
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),

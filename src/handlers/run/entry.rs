@@ -38,6 +38,80 @@ use crate::{
 
 use super::format::format_env_variable_value;
 
+/// Ensures the Docker sandbox backend's agent image exists locally,
+/// building it (the built-in embedded Dockerfile, or a profile-supplied
+/// custom one) on first use. There is no registry to `docker pull` from for
+/// either of those, so the only way an installed `stashbase` binary can get
+/// them is to build them itself; a plain `sandbox.image` reference, by
+/// contrast, needs nothing built here — `docker run` pulls it automatically.
+///
+/// Returns the image tag `docker run` should use for the agent container.
+///
+/// In an interactive session, asks before building (an implicit multi-
+/// minute `docker build` on first use would otherwise be a surprising side
+/// effect of `agent run`). In `--silent` mode there is no one to ask, so
+/// this fails closed with instructions rather than silently building or
+/// silently running unsandboxed.
+fn ensure_docker_sandbox_image_available(
+    source: &super::docker_sandbox::AgentImageSource,
+    silent: bool,
+) -> anyhow::Result<String> {
+    let tag = source.image_tag();
+    if super::docker_sandbox::sandbox_image_exists(source) {
+        return Ok(tag);
+    }
+    if silent {
+        anyhow::bail!(
+            "the Docker sandbox image ({tag}) is not built yet; build it once with `docker build -t {tag} <Dockerfile>` or re-run without --silent to be prompted",
+        );
+    }
+    eprintln!();
+    let should_build = crate::utils::interaction::confirm_opt(&format!(
+        "The Docker sandbox image ({tag}) isn't built yet. Build it now?"
+    ))
+    .unwrap_or(false);
+    // dialoguer can leave the terminal cursor hidden if the prompt is
+    // dismissed via Ctrl+C rather than answered normally (a known
+    // dialoguer/raw-mode interaction — see the Ctrl+C handler in main.rs
+    // for the same workaround applied to other prompts). Restore it
+    // unconditionally before deciding what the prompt's outcome was.
+    let _ = dialoguer::console::Term::stdout().show_cursor();
+    if !should_build {
+        anyhow::bail!("Docker sandbox backend selected, but its image was not built");
+    }
+    eprintln!("Building Docker sandbox image ({tag})...");
+    super::docker_sandbox::build_sandbox_image(source)
+        .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
+    eprintln!("Docker sandbox image built.");
+    Ok(tag)
+}
+
+/// Ensures every image a Docker-backend run will actually need is
+/// available, and returns the tag the agent container should use.
+///
+/// The network-namespace holder (see `start_netns_holder`) always uses the
+/// built-in default image, deliberately never a profile's custom
+/// `sandbox.image`/`sandbox.dockerfile` — but `ensure_docker_sandbox_image_available`
+/// on its own only ensures whichever source the *agent* container resolves
+/// to. For a profile using a custom image, that leaves the default image
+/// unchecked: if it was never built (a user who only ever runs custom
+/// images has no reason to have it), the holder's own `docker run` fails
+/// outright since there's no registry to auto-pull it from. This ensures
+/// both, skipping the duplicate prompt/build when the agent's own source
+/// already *is* the default.
+fn ensure_docker_images_available(
+    agent_image_source: &super::docker_sandbox::AgentImageSource,
+    silent: bool,
+) -> anyhow::Result<String> {
+    if *agent_image_source != super::docker_sandbox::AgentImageSource::Default {
+        ensure_docker_sandbox_image_available(
+            &super::docker_sandbox::AgentImageSource::Default,
+            silent,
+        )?;
+    }
+    ensure_docker_sandbox_image_available(agent_image_source, silent)
+}
+
 /// Runs an agent through the localhost relay while credentials stay in the
 /// control-plane's short-lived remote agent-proxy session.
 pub async fn handle_remote_agent_run(
@@ -58,16 +132,79 @@ pub async fn handle_remote_agent_run(
     let denied_read_paths = policy.denied_read_paths.clone();
     let denied_write_paths = policy.denied_write_paths.clone();
     let allow_network_listeners = policy.allow_network_listeners;
+    let backend = policy.backend;
+    let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
+        policy.sandbox_image.as_deref(),
+        policy.sandbox_dockerfile.as_deref(),
+    );
+    let sandbox_memory = policy.sandbox_memory.clone();
+    let sandbox_cpus = policy.sandbox_cpus.clone();
     let command_audit_log = audit_log.clone();
-    let proxy = super::proxy::Proxy::start_remote_with_hook(
-        remote,
-        policy,
-        audit_log,
-        proxy_port,
-        hooks_enabled.then_some(api_key),
-    )
-    .await?;
+    let mut setup_spinner: Option<spinoff::Spinner> = None;
+    let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
+        // Resolved before the spinner starts: this can print its own
+        // interactive "build the image now?" prompt on first use, which
+        // must never race a concurrently animating spinner writing to the
+        // same stream (see the same reasoning for the proxy-started
+        // message below).
+        let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
+        setup_spinner = (!silent).then(|| {
+            crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
+        });
+        (
+            Some(
+                super::docker_sandbox::create_run_network(
+                    audit_log.as_ref().map(|log| log.session_id()),
+                )
+                .map_err(|error| {
+                    anyhow::anyhow!("failed to create Docker sandbox network: {error}")
+                })?,
+            ),
+            agent_image,
+        )
+    } else {
+        (None, String::new())
+    };
+    let proxy_start_result = if let Some(network) = &docker_network {
+        super::proxy::Proxy::start_remote_with_hook_and_bind_host(
+            remote,
+            policy,
+            audit_log,
+            proxy_port,
+            hooks_enabled.then_some(api_key),
+            &super::docker_sandbox::proxy_bind_host(network),
+        )
+        .await
+    } else {
+        super::proxy::Proxy::start_remote_with_hook(
+            remote,
+            policy,
+            audit_log,
+            proxy_port,
+            hooks_enabled.then_some(api_key),
+        )
+        .await
+    };
+    let proxy = match proxy_start_result {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            if let Some(mut spinner) = setup_spinner.take() {
+                spinner.clear();
+            }
+            if let Some(network) = &docker_network {
+                let _ = super::docker_sandbox::remove_run_network(network);
+            }
+            return Err(error);
+        }
+    };
     let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
+    // Stop the spinner before any plain `eprintln!` — spinoff redraws its
+    // line from a background thread, and interleaving that with ordinary
+    // stderr writes garbles both. Re-created below to cover the remaining
+    // netns-holder setup phase.
+    if let Some(mut spinner) = setup_spinner.take() {
+        spinner.clear();
+    }
     if !silent {
         let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
         eprintln!(
@@ -76,10 +213,56 @@ pub async fn handle_remote_agent_run(
         );
         eprintln!("Remote agent proxy session active");
     }
-    let result = subprocess::run_command_with_filesystem_policy(
+    let mut child_env = if let Some(network) = &docker_network {
+        super::docker_sandbox::rewrite_proxy_urls_for_container(
+            proxy.child_env(),
+            &super::docker_sandbox::proxy_bind_host(network),
+            &super::docker_sandbox::proxy_container_host(network),
+        )
+    } else {
+        proxy.child_env().clone()
+    };
+    let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
+        crate::utils::spinner::new_spinner(
+            "Starting network namespace holder and firewall...",
+            Streams::Stderr,
+        )
+    });
+    if let Some(network) = &docker_network {
+        match super::docker_sandbox::start_netns_holder(network, &child_env) {
+            Ok(Some(resolved_proxy_ip)) => {
+                // The agent container joins the holder's network namespace
+                // via `--network container:<holder>`, which Docker refuses
+                // to combine with `--add-host` — so the agent has no way to
+                // resolve `host.docker.internal` itself. Point it straight
+                // at the already-resolved IP instead, sidestepping the
+                // need for any DNS/hosts lookup in the agent container.
+                child_env = super::docker_sandbox::rewrite_proxy_urls_for_container(
+                    &child_env,
+                    &super::docker_sandbox::proxy_container_host(network),
+                    &resolved_proxy_ip,
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                if let Some(mut spinner) = setup_spinner.take() {
+                    spinner.clear();
+                }
+                let _ = super::docker_sandbox::remove_run_network(network);
+                proxy.stop().await;
+                return Err(anyhow::anyhow!(
+                    "failed to start Docker sandbox network namespace holder: {error}"
+                ));
+            }
+        }
+    }
+    if let Some(mut spinner) = setup_spinner.take() {
+        spinner.clear();
+    }
+    let result = subprocess::run_command_with_filesystem_policy_and_network(
         &cmd,
         args,
-        proxy.child_env().clone(),
+        child_env,
         source_env_names,
         sandbox,
         allow_network_listeners,
@@ -88,9 +271,22 @@ pub async fn handle_remote_agent_run(
         &denied_read_paths,
         &denied_write_paths,
         command_audit_log,
+        backend,
+        docker_network.as_ref(),
+        &agent_image,
+        sandbox_memory.as_deref(),
+        sandbox_cpus.as_deref(),
     )
     .await;
     proxy.stop().await;
+    if let Some(network) = &docker_network {
+        if let Err(error) = super::docker_sandbox::remove_run_network(network) {
+            eprintln!(
+                "warning: failed to remove Docker sandbox network {}: {error}",
+                network.name
+            );
+        }
+    }
     if !silent {
         eprintln!("Remote agent proxy relay stopped");
     }
@@ -130,7 +326,7 @@ pub struct HandleRunArgs {
     pub silent: bool,
     pub scope: Option<Scope>,
     pub dependency_hooks: bool,
-    pub local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    pub local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 }
 
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
@@ -1014,7 +1210,7 @@ async fn handle_run(
     json_format: bool,
     dependency_hooks: bool,
     hook_api_key: Option<String>,
-    local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 ) -> anyhow::Result<()> {
     apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
@@ -1137,23 +1333,100 @@ async fn handle_run(
     let allow_network_listeners = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.allow_network_listeners);
+    let backend = proxy_policy
+        .as_ref()
+        .map(|policy| policy.backend)
+        .unwrap_or_default();
+    let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
+        proxy_policy
+            .as_ref()
+            .and_then(|policy| policy.sandbox_image.as_deref()),
+        proxy_policy
+            .as_ref()
+            .and_then(|policy| policy.sandbox_dockerfile.as_deref()),
+    );
+    let sandbox_memory = proxy_policy
+        .as_ref()
+        .and_then(|policy| policy.sandbox_memory.clone());
+    let sandbox_cpus = proxy_policy
+        .as_ref()
+        .and_then(|policy| policy.sandbox_cpus.clone());
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
-        let proxy = super::proxy::Proxy::start_with_hook(
-            secrets_hash_map,
-            proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
-            audit_log,
-            proxy_port,
-            dependency_hooks.then_some(hook_api_key).flatten(),
-        )
-        .await?;
+        let mut setup_spinner: Option<spinoff::Spinner> = None;
+        let (docker_network, agent_image) = if backend
+            == crate::models::agent::SandboxBackend::Docker
+        {
+            // Resolved before the spinner starts: this can print its own
+            // interactive "build the image now?" prompt on first use, which
+            // must never race a concurrently animating spinner writing to
+            // the same stream (see the same reasoning for the
+            // proxy-started message below).
+            let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
+            setup_spinner = (!silent).then(|| {
+                crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
+            });
+            let run_session_id = local_session
+                .as_ref()
+                .map(|session| session.session_id())
+                .or_else(|| audit_log.as_ref().map(|log| log.session_id()));
+            (
+                Some(
+                    super::docker_sandbox::create_run_network(run_session_id).map_err(|error| {
+                        anyhow::anyhow!("failed to create Docker sandbox network: {error}")
+                    })?,
+                ),
+                agent_image,
+            )
+        } else {
+            (None, String::new())
+        };
+        let proxy_start_result = if let Some(network) = &docker_network {
+            super::proxy::Proxy::start_with_hook_and_bind_host(
+                secrets_hash_map,
+                proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
+                audit_log,
+                proxy_port,
+                dependency_hooks.then_some(hook_api_key).flatten(),
+                &super::docker_sandbox::proxy_bind_host(network),
+            )
+            .await
+        } else {
+            super::proxy::Proxy::start_with_hook(
+                secrets_hash_map,
+                proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
+                audit_log,
+                proxy_port,
+                dependency_hooks.then_some(hook_api_key).flatten(),
+            )
+            .await
+        };
+        let proxy = match proxy_start_result {
+            Ok(proxy) => proxy,
+            Err(error) => {
+                if let Some(mut spinner) = setup_spinner.take() {
+                    spinner.clear();
+                }
+                if let Some(network) = &docker_network {
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                }
+                return Err(error);
+            }
+        };
         if let Some(session) = &local_session {
             proxy.set_revocation_path(session.path());
         }
         let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
+        // Stop the spinner before any plain `eprintln!` — spinoff redraws
+        // its line from a background thread, and interleaving that with
+        // ordinary stderr writes garbles both. Re-created below to cover
+        // the remaining netns-holder setup phase.
+        if let Some(mut spinner) = setup_spinner.take() {
+            spinner.clear();
+        }
         if !silent {
             let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
             eprintln!(
@@ -1161,8 +1434,52 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let child_env = proxy.child_env().clone();
-        let command = Box::pin(subprocess::run_command_with_filesystem_policy(
+        let mut child_env = if let Some(network) = &docker_network {
+            super::docker_sandbox::rewrite_proxy_urls_for_container(
+                proxy.child_env(),
+                &super::docker_sandbox::proxy_bind_host(network),
+                &super::docker_sandbox::proxy_container_host(network),
+            )
+        } else {
+            proxy.child_env().clone()
+        };
+        let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
+            crate::utils::spinner::new_spinner(
+                "Starting network namespace holder and firewall...",
+                Streams::Stderr,
+            )
+        });
+        if let Some(network) = &docker_network {
+            match super::docker_sandbox::start_netns_holder(network, &child_env) {
+                Ok(Some(resolved_proxy_ip)) => {
+                    // See the matching comment in handle_remote_agent_run:
+                    // the agent container cannot resolve
+                    // `host.docker.internal` itself once it joins the
+                    // holder's network namespace, so point it at the
+                    // already-resolved IP instead.
+                    child_env = super::docker_sandbox::rewrite_proxy_urls_for_container(
+                        &child_env,
+                        &super::docker_sandbox::proxy_container_host(network),
+                        &resolved_proxy_ip,
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    if let Some(mut spinner) = setup_spinner.take() {
+                        spinner.clear();
+                    }
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                    proxy.stop().await;
+                    return Err(anyhow::anyhow!(
+                        "failed to start Docker sandbox network namespace holder: {error}"
+                    ));
+                }
+            }
+        }
+        if let Some(mut spinner) = setup_spinner.take() {
+            spinner.clear();
+        }
+        let command = Box::pin(subprocess::run_command_with_filesystem_policy_and_network(
             &cmd,
             args,
             child_env,
@@ -1174,13 +1491,33 @@ async fn handle_run(
             &denied_read_paths,
             &denied_write_paths,
             command_audit_log,
+            backend,
+            docker_network.as_ref(),
+            &agent_image,
+            sandbox_memory.as_deref(),
+            sandbox_cpus.as_deref(),
         ));
         let result = command.await;
         proxy.stop().await;
+        if let Some(network) = &docker_network {
+            if let Err(error) = super::docker_sandbox::remove_run_network(network) {
+                eprintln!(
+                    "warning: failed to remove Docker sandbox network {}: {error}",
+                    network.name
+                );
+            }
+        }
         if !silent {
             eprintln!("Agent proxy stopped");
         }
         result
+    } else if backend != crate::models::agent::SandboxBackend::Native {
+        // The non-proxy path has no proxy/network to attach a Docker
+        // sandbox to. Fail closed rather than silently downgrading a
+        // profile's requested backend to Native.
+        Err(anyhow::anyhow!(
+            "the selected sandbox backend requires the agent proxy; re-run with the proxy enabled"
+        ))
     } else {
         // TODO: errors: no such file or directory
         subprocess::run_command(

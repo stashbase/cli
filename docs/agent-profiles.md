@@ -53,7 +53,7 @@ paths = ["/user", "/repos/*"]
 
 The child process receives `GH_TOKEN` as a placeholder. When it makes a matching HTTP request (GET to `/user` or `/repos/*` on `api.github.com`), the proxy injects the real token. Any unmatched request is blocked.
 
-## Filesystem and Network Restrictions
+## Filesystem, Network Restrictions, and Sandbox Backends
 
 Restrict what the child can read or write:
 
@@ -63,12 +63,11 @@ deny_read = ["~/.ssh", "~/.aws"]
 deny_write = ["~/.git"]
 ```
 
-Paths use explicit prefixes: `~` for home, relative paths for the current directory. Enforcement uses platform-native mechanisms:
-- **macOS**: Seatbelt sandbox
-- **Linux**: `systemd-run` or `bubblewrap` (automatic fallback)
-- **Unsupported platforms**: Validation fails closed; the run does not proceed
+Paths use explicit prefixes: `~` for home, relative paths for the current directory.
 
-Existing file descriptors and data already in process memory remain unrestricted.
+By default, enforcement uses the platform-native mechanism (Seatbelt on macOS, `systemd-run`/`bubblewrap` on Linux). **If Docker is available, prefer `[sandbox] backend = "docker"` instead** — it's meaningfully stronger (allow-list filesystem access, a real network-layer firewall, and it works on Windows too, unlike the native backend).
+
+See **[Sandboxing](sandboxing.md)** for the full picture: both backends, how the Docker backend's network firewall is enforced, custom images, git identity forwarding, login persistence, and Codex/Claude Code OAuth quirks.
 
 ## Network Access and HTTP Rules
 
@@ -205,7 +204,7 @@ The proxy is HTTP/HTTPS only and designed for standard developer tools. It does 
 - Request-body or query-parameter injection (credentials are header-only)
 - Process-level isolation (same-user processes can still access broader system credentials)
 
-For complete network isolation, use a container or VM.
+For stronger filesystem and network isolation than the native backend provides, see [Sandboxing](sandboxing.md).
 
 ## Full Reference
 

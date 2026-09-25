@@ -13,6 +13,7 @@ Stashbase is an open-source access layer that gives coding agents the access the
   - [How the Agent Proxy Works](#how-the-agent-proxy-works)
   - [Profile Syntax and Configuration](#profile-syntax-and-configuration)
   - [Filesystem and Network Containment](#filesystem-and-network-containment)
+  - [Docker Sandbox Backend](#docker-sandbox-backend)
   - [Remote Agent Sessions](#remote-agent-sessions)
   - [MCP Tools Authorization](#mcp-tools-authorization)
   - [Audit Logs and Session Revocation](#audit-logs-and-session-revocation)
@@ -231,7 +232,7 @@ deny_write = [".git", "~/.ssh", "~/.aws"]
 
 On macOS, Stashbase wraps the agent in Seatbelt, which enforces filesystem rules. On Linux and WSL2, it uses `systemd-run --user` with cgroup IP rules, or falls back to `bubblewrap` for namespace isolation. Windows native is not implemented; use WSL2 instead.
 
-Denied reads return `/dev/null`; denied writes go to an empty overlay. Existing file descriptors and data already in memory are not affected. These are policy-only; these profiles do not require secrets.
+Denied reads see empty content (a genuine empty regular file, not `/dev/null` — that's a character device, which confuses tooling that expects a normal file at that path); denied writes go to an empty overlay. Existing file descriptors and data already in memory are not affected. These are policy-only; these profiles do not require secrets.
 
 #### Network containment
 
@@ -240,6 +241,27 @@ Every `agent run` denies the child direct network access. The agent communicates
 On macOS, this uses the deprecated `sandbox-exec` utility. On Linux and WSL2, it uses `systemd-run --user --scope` with cgroup rules.
 
 This is network containment only, not filesystem, process-memory, or kernel isolation.
+
+**If Docker is available, prefer the Docker sandbox backend below over the native one** — it's meaningfully stronger: filesystem access is allow-list rather than deny-list (nothing outside the working directory is visible at all, instead of specific paths being blocked), network egress is enforced at the network layer rather than relying on the agent to honor its proxy environment variables, and it works identically across macOS, Linux, and Windows (via Docker Desktop) instead of needing platform-specific mechanisms with a Windows gap. The native backend remains the default for now since it needs nothing beyond the CLI itself, but Docker is the recommended choice whenever it's an option.
+
+### Docker Sandbox Backend
+
+The recommended backend when Docker is available: the agent runs inside a Docker container instead of a same-host sandboxed process, with allow-list filesystem access and a network-layer firewall (enforced even against an agent that deliberately ignores its proxy env vars).
+
+```toml
+[sandbox]
+backend = "docker"
+```
+
+```bash
+stashbase agent run --profile coding -- claude
+```
+
+Or override the profile's choice for one invocation without editing the file: `--docker-sandbox true|false`, per-run image overrides with `--docker-image <ref>` / `--docker-dockerfile <path>`, and resource caps with `--docker-memory <value>` / `--docker-cpus <value>` (also settable per profile via `[sandbox] memory`/`cpus`; no cap by default).
+
+Claude Code and Codex are pre-installed in the default sandbox image; a profile can also run its own image or Dockerfile instead (`[sandbox] image`/`dockerfile`) to add other tools, without loosening any of the sandbox constraints themselves.
+
+See **[docs/sandboxing.md](docs/sandboxing.md)** for the full picture: how the network firewall is enforced, custom images, git identity forwarding, login persistence across images, Codex/Claude Code OAuth quirks, and current limitations.
 
 ### Remote Agent Sessions
 

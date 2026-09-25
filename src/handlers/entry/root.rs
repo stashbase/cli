@@ -24,14 +24,16 @@ use crate::{
     },
     config::{config, secure_store},
     handlers::{
-        agent_doctor::handle_agent_doctor_command,
-        agent_explain::handle_agent_explain_command,
-        agent_init::handle_agent_init_command,
-        agent_mcp::{handle_agent_mcp_configure_command, handle_agent_mcp_tools_command},
-        agent_policy::SecretHttpPolicy,
-        agent_policy_test::handle_agent_policy_test_command,
-        agent_profiles::handle_agent_profiles_command,
-        agent_validate::handle_agent_validate_command,
+        agent::{
+            doctor::handle_agent_doctor_command,
+            explain::handle_agent_explain_command,
+            init::handle_agent_init_command,
+            mcp::{handle_agent_mcp_configure_command, handle_agent_mcp_tools_command},
+            policy::SecretHttpPolicy,
+            policy_test::handle_agent_policy_test_command,
+            profiles::handle_agent_profiles_command,
+            validate::handle_agent_validate_command,
+        },
         doctor::handle_doctor_command,
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
@@ -564,7 +566,7 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Sessions {
                     command: crate::cmd::agent::AgentSessionsSubcommand::List(command),
                 } => {
-                    crate::handlers::agent_sessions::handle_sessions(
+                    crate::handlers::agent::sessions::handle_sessions(
                         command, &api_key, raw_output, silent,
                     )
                     .await
@@ -572,11 +574,42 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Sessions {
                     command: crate::cmd::agent::AgentSessionsSubcommand::Revoke(command),
                 } => {
-                    crate::handlers::agent_sessions::handle_revoke(
+                    crate::handlers::agent::sessions::handle_revoke(
                         command, &api_key, raw_output, silent,
                     )
                     .await
                 }
+                AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
+                    crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
+                        crate::handlers::agent::docker::handle_docker_cleanup_command(
+                            command, raw_output, silent,
+                        )
+                        .await
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Status(command) => {
+                        crate::handlers::agent::docker::handle_docker_status_command(
+                            command, raw_output,
+                        )
+                        .await
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Build(command) => {
+                        crate::handlers::agent::docker::handle_docker_build_command(
+                            command, &config, raw_output, silent,
+                        )
+                        .await
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Doctor(command) => {
+                        match crate::handlers::agent::docker::handle_docker_doctor_command(
+                            command, raw_output,
+                        )
+                        .await
+                        {
+                            Ok(true) => std::process::exit(1),
+                            Ok(false) => Ok(()),
+                            Err(error) => Err(error),
+                        }
+                    }
+                },
                 AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
                         handle_agent_logs(list.into(), raw_output).await
@@ -601,7 +634,7 @@ pub async fn handle_cli(args: Cli) {
                         handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
-                        match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                        match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
                             command,
                             &config,
                             raw_output,
@@ -612,7 +645,7 @@ pub async fn handle_cli(args: Cli) {
                         }
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Verify(command) => {
-                        match crate::handlers::agent_mcp::handle_agent_mcp_verify_command(
+                        match crate::handlers::agent::mcp::handle_agent_mcp_verify_command(
                             command,
                             &config,
                             raw_output,
@@ -631,7 +664,7 @@ pub async fn handle_cli(args: Cli) {
                     handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await
                 }
                 AgentSubcommand::McpCheck(agent_mcp) => {
-                    match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                    match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
                         agent_mcp,
                         &config,
                         raw_output,
@@ -711,7 +744,7 @@ pub async fn handle_cli(args: Cli) {
                     }};
                     let loaded_from_directory = directory_source.is_some();
 
-                    let Some(profile) = profile else {
+                    let Some(mut profile) = profile else {
                         let source = match agent_run.profile_source {
                             AgentProfileSource::Global => "global",
                             AgentProfileSource::Directory => "directory",
@@ -724,7 +757,24 @@ pub async fn handle_cli(args: Cli) {
                         return Ok(());
                     };
 
-                    crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
+                    profile.sandbox.backend =
+                        profile.sandbox.backend.with_cli_override(agent_run.docker_sandbox);
+                    if let Some(image) = &agent_run.docker_image {
+                        profile.sandbox.image = Some(image.clone());
+                        profile.sandbox.dockerfile = None;
+                        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+                    } else if let Some(dockerfile) = &agent_run.docker_dockerfile {
+                        profile.sandbox.dockerfile = Some(dockerfile.clone());
+                        profile.sandbox.image = None;
+                        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+                    }
+                    if let Some(memory) = &agent_run.docker_memory {
+                        profile.sandbox.memory = Some(memory.clone());
+                    }
+                    if let Some(cpus) = &agent_run.docker_cpus {
+                        profile.sandbox.cpus = Some(cpus.clone());
+                    }
+                    crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
                     // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is
@@ -761,6 +811,11 @@ pub async fn handle_cli(args: Cli) {
                     let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
                     if !silent {
                         eprintln!("Network sandbox: enabled");
+                        if profile.sandbox.backend
+                            == crate::models::agent::SandboxBackend::Docker
+                        {
+                            eprintln!("Sandbox backend: Docker (container-isolated)");
+                        }
                         print_agent_egress_warnings(&profile);
                         eprintln!(
                             "API hook broker: {}",
@@ -913,6 +968,11 @@ pub async fn handle_cli(args: Cli) {
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                         mcp_rules: compiled_mcp_rules(&profile),
+                        backend: profile.sandbox.backend,
+                        sandbox_image: profile.sandbox.image.clone(),
+                        sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
+                        sandbox_memory: profile.sandbox.memory.clone(),
+                        sandbox_cpus: profile.sandbox.cpus.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -1128,7 +1188,7 @@ pub async fn handle_cli(args: Cli) {
                     let local_session = if agent_run.remote {
                         None
                     } else {
-                        Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
+                        Some(crate::handlers::agent::sessions::LocalAgentSessionGuard::start(
                             local_session_id.clone(),
                         )?)
                     };
@@ -2225,6 +2285,7 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),
