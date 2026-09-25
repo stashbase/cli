@@ -1775,11 +1775,17 @@ mod tests {
             name: "n".to_owned(),
             gateway_ip: "172.30.0.1".to_owned(),
         };
+        // A hardcoded Unix-style literal here (e.g. `/tmp/...`) is not
+        // actually absolute under Windows path semantics — `PathBuf::
+        // is_absolute()` is platform-aware, and the check this test
+        // exercises is real production logic, not something to special-
+        // case for tests. Build a path that's genuinely absolute on
+        // whatever platform this test runs on instead.
+        let ca_dir = std::env::temp_dir().join("stashbase-ca-test");
+        let ca_path = ca_dir.join("ca.pem").to_string_lossy().into_owned();
+        let ca_dir = ca_dir.to_string_lossy().into_owned();
         let mut env_vars = std::collections::HashMap::new();
-        env_vars.insert(
-            "SSL_CERT_FILE".to_owned(),
-            "/tmp/stashbase-ca/ca.pem".to_owned(),
-        );
+        env_vars.insert("SSL_CERT_FILE".to_owned(), ca_path.clone());
         let (_, args) = docker_run_command(
             "claude",
             &network,
@@ -1796,10 +1802,10 @@ mod tests {
         // would expose every other file in it (other processes' temp
         // files, other agent runs' audit/revocation state) to the
         // container, defeating the filesystem allow-list.
-        assert!(args.contains(&"/tmp/stashbase-ca/ca.pem:/tmp/stashbase-ca/ca.pem:ro".to_owned()));
+        assert!(args.contains(&format!("{ca_path}:{ca_path}:ro")));
         assert!(!args
             .iter()
-            .any(|arg| arg == "/tmp/stashbase-ca:/tmp/stashbase-ca:ro"));
+            .any(|arg| *arg == format!("{ca_dir}:{ca_dir}:ro")));
     }
 
     #[test]
