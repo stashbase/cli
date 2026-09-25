@@ -160,7 +160,7 @@ fn parse_proxy_host_port(
 
 /// Starts a short-lived helper container attached to `network` that holds
 /// `CAP_NET_ADMIN` just long enough to install one `iptables` rule
-/// (default-DROP outbound, exceptions only for loopback, DNS, and the
+/// (default-DROP outbound, exceptions only for loopback and the
 /// credential proxy's specific address/port), then blocks forever holding
 /// the network namespace open. The actual agent container later joins this
 /// exact namespace via `--network container:<holder>` (see
@@ -202,6 +202,26 @@ pub(crate) fn start_netns_holder(
             &network.name,
             "--add-host",
             "host.docker.internal:host-gateway",
+            // Docker's embedded DNS resolver (127.0.0.11) forwards
+            // unresolved lookups to a real upstream server on the host
+            // side — outside this container's own network namespace
+            // entirely, so no iptables OUTPUT rule inside the container can
+            // ever see or block that traffic (confirmed directly: even
+            // with a default-DROP policy and no ACCEPT rule for port 53 at
+            // all, a lookup for an arbitrary external hostname still
+            // succeeded). That's a live data-exfiltration channel — an
+            // agent can encode secrets in a query name to a
+            // domain it controls and have Docker itself relay it out.
+            // Pointing the resolver's upstream at a blackhole address
+            // closes it: local lookups (`host.docker.internal` via the
+            // `--add-host` above) still work since those resolve from
+            // `/etc/hosts`, never touching the upstream forwarder at all.
+            // The agent joins this container's network namespace and
+            // inherits this same DNS config — it doesn't need real DNS
+            // either, since its proxy address is already a resolved raw IP
+            // (see `rewrite_proxy_urls_for_container`).
+            "--dns",
+            "0.0.0.0",
             "--cap-drop",
             "ALL",
             "--cap-add",
@@ -234,8 +254,6 @@ pub(crate) fn start_netns_holder(
          if [ -z \"$proxy_ip\" ]; then proxy_ip='{proxy_host}'; fi\n\
          iptables -P OUTPUT DROP\n\
          iptables -A OUTPUT -o lo -j ACCEPT\n\
-         iptables -A OUTPUT -p udp --dport 53 -j ACCEPT\n\
-         iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT\n\
          iptables -A OUTPUT -d \"$proxy_ip\" -p tcp --dport '{proxy_port}' -j ACCEPT\n\
          \n\
          # Verify the rule actually took effect before trusting it, rather\n\
@@ -1376,11 +1394,23 @@ mod tests {
                 "https://example.com",
             ])
             .output();
+        // DNS must not be a data-exfiltration side channel: Docker's
+        // embedded resolver forwards unresolved lookups via the host's own
+        // DNS stack, entirely outside this container's network namespace
+        // — no iptables rule inside the container can see, let alone
+        // block, that traffic. The only real fix is disabling upstream
+        // forwarding at the source (`--dns 0.0.0.0` on the holder, which
+        // the agent inherits) — assert that's actually working, not just
+        // that the firewall rule exists.
+        let dns_lookup = std::process::Command::new("docker")
+            .args(["exec", &holder_name, "getent", "hosts", "example.com"])
+            .output();
 
         cleanup();
 
         let allowed = allowed.expect("docker exec should run");
         let blocked = blocked.expect("docker exec should run");
+        let dns_lookup = dns_lookup.expect("docker exec should run");
         assert_eq!(
             String::from_utf8_lossy(&allowed.stdout),
             "200",
@@ -1390,6 +1420,12 @@ mod tests {
             String::from_utf8_lossy(&blocked.stdout),
             "000",
             "a direct request to an arbitrary host should be blocked by the firewall"
+        );
+        assert!(
+            !dns_lookup.status.success(),
+            "an external hostname must not resolve at all — a successful lookup here means \
+             Docker's embedded DNS resolver is still forwarding queries upstream, which is a \
+             data-exfiltration channel no container-level firewall rule can block"
         );
     }
 
