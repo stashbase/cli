@@ -439,7 +439,20 @@ mod tests {
         let loaded = get_directory_agent_profile_from_dir(&directory, "codex")
             .unwrap()
             .unwrap();
-        assert_eq!(loaded.source, "./.stashbase/agents/codex.toml");
+        // Built the same way production does (join + `Display`) rather
+        // than a hardcoded forward-slash literal: `Path`'s `Display` uses
+        // the OS-native separator, so a literal like this only matches on
+        // Unix — on Windows the real value has backslashes in the nested
+        // part (`./.stashbase/agents\codex.toml`), which isn't a bug in
+        // the production code, just something a hardcoded literal can't
+        // account for.
+        let expected_source = format!(
+            "./{}",
+            std::path::PathBuf::from(DIRECTORY_AGENT_PROFILES_DIR)
+                .join("codex.toml")
+                .display()
+        );
+        assert_eq!(loaded.source, expected_source);
         assert_eq!(
             loaded.profile.secrets.bindings["GITHUB_TOKEN"].hosts,
             ["api.github.com"]
