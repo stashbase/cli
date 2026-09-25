@@ -735,6 +735,22 @@ pub(crate) fn docker_run_command(
         "ALL".to_owned(),
         "--security-opt".to_owned(),
         "no-new-privileges".to_owned(),
+        // A real init process as PID 1 (Docker bundles tini for this)
+        // reaps zombie processes and forwards signals correctly — without
+        // it, an agent that spawns and orphans subprocesses (build tools,
+        // language servers) can leak zombies for the life of the
+        // container. Always on: there's no legitimate workload this could
+        // break, unlike the opt-in memory/cpus limits above.
+        "--init".to_owned(),
+        // A generous but finite cap on the container's process count. Not
+        // meant to constrain any real workload — a coding agent spawning
+        // build tools, test runners, and language servers comes nowhere
+        // close to this — it exists purely to contain a fork bomb (bug or
+        // malicious) to the container's own cgroup instead of letting it
+        // exhaust the host's PID table. Always on for the same reason
+        // `--init` is: no real cost, meaningful downside blocked.
+        "--pids-limit".to_owned(),
+        "2048".to_owned(),
     ]);
     if cfg!(target_os = "linux") {
         // Docker Desktop already maps container-root writes on a bind
@@ -1801,6 +1817,33 @@ mod tests {
         assert!(!args.contains(&"--cap-add".to_owned()));
         assert!(args.contains(&"--security-opt".to_owned()));
         assert!(args.contains(&"no-new-privileges".to_owned()));
+    }
+
+    #[test]
+    fn docker_run_command_always_adds_init_and_a_pids_limit() {
+        // Unlike memory/cpus, these are never configurable per profile and
+        // always applied — there's no legitimate workload either could
+        // break, only a fork bomb or zombie-process leak they exist to
+        // contain.
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(args.contains(&"--init".to_owned()));
+        let pids_limit_index = args.iter().position(|arg| arg == "--pids-limit").unwrap();
+        assert_eq!(args[pids_limit_index + 1], "2048");
     }
 
     #[test]
