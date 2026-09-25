@@ -541,11 +541,8 @@ fn sandbox_command_with_filesystem_policy(
                     if let Some(error) = bubblewrap_enforcement_error() {
                         anyhow::bail!(error);
                     }
-                    return Ok(bubblewrap_command(
-                        command,
-                        denied_read_paths,
-                        denied_write_paths,
-                    ));
+                    return bubblewrap_command(command, denied_read_paths, denied_write_paths)
+                        .map_err(|error| anyhow::anyhow!(error));
                 }
             }
             #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -622,11 +619,8 @@ fn sandbox_command_with_filesystem_policy(
             if let Some(error) = bubblewrap_enforcement_error() {
                 anyhow::bail!(error);
             }
-            return Ok(bubblewrap_command(
-                command,
-                denied_read_paths,
-                denied_write_paths,
-            ));
+            return bubblewrap_command(command, denied_read_paths, denied_write_paths)
+                .map_err(|error| anyhow::anyhow!(error));
         }
         if !sandbox && denied_read_paths.is_empty() && denied_write_paths.is_empty() {
             return Ok((command.to_owned(), Vec::new()));
@@ -989,7 +983,7 @@ fn bubblewrap_command(
     command: &str,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
-) -> (String, Vec<String>) {
+) -> Result<(String, Vec<String>), String> {
     let executable = if command_in_path("bwrap") {
         "bwrap"
     } else {
@@ -1016,7 +1010,12 @@ fn bubblewrap_command(
         if PathBuf::from(path).is_dir() {
             args.extend(["--tmpfs".to_owned(), path.clone()]);
         } else {
-            args.extend(["--ro-bind".to_owned(), "/dev/null".to_owned(), path.clone()]);
+            // Not `/dev/null`: `--ro-bind` preserves the *source's* file
+            // type at the target, and `/dev/null` is a character device,
+            // not a regular file — see `empty_shadow_file_path`'s doc
+            // comment for why that matters in practice.
+            let shadow_file = super::docker_sandbox::empty_shadow_file_path()?;
+            args.extend(["--ro-bind".to_owned(), shadow_file, path.clone()]);
         }
     }
     for path in resolve_policy_paths(denied_write_paths) {
@@ -1030,7 +1029,7 @@ fn bubblewrap_command(
         args.extend(["--ro-bind".to_owned(), path.clone(), path]);
     }
     args.extend(["--".to_owned(), command.to_owned()]);
-    (executable.to_owned(), args)
+    Ok((executable.to_owned(), args))
 }
 
 #[cfg(target_os = "linux")]
@@ -1681,7 +1680,8 @@ mod tests {
             "sh",
             &[private_dir.clone(), private_file.clone()],
             &[readonly_dir, readonly_file.clone()],
-        );
+        )
+        .unwrap();
         assert!(program == "bwrap" || program == "bubblewrap");
         assert!(args.windows(2).any(|window| {
             window
@@ -1689,12 +1689,25 @@ mod tests {
                 .map(String::as_str)
                 .eq(["--tmpfs", private_dir.as_str()])
         }));
+        // Not `/dev/null`: `--ro-bind` preserves the *source's* file type
+        // at the target, and `/dev/null` is a character device, not a
+        // regular file — see `empty_shadow_file_path`'s doc comment.
+        let expected_source =
+            crate::handlers::run::docker_sandbox::empty_shadow_file_path().unwrap();
         assert!(args.windows(3).any(|window| {
-            window
-                .iter()
-                .map(String::as_str)
-                .eq(["--ro-bind", "/dev/null", private_file.as_str()])
+            window.iter().map(String::as_str).eq([
+                "--ro-bind",
+                expected_source.as_str(),
+                private_file.as_str(),
+            ])
         }));
+        assert!(std::path::Path::new(&expected_source).is_file());
+        {
+            use std::os::unix::fs::FileTypeExt;
+            let file_type = std::fs::metadata(&expected_source).unwrap().file_type();
+            assert!(!file_type.is_char_device());
+            assert!(!file_type.is_block_device());
+        }
         assert!(args.windows(3).any(|window| {
             window.iter().map(String::as_str).eq([
                 "--ro-bind",

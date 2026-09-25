@@ -797,7 +797,7 @@ pub(crate) fn docker_run_command(
         args.extend(["--cpus".to_owned(), cpus.to_owned()]);
     }
 
-    append_filesystem_mounts(&mut args, &cwd_str, denied_read_paths, denied_write_paths);
+    append_filesystem_mounts(&mut args, &cwd_str, denied_read_paths, denied_write_paths)?;
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
 
     // A named Docker volume, not a bind mount of the real host home
@@ -866,7 +866,7 @@ fn append_filesystem_mounts(
     cwd: &str,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
-) {
+) -> Result<(), String> {
     let read_paths = super::subprocess::resolve_policy_paths(denied_read_paths);
     let write_paths = super::subprocess::resolve_policy_paths(denied_write_paths);
 
@@ -882,13 +882,25 @@ fn append_filesystem_mounts(
             continue;
         }
         // `--tmpfs` only accepts a directory target; a file target fails
-        // container creation outright ("not a directory"). Mirror the
-        // native Linux bubblewrap backend's approach for a denied file:
-        // bind-mount /dev/null over it read-only instead.
+        // container creation outright ("not a directory"). For a denied
+        // file, bind-mount a genuine empty regular file over it read-only
+        // instead — not `/dev/null`, which works for hiding content (reads
+        // return nothing, writes are discarded) but is a character device,
+        // not a regular file: `ls -l` shows `crw-rw-rw-`, `stat()`/
+        // `os.path.isfile()` disagree with a normal file, and it's
+        // confusing enough in practice that a coding agent inspecting it
+        // has been observed flagging it as broken and offering to "fix"
+        // it. An empty regular file gives the identical security effect
+        // (empty, read-only) without that anomaly.
         if PathBuf::from(path).is_dir() {
             args.extend(["--tmpfs".to_owned(), path.clone()]);
         } else {
-            args.extend(["-v".to_owned(), format!("/dev/null:{path}:ro")]);
+            match empty_shadow_file_path() {
+                Ok(shadow_file) => {
+                    args.extend(["-v".to_owned(), format!("{shadow_file}:{path}:ro")]);
+                }
+                Err(error) => return Err(error),
+            }
         }
     }
 
@@ -904,6 +916,34 @@ fn append_filesystem_mounts(
         }
         args.extend(["-v".to_owned(), format!("{path}:{path}:ro")]);
     }
+    Ok(())
+}
+
+/// The host-side path of a genuine, empty, world-readable regular file used
+/// as the shadow-mount source for a denied-read file (see
+/// `append_filesystem_mounts`) — created once and reused across runs, since
+/// it never needs to change. Kept in the system temp directory rather than
+/// bundled into the image because a bind mount's source must be a host
+/// path; it can't reference a path from inside the image itself.
+///
+/// Shared with the native backend's bubblewrap invocation (see
+/// `subprocess.rs`), which has the exact same need for the exact same
+/// reason: `--ro-bind`/`-v` both preserve the *source's* file type at the
+/// mount target, and `/dev/null` is a character device, not a regular
+/// file — confusing enough in practice (`ls -l` shows `crw-rw-rw-`,
+/// `stat()`/`os.path.isfile()` disagree with a normal file) that a coding
+/// agent inspecting one has been observed flagging it as broken.
+pub(crate) fn empty_shadow_file_path() -> Result<String, String> {
+    let path = std::env::temp_dir().join("stashbase-docker-empty-shadow-file");
+    if !path.exists() {
+        std::fs::write(&path, []).map_err(|error| {
+            format!(
+                "failed to create the empty shadow file at {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+    Ok(path.to_string_lossy().into_owned())
 }
 
 /// Env vars whose value is a filesystem path to the proxy's temporary CA
@@ -1519,7 +1559,7 @@ mod tests {
     }
 
     #[test]
-    fn docker_run_command_shadow_mounts_nested_deny_read_file_as_dev_null_bind() {
+    fn docker_run_command_shadow_mounts_nested_deny_read_file_as_empty_regular_file_bind() {
         let network = DockerRunNetwork {
             name: "n".to_owned(),
             gateway_ip: "172.30.0.1".to_owned(),
@@ -1528,7 +1568,11 @@ mod tests {
         // Cargo.toml is a real file (not a directory) inside this repo's
         // cwd — `--tmpfs` on a file target fails container creation
         // outright ("not a directory"), so a denied file must be shadowed
-        // with a read-only /dev/null bind mount instead.
+        // with a read-only bind mount of an empty regular file instead —
+        // not `/dev/null`: that hides content fine, but as a character
+        // device it confuses tooling (and agents) that expect a regular
+        // file at that path (`ls -l` shows `crw-rw-rw-`, `stat()` disagrees
+        // with a normal file).
         let nested = cwd.join("Cargo.toml").to_string_lossy().into_owned();
         let (_, args) = docker_run_command(
             "claude",
@@ -1543,11 +1587,28 @@ mod tests {
         )
         .unwrap();
         assert!(!args.contains(&"--tmpfs".to_owned()));
+        let expected_source = empty_shadow_file_path().unwrap();
         let mount = args
             .windows(2)
-            .find(|pair| pair[0] == "-v" && pair[1] == format!("/dev/null:{nested}:ro"))
-            .unwrap_or_else(|| panic!("expected a /dev/null bind mount for the denied file"));
-        assert_eq!(mount[1], format!("/dev/null:{nested}:ro"));
+            .find(|pair| pair[0] == "-v" && pair[1] == format!("{expected_source}:{nested}:ro"))
+            .unwrap_or_else(|| {
+                panic!("expected an empty-regular-file bind mount for the denied file")
+            });
+        assert_eq!(mount[1], format!("{expected_source}:{nested}:ro"));
+        // And it really is a regular file, not /dev/null or any other
+        // special device — this is the whole point of the fix.
+        assert!(PathBuf::from(&expected_source).is_file());
+        assert!(!PathBuf::from(&expected_source).metadata().unwrap().is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+            let file_type = PathBuf::from(&expected_source)
+                .metadata()
+                .unwrap()
+                .file_type();
+            assert!(!file_type.is_char_device());
+            assert!(!file_type.is_block_device());
+        }
     }
 
     #[test]
