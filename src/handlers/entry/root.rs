@@ -580,7 +580,7 @@ pub async fn handle_cli(args: Cli) {
                 AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
                     crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
                         crate::handlers::agent_docker::handle_docker_cleanup_command(
-                            command, silent,
+                            command, raw_output, silent,
                         )
                         .await
                     }
@@ -592,7 +592,7 @@ pub async fn handle_cli(args: Cli) {
                     }
                     crate::cmd::agent::AgentDockerSubcommand::Build(command) => {
                         crate::handlers::agent_docker::handle_docker_build_command(
-                            command, &config, silent,
+                            command, &config, raw_output, silent,
                         )
                         .await
                     }

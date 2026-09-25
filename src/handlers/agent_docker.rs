@@ -101,6 +101,7 @@ pub async fn handle_docker_status_command(
 pub async fn handle_docker_build_command(
     command: AgentDockerBuildCommand,
     global_config: &crate::models::config::Config,
+    raw_output: bool,
     silent: bool,
 ) -> Result<()> {
     if let Some(error) = crate::handlers::run::docker_sandbox::docker_enforcement_error() {
@@ -143,7 +144,19 @@ pub async fn handle_docker_build_command(
         source,
         crate::handlers::run::docker_sandbox::AgentImageSource::Image(_)
     ) {
-        if !silent {
+        if raw_output {
+            println!(
+                "{}",
+                get_formatted_json_string(
+                    &serde_json::json!({
+                        "image": source.image_tag(),
+                        "built": false,
+                        "reason": "pre-built image reference; nothing to build",
+                    }),
+                    true,
+                )?
+            );
+        } else if !silent {
             println!(
                 "Profile '{}' uses a pre-built image reference ({}); nothing to build — `docker run` pulls it automatically if it isn't already present locally.",
                 command.profile.as_deref().unwrap_or_default(),
@@ -154,7 +167,19 @@ pub async fn handle_docker_build_command(
     }
 
     if !command.force && crate::handlers::run::docker_sandbox::sandbox_image_exists(&source) {
-        if !silent {
+        if raw_output {
+            println!(
+                "{}",
+                get_formatted_json_string(
+                    &serde_json::json!({
+                        "image": source.image_tag(),
+                        "built": false,
+                        "reason": "already exists; pass --force to rebuild",
+                    }),
+                    true,
+                )?
+            );
+        } else if !silent {
             println!(
                 "Docker sandbox image ({}) already exists. Use --force to rebuild it.",
                 source.image_tag()
@@ -162,13 +187,26 @@ pub async fn handle_docker_build_command(
         }
         return Ok(());
     }
-    if !silent {
+    if !silent && !raw_output {
         println!("Building Docker sandbox image ({})...", source.image_tag());
     }
+    // `docker build`'s own progress streams straight to stdout regardless
+    // of --json (see build_sandbox_image) — there's no clean way to
+    // suppress it while still showing build progress, the same tradeoff
+    // `docker build` itself has. The JSON result below is still the last
+    // thing printed, so it remains the thing to parse.
     crate::handlers::run::docker_sandbox::build_sandbox_image(&source)
         .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
-    if !silent {
-        println!("Docker sandbox image built.");
+    if raw_output {
+        println!(
+            "{}",
+            get_formatted_json_string(
+                &serde_json::json!({ "image": source.image_tag(), "built": true }),
+                true,
+            )?
+        );
+    } else if !silent {
+        println!("{}", "Docker sandbox image built.".green_if_tty());
     }
     Ok(())
 }
@@ -191,6 +229,7 @@ pub async fn handle_docker_build_command(
 /// in progress right now.
 pub async fn handle_docker_cleanup_command(
     command: AgentDockerCleanupCommand,
+    raw_output: bool,
     silent: bool,
 ) -> Result<()> {
     if let Some(error) = crate::handlers::run::docker_sandbox::docker_enforcement_error() {
@@ -204,13 +243,23 @@ pub async fn handle_docker_cleanup_command(
         .collect();
 
     if candidates.is_empty() {
-        if !silent {
+        if raw_output {
+            println!(
+                "{}",
+                get_formatted_json_string(
+                    &serde_json::json!({ "candidates": [], "removed": [] }),
+                    true,
+                )?
+            );
+        } else if !silent {
             println!("No leftover Docker sandbox resources found.");
         }
         return Ok(());
     }
 
-    if !silent {
+    // Human-readable prose only — JSON mode reports the same information
+    // structurally instead, so stdout stays parseable as a single object.
+    if !silent && !raw_output {
         println!(
             "Found {} leftover Docker sandbox network(s) not tied to a live local session:\n",
             candidates.len()
@@ -251,12 +300,23 @@ pub async fn handle_docker_cleanup_command(
     };
 
     if !should_remove {
-        if !silent {
+        if raw_output {
+            let candidate_names: Vec<_> = candidates.iter().map(|network| &network.name).collect();
+            println!(
+                "{}",
+                get_formatted_json_string(
+                    &serde_json::json!({ "candidates": candidate_names, "removed": [] }),
+                    true,
+                )?
+            );
+        } else if !silent {
             println!("Nothing removed.");
         }
         return Ok(());
     }
 
+    let mut removed = Vec::new();
+    let mut already_removed = Vec::new();
     let mut failures = Vec::new();
     for network in &candidates {
         let run_network = crate::handlers::run::docker_sandbox::DockerRunNetwork {
@@ -265,21 +325,37 @@ pub async fn handle_docker_cleanup_command(
         };
         match crate::handlers::run::docker_sandbox::remove_run_network(&run_network) {
             Ok(()) => {
-                if !silent {
-                    println!("Removed {}", network.name);
+                if !silent && !raw_output {
+                    println!("{} {}", "Removed".green_if_tty(), network.name);
                 }
+                removed.push(&network.name);
             }
             // Benign race: something else (a concurrently finishing
             // legitimate run, or a second `cleanup` invocation) already
             // removed it between our listing and this removal attempt —
             // the end state we wanted is already true.
             Err(error) if error.contains("not found") => {
-                if !silent {
+                if !silent && !raw_output {
                     println!("Already removed: {}", network.name);
                 }
+                already_removed.push(&network.name);
             }
             Err(error) => failures.push(format!("{}: {error}", network.name)),
         }
+    }
+
+    if raw_output {
+        println!(
+            "{}",
+            get_formatted_json_string(
+                &serde_json::json!({
+                    "removed": removed,
+                    "already_removed": already_removed,
+                    "failed": failures,
+                }),
+                true,
+            )?
+        );
     }
 
     if !failures.is_empty() {
