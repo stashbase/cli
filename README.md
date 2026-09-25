@@ -13,7 +13,7 @@ Stashbase is an open-source access layer that gives coding agents the access the
   - [How the Agent Proxy Works](#how-the-agent-proxy-works)
   - [Profile Syntax and Configuration](#profile-syntax-and-configuration)
   - [Filesystem and Network Containment](#filesystem-and-network-containment)
-  - [Docker Sandbox Backend (Experimental)](#docker-sandbox-backend-experimental)
+  - [Docker Sandbox Backend](#docker-sandbox-backend)
   - [Remote Agent Sessions](#remote-agent-sessions)
   - [MCP Tools Authorization](#mcp-tools-authorization)
   - [Audit Logs and Session Revocation](#audit-logs-and-session-revocation)
@@ -244,7 +244,7 @@ This is network containment only, not filesystem, process-memory, or kernel isol
 
 **If Docker is available, prefer the Docker sandbox backend below over the native one** — it's meaningfully stronger: filesystem access is allow-list rather than deny-list (nothing outside the working directory is visible at all, instead of specific paths being blocked), network egress is enforced at the network layer rather than relying on the agent to honor its proxy environment variables, and it works identically across macOS, Linux, and Windows (via Docker Desktop) instead of needing platform-specific mechanisms with a Windows gap. The native backend remains the default for now since it needs nothing beyond the CLI itself, but Docker is the recommended choice whenever it's an option.
 
-### Docker Sandbox Backend (Experimental)
+### Docker Sandbox Backend
 
 The recommended backend when Docker is available: the agent runs inside a Docker container instead of a same-host sandboxed process, with allow-list filesystem access and a network-layer firewall (enforced even against an agent that deliberately ignores its proxy env vars).
 

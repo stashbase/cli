@@ -204,7 +204,7 @@ The proxy is HTTP/HTTPS only and designed for standard developer tools. It does 
 - Request-body or query-parameter injection (credentials are header-only)
 - Process-level isolation (same-user processes can still access broader system credentials)
 
-For stronger filesystem and network isolation than the native backend provides, see [Sandboxing](sandboxing.md) (experimental).
+For stronger filesystem and network isolation than the native backend provides, see [Sandboxing](sandboxing.md).
 
 ## Full Reference
 

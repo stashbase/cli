@@ -177,4 +177,4 @@ Checks whether the Docker sandbox backend can actually run here — the `docker`
 - Two containers run per invocation (the network namespace holder plus the agent container itself), not one — slightly more setup overhead per run than a single-container approach, in exchange for the firewall being enforced by capability separation rather than a privilege drop inside the agent container.
 - The persistent home volume is shared across every profile and project — chat history and config from one profile's sandboxed sessions are visible to another profile's sandboxed sessions on the same machine. This is a privacy boundary, not a security one: it never grants access beyond what each run's own profile allows, since egress/credential policy is enforced per-run regardless of what's in the shared volume.
 
-This backend is early access, opt-in only, and does not change the default behavior of existing profiles.
+This backend is opt-in only and does not change the default behavior of existing profiles.
