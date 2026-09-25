@@ -800,6 +800,29 @@ impl ProxyPolicy {
             format!("egress_configured={}", self.egress_hosts_configured),
             format!("strict_deny={}", self.strict_deny),
             format!("allow_network_listeners={}", self.allow_network_listeners),
+            // The sandbox backend and its Docker-specific settings are part
+            // of the effective enforcement, not just the egress/secret
+            // policy — switching a profile from native to Docker, or
+            // swapping its custom image, must change the fingerprint, or
+            // an audit record can't tell those materially different runs
+            // apart.
+            format!("backend={:?}", self.backend),
+            format!(
+                "sandbox_image={}",
+                self.sandbox_image.as_deref().unwrap_or("")
+            ),
+            format!(
+                "sandbox_dockerfile={}",
+                self.sandbox_dockerfile.as_deref().unwrap_or("")
+            ),
+            format!(
+                "sandbox_memory={}",
+                self.sandbox_memory.as_deref().unwrap_or("")
+            ),
+            format!(
+                "sandbox_cpus={}",
+                self.sandbox_cpus.as_deref().unwrap_or("")
+            ),
         ];
         let mut egress = normalize_hosts(self.allowed_egress_hosts.clone())
             .into_iter()
@@ -4655,6 +4678,38 @@ mod tests {
 
         assert_eq!(left.fingerprint(), equivalent.fingerprint());
         assert_ne!(left.fingerprint(), different.fingerprint());
+    }
+
+    #[test]
+    fn policy_fingerprint_changes_with_sandbox_backend_and_settings() {
+        // The sandbox backend and its Docker-specific settings are part of
+        // the effective enforcement, not just the egress/secret policy —
+        // an audit record must be able to distinguish a native run from a
+        // Docker one, or one custom image from another, by fingerprint
+        // alone.
+        let native = rule_policy(Vec::new());
+        let mut docker = native.clone();
+        docker.backend = SandboxBackend::Docker;
+        assert_ne!(native.fingerprint(), docker.fingerprint());
+
+        let mut docker_image_a = docker.clone();
+        docker_image_a.sandbox_image = Some("myorg/a:latest".to_owned());
+        let mut docker_image_b = docker.clone();
+        docker_image_b.sandbox_image = Some("myorg/b:latest".to_owned());
+        assert_ne!(docker.fingerprint(), docker_image_a.fingerprint());
+        assert_ne!(docker_image_a.fingerprint(), docker_image_b.fingerprint());
+
+        let mut docker_dockerfile = docker.clone();
+        docker_dockerfile.sandbox_dockerfile = Some("./custom.Dockerfile".to_owned());
+        assert_ne!(docker.fingerprint(), docker_dockerfile.fingerprint());
+
+        let mut docker_memory = docker.clone();
+        docker_memory.sandbox_memory = Some("2g".to_owned());
+        assert_ne!(docker.fingerprint(), docker_memory.fingerprint());
+
+        let mut docker_cpus = docker.clone();
+        docker_cpus.sandbox_cpus = Some("1.5".to_owned());
+        assert_ne!(docker.fingerprint(), docker_cpus.fingerprint());
     }
 
     #[test]

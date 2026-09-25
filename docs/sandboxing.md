@@ -6,7 +6,7 @@
 
 - **Filesystem**: allow-list (only the working directory is visible at all) instead of deny-list (specific paths blocked, everything else still reachable).
 - **Network**: enforced by a real firewall inside the container's network namespace, not by the agent choosing to honor `HTTPS_PROXY`/`HTTP_PROXY` — a process that deliberately opens a raw socket is blocked the same as one that respects the proxy.
-- **Platform coverage**: works identically on macOS, Linux, and Windows (via Docker Desktop), rather than the native backend's platform-specific mechanisms that don't exist on Windows at all.
+- **Platform coverage**: works identically on macOS, Linux, and Windows (via Docker Desktop), rather than the native backend's platform-specific mechanisms that don't exist on Windows at all. (Windows support here has been implemented and reasoned through carefully — same Docker Desktop VM-boundary handling as macOS — but not yet run end-to-end on a real Windows machine.)
 - **Extensibility**: `sandbox.image`/`sandbox.dockerfile` let a profile add exactly the tools it needs (Python, a compiler, whatever) without weakening the sandbox itself.
 
 The native backend stays the default because it needs nothing beyond the CLI itself — no Docker install, no daemon, no image to build — which matters for a quick first run. But once Docker is available, there's no real reason to prefer the weaker guarantees of the native backend over it.

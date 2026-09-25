@@ -86,6 +86,32 @@ fn ensure_docker_sandbox_image_available(
     Ok(tag)
 }
 
+/// Ensures every image a Docker-backend run will actually need is
+/// available, and returns the tag the agent container should use.
+///
+/// The network-namespace holder (see `start_netns_holder`) always uses the
+/// built-in default image, deliberately never a profile's custom
+/// `sandbox.image`/`sandbox.dockerfile` — but `ensure_docker_sandbox_image_available`
+/// on its own only ensures whichever source the *agent* container resolves
+/// to. For a profile using a custom image, that leaves the default image
+/// unchecked: if it was never built (a user who only ever runs custom
+/// images has no reason to have it), the holder's own `docker run` fails
+/// outright since there's no registry to auto-pull it from. This ensures
+/// both, skipping the duplicate prompt/build when the agent's own source
+/// already *is* the default.
+fn ensure_docker_images_available(
+    agent_image_source: &super::docker_sandbox::AgentImageSource,
+    silent: bool,
+) -> anyhow::Result<String> {
+    if *agent_image_source != super::docker_sandbox::AgentImageSource::Default {
+        ensure_docker_sandbox_image_available(
+            &super::docker_sandbox::AgentImageSource::Default,
+            silent,
+        )?;
+    }
+    ensure_docker_sandbox_image_available(agent_image_source, silent)
+}
+
 /// Runs an agent through the localhost relay while credentials stay in the
 /// control-plane's short-lived remote agent-proxy session.
 pub async fn handle_remote_agent_run(
@@ -121,7 +147,7 @@ pub async fn handle_remote_agent_run(
         // must never race a concurrently animating spinner writing to the
         // same stream (see the same reasoning for the proxy-started
         // message below).
-        let agent_image = ensure_docker_sandbox_image_available(&agent_image_source, silent)?;
+        let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
         setup_spinner = (!silent).then(|| {
             crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
         });
@@ -1339,7 +1365,7 @@ async fn handle_run(
             // must never race a concurrently animating spinner writing to
             // the same stream (see the same reasoning for the
             // proxy-started message below).
-            let agent_image = ensure_docker_sandbox_image_available(&agent_image_source, silent)?;
+            let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
             setup_spinner = (!silent).then(|| {
                 crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
             });

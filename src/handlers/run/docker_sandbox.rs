@@ -467,7 +467,7 @@ pub(crate) fn list_run_networks() -> Result<Vec<ExistingRunNetwork>, String> {
 /// binding to it directly keeps the proxy reachable only from this run's
 /// isolated network rather than every interface on the host.
 pub(crate) fn proxy_bind_host(network: &DockerRunNetwork) -> String {
-    if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
         "127.0.0.1".to_owned()
     } else {
         network.gateway_ip.clone()
@@ -478,7 +478,7 @@ pub(crate) fn proxy_bind_host(network: &DockerRunNetwork) -> String {
 /// `proxy_bind_host`. See that function's doc comment for why this differs
 /// by platform.
 pub(crate) fn proxy_container_host(network: &DockerRunNetwork) -> String {
-    if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
         "host.docker.internal".to_owned()
     } else {
         network.gateway_ip.clone()
@@ -1088,14 +1088,17 @@ mod tests {
     }
 
     #[test]
-    fn proxy_bind_and_container_host_differ_only_on_macos() {
+    fn proxy_bind_and_container_host_differ_on_docker_desktop_platforms() {
         let network = DockerRunNetwork {
             name: "n".to_owned(),
             gateway_ip: "172.30.0.1".to_owned(),
         };
         let bind_host = proxy_bind_host(&network);
         let container_host = proxy_container_host(&network);
-        if cfg!(target_os = "macos") {
+        // Docker Desktop (macOS and Windows) runs containers inside a VM,
+        // so the host process can't bind to the bridge network's gateway
+        // address at all — only native Linux Docker can.
+        if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
             assert_eq!(bind_host, "127.0.0.1");
             assert_eq!(container_host, "host.docker.internal");
         } else {
