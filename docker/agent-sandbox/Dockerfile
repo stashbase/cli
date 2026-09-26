@@ -18,6 +18,7 @@ RUN apt-get update \
         dnsutils \
         unzip \
         less \
+        nano \
         procps \
         python3 \
         python3-pip \
