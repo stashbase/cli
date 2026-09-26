@@ -71,10 +71,23 @@ pub enum AgentDockerSubcommand {
     Build(AgentDockerBuildCommand),
     /// Check whether the Docker sandbox backend can run on this machine
     Doctor(AgentDockerDoctorCommand),
+    /// Open an interactive shell in the sandbox image with the persistent agent home mounted (e.g. to log in or install tools under $HOME)
+    Shell(AgentDockerShellCommand),
 }
 
 #[derive(Debug, Args)]
 pub struct AgentDockerDoctorCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerShellCommand {
+    /// Image to start the shell in instead of the built-in default sandbox image
+    #[arg(long)]
+    pub image: Option<String>,
+
+    /// Run the shell as root instead of the user agent runs use (only differs on Linux; files created in $HOME may become unwritable for agent runs)
+    #[arg(long)]
+    pub root: bool,
+}
 
 #[derive(Debug, Args)]
 pub struct AgentDockerCleanupCommand {

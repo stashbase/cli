@@ -665,6 +665,40 @@ pub(crate) fn read_persistent_home_file(image: &str, relative_path: &str) -> Opt
     String::from_utf8(output.stdout).ok()
 }
 
+/// Builds the `docker run` args for `agent docker shell`: an interactive
+/// admin shell in `image` with the persistent home volume mounted exactly
+/// as agent runs mount it. Deliberately none of a run's sandboxing (no
+/// per-run network/firewall, no working-directory mount) — it's for
+/// maintaining the shared home (logins, config, tools installed under
+/// $HOME), not for doing work. Runs as the same user agent runs do unless
+/// `as_root`, so files it creates in the volume stay writable for them.
+pub(crate) fn docker_shell_command_args(
+    image: &str,
+    as_root: bool,
+    stdin_is_terminal: bool,
+) -> Vec<String> {
+    let mut args = vec!["run".to_owned(), "--rm".to_owned(), "-i".to_owned()];
+    if stdin_is_terminal {
+        args.push("-t".to_owned());
+    }
+    args.push("--init".to_owned());
+    if !as_root {
+        args.extend(docker_run_user_flag_args());
+    }
+    args.extend([
+        "-v".to_owned(),
+        format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
+        "-e".to_owned(),
+        format!("HOME={CONTAINER_HOME}"),
+        "-w".to_owned(),
+        CONTAINER_HOME.to_owned(),
+        "--entrypoint".to_owned(),
+        "bash".to_owned(),
+        image.to_owned(),
+    ]);
+    args
+}
+
 /// Builds the image for `source` (`Default` or `Dockerfile` only — `Image`
 /// has nothing to build and is rejected). Writes the Dockerfile to a
 /// temporary build context directory (Docker needs a real directory to
@@ -2000,6 +2034,33 @@ mod tests {
         .unwrap();
         assert!(args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
         assert!(args.contains(&format!("HOME={CONTAINER_HOME}")));
+    }
+
+    #[test]
+    fn docker_shell_command_mounts_home_volume_and_runs_bash_in_image() {
+        let args = docker_shell_command_args("my/image:tag", false, true);
+        let joined = args.join(" ");
+        assert!(joined.starts_with("run --rm -i -t "));
+        assert!(joined.contains(&format!("-v {PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
+        assert!(joined.contains(&format!("-e HOME={CONTAINER_HOME}")));
+        assert!(joined.contains(&format!("-w {CONTAINER_HOME}")));
+        assert!(joined.ends_with("--entrypoint bash my/image:tag"));
+    }
+
+    #[test]
+    fn docker_shell_command_omits_pty_flag_when_stdin_is_not_a_terminal() {
+        let args = docker_shell_command_args("img", false, false);
+        assert!(!args.contains(&"-t".to_owned()));
+    }
+
+    #[test]
+    fn docker_shell_command_uses_agent_run_user_unless_root() {
+        let user_args = docker_run_user_flag_args();
+        let args = docker_shell_command_args("img", false, false);
+        assert!(user_args.iter().all(|arg| args.contains(arg)));
+
+        let root_args = docker_shell_command_args("img", true, false);
+        assert!(!root_args.contains(&"--user".to_owned()));
     }
 
     #[test]
