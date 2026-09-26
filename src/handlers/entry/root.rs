@@ -633,6 +633,10 @@ pub async fn handle_cli(args: Cli) {
                             Err(error) => Err(error),
                         }
                     }
+                    crate::cmd::agent::AgentDockerSubcommand::Shell(command) => {
+                        crate::handlers::agent::docker::handle_docker_shell_command(command)
+                            .await
+                    }
                 },
                 AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {

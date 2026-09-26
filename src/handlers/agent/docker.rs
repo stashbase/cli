@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::cmd::agent::{
     AgentDockerBuildCommand, AgentDockerCleanupCommand, AgentDockerDoctorCommand,
-    AgentDockerStatusCommand,
+    AgentDockerShellCommand, AgentDockerStatusCommand,
 };
 use crate::handlers::run::docker_sandbox::ExistingRunNetwork;
 use crate::utils::output::{get_formatted_json_string, ColorizeIfColoredOutput};
@@ -447,6 +447,55 @@ pub async fn handle_docker_doctor_command(
     }
 
     Ok(!all_ok)
+}
+
+pub async fn handle_docker_shell_command(command: AgentDockerShellCommand) -> Result<()> {
+    use std::io::IsTerminal;
+
+    use crate::handlers::run::docker_sandbox::{
+        docker_enforcement_error, docker_shell_command_args, sandbox_image_exists, AgentImageSource,
+    };
+
+    if let Some(error) = docker_enforcement_error() {
+        anyhow::bail!("Docker sandbox backend unavailable: {error}");
+    }
+
+    let source = match command.image {
+        Some(image) => AgentImageSource::Image(image),
+        None => AgentImageSource::Default,
+    };
+    if !sandbox_image_exists(&source) {
+        match source {
+            AgentImageSource::Default => {
+                anyhow::bail!(
+                    "Default sandbox image is not built yet. Run `agent docker build` first."
+                )
+            }
+            _ => anyhow::bail!("Image '{}' was not found locally.", source.image_tag()),
+        }
+    }
+
+    eprintln!(
+        "{}",
+        "Only $HOME (/home/agent) persists after exit — system packages (apt) belong in a custom sandbox Dockerfile."
+            .yellow_if_tty()
+    );
+
+    let args = docker_shell_command_args(
+        &source.image_tag(),
+        command.root,
+        std::io::stdin().is_terminal(),
+    );
+    let status = std::process::Command::new("docker")
+        .args(&args)
+        .status()
+        .map_err(|error| anyhow::anyhow!("failed to start `docker`: {error}"))?;
+    // Mirror the shell's own exit code (e.g. `exit 3`, or 130 after Ctrl-C)
+    // rather than turning it into an error message.
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
