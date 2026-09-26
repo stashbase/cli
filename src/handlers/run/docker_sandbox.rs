@@ -636,6 +636,35 @@ pub(crate) fn sandbox_image_exists(source: &AgentImageSource) -> bool {
         .unwrap_or(false)
 }
 
+/// Reads a file at `relative_path` (relative to `CONTAINER_HOME`) out of the
+/// persistent home volume — the same volume `docker_run_command` mounts as
+/// the sandboxed agent's `HOME` — without starting a full agent run. Used to
+/// inspect config (e.g. Codex's `~/.codex/config.toml`) as it actually exists
+/// *inside* the sandbox, which the docker backend's named volume keeps
+/// entirely separate from the host's own home directory. Returns `None` if
+/// the volume, the file, or `docker` itself isn't available; this is a
+/// best-effort read, not something a run should fail over.
+pub(crate) fn read_persistent_home_file(image: &str, relative_path: &str) -> Option<String> {
+    let container_path = format!("{CONTAINER_HOME}/{relative_path}");
+    let output = std::process::Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "-v",
+            &format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}:ro"),
+            "--entrypoint",
+            "cat",
+            image,
+            &container_path,
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout).ok()
+}
+
 /// Builds the image for `source` (`Default` or `Dockerfile` only — `Image`
 /// has nothing to build and is rejected). Writes the Dockerfile to a
 /// temporary build context directory (Docker needs a real directory to

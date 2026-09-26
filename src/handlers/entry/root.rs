@@ -130,15 +130,39 @@ fn remote_codex_command_with_mcp_binding_headers(
     command: &[String],
     bindings: &[crate::api::remote_proxy::RemoteBinding],
     child_env: &HashMap<String, String>,
+    sandbox: Option<(crate::models::agent::SandboxBackend, &str)>,
 ) -> anyhow::Result<Vec<String>> {
     if infer_remote_agent_type(command) != "codex" {
         return Ok(command.to_vec());
     }
-    let Some(config_path) = codex_config_path() else {
-        return Ok(command.to_vec());
-    };
-    let Ok(contents) = std::fs::read_to_string(config_path) else {
-        return Ok(command.to_vec());
+    // The docker backend gives the sandboxed agent its own persistent home
+    // volume, entirely separate from the host's home directory (see
+    // `docker_sandbox::PERSISTENT_HOME_VOLUME`). Codex's *effective*
+    // config.toml there can differ arbitrarily from the host's own
+    // ~/.codex/config.toml, so reading the host file and generating
+    // `--config` overrides from it would target server names that may not
+    // exist (or exist differently) inside the sandbox, producing malformed
+    // `mcp_servers.*` entries once the override is applied. Read the config
+    // out of the volume itself instead.
+    let contents = match sandbox {
+        Some((crate::models::agent::SandboxBackend::Docker, image)) => {
+            match crate::handlers::run::docker_sandbox::read_persistent_home_file(
+                image,
+                ".codex/config.toml",
+            ) {
+                Some(contents) => contents,
+                None => return Ok(command.to_vec()),
+            }
+        }
+        _ => {
+            let Some(config_path) = codex_config_path() else {
+                return Ok(command.to_vec());
+            };
+            let Ok(contents) = std::fs::read_to_string(config_path) else {
+                return Ok(command.to_vec());
+            };
+            contents
+        }
     };
     let config: toml::Value = toml::from_str(&contents)
         .context("could not parse Codex config while preparing Remote Agent MCP headers")?;
@@ -1104,10 +1128,22 @@ pub async fn handle_cli(args: Cli) {
                             })
                             .collect();
                         let source_env_names = remote_source_env_names(&bindings);
+                        let sandbox_image_tag = (profile.sandbox.backend
+                            == crate::models::agent::SandboxBackend::Docker)
+                            .then(|| {
+                                crate::handlers::run::docker_sandbox::AgentImageSource::from_profile(
+                                    profile.sandbox.image.as_deref(),
+                                    profile.sandbox.dockerfile.as_deref(),
+                                )
+                                .image_tag()
+                            });
                         let command = match remote_codex_command_with_mcp_binding_headers(
                             &agent_run.command,
                             &bindings,
                             &child_env,
+                            sandbox_image_tag
+                                .as_deref()
+                                .map(|image| (profile.sandbox.backend, image)),
                         ) {
                             Ok(command) => command,
                             Err(error) => {
@@ -2129,9 +2165,9 @@ mod tests {
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
         dependency_hooks_enabled, directory_profile_git_warning,
         ensure_replacement_session_is_compatible, infer_remote_agent_type, remote_bindings,
-        remote_session_rotation_delay_for, remote_session_transport_identity,
-        remote_source_env_names, secret_child_name, summarize_audit_events,
-        uses_local_dependency_hook_broker_mode,
+        remote_codex_command_with_mcp_binding_headers, remote_session_rotation_delay_for,
+        remote_session_transport_identity, remote_source_env_names, secret_child_name,
+        summarize_audit_events, uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::cmd::root::Cli;
@@ -2266,6 +2302,75 @@ mod tests {
         secret_payload.as_object_mut().unwrap().remove("source");
         personal_payload.as_object_mut().unwrap().remove("source");
         assert_eq!(secret_payload, personal_payload);
+    }
+
+    #[test]
+    fn codex_mcp_header_overrides_read_docker_sandbox_home_not_host_home() {
+        // Points CODEX_HOME at a config with a `github` MCP server, to prove
+        // the Docker-backend branch never reads it: a bogus, unreachable
+        // image means `read_persistent_home_file` returns `None`, and the
+        // function must fall back to the unmodified command rather than
+        // silently reading the host's CODEX_HOME as it would pre-fix.
+        let previous = std::env::var_os("CODEX_HOME");
+        let temp_dir = std::env::temp_dir().join(format!(
+            "stashbase-codex-home-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(
+            temp_dir.join("config.toml"),
+            r#"
+                [mcp_servers.github]
+                bearer_token_env_var = "GITHUB_PAT_TOKEN"
+            "#,
+        )
+        .unwrap();
+        std::env::set_var("CODEX_HOME", &temp_dir);
+
+        let bindings = [RemoteBinding {
+            name: "GH_TOKEN".to_owned(),
+            source: RemoteBindingSource::Secret,
+            source_name: "GH_TOKEN".to_owned(),
+            hosts: vec!["api.github.com".to_owned()],
+            rules: Vec::new(),
+            header: "Authorization".to_owned(),
+            placeholder: "${STASHBASE_GH_TOKEN}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
+        }];
+        let child_env = HashMap::from([("GH_TOKEN".to_owned(), "GITHUB_PAT_TOKEN".to_owned())]);
+        let command = vec!["codex".to_owned()];
+
+        let native_result = remote_codex_command_with_mcp_binding_headers(
+            &command, &bindings, &child_env, None,
+        )
+        .unwrap();
+        assert!(
+            native_result
+                .iter()
+                .any(|arg| arg.contains("mcp_servers.github.http_headers")),
+            "native/no-sandbox path should read the host CODEX_HOME"
+        );
+
+        let docker_result = remote_codex_command_with_mcp_binding_headers(
+            &command,
+            &bindings,
+            &child_env,
+            Some((
+                crate::models::agent::SandboxBackend::Docker,
+                "stashbase/definitely-not-a-real-image:test",
+            )),
+        )
+        .unwrap();
+        assert_eq!(
+            docker_result, command,
+            "docker-backend path must not fall back to reading the host's CODEX_HOME"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+        match previous {
+            Some(value) => std::env::set_var("CODEX_HOME", value),
+            None => std::env::remove_var("CODEX_HOME"),
+        }
     }
 
     #[test]
