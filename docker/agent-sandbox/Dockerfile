@@ -72,6 +72,15 @@ RUN curl -fsSL https://claude.ai/install.sh | bash \
 # root-owned and unwritable to that uid.
 RUN mkdir -p /home/agent && chmod 777 /home/agent
 
+# Point user-level installs (`npm i -g`, `pip install --user`) into the
+# persistent home volume so tools installed via `agent docker shell` survive
+# across runs; npm's default global prefix (/usr/local) lives in the
+# container's --rm'd layer and isn't writable by a non-root uid anyway.
+# Appended (not prepended) to PATH so a stale install in the shared home can
+# never shadow the image's own binaries (e.g. the native `claude`/`codex`).
+ENV NPM_CONFIG_PREFIX=/home/agent/.npm-global
+ENV PATH=$PATH:/home/agent/.npm-global/bin:/home/agent/.local/bin
+
 # `iptables` above is used by the short-lived network-namespace-holder
 # container (see start_netns_holder in docker_sandbox.rs), which uses this
 # same image — the actual agent container never runs iptables itself and
