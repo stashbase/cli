@@ -94,6 +94,10 @@ pub struct AgentDockerCleanupCommand {
     /// Remove every leftover resource without prompting for confirmation
     #[arg(long)]
     pub yes: bool,
+
+    /// Instead of leftover networks, remove the per-repo volumes backing profiles' `sandbox.isolated_paths` (e.g. the container's own node_modules; reinstalled on next use)
+    #[arg(long)]
+    pub isolated_paths: bool,
 }
 
 #[derive(Debug, Args)]
@@ -270,6 +274,13 @@ pub struct AgentRunCommand {
     /// run --cpus` value, e.g. "1.5". No cap by default.
     #[arg(long)]
     pub docker_cpus: Option<String>,
+
+    /// Add to the profile's `[sandbox] isolated_paths` for this run only:
+    /// a directory relative to the working directory (e.g. "node_modules")
+    /// that gets its own per-repo volume inside the container.
+    /// Comma-separated, e.g. `--docker-isolated-paths node_modules,.venv`.
+    #[arg(long, value_name = "PATHS", value_delimiter = ',')]
+    pub docker_isolated_paths: Vec<String>,
 
     /// Store metadata-only proxy audit events locally
     #[arg(

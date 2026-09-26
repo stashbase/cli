@@ -808,6 +808,7 @@ pub(crate) fn docker_run_command(
     agent_image: &str,
     memory_limit: Option<&str>,
     cpus_limit: Option<&str>,
+    isolated_paths: &[String],
 ) -> Result<(String, Vec<String>), String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
     let cwd_str = cwd.to_string_lossy().into_owned();
@@ -879,6 +880,7 @@ pub(crate) fn docker_run_command(
     }
 
     append_filesystem_mounts(&mut args, &cwd_str, denied_read_paths, denied_write_paths)?;
+    append_isolated_path_mounts(&mut args, &cwd_str, isolated_paths)?;
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
 
     // A named Docker volume, not a bind mount of the real host home
@@ -940,6 +942,190 @@ pub(crate) fn docker_run_command(
     args.push(agent_image.to_owned());
     args.push(command.to_owned());
     Ok(("docker".to_owned(), args))
+}
+
+/// Named volumes backing a profile's `sandbox.isolated_paths` all start
+/// with this, and carry `ISOLATED_PATH_LABEL` (value: the repo-relative
+/// path) plus `ISOLATED_PATH_REPO_LABEL` (value: the host repo path) so
+/// `agent docker status`/`cleanup` can list them without guessing.
+const ISOLATED_PATH_VOLUME_PREFIX: &str = "stashbase-isolated-";
+const ISOLATED_PATH_LABEL: &str = "stashbase.isolated-path";
+const ISOLATED_PATH_REPO_LABEL: &str = "stashbase.repo";
+
+/// Normalizes a `sandbox.isolated_paths` entry (`./node_modules/` →
+/// `node_modules`) and rejects anything that could escape the working
+/// directory or shadow it entirely — absolute paths, `..` components, or
+/// the working directory itself.
+pub(crate) fn normalize_isolated_path(path: &str) -> Result<String, String> {
+    let trimmed = path.trim().trim_end_matches('/');
+    let trimmed = trimmed.strip_prefix("./").unwrap_or(trimmed);
+    if trimmed.is_empty() || trimmed == "." {
+        return Err(format!(
+            "isolated path '{path}' must name a directory inside the working directory, not the working directory itself"
+        ));
+    }
+    if trimmed.starts_with('/') {
+        return Err(format!(
+            "isolated path '{path}' must be relative to the working directory"
+        ));
+    }
+    if trimmed
+        .split('/')
+        .any(|part| part == ".." || part.is_empty())
+    {
+        return Err(format!(
+            "isolated path '{path}' must not contain '..' or empty components"
+        ));
+    }
+    Ok(trimmed.to_owned())
+}
+
+/// Per-repo, per-path volume name: the same repo + path always maps to the
+/// same volume (so installs persist across runs), while two repos — or two
+/// isolated paths in one repo — never share one.
+pub(crate) fn isolated_path_volume_name(cwd: &str, path: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("{cwd}\0{path}").as_bytes());
+    let hex: String = digest
+        .iter()
+        .take(8)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("{ISOLATED_PATH_VOLUME_PREFIX}{hex}")
+}
+
+/// Mounts a per-repo named volume over each isolated path, shadowing the
+/// host's copy of that directory inside the container — e.g. so a macOS
+/// host's `node_modules` (darwin-only native binaries) and the Linux
+/// container's never overwrite each other. Must come after the working
+/// directory's own bind mount.
+fn append_isolated_path_mounts(
+    args: &mut Vec<String>,
+    cwd: &str,
+    isolated_paths: &[String],
+) -> Result<(), String> {
+    for path in isolated_paths {
+        let path = normalize_isolated_path(path)?;
+        args.extend([
+            "-v".to_owned(),
+            format!("{}:{cwd}/{path}", isolated_path_volume_name(cwd, &path)),
+        ]);
+    }
+    Ok(())
+}
+
+/// Creates the volume for an isolated path if it doesn't exist yet. A
+/// fresh named volume is root-owned, which the agent container can't write
+/// to when it runs as the host uid (Linux) — so, like the persistent home
+/// directory in the image, it's made world-writable once at creation time
+/// by a short-lived root helper container. Returns whether it was newly
+/// created (i.e. is empty and still needs an install).
+pub(crate) fn ensure_isolated_path_volume(
+    cwd: &str,
+    path: &str,
+    image: &str,
+) -> Result<bool, String> {
+    let path = normalize_isolated_path(path)?;
+    let name = isolated_path_volume_name(cwd, &path);
+    let exists = std::process::Command::new("docker")
+        .args(["volume", "inspect", &name])
+        .output()
+        .map_err(|error| format!("failed to run `docker volume inspect`: {error}"))?
+        .status
+        .success();
+    if exists {
+        return Ok(false);
+    }
+    let create = std::process::Command::new("docker")
+        .args([
+            "volume",
+            "create",
+            "--label",
+            &format!("{ISOLATED_PATH_LABEL}={path}"),
+            "--label",
+            &format!("{ISOLATED_PATH_REPO_LABEL}={cwd}"),
+            &name,
+        ])
+        .output()
+        .map_err(|error| format!("failed to run `docker volume create`: {error}"))?;
+    if !create.status.success() {
+        return Err(String::from_utf8_lossy(&create.stderr).trim().to_owned());
+    }
+    let chmod = std::process::Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--user",
+            "0",
+            "-v",
+            &format!("{name}:/isolated"),
+            "--entrypoint",
+            "chmod",
+            image,
+            "0777",
+            "/isolated",
+        ])
+        .output()
+        .map_err(|error| format!("failed to prepare volume {name}: {error}"))?;
+    if !chmod.status.success() {
+        return Err(format!(
+            "failed to prepare volume {name}: {}",
+            String::from_utf8_lossy(&chmod.stderr).trim()
+        ));
+    }
+    Ok(true)
+}
+
+pub(crate) struct IsolatedPathVolume {
+    pub name: String,
+    pub repo: String,
+    pub path: String,
+}
+
+/// Every isolated-path volume on this machine, across all repos.
+pub(crate) fn list_isolated_path_volumes() -> Result<Vec<IsolatedPathVolume>, String> {
+    let output = std::process::Command::new("docker")
+        .args([
+            "volume",
+            "ls",
+            "--filter",
+            &format!("label={ISOLATED_PATH_LABEL}"),
+            "--format",
+            &format!(
+                "{{{{.Name}}}}\t{{{{.Label \"{ISOLATED_PATH_REPO_LABEL}\"}}}}\t{{{{.Label \"{ISOLATED_PATH_LABEL}\"}}}}"
+            ),
+        ])
+        .output()
+        .map_err(|error| format!("failed to run `docker volume ls`: {error}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let name = fields.next()?.trim();
+            if !name.starts_with(ISOLATED_PATH_VOLUME_PREFIX) {
+                return None;
+            }
+            Some(IsolatedPathVolume {
+                name: name.to_owned(),
+                repo: fields.next().unwrap_or("").to_owned(),
+                path: fields.next().unwrap_or("").to_owned(),
+            })
+        })
+        .collect())
+}
+
+pub(crate) fn remove_volume(name: &str) -> Result<(), String> {
+    let output = std::process::Command::new("docker")
+        .args(["volume", "rm", name])
+        .output()
+        .map_err(|error| format!("failed to run `docker volume rm`: {error}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    Ok(())
 }
 
 fn append_filesystem_mounts(
@@ -1602,6 +1788,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
 
@@ -1633,6 +1820,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         let cwd = std::env::current_dir()
@@ -1662,6 +1850,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(args.contains(&"--tmpfs".to_owned()));
@@ -1695,6 +1884,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(!args.contains(&"--tmpfs".to_owned()));
@@ -1740,6 +1930,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         let nested_mount = args
@@ -1770,6 +1961,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(
@@ -1798,6 +1990,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         let mount_index = args.iter().position(|arg| arg == "-v").unwrap();
@@ -1827,6 +2020,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(args.contains(&format!("GIT_AUTHOR_NAME={name}")));
@@ -1855,6 +2049,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(args.contains(&"GIT_AUTHOR_NAME=Explicit Override".to_owned()));
@@ -1893,6 +2088,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         // Must mount only the exact file — mounting its parent directory
@@ -1923,6 +2119,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         );
         assert!(result.is_err());
     }
@@ -1945,6 +2142,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         );
         assert!(result.is_err());
     }
@@ -1965,6 +2163,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         let name_index = args.iter().position(|arg| arg == "--name").unwrap();
@@ -1987,6 +2186,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(args.contains(&"-i".to_owned()));
@@ -2009,6 +2209,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(args.contains(&"-t".to_owned()));
@@ -2030,10 +2231,99 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
         assert!(args.contains(&format!("HOME={CONTAINER_HOME}")));
+    }
+
+    #[test]
+    fn normalize_isolated_path_accepts_relative_dirs_and_strips_decoration() {
+        assert_eq!(
+            normalize_isolated_path("node_modules").unwrap(),
+            "node_modules"
+        );
+        assert_eq!(
+            normalize_isolated_path("./node_modules/").unwrap(),
+            "node_modules"
+        );
+        assert_eq!(
+            normalize_isolated_path("apps/web/node_modules").unwrap(),
+            "apps/web/node_modules"
+        );
+    }
+
+    #[test]
+    fn normalize_isolated_path_rejects_escapes_and_the_cwd_itself() {
+        for path in ["", ".", "./", "/abs", "../up", "a/../b", "a//b"] {
+            assert!(normalize_isolated_path(path).is_err(), "accepted {path:?}");
+        }
+    }
+
+    #[test]
+    fn isolated_path_volume_name_is_stable_and_distinct_per_repo_and_path() {
+        let a = isolated_path_volume_name("/repo/a", "node_modules");
+        assert_eq!(a, isolated_path_volume_name("/repo/a", "node_modules"));
+        assert_ne!(a, isolated_path_volume_name("/repo/b", "node_modules"));
+        assert_ne!(a, isolated_path_volume_name("/repo/a", ".venv"));
+        assert!(a.starts_with(ISOLATED_PATH_VOLUME_PREFIX));
+    }
+
+    #[test]
+    fn docker_run_command_mounts_isolated_paths_over_the_working_directory() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &["./node_modules/".to_owned()],
+        )
+        .unwrap();
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let isolated = format!(
+            "{}:{cwd}/node_modules",
+            isolated_path_volume_name(&cwd, "node_modules")
+        );
+        let isolated_at = args.iter().position(|arg| *arg == isolated).unwrap();
+        let cwd_at = args
+            .iter()
+            .position(|arg| *arg == format!("{cwd}:{cwd}"))
+            .unwrap();
+        assert!(cwd_at < isolated_at);
+    }
+
+    #[test]
+    fn docker_run_command_rejects_isolated_path_escaping_the_working_directory() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        assert!(docker_run_command(
+            "claude",
+            &network,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &["../elsewhere".to_owned()],
+        )
+        .is_err());
     }
 
     #[test]
@@ -2079,6 +2369,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         let cap_drop_index = args.iter().position(|arg| arg == "--cap-drop").unwrap();
@@ -2112,6 +2403,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(args.contains(&"--init".to_owned()));
@@ -2135,6 +2427,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         assert!(!args.contains(&"--memory".to_owned()));
@@ -2157,6 +2450,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             Some("2g"),
             Some("1.5"),
+            &[],
         )
         .unwrap();
         let memory_index = args.iter().position(|arg| arg == "--memory").unwrap();
@@ -2181,6 +2475,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         let network_index = args.iter().position(|arg| arg == "--network").unwrap();
@@ -2203,6 +2498,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         // Restoring `--user` is safe here: the agent container never runs
@@ -2243,6 +2539,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
         )
         .unwrap();
         // Only the cwd mount and the persistent home volume mount should

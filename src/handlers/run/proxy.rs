@@ -679,6 +679,9 @@ pub struct ProxyPolicy {
     /// Docker backend only: `docker run --cpus` value, e.g. "1.5". No cap
     /// when unset.
     pub sandbox_cpus: Option<String>,
+    /// Docker backend only: repo-relative directories backed by a per-repo
+    /// volume instead of the host's copy (see `append_isolated_path_mounts`).
+    pub sandbox_isolated_paths: Vec<String>,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -790,6 +793,7 @@ impl ProxyPolicy {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -822,6 +826,10 @@ impl ProxyPolicy {
             format!(
                 "sandbox_cpus={}",
                 self.sandbox_cpus.as_deref().unwrap_or("")
+            ),
+            format!(
+                "sandbox_isolated_paths={}",
+                self.sandbox_isolated_paths.join(",")
             ),
         ];
         let mut egress = normalize_hosts(self.allowed_egress_hosts.clone())
@@ -3553,6 +3561,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -3937,6 +3946,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -4068,6 +4078,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -4585,6 +4596,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -4631,6 +4643,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -4710,6 +4723,10 @@ mod tests {
         let mut docker_cpus = docker.clone();
         docker_cpus.sandbox_cpus = Some("1.5".to_owned());
         assert_ne!(docker.fingerprint(), docker_cpus.fingerprint());
+
+        let mut docker_isolated = docker.clone();
+        docker_isolated.sandbox_isolated_paths = vec!["node_modules".to_owned()];
+        assert_ne!(docker.fingerprint(), docker_isolated.fingerprint());
     }
 
     #[test]
@@ -4800,6 +4817,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         assert!(secret_allows_request(
             &policy,
@@ -4927,6 +4945,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -4972,6 +4991,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -5003,6 +5023,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -5078,6 +5099,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_PAT_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -5133,6 +5155,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -5500,6 +5523,7 @@ mod tests {
                 sandbox_dockerfile: None,
                 sandbox_memory: None,
                 sandbox_cpus: None,
+                sandbox_isolated_paths: Vec::new(),
             },
             None,
         )
@@ -5542,6 +5566,7 @@ mod tests {
                 sandbox_dockerfile: None,
                 sandbox_memory: None,
                 sandbox_cpus: None,
+                sandbox_isolated_paths: Vec::new(),
             },
             None,
         )
@@ -5585,6 +5610,7 @@ mod tests {
                 sandbox_dockerfile: None,
                 sandbox_memory: None,
                 sandbox_cpus: None,
+                sandbox_isolated_paths: Vec::new(),
             },
             None,
         )
