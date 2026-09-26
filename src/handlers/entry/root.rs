@@ -2340,10 +2340,9 @@ mod tests {
         let child_env = HashMap::from([("GH_TOKEN".to_owned(), "GITHUB_PAT_TOKEN".to_owned())]);
         let command = vec!["codex".to_owned()];
 
-        let native_result = remote_codex_command_with_mcp_binding_headers(
-            &command, &bindings, &child_env, None,
-        )
-        .unwrap();
+        let native_result =
+            remote_codex_command_with_mcp_binding_headers(&command, &bindings, &child_env, None)
+                .unwrap();
         assert!(
             native_result
                 .iter()
