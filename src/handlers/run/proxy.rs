@@ -5088,7 +5088,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            proxy.child_env().get("GITHUB_PAT_TOKEN").map(String::as_str),
+            proxy
+                .child_env()
+                .get("GITHUB_PAT_TOKEN")
+                .map(String::as_str),
             Some("**STASHBASE_GITHUB_PAT_TOKEN**")
         );
         assert!(!proxy.child_env().contains_key("GH_TOKEN"));
