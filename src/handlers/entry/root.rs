@@ -802,6 +802,11 @@ pub async fn handle_cli(args: Cli) {
                     if let Some(cpus) = &agent_run.docker_cpus {
                         profile.sandbox.cpus = Some(cpus.clone());
                     }
+                    for path in &agent_run.docker_isolated_paths {
+                        if !profile.sandbox.isolated_paths.contains(path) {
+                            profile.sandbox.isolated_paths.push(path.clone());
+                        }
+                    }
                     crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
@@ -1001,6 +1006,7 @@ pub async fn handle_cli(args: Cli) {
                         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
                         sandbox_memory: profile.sandbox.memory.clone(),
                         sandbox_cpus: profile.sandbox.cpus.clone(),
+                        sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source

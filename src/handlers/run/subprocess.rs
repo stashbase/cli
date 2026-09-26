@@ -102,6 +102,7 @@ pub async fn run_command_with_filesystem_policy(
         super::docker_sandbox::DEFAULT_SANDBOX_IMAGE,
         None,
         None,
+        &[],
     )
     .await
 }
@@ -130,6 +131,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
     agent_image: &str,
     sandbox_memory: Option<&str>,
     sandbox_cpus: Option<&str>,
+    sandbox_isolated_paths: &[String],
 ) -> Result<ExitStatus> {
     let current_dir = env::current_dir()?;
 
@@ -140,6 +142,19 @@ pub async fn run_command_with_filesystem_policy_and_network(
         let network =
             docker_network.context("Docker sandbox backend selected without a per-run network")?;
         let args = codex_args_forcing_full_access(command, args);
+        let cwd = current_dir.to_string_lossy();
+        for path in sandbox_isolated_paths {
+            let created =
+                super::docker_sandbox::ensure_isolated_path_volume(&cwd, path, agent_image)
+                    .map_err(|error| {
+                        anyhow::anyhow!("failed to prepare isolated path '{path}': {error}")
+                    })?;
+            if created {
+                eprintln!(
+                    "Isolated path '{path}' is new and empty for this repo — run your install (e.g. `npm ci`) inside the sandbox first."
+                );
+            }
+        }
         let (program, launcher_args) = super::docker_sandbox::docker_run_command(
             command,
             network,
@@ -150,6 +165,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
             agent_image,
             sandbox_memory,
             sandbox_cpus,
+            sandbox_isolated_paths,
         )
         .map_err(|error| anyhow::anyhow!("failed to build Docker sandbox invocation: {error}"))?;
         return run_built_command(

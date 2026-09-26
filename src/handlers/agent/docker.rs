@@ -235,6 +235,9 @@ pub async fn handle_docker_cleanup_command(
     if let Some(error) = crate::handlers::run::docker_sandbox::docker_enforcement_error() {
         anyhow::bail!("Docker sandbox backend unavailable: {error}");
     }
+    if command.isolated_paths {
+        return cleanup_isolated_path_volumes(command.yes, raw_output, silent);
+    }
 
     let candidates: Vec<_> = list_networks_with_liveness()?
         .into_iter()
@@ -366,6 +369,95 @@ pub async fn handle_docker_cleanup_command(
         );
     }
 
+    Ok(())
+}
+
+/// `cleanup --isolated-paths`: unlike leftover networks, these volumes are
+/// deliberate persistent state (a repo's container-side node_modules etc.),
+/// so they're only ever removed on this explicit request. Removing one just
+/// means the next run starts with an empty directory there to reinstall into.
+fn cleanup_isolated_path_volumes(yes: bool, raw_output: bool, silent: bool) -> Result<()> {
+    use crate::handlers::run::docker_sandbox::{list_isolated_path_volumes, remove_volume};
+
+    let volumes = list_isolated_path_volumes()
+        .map_err(|error| anyhow::anyhow!("failed to list isolated-path volumes: {error}"))?;
+    if volumes.is_empty() {
+        if raw_output {
+            println!(
+                "{}",
+                get_formatted_json_string(
+                    &serde_json::json!({ "removed": [], "failed": [] }),
+                    true
+                )?
+            );
+        } else if !silent {
+            println!("No isolated-path volumes found.");
+        }
+        return Ok(());
+    }
+
+    if !silent && !raw_output {
+        println!("Found {} isolated-path volume(s):\n", volumes.len());
+        for volume in &volumes {
+            println!("  {}  {}/{}", volume.name, volume.repo, volume.path);
+        }
+        println!();
+    }
+
+    let should_remove = if yes {
+        true
+    } else if silent {
+        anyhow::bail!(
+            "{} isolated-path volume(s) found; re-run with --yes to remove them, or without --silent to be prompted",
+            volumes.len()
+        );
+    } else {
+        let confirmed = crate::utils::interaction::confirm_opt(&format!(
+            "Remove all {} volume(s) listed above?",
+            volumes.len()
+        ))
+        .unwrap_or(false);
+        let _ = dialoguer::console::Term::stdout().show_cursor();
+        confirmed
+    };
+    if !should_remove {
+        if !silent && !raw_output {
+            println!("Nothing removed.");
+        }
+        return Ok(());
+    }
+
+    let mut removed = Vec::new();
+    let mut failures = Vec::new();
+    for volume in &volumes {
+        match remove_volume(&volume.name) {
+            Ok(()) => {
+                if !silent && !raw_output {
+                    println!("{} {}", "Removed".green_if_tty(), volume.name);
+                }
+                removed.push(&volume.name);
+            }
+            // Most likely still mounted by a running sandbox.
+            Err(error) => failures.push(format!("{}: {error}", volume.name)),
+        }
+    }
+
+    if raw_output {
+        println!(
+            "{}",
+            get_formatted_json_string(
+                &serde_json::json!({ "removed": removed, "failed": failures }),
+                true,
+            )?
+        );
+    }
+    if !failures.is_empty() {
+        anyhow::bail!(
+            "failed to remove {} volume(s):\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
     Ok(())
 }
 

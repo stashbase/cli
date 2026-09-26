@@ -135,6 +135,13 @@ pub struct AgentSandboxProfile {
     /// No cap by default, for the same reason as `memory`.
     #[serde(default)]
     pub cpus: Option<String>,
+    /// Docker backend only: directories (relative to the working directory,
+    /// e.g. "node_modules") that get their own per-repo Docker volume
+    /// inside the container instead of the host's copy — so a macOS host
+    /// and the Linux container never overwrite each other's
+    /// platform-specific installs.
+    #[serde(default)]
+    pub isolated_paths: Vec<String>,
 }
 
 /// Project/environment-backed secret bindings. Personal credentials deliberately

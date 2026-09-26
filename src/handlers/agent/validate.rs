@@ -433,6 +433,11 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             ));
         }
     }
+    for path in &profile.sandbox.isolated_paths {
+        if let Err(error) = crate::handlers::run::docker_sandbox::normalize_isolated_path(path) {
+            checks.push(fail("Sandbox isolated path", error));
+        }
+    }
 
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut child_envs: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -1223,6 +1228,7 @@ mod tests {
         };
         profile.sandbox.memory = Some("not-a-memory-value".to_owned());
         profile.sandbox.cpus = Some("not-a-number".to_owned());
+        profile.sandbox.isolated_paths = vec!["../outside".to_owned()];
 
         let checks = validate_profile(&profile);
         assert!(checks
@@ -1231,6 +1237,9 @@ mod tests {
         assert!(checks
             .iter()
             .any(|check| check.status == Status::Fail && check.name == "Sandbox CPU limit"));
+        assert!(checks
+            .iter()
+            .any(|check| check.status == Status::Fail && check.name == "Sandbox isolated path"));
     }
 
     #[test]
