@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn docker_binary_available() -> bool {
     std::env::var_os("PATH")
@@ -925,7 +925,11 @@ fn append_filesystem_mounts(
     }
 
     for path in &read_paths {
-        if !is_nested_under(path, cwd) {
+        // A missing mount target inside the cwd bind mount makes Docker
+        // create an empty placeholder at that path on the host, which then
+        // reappears every session even after the user deletes it. Nothing
+        // to hide if it doesn't exist.
+        if !is_nested_under(path, cwd) || !Path::new(path).exists() {
             continue;
         }
         // `--tmpfs` only accepts a directory target; a file target fails
@@ -952,7 +956,8 @@ fn append_filesystem_mounts(
     }
 
     for path in &write_paths {
-        if path == cwd || !is_nested_under(path, cwd) {
+        // Same as above: a missing source would be created on the host.
+        if path == cwd || !is_nested_under(path, cwd) || !Path::new(path).exists() {
             continue;
         }
         if read_paths
@@ -1708,6 +1713,35 @@ mod tests {
             .find(|pair| pair[0] == "-v" && pair[1].starts_with(&format!("{nested}:")))
             .unwrap_or_else(|| panic!("no -v mount found for nested path {nested}"));
         assert_eq!(nested_mount[1], format!("{nested}:{nested}:ro"));
+    }
+
+    #[test]
+    fn docker_run_command_skips_mounts_for_nonexistent_denied_paths() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let cwd = std::env::current_dir().unwrap();
+        let missing = cwd
+            .join("definitely-missing-denied-path")
+            .to_string_lossy()
+            .into_owned();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            std::slice::from_ref(&missing),
+            std::slice::from_ref(&missing),
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            !args.iter().any(|arg| arg.contains(&missing)),
+            "nonexistent denied path must not be mounted: {args:?}"
+        );
     }
 
     #[test]
