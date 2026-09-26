@@ -111,6 +111,23 @@ Your global `git config user.name` and `user.email` (if configured on the host) 
 
 Agent login/config state (e.g. Claude Code's `~/.claude`, Codex's `~/.codex`) is kept in a Docker-managed named volume, not a bind mount of your real home directory, so it survives across `agent run` invocations without exposing anything else on the host. This volume is shared across every profile, project, *and image* using the Docker backend on this machine — logging in once covers all of them, even after switching to a completely different custom image or Dockerfile, since the volume is mounted at the same container path (`/home/agent`) regardless of which image runs.
 
+### Admin shell and installing tools
+
+```bash
+stashbase agent docker shell
+```
+
+This opens an interactive `bash` in the default sandbox image (`--image <ref>` for another one) with the persistent home volume mounted and `/home/agent` as the working directory. No profile is needed. None of a run's sandboxing applies: there's no per-run network or firewall and no working-directory mount. Use it to log in, edit agent config, install tools, or inspect what the sandbox sees. It runs as the same user agent runs do (your uid on Linux, root on macOS), so files it creates stay writable for them. `--root` forces root on Linux.
+
+Only `$HOME` persists after the shell exits. The image points user-level installs there, so these are kept and available to every sandboxed run, in every repo and profile:
+
+```bash
+npm i -g bun          # → ~/.npm-global/bin (on PATH)
+pip install --user x  # → ~/.local/bin (on PATH)
+```
+
+These home directories come after the system paths on `PATH`, so a tool installed there never overrides the image's own binaries. `rm -rf ~/.npm-global` resets the global npm installs. System packages (`apt install …`) go into the container's own filesystem and are lost on exit. Add them with a custom `sandbox.dockerfile` instead (see [Custom images](#custom-images)).
+
 ### Codex and subscription login
 
 Codex's normal OAuth login flow opens a browser that redirects to a local HTTP callback server. That callback listens inside the container's own network namespace, which the host browser cannot reach — the container's `localhost` is not your machine's `localhost`. Use Codex's device-code flow instead, which doesn't depend on a local callback at all:
@@ -135,6 +152,24 @@ cpus = "1.5"    # docker run --cpus
 ```
 
 Or per invocation, without editing the file: `--docker-memory <value>` / `--docker-cpus <value>` (same override precedence as `--docker-image`/`--docker-dockerfile`, but these don't imply the Docker backend on their own — they're only meaningful once Docker is already selected). `agent validate` checks the value looks like something Docker would accept before you ever try to run it.
+
+### Isolated paths (e.g. `node_modules`)
+
+The container is Linux, but it sees your working directory exactly as it is on the host. On macOS or Windows that includes a `node_modules` installed for the host OS. Packages that ship native binaries (Nx, esbuild, swc, rollup, …) only have the host's binary there, so they fail inside the sandbox. It works the other way round too: an `npm ci` inside the sandbox would replace the host's install with Linux binaries.
+
+List such directories under `isolated_paths` to give the container its own copy:
+
+```toml
+[sandbox]
+backend = "docker"
+isolated_paths = ["node_modules"]
+```
+
+Each entry (relative to the working directory) gets a Docker volume for that repo, mounted over the directory inside the container. The host's copy is never touched. The volume starts empty, so install once from inside the sandbox (`npm ci`); it persists across runs of that repo. Nested workspace folders (`apps/web/node_modules`) are listed explicitly if needed. The same works for `.venv`, `target/`, etc. On a Linux host this is usually unnecessary, since the host's binaries already match the container.
+
+Or per invocation, without editing the file: `--docker-isolated-paths node_modules,.venv` (comma-separated). It adds to the profile's list rather than replacing it, and like `--docker-cpus` it only applies once Docker is the selected backend.
+
+`stashbase agent docker cleanup --isolated-paths` lists these volumes and removes them after confirmation (`--yes` to skip).
 
 ### Cleaning up after a crash
 
