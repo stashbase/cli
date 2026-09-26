@@ -229,6 +229,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parses_env_rename_alongside_project_and_environment_fields() {
+        let toml = r#"
+egress_hosts = ["api.github.com", "*"]
+
+[sandbox]
+backend = "docker"
+
+[secrets]
+project = "project"
+environment = "api-development"
+
+[secrets.GH_TOKEN]
+env = "GITHUB_PAT_TOKEN"
+
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET", "POST"]
+paths = ["*"]
+"#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.secrets.project.as_deref(), Some("project"));
+        assert_eq!(
+            profile.secrets.environment.as_deref(),
+            Some("api-development")
+        );
+        let binding = profile
+            .secrets
+            .bindings
+            .get("GH_TOKEN")
+            .expect("GH_TOKEN binding should be parsed");
+        assert_eq!(binding.env.as_deref(), Some("GITHUB_PAT_TOKEN"));
+        assert_eq!(binding.rules.len(), 1);
+    }
+
+    #[test]
     fn cli_override_forces_docker_regardless_of_profile() {
         assert_eq!(
             SandboxBackend::Native.with_cli_override(Some(true)),

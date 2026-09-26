@@ -1213,7 +1213,11 @@ async fn handle_run(
     local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 ) -> anyhow::Result<()> {
     apply_secret_bindings(&mut secrets, secret_bindings);
-    let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
+    let secrets_hash_map = if secret_bindings.is_empty() {
+        env::expand_and_inject_env(&mut secrets)
+    } else {
+        env::expand_env_without_process_override(&mut secrets)
+    };
 
     if !silent {
         let mut success_msg = format!(
