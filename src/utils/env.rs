@@ -20,15 +20,36 @@ pub fn expand_and_inject_env(parsed: &mut [SecretWithoutComment]) -> HashMap<Str
     expand_and_inject_env_with_process_env(parsed, &process_env)
 }
 
+/// Like `expand_and_inject_env`, but a same-named variable in the invoking
+/// shell never replaces a secret value. Agent profile bindings rename secrets
+/// for the child, and an unrelated host variable with that name must not
+/// shadow the credential fetched for the binding.
+pub fn expand_env_without_process_override(
+    parsed: &mut [SecretWithoutComment],
+) -> HashMap<String, String> {
+    let process_env = env::vars().collect::<HashMap<_, _>>();
+    expand_env_inner(parsed, &process_env, false)
+}
+
 fn expand_and_inject_env_with_process_env(
     parsed: &mut [SecretWithoutComment],
     process_env: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    expand_env_inner(parsed, process_env, true)
+}
+
+fn expand_env_inner(
+    parsed: &mut [SecretWithoutComment],
+    process_env: &HashMap<String, String>,
+    allow_process_override: bool,
 ) -> HashMap<String, String> {
     let mut running_parsed = HashMap::<String, String>::new();
 
     for secret in parsed.iter_mut() {
         let current_value = secret.value.clone();
-        let process_value = process_env.get(&secret.name);
+        let process_value = allow_process_override
+            .then(|| process_env.get(&secret.name))
+            .flatten();
 
         let value = match process_value {
             Some(process_value) if process_value != &current_value => process_value.clone(),
@@ -179,8 +200,24 @@ fn is_var_char(ch: char) -> bool {
 mod tests {
     use std::collections::HashMap;
 
-    use super::expand_and_inject_env_with_process_env;
+    use super::{expand_and_inject_env_with_process_env, expand_env_inner};
     use crate::models::secrets::SecretWithoutComment;
+
+    #[test]
+    fn host_variable_does_not_override_a_bound_secret() {
+        let process_env = HashMap::from([(
+            "GITHUB_PAT_TOKEN".to_string(),
+            "stale-host-token".to_string(),
+        )]);
+        let mut parsed = vec![SecretWithoutComment {
+            name: "GITHUB_PAT_TOKEN".to_string(),
+            value: "fetched-token".to_string(),
+        }];
+
+        let result = expand_env_inner(&mut parsed, &process_env, false);
+
+        assert_eq!(result["GITHUB_PAT_TOKEN"], "fetched-token");
+    }
 
     #[test]
     fn expands_empty_values_with_shell_compatible_operator_semantics() {

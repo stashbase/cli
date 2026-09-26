@@ -5052,6 +5052,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rewrites_a_placeholder_when_the_binding_is_renamed_via_env() {
+        // Mirrors an agent profile binding `[secrets.GH_TOKEN]` with
+        // `env = "GITHUB_PAT_TOKEN"`: the secret is fetched under the
+        // source name `GH_TOKEN`, but both the child-visible env var and
+        // the policy/secret map are keyed by the renamed target name, the
+        // same way `secret_child_name` renames both in root.rs.
+        let (address, authorization) = start_backend().await;
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_PAT_TOKEN".to_owned(),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["127.0.0.1".to_owned()])),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
+            allow_network_listeners: false,
+            egress_hosts_configured: true,
+            strict_deny: true,
+            mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_PAT_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            proxy.child_env().get("GITHUB_PAT_TOKEN").map(String::as_str),
+            Some("**STASHBASE_GITHUB_PAT_TOKEN**")
+        );
+        assert!(!proxy.child_env().contains_key("GH_TOKEN"));
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{address}/"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GITHUB_PAT_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            authorization.await.unwrap().as_deref(),
+            Some("Bearer real-token")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
     async fn secret_hosts_do_not_grant_ordinary_egress() {
         let (address, authorization) = start_backend().await;
         let policy = ProxyPolicy {
