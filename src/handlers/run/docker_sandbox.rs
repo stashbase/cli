@@ -1161,17 +1161,14 @@ fn append_filesystem_mounts(
         // `os.path.isfile()` disagree with a normal file, and it's
         // confusing enough in practice that a coding agent inspecting it
         // has been observed flagging it as broken and offering to "fix"
-        // it. An empty regular file gives the identical security effect
-        // (empty, read-only) without that anomaly.
+        // it. The regular file used here is also unreadable (mode 000), so
+        // reading a denied file fails with "Permission denied" — matching
+        // the native macOS backend — instead of silently looking empty.
         if PathBuf::from(path).is_dir() {
             args.extend(["--tmpfs".to_owned(), path.clone()]);
         } else {
-            match empty_shadow_file_path() {
-                Ok(shadow_file) => {
-                    args.extend(["-v".to_owned(), format!("{shadow_file}:{path}:ro")]);
-                }
-                Err(error) => return Err(error),
-            }
+            let shadow_file = blocked_shadow_file_path()?;
+            args.extend(["-v".to_owned(), format!("{shadow_file}:{path}:ro")]);
         }
     }
 
@@ -1205,6 +1202,8 @@ fn append_filesystem_mounts(
 /// file — confusing enough in practice (`ls -l` shows `crw-rw-rw-`,
 /// `stat()`/`os.path.isfile()` disagree with a normal file) that a coding
 /// agent inspecting one has been observed flagging it as broken.
+// Only the native Linux (bubblewrap) backend uses this now.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) fn empty_shadow_file_path() -> Result<String, String> {
     let path = std::env::temp_dir().join("stashbase-docker-empty-shadow-file");
     if !path.exists() {
@@ -1216,6 +1215,60 @@ pub(crate) fn empty_shadow_file_path() -> Result<String, String> {
         })?;
     }
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// The host-side path of an empty, *unreadable* (mode 000) regular file used
+/// as the Docker backend's shadow-mount source for a denied-read file, so
+/// reading it inside the container fails with "Permission denied" rather
+/// than returning empty content. This holds even for root in the container:
+/// the agent container runs with `--cap-drop ALL`, so root has no
+/// CAP_DAC_OVERRIDE/CAP_DAC_READ_SEARCH to bypass the mode bits, and the
+/// `:ro` mount stops anyone `chmod`ing it back (EROFS). Tools that load
+/// `.env` automatically (Bun, dotenv) treat an unreadable file like a
+/// missing one, so runs still work — values arrive as env vars via the
+/// profile instead. Separate from `empty_shadow_file_path` because the
+/// native bubblewrap backend shares that one and isn't changed here. The
+/// mode is re-applied on every call in case something loosened it.
+pub(crate) fn blocked_shadow_file_path() -> Result<String, String> {
+    let path = std::env::temp_dir().join("stashbase-docker-blocked-shadow-file");
+    ensure_blocked_file(&path)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Creates `path` as an empty file if missing, and makes sure its mode is
+/// 000. Split out from `blocked_shadow_file_path` so tests can exercise it
+/// on their own file instead of the shared one other tests rely on.
+fn ensure_blocked_file(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        std::fs::write(path, []).map_err(|error| {
+            format!(
+                "failed to create the blocked shadow file at {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Only touch the mode when it's wrong: on Linux the temp dir is
+        // shared between users, and a file another user already created
+        // (correctly, as 000) can't be chmod'ed by us — but needs no change.
+        let mode = std::fs::metadata(path)
+            .map_err(|error| format!("failed to inspect {}: {error}", path.display()))?
+            .permissions()
+            .mode();
+        if mode & 0o777 != 0 {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).map_err(
+                |error| {
+                    format!(
+                        "failed to restrict the blocked shadow file at {}: {error}",
+                        path.display()
+                    )
+                },
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Env vars whose value is a filesystem path to the proxy's temporary CA
@@ -1858,6 +1911,36 @@ mod tests {
         assert_eq!(args[tmpfs_index + 1], nested);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn ensure_blocked_file_creates_and_restores_mode_000() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "stashbase-blocked-file-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("blocked");
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        // Created fresh: empty and unreadable.
+        ensure_blocked_file(&path).unwrap();
+        assert_eq!(mode(&path), 0);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
+
+        // Loosened by something else: tightened back on the next call.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        ensure_blocked_file(&path).unwrap();
+        assert_eq!(mode(&path), 0);
+
+        // Already correct: left as is, no error.
+        ensure_blocked_file(&path).unwrap();
+        assert_eq!(mode(&path), 0);
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     #[test]
     fn docker_run_command_shadow_mounts_nested_deny_read_file_as_empty_regular_file_bind() {
         let network = DockerRunNetwork {
@@ -1888,12 +1971,12 @@ mod tests {
         )
         .unwrap();
         assert!(!args.contains(&"--tmpfs".to_owned()));
-        let expected_source = empty_shadow_file_path().unwrap();
+        let expected_source = blocked_shadow_file_path().unwrap();
         let mount = args
             .windows(2)
             .find(|pair| pair[0] == "-v" && pair[1] == format!("{expected_source}:{nested}:ro"))
             .unwrap_or_else(|| {
-                panic!("expected an empty-regular-file bind mount for the denied file")
+                panic!("expected a blocked-regular-file bind mount for the denied file")
             });
         assert_eq!(mount[1], format!("{expected_source}:{nested}:ro"));
         // And it really is a regular file, not /dev/null or any other
@@ -1909,6 +1992,18 @@ mod tests {
                 .file_type();
             assert!(!file_type.is_char_device());
             assert!(!file_type.is_block_device());
+        }
+        // Unreadable, so reading the denied file inside the container fails
+        // with "Permission denied" instead of looking empty.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = PathBuf::from(&expected_source)
+                .metadata()
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0);
         }
     }
 
