@@ -185,10 +185,12 @@ pub async fn run_command_with_filesystem_policy_and_network(
     }
 
     #[cfg(target_os = "macos")]
-    let (args, codex_boundary) = codex_args_with_outer_sandbox(
+    let has_outer_sandbox = has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths);
+    let (args, codex_boundary) = codex_args_with_outer_sandbox(command, args, has_outer_sandbox);
+    let args = codex_args_without_daemon(
         command,
         args,
-        has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths),
+        has_outer_sandbox && codex_supports_no_daemon(command),
     );
     #[cfg(not(target_os = "macos"))]
     let codex_boundary = CodexSandboxBoundary::FullAccess;
@@ -445,6 +447,42 @@ fn codex_args_with_outer_sandbox(
         );
     }
     (args, boundary)
+}
+
+/// Codex 0.158+ hands interactive sessions to a shared app-server daemon over a
+/// Unix socket in `~/.codex`. That daemon runs outside the outer Seatbelt profile,
+/// so commands it executes would escape the network and filesystem policy, and the
+/// profile's `(deny network-outbound)` blocks the socket anyway. `--no-daemon` keeps
+/// Codex in-process, inside the Stashbase boundary.
+#[cfg(target_os = "macos")]
+fn codex_args_without_daemon(
+    command: &str,
+    mut args: Vec<String>,
+    supports_no_daemon: bool,
+) -> Vec<String> {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    if !is_codex || !supports_no_daemon || args.iter().any(|arg| arg == "--no-daemon") {
+        return args;
+    }
+    args.insert(0, "--no-daemon".to_owned());
+    args
+}
+
+/// Older Codex releases reject the unknown `--no-daemon` flag.
+#[cfg(target_os = "macos")]
+fn codex_supports_no_daemon(command: &str) -> bool {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    is_codex
+        && std::process::Command::new(command)
+            .arg("--help")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains("--no-daemon"))
 }
 
 #[cfg(target_os = "macos")]
@@ -1129,8 +1167,9 @@ mod tests {
     };
     #[cfg(target_os = "macos")]
     use super::{
-        codex_args_with_outer_sandbox, codex_workspace_rules, escape_sbpl_path,
-        has_outer_macos_sandbox, sandbox_command_with_filesystem_policy, CodexSandboxBoundary,
+        codex_args_with_outer_sandbox, codex_args_without_daemon, codex_workspace_rules,
+        escape_sbpl_path, has_outer_macos_sandbox, sandbox_command_with_filesystem_policy,
+        CodexSandboxBoundary,
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -1532,6 +1571,29 @@ mod tests {
 
         assert_eq!(program, "/usr/bin/sandbox-exec");
         assert!(args[1].contains("(deny file-read* (subpath \"/tmp/private-agent-file\"))"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_codex_runs_without_daemon_inside_outer_sandbox() {
+        let args = vec!["--sandbox".to_owned(), "danger-full-access".to_owned()];
+        assert_eq!(
+            codex_args_without_daemon("/opt/homebrew/bin/codex", args.clone(), true),
+            ["--no-daemon", "--sandbox", "danger-full-access"]
+        );
+        assert_eq!(
+            codex_args_without_daemon("codex", args.clone(), false),
+            args
+        );
+        assert_eq!(
+            codex_args_without_daemon("claude", args.clone(), true),
+            args
+        );
+        let explicit = vec!["resume".to_owned(), "--no-daemon".to_owned()];
+        assert_eq!(
+            codex_args_without_daemon("codex", explicit.clone(), true),
+            explicit
+        );
     }
 
     #[cfg(target_os = "macos")]
