@@ -279,7 +279,7 @@ async fn run_built_command(
             }
             Ok(())
         })
-        .env("FORCE_COLOR", "true")
+        .env("FORCE_COLOR", force_color_level())
         .dir(current_dir);
     // .full_env(env_vars);
     // .env("--color", "always");
@@ -546,6 +546,26 @@ fn codex_args_forcing_full_access(command: &str, mut args: Vec<String>) -> Vec<S
         );
     }
     args
+}
+
+/// `FORCE_COLOR` is read as a color *level* by `supports-color` (used by Codex's
+/// TUI): `true` means basic 16 colors and short-circuits truecolor detection,
+/// which strips theme colors. Report the level the host terminal supports.
+pub(super) fn force_color_level() -> String {
+    if let Ok(existing) = env::var("FORCE_COLOR") {
+        if !existing.is_empty() {
+            return existing;
+        }
+    }
+    let colorterm = env::var("COLORTERM").unwrap_or_default();
+    let term = env::var("TERM").unwrap_or_default();
+    if colorterm.eq_ignore_ascii_case("truecolor") || colorterm.eq_ignore_ascii_case("24bit") {
+        "3".to_owned()
+    } else if term.contains("256") {
+        "2".to_owned()
+    } else {
+        "1".to_owned()
+    }
 }
 
 fn should_inherit_terminal_streams(stdin_is_terminal: bool, stderr_is_terminal: bool) -> bool {

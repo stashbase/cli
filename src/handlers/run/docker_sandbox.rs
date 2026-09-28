@@ -923,7 +923,10 @@ pub(crate) fn docker_run_command(
     // run_built_command, which has no effect on the container's own
     // environment — set it explicitly here so colored output survives.
     args.push("-e".to_owned());
-    args.push("FORCE_COLOR=true".to_owned());
+    args.push(format!(
+        "FORCE_COLOR={}",
+        super::subprocess::force_color_level()
+    ));
 
     // TERM/COLORTERM drive terminal-capability detection (truecolor
     // support, theme selection) in TUIs like Codex's — FORCE_COLOR alone
