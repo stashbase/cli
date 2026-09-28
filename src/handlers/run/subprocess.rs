@@ -1220,6 +1220,7 @@ mod tests {
 
     #[test]
     fn parses_structured_filesystem_denial() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "cat: .env: Operation not permitted",
             &[".env".to_owned()],
@@ -1245,6 +1246,7 @@ mod tests {
 
     #[test]
     fn ignores_unrelated_permission_errors_with_matching_basename() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "tool: /tmp/other/.env: Permission denied",
             &["/tmp/project/.env".to_owned()],
@@ -1255,6 +1257,7 @@ mod tests {
 
     #[test]
     fn matches_normalized_relative_paths_and_denied_directory_descendants() {
+        let _guard = environment_lock().lock().unwrap();
         let relative = filesystem_denial_from_line(
             "cat: ./.env: Operation not permitted",
             &[".env".to_owned()],
@@ -1272,6 +1275,7 @@ mod tests {
 
     #[test]
     fn classifies_exact_write_denial() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "echo: protected.txt: Permission denied",
             &[],
@@ -1282,6 +1286,7 @@ mod tests {
 
     #[test]
     fn does_not_match_sibling_directory_with_shared_prefix() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "cat: /tmp/private-agent-other/key: Operation not permitted",
             &["/tmp/private-agent".to_owned()],
@@ -1292,6 +1297,7 @@ mod tests {
 
     #[test]
     fn ignores_permission_error_without_configured_path() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "cat: public.txt: Permission denied",
             &[".env".to_owned()],
@@ -1653,6 +1659,10 @@ mod tests {
         let status = Command::new(program)
             .args(args)
             .args(["-c", "printf allowed > allowed.tmp && mv allowed.tmp allowed.txt; printf blocked > blocked.tmp && mv blocked.tmp blocked.txt"])
+            // `mv` asks "override ...?" on stdin when the target isn't
+            // writable and stdin is a terminal, which hangs `cargo test`
+            // run from an interactive shell.
+            .stdin(std::process::Stdio::null())
             .status()
             .unwrap();
 
