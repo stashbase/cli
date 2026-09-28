@@ -40,9 +40,11 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use log::debug;
-use rcgen::{BasicConstraints, Certificate, CertificateParams, DnType, IsCa, KeyUsagePurpose};
+use rcgen::{
+    BasicConstraints, CertificateParams, CertifiedIssuer, DnType, IsCa, KeyPair, KeyUsagePurpose,
+};
 use rustls::{
-    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
+    pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
     ClientConfig, ServerConfig,
 };
 use rustls_platform_verifier::BuilderVerifierExt;
@@ -927,7 +929,7 @@ struct ProxyState {
     policy: ProxyPolicy,
     client: reqwest::Client,
     remote_ca: Option<reqwest::Certificate>,
-    certificate_authority: Arc<Certificate>,
+    certificate_authority: Arc<CertifiedIssuer<'static, KeyPair>>,
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
     remote: Option<RemoteProxyConfig>,
@@ -1391,9 +1393,9 @@ fn child_env_name_for_placeholder(
         .unwrap_or(binding_name)
 }
 
-fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
+fn create_certificate_authority() -> Result<(CertifiedIssuer<'static, KeyPair>, PathBuf)> {
     let subject = format!("Stashbase Proxy {}", Uuid::new_v4());
-    let mut params = CertificateParams::new(vec!["stashbase-proxy.local".to_owned()]);
+    let mut params = CertificateParams::new(vec!["stashbase-proxy.local".to_owned()])?;
     params
         .distinguished_name
         .push(DnType::CommonName, subject.clone());
@@ -1403,9 +1405,9 @@ fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
         KeyUsagePurpose::DigitalSignature,
         KeyUsagePurpose::KeyEncipherment,
     ];
-    let ca = Certificate::from_params(params)?;
+    let ca = CertifiedIssuer::self_signed(params, KeyPair::generate()?)?;
     let path = std::env::temp_dir().join(format!("stashbase-proxy-ca-{}.pem", Uuid::new_v4()));
-    std::fs::write(&path, ca.serialize_pem()?).context("failed to write temporary proxy CA")?;
+    std::fs::write(&path, ca.pem()).context("failed to write temporary proxy CA")?;
     Ok((ca, path))
 }
 
@@ -2871,19 +2873,18 @@ async fn serve_tls_connection(
     state: ProxyState,
 ) -> Result<()> {
     let host = authority.split(':').next().unwrap_or(&authority);
-    let mut params = CertificateParams::new(vec![host.to_owned()]);
+    let mut params = CertificateParams::new(vec![host.to_owned()])?;
     params.key_usages = vec![
         KeyUsagePurpose::DigitalSignature,
         KeyUsagePurpose::KeyEncipherment,
     ];
-    let leaf = Certificate::from_params(params)?;
+    let leaf_key = KeyPair::generate()?;
+    let leaf = params.signed_by(&leaf_key, &state.certificate_authority)?;
     let config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(
-            vec![CertificateDer::from(
-                leaf.serialize_der_with_signer(&state.certificate_authority)?,
-            )],
-            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf.serialize_private_key_der())),
+            vec![leaf.der().clone()],
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf_key.serialize_der())),
         )?;
     let handshake_started = Instant::now();
     let stream = match TlsAcceptor::from(Arc::new(config))
@@ -5031,7 +5032,11 @@ mod tests {
             client: reqwest::Client::new(),
             remote_ca: None,
             certificate_authority: Arc::new(
-                Certificate::from_params(CertificateParams::default()).unwrap(),
+                CertifiedIssuer::self_signed(
+                    CertificateParams::default(),
+                    KeyPair::generate().unwrap(),
+                )
+                .unwrap(),
             ),
             audit_log: None,
             connections: Arc::new(ActiveConnections::default()),
