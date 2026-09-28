@@ -185,13 +185,18 @@ pub async fn run_command_with_filesystem_policy_and_network(
     }
 
     #[cfg(target_os = "macos")]
-    let has_outer_sandbox = has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths);
-    let (args, codex_boundary) = codex_args_with_outer_sandbox(command, args, has_outer_sandbox);
-    let args = codex_args_without_daemon(
-        command,
-        args,
-        has_outer_sandbox && codex_supports_no_daemon(command),
-    );
+    let (args, codex_boundary) = {
+        let has_outer_sandbox =
+            has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths);
+        let (args, codex_boundary) =
+            codex_args_with_outer_sandbox(command, args, has_outer_sandbox);
+        let args = codex_args_without_daemon(
+            command,
+            args,
+            has_outer_sandbox && codex_supports_no_daemon(command),
+        );
+        (args, codex_boundary)
+    };
     #[cfg(not(target_os = "macos"))]
     let codex_boundary = CodexSandboxBoundary::FullAccess;
     let (program, launcher_args) = sandbox_command_with_filesystem_policy(
