@@ -81,6 +81,12 @@ RUN mkdir -p /home/agent && chmod 777 /home/agent
 ENV NPM_CONFIG_PREFIX=/home/agent/.npm-global
 ENV PATH=$PATH:/home/agent/.npm-global/bin:/home/agent/.local/bin
 
+# The image pins the Claude Code version; upgrades come from rebuilding the
+# image. The install tree above is intentionally read-only to the sandboxed
+# uid, so the in-app updater can only fail (visibly "Auto-update failed"
+# whenever the egress allowlist lets its download through).
+ENV DISABLE_AUTOUPDATER=1
+
 # `iptables` above is used by the short-lived network-namespace-holder
 # container (see start_netns_holder in docker_sandbox.rs), which uses this
 # same image — the actual agent container never runs iptables itself and
