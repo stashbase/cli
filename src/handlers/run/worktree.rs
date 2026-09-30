@@ -103,6 +103,78 @@ pub(crate) fn create_named_run_worktree(
     ))
 }
 
+/// Prefix of the `git worktree lock` reason a run sets on its worktree for
+/// as long as it runs, so `git worktree remove` — and therefore `agent
+/// worktrees merge`/`clean` — never deletes a worktree an agent is still
+/// working in. The reason also records the owning process (pid plus start
+/// time, to survive pid reuse) so a lock left by a killed run can be told
+/// apart from a live one.
+pub(crate) const LOCK_REASON_PREFIX: &str = "stashbase run in progress";
+
+fn lock_reason() -> String {
+    let pid = std::process::id();
+    let started = crate::handlers::agent::sessions::process_start_time(pid).unwrap_or_default();
+    format!("{LOCK_REASON_PREFIX}; pid={pid}; started={started}")
+}
+
+/// Who holds a worktree lock, judged from its reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RunLock {
+    /// A `stashbase` run that is still alive.
+    Running,
+    /// A `stashbase` run that no longer exists (killed before cleanup).
+    Stale,
+    /// Locked by someone else (e.g. by hand with `git worktree lock`).
+    Other(String),
+}
+
+pub(crate) fn classify_lock(reason: &str) -> RunLock {
+    let Some(details) = reason.strip_prefix(LOCK_REASON_PREFIX) else {
+        return RunLock::Other(reason.to_owned());
+    };
+    let field = |name: &str| {
+        details
+            .split("; ")
+            .find_map(|part| part.strip_prefix(&format!("{name}=")))
+            .map(str::to_owned)
+    };
+    let Some(pid) = field("pid").and_then(|pid| pid.parse::<u32>().ok()) else {
+        return RunLock::Stale;
+    };
+    if !process_exists(pid) {
+        return RunLock::Stale;
+    }
+    // The pid exists; it is a *different* process only if both start
+    // times are known and differ. When either can't be read (no `ps`,
+    // restricted environment), assume it's still our run — wrongly
+    // keeping a worktree is harmless, deleting a live one is not.
+    let recorded = field("started").filter(|started| !started.is_empty());
+    let current = crate::handlers::agent::sessions::process_start_time(pid).ok();
+    match (recorded, current) {
+        (Some(recorded), Some(current)) if recorded != current => RunLock::Stale,
+        _ => RunLock::Running,
+    }
+}
+
+/// Whether a process with this pid exists, without needing `ps`.
+fn process_exists(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = libc::pid_t::try_from(pid) else {
+            return false;
+        };
+        // Signal 0 checks existence/permission without delivering anything;
+        // EPERM still means the process exists (owned by someone else).
+        // SAFETY: `kill` with signal 0 has no side effects.
+        let result = unsafe { libc::kill(pid, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        crate::handlers::agent::sessions::process_start_time(pid).is_ok()
+    }
+}
+
 /// Adds `/<relative>/` to the repo's `info/exclude` (a local, uncommitted
 /// ignore file) unless already there, so agent worktrees nested in the
 /// checkout never show up in the user's `git status`.
@@ -171,6 +243,7 @@ pub(crate) fn create_run_worktree(
     let path = worktrees_root.join(name);
     let path_str = path.to_string_lossy().into_owned();
     git(&repo_root, &["worktree", "add", "-q", "-b", &branch, &path_str, "HEAD"])?;
+    git(&repo_root, &["worktree", "lock", "--reason", &lock_reason(), &path_str])?;
     let path = std::fs::canonicalize(&path).unwrap_or(path);
 
     // `git worktree add` names the admin dir after the path's basename,
@@ -338,10 +411,17 @@ impl RunWorktree {
     /// (the branch is kept either way); otherwise leaves it for the user.
     /// Caller must have run `restore_pointers` first.
     pub fn finish(&self) -> Result<WorktreeOutcome, String> {
+        // The run is over either way: release the lock so the user (and
+        // `agent worktrees merge`/`clean`) can remove the worktree.
+        let path = self.path.to_string_lossy().into_owned();
+        if let Err(error) = git(&self.repo_root, &["worktree", "unlock", &path]) {
+            if !error.contains("is not locked") {
+                return Err(error);
+            }
+        }
         if !git(&self.path, &["status", "--porcelain"])?.is_empty() {
             return Ok(WorktreeOutcome::Kept);
         }
-        let path = self.path.to_string_lossy().into_owned();
         git(&self.repo_root, &["worktree", "remove", &path])?;
         Ok(WorktreeOutcome::Removed)
     }
@@ -649,6 +729,49 @@ mod tests {
         assert!(words.iter().all(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase())));
         assert_eq!(wt.branch, format!("stashbase/{name}"));
         assert_eq!(git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]), wt.branch);
+    }
+
+    #[test]
+    fn worktree_is_locked_by_this_run_until_finish() {
+        let (repo, root) = fixture();
+        let wt = create_run_worktree(&repo, "ags_lock", Some(&root)).unwrap();
+        let listing = git(&repo, &["worktree", "list", "--porcelain"]);
+        let reason = listing
+            .lines()
+            .find_map(|line| line.strip_prefix("locked "))
+            .expect("worktree locked during the run");
+        assert_eq!(classify_lock(reason), RunLock::Running);
+        let path = wt.path.to_string_lossy().into_owned();
+        assert!(
+            Command::new("git").arg("-C").arg(&repo).args(["worktree", "remove", &path]).output().unwrap().status.code() != Some(0),
+            "git refuses to remove a running agent's worktree"
+        );
+
+        wt.restore_pointers().unwrap();
+        wt.finish().unwrap();
+        assert!(!wt.path.exists(), "finish unlocks, then removes the clean worktree");
+    }
+
+    #[test]
+    fn lock_of_a_dead_run_is_stale_and_foreign_locks_are_other() {
+        assert_eq!(
+            classify_lock(&format!("{LOCK_REASON_PREFIX}; pid=999999; started=Thu Jan  1 00:00:00 1970")),
+            RunLock::Stale
+        );
+        let me = std::process::id();
+        if crate::handlers::agent::sessions::process_start_time(me).is_ok() {
+            assert_eq!(
+                classify_lock(&format!("{LOCK_REASON_PREFIX}; pid={me}; started=not-my-start-time")),
+                RunLock::Stale,
+                "a reused pid with a different start time is not our run"
+            );
+        }
+        assert_eq!(
+            classify_lock(&format!("{LOCK_REASON_PREFIX}; pid={me}; started=")),
+            RunLock::Running,
+            "live pid with unknown start time is treated as running"
+        );
+        assert_eq!(classify_lock("on a USB drive"), RunLock::Other("on a USB drive".to_owned()));
     }
 
     #[test]
