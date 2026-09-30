@@ -296,36 +296,61 @@ pub(crate) fn create_run_worktree(
     let path = worktrees_root.join(name);
     let path_str = path.to_string_lossy().into_owned();
     git(&repo_root, &["worktree", "add", "-q", "-b", &branch, &path_str, "HEAD"])?;
-    git(&repo_root, &["worktree", "lock", "--reason", &lock_reason(), &path_str])?;
-    let path = std::fs::canonicalize(&path).unwrap_or(path);
 
-    // `git worktree add` names the admin dir after the path's basename,
-    // uniquified with a numeric suffix on collision — read it back from
-    // the pointer file rather than assuming.
-    let pointer_file = std::fs::read_to_string(path.join(".git"))
-        .map_err(|error| format!("failed to read the worktree's .git file: {error}"))?;
-    let admin_dir = PathBuf::from(
-        pointer_file
-            .trim()
-            .strip_prefix("gitdir: ")
-            .ok_or_else(|| "unexpected worktree .git file format".to_owned())?,
-    );
-    let commondir_file = std::fs::read_to_string(admin_dir.join("commondir"))
-        .map_err(|error| format!("failed to read the worktree's commondir: {error}"))?;
-    let ref_snapshot = snapshot_refs(&repo_root, &branch)?;
+    // From here on the worktree and branch exist, but the caller only gets
+    // a `RunWorktree` (and with it cleanup) if every remaining step works —
+    // so undo them here on failure rather than leave a locked orphan.
+    let finish_setup = || -> Result<RunWorktree, String> {
+        #[cfg(test)]
+        if tests::FAIL_AFTER_ADD.with(std::cell::Cell::get) {
+            return Err("injected failure after `git worktree add`".to_owned());
+        }
+        git(&repo_root, &["worktree", "lock", "--reason", &lock_reason(), &path_str])?;
+        let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
 
-    Ok(RunWorktree {
-        workdir: path.join(relative),
-        repo_root,
-        common_dir,
-        path,
-        admin_dir,
-        branch,
-        pointer_file,
-        commondir_file,
-        ref_snapshot,
-        source_was_dirty,
+        // `git worktree add` names the admin dir after the path's basename,
+        // uniquified with a numeric suffix on collision — read it back from
+        // the pointer file rather than assuming.
+        let pointer_file = std::fs::read_to_string(path.join(".git"))
+            .map_err(|error| format!("failed to read the worktree's .git file: {error}"))?;
+        let admin_dir = PathBuf::from(
+            pointer_file
+                .trim()
+                .strip_prefix("gitdir: ")
+                .ok_or_else(|| "unexpected worktree .git file format".to_owned())?,
+        );
+        let commondir_file = std::fs::read_to_string(admin_dir.join("commondir"))
+            .map_err(|error| format!("failed to read the worktree's commondir: {error}"))?;
+        let ref_snapshot = snapshot_refs(&repo_root, &branch)?;
+
+        Ok(RunWorktree {
+            workdir: path.join(&relative),
+            repo_root: repo_root.clone(),
+            common_dir: common_dir.clone(),
+            path,
+            admin_dir,
+            branch: branch.clone(),
+            pointer_file,
+            commondir_file,
+            ref_snapshot,
+            source_was_dirty,
+        })
+    };
+    finish_setup().map_err(|error| match rollback_worktree(&repo_root, &path_str, &branch) {
+        Ok(()) => error,
+        Err(rollback) => format!(
+            "{error} (and removing the half-created worktree failed: {rollback}; remove {path_str} and branch {branch} by hand)"
+        ),
     })
+}
+
+/// Undoes a `git worktree add` whose setup didn't complete. Runs git only
+/// from the repo root — the agent never ran in the new worktree. `--force`
+/// twice also removes it if it was already locked.
+fn rollback_worktree(repo_root: &Path, path: &str, branch: &str) -> Result<(), String> {
+    git(repo_root, &["worktree", "remove", "--force", "--force", path])?;
+    git(repo_root, &["branch", "-D", branch])?;
+    Ok(())
 }
 
 /// Rewrites `file` to `expected` unless it is already exactly that regular
@@ -522,6 +547,38 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::{fixture, git};
     use super::*;
+
+    thread_local! {
+        /// Makes `create_run_worktree` fail right after `git worktree add`.
+        pub(super) static FAIL_AFTER_ADD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    #[test]
+    fn rollback_removes_an_already_locked_worktree() {
+        let (repo, root) = fixture();
+        let wt = create_run_worktree(&repo, "ags_locked_rollback", Some(&root)).unwrap();
+        let path = wt.path.to_string_lossy().into_owned();
+        rollback_worktree(&repo, &path, &wt.branch).unwrap();
+        assert!(!wt.path.exists());
+        assert!(git(&repo, &["branch", "--list", &wt.branch]).is_empty());
+    }
+
+    #[test]
+    fn failed_setup_after_add_removes_the_worktree_and_branch() {
+        let (repo, root) = fixture();
+        FAIL_AFTER_ADD.with(|fail| fail.set(true));
+        let error = create_run_worktree(&repo, "ags_rollback", Some(&root)).unwrap_err();
+        FAIL_AFTER_ADD.with(|fail| fail.set(false));
+
+        assert!(error.contains("injected failure"), "{error}");
+        assert!(!root.join("ags_rollback").exists(), "worktree dir removed");
+        assert!(git(&repo, &["branch", "--list", "stashbase/ags_rollback"]).is_empty());
+        let listing = git(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(!listing.contains("ags_rollback"), "not registered: {listing}");
+
+        // The name is free again.
+        create_run_worktree(&repo, "ags_rollback", Some(&root)).unwrap();
+    }
 
     #[test]
     fn creates_worktree_on_session_branch() {
