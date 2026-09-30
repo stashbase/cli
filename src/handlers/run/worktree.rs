@@ -44,7 +44,7 @@ pub(crate) enum WorktreeOutcome {
 
 /// Runs `git -C dir ...` with no inherited `GIT_DIR`/`GIT_WORK_TREE`/
 /// `GIT_COMMON_DIR` that could redirect it to another repository.
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
@@ -173,6 +173,59 @@ fn process_exists(pid: u32) -> bool {
     {
         crate::handlers::agent::sessions::process_start_time(pid).is_ok()
     }
+}
+
+/// Checks that an existing agent worktree's git pointer files are exactly
+/// what `git worktree add` writes, before any host git runs inside it.
+///
+/// During a run `restore_pointers` guarantees this, but a worktree left
+/// behind by a killed `stashbase` process never got restored: its `.git`
+/// file or `commondir` may still point at an agent-controlled git dir, or
+/// its admin dir may hold an agent-written `config.worktree` — either can
+/// make host git run agent code (`core.fsmonitor`). Returns why it is
+/// unsafe, if it is.
+pub(crate) fn verify_agent_worktree(path: &Path, common_dir: &Path) -> Result<(), String> {
+    let pointer = path.join(".git");
+    if !std::fs::symlink_metadata(&pointer).is_ok_and(|meta| meta.is_file()) {
+        return Err(format!("{} is not a regular file", pointer.display()));
+    }
+    let contents = std::fs::read_to_string(&pointer)
+        .map_err(|error| format!("cannot read {}: {error}", pointer.display()))?;
+    let admin_dir = contents
+        .strip_prefix("gitdir: ")
+        .map(|rest| PathBuf::from(rest.trim_end_matches('\n')))
+        .filter(|_| contents.ends_with('\n') && contents.lines().count() == 1)
+        .ok_or_else(|| format!("{} has unexpected contents", pointer.display()))?;
+    let worktrees_dir = std::fs::canonicalize(common_dir.join("worktrees"))
+        .map_err(|error| format!("cannot resolve the repository's worktrees dir: {error}"))?;
+    let admin_dir = std::fs::canonicalize(&admin_dir)
+        .map_err(|_| format!("{} points at a missing git dir", pointer.display()))?;
+    if admin_dir.parent() != Some(worktrees_dir.as_path()) {
+        return Err(format!(
+            "{} points outside this repository's worktree metadata",
+            pointer.display()
+        ));
+    }
+
+    let commondir_file = admin_dir.join("commondir");
+    if !std::fs::symlink_metadata(&commondir_file).is_ok_and(|meta| meta.is_file()) {
+        return Err(format!("{} is not a regular file", commondir_file.display()));
+    }
+    let commondir = std::fs::read_to_string(&commondir_file)
+        .map_err(|error| format!("cannot read {}: {error}", commondir_file.display()))?;
+    let resolved = std::fs::canonicalize(admin_dir.join(commondir.trim_end_matches('\n')))
+        .map_err(|_| format!("{} points at a missing directory", commondir_file.display()))?;
+    let expected = std::fs::canonicalize(common_dir)
+        .map_err(|error| format!("cannot resolve the repository's git dir: {error}"))?;
+    if resolved != expected {
+        return Err(format!("{} points at another git dir", commondir_file.display()));
+    }
+
+    let worktree_config = admin_dir.join("config.worktree");
+    if std::fs::symlink_metadata(&worktree_config).is_ok() {
+        return Err(format!("{} was written during a run", worktree_config.display()));
+    }
+    Ok(())
 }
 
 /// Adds `/<relative>/` to the repo's `info/exclude` (a local, uncommitted
@@ -453,6 +506,10 @@ pub(crate) mod test_support {
         std::fs::create_dir_all(repo.join("sub")).unwrap();
         std::fs::write(repo.join("sub/f"), "x").unwrap();
         git(&base, &["init", "-q", "-b", "main", "repo"]);
+        // Code under test commits (merges) without the env identity the
+        // `git` helper sets, so give the repo its own.
+        git(&repo, &["config", "user.name", "t"]);
+        git(&repo, &["config", "user.email", "t@t"]);
         git(&repo, &["add", "."]);
         git(&repo, &["commit", "-qm", "init"]);
         git(&repo, &["branch", "other"]);
@@ -729,6 +786,26 @@ mod tests {
         assert!(words.iter().all(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase())));
         assert_eq!(wt.branch, format!("stashbase/{name}"));
         assert_eq!(git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]), wt.branch);
+    }
+
+    #[test]
+    fn verify_agent_worktree_accepts_fresh_and_rejects_tampered_pointers() {
+        let (repo, root) = fixture();
+        let wt = create_run_worktree(&repo, "ags_verify", Some(&root)).unwrap();
+        verify_agent_worktree(&wt.path, &wt.common_dir).unwrap();
+
+        std::fs::write(wt.path.join(".git"), "gitdir: /tmp/evil\n").unwrap();
+        assert!(verify_agent_worktree(&wt.path, &wt.common_dir).is_err());
+        wt.restore_pointers().unwrap();
+        verify_agent_worktree(&wt.path, &wt.common_dir).unwrap();
+
+        std::fs::write(wt.admin_dir.join("commondir"), "/tmp\n").unwrap();
+        assert!(verify_agent_worktree(&wt.path, &wt.common_dir).is_err());
+        wt.restore_pointers().unwrap();
+
+        std::fs::write(wt.admin_dir.join("config.worktree"), "[core]\n").unwrap();
+        let error = verify_agent_worktree(&wt.path, &wt.common_dir).unwrap_err();
+        assert!(error.contains("config.worktree"), "{error}");
     }
 
     #[test]

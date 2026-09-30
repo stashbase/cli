@@ -230,4 +230,18 @@ With `worktree = true` in the profile, `--worktree=false` skips the worktree for
 - When the run ends, a clean worktree is removed and the branch is kept; a worktree with uncommitted changes is kept and its path printed. If the `stashbase` process is killed hard, remove the leftover with `git worktree remove .stashbase/worktrees/<name>`.
 - The worktree shares the repository's object store with your checkout, so it is fast and cheap on disk, but it is not a security boundary for repository *contents*: the agent can read every commit on every branch.
 
+### Reviewing and merging agent work
+
+The agent can't merge into your branches itself — its branch is the only one it may change — so integrate its work from your own checkout:
+
+```bash
+stashbase agent worktrees list                          # agent branches, status, unmerged commits
+stashbase agent worktrees merge amber-river-storm       # merge commit into your current branch
+stashbase agent worktrees merge amber-river-storm --squash   # or one squashed commit
+stashbase agent worktrees merge amber-river-storm -m "Add retry logic"   # custom commit message
+stashbase agent worktrees clean                         # remove merged agent worktrees/branches
+```
+
+`merge` refuses while either your checkout or the agent's worktree has uncommitted changes, and removes the agent's worktree and branch afterwards unless you pass `--keep`; on a conflict it stops and keeps both so you can resolve it. `clean` only removes work that is already merged; `--all` also removes unmerged work (after a confirmation, or `--yes`). While a run is in progress its worktree is locked (`git worktree lock`), so neither `merge`, `clean` nor plain `git worktree remove` can delete it under a working agent: `list` shows it as `running`, `merge` merges only its committed work and keeps the worktree, and `clean` skips it even with `--all`. A lock left by a killed run is recognized as stale (the run's process is gone) and released on removal; a worktree you locked yourself is shown as `locked` and left alone. A worktree left behind by a killed run is checked first: if its git pointer files aren't exactly what git wrote, it is shown as `UNSAFE` and never touched — inspect it by hand before running `git` inside it.
+
 Known gaps, since the native filesystem policy is a deny-list: the agent can still *create* new files in your checkout's top-level folder and in `.stashbase/` (it can't modify existing ones), and, as with any native run, write anywhere else not denied (e.g. `~/.gitconfig`).

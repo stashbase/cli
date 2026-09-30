@@ -8,3 +8,4 @@ pub mod policy_test;
 pub mod profiles;
 pub mod sessions;
 pub mod validate;
+pub mod worktrees;

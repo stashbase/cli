@@ -603,6 +603,21 @@ pub async fn handle_cli(args: Cli) {
                     )
                     .await
                 }
+                AgentSubcommand::Worktrees { command } => match command {
+                    crate::cmd::agent::AgentWorktreesSubcommand::List(_) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_list(raw_output)
+                    }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Merge(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_merge(
+                            command, raw_output, silent,
+                        )
+                    }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Clean(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_clean(
+                            command, raw_output, silent,
+                        )
+                    }
+                },
                 AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
                     crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
                         crate::handlers::agent::docker::handle_docker_cleanup_command(

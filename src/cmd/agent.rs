@@ -45,6 +45,53 @@ pub enum AgentSubcommand {
     Logs(AgentLogsCommand),
     /// Manage Docker sandbox backend resources
     Docker(AgentDockerCommand),
+    /// Review, merge and clean up the git worktrees `agent run --worktree` leaves behind
+    Worktrees {
+        #[command(subcommand)]
+        command: AgentWorktreesSubcommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentWorktreesSubcommand {
+    /// List agent branches in this repository with their status and unmerged commits
+    List(AgentWorktreesListCommand),
+    /// Merge an agent's branch into your current branch, then remove its worktree and branch
+    Merge(AgentWorktreesMergeCommand),
+    /// Remove agent worktrees and branches whose work is already merged
+    Clean(AgentWorktreesCleanCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesListCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesMergeCommand {
+    /// Worktree name as shown by `list` (e.g. amber-river-storm), with or without the `stashbase/` prefix
+    pub name: String,
+
+    /// Combine the agent's commits into a single commit instead of a merge commit
+    #[arg(long)]
+    pub squash: bool,
+
+    /// Commit message for the merge (or squash) commit, used as given; defaults to git's own "Merge branch 'stashbase/<name>'" (or, with --squash, "Squash branch 'stashbase/<name>'" listing the squashed commits)
+    #[arg(short, long)]
+    pub message: Option<String>,
+
+    /// Keep the agent's worktree and branch after merging
+    #[arg(long)]
+    pub keep: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesCleanCommand {
+    /// Also remove unmerged work and worktrees with uncommitted changes
+    #[arg(long)]
+    pub all: bool,
+
+    /// Remove without prompting for confirmation
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Subcommand)]
