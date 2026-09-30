@@ -631,8 +631,13 @@ fn sandbox_command_with_filesystem_policy(
                     if let Some(error) = bubblewrap_enforcement_error() {
                         anyhow::bail!(error);
                     }
-                    return bubblewrap_command(command, denied_read_paths, denied_write_paths, current_dir)
-                        .map_err(|error| anyhow::anyhow!(error));
+                    return bubblewrap_command(
+                        command,
+                        denied_read_paths,
+                        denied_write_paths,
+                        current_dir,
+                    )
+                    .map_err(|error| anyhow::anyhow!(error));
                 }
             }
             #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -895,10 +900,9 @@ fn filesystem_denial_from_line(
             &[configured.to_owned()],
             &env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         )
-            .into_iter()
-            .next()
-            .map(PathBuf::from)
-        else {
+        .into_iter()
+        .next()
+        .map(PathBuf::from) else {
             return false;
         };
         line.split_whitespace().any(|token| {
@@ -1842,28 +1846,55 @@ mod tests {
             String::from_utf8_lossy(&commit.stderr)
         );
         assert_eq!(
-            test_support::git(&repo, &["log", "-1", "--format=%s", "stashbase/ags_seatbelt"]),
+            test_support::git(
+                &repo,
+                &["log", "-1", "--format=%s", "stashbase/ags_seatbelt"]
+            ),
             "agent"
         );
 
         let checkout_file = repo.join("sub/f");
         let common = &wt.common_dir;
         for (target, script) in [
-            (checkout_file.clone(), format!("echo evil > '{}'", checkout_file.display())),
+            (
+                checkout_file.clone(),
+                format!("echo evil > '{}'", checkout_file.display()),
+            ),
             (
                 repo.join(".stashbase/agents/coding.toml"),
-                format!("echo evil > '{}'", repo.join(".stashbase/agents/coding.toml").display()),
+                format!(
+                    "echo evil > '{}'",
+                    repo.join(".stashbase/agents/coding.toml").display()
+                ),
             ),
-            (common.join("config"), format!("echo evil >> '{}'", common.join("config").display())),
-            (common.join("HEAD"), format!("echo evil > '{}'", common.join("HEAD").display())),
+            (
+                common.join("config"),
+                format!("echo evil >> '{}'", common.join("config").display()),
+            ),
+            (
+                common.join("HEAD"),
+                format!("echo evil > '{}'", common.join("HEAD").display()),
+            ),
             (
                 common.join("hooks/post-checkout"),
-                format!("echo evil > '{}'", common.join("hooks/post-checkout").display()),
+                format!(
+                    "echo evil > '{}'",
+                    common.join("hooks/post-checkout").display()
+                ),
             ),
         ] {
             let before = std::fs::read_to_string(&target).ok();
-            assert!(!run(&script).status.success(), "write to {} must be denied", target.display());
-            assert_eq!(std::fs::read_to_string(&target).ok(), before, "{}", target.display());
+            assert!(
+                !run(&script).status.success(),
+                "write to {} must be denied",
+                target.display()
+            );
+            assert_eq!(
+                std::fs::read_to_string(&target).ok(),
+                before,
+                "{}",
+                target.display()
+            );
         }
 
         // Swapping a protected path out from under the rules (rename, or
@@ -1885,7 +1916,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_sandbox_uses_systemd_cgroup_network_rules() {
-        let (program, args) = super::systemd_command("curl", true, &[], &[], std::path::Path::new("/"));
+        let (program, args) =
+            super::systemd_command("curl", true, &[], &[], std::path::Path::new("/"));
         assert_eq!(program, "systemd-run");
         assert!(args.contains(&"--property=IPAddressDeny=any".to_owned()));
         assert!(args.contains(&"--property=IPAddressAllow=127.0.0.1".to_owned()));

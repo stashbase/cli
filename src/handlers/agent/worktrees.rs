@@ -68,11 +68,17 @@ pub(crate) fn open_checkout(cwd: &Path) -> Result<Checkout> {
     let root = run_git(cwd, &["rev-parse", "--show-toplevel"])
         .map_err(|_| anyhow::anyhow!("{} is not inside a git repository", cwd.display()))?;
     let root = std::fs::canonicalize(&root).with_context(|| format!("failed to resolve {root}"))?;
-    let common_dir = run_git(&root, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    let common_dir = run_git(
+        &root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
     let common_dir = std::fs::canonicalize(&common_dir)
         .with_context(|| format!("failed to resolve {common_dir}"))?;
     let branch = run_git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).ok();
-    if branch.as_deref().is_some_and(|branch| branch.starts_with(BRANCH_PREFIX)) {
+    if branch
+        .as_deref()
+        .is_some_and(|branch| branch.starts_with(BRANCH_PREFIX))
+    {
         bail!(
             "this is an agent worktree ({}); run `stashbase agent worktrees` from your own checkout",
             root.display()
@@ -140,7 +146,11 @@ pub(crate) fn list_agent_worktrees(checkout: &Checkout) -> Result<Vec<AgentWorkt
         &checkout.root,
         &["for-each-ref", "--format=%(refname:short)", &prefix],
     )?;
-    let base = if checkout.branch.is_some() { "HEAD" } else { "" };
+    let base = if checkout.branch.is_some() {
+        "HEAD"
+    } else {
+        ""
+    };
     let mut worktrees = Vec::new();
     for branch in branches.lines().filter(|line| !line.is_empty()) {
         let listed = listed.iter().find(|listed| listed.branch == branch);
@@ -152,7 +162,9 @@ pub(crate) fn list_agent_worktrees(checkout: &Checkout) -> Result<Vec<AgentWorkt
             (None, _) => WorktreeState::NoWorktree,
             // Unsafe beats everything: whatever holds the lock, the user
             // must inspect it before git runs there.
-            (Some(path), _) if path.exists() && verify_agent_worktree(path, &checkout.common_dir).is_err() => {
+            (Some(path), _)
+                if path.exists() && verify_agent_worktree(path, &checkout.common_dir).is_err() =>
+            {
                 inspect_worktree(checkout, path)
             }
             (Some(_), Some(RunLock::Running)) => WorktreeState::Running,
@@ -164,7 +176,11 @@ pub(crate) fn list_agent_worktrees(checkout: &Checkout) -> Result<Vec<AgentWorkt
         } else {
             run_git(
                 &checkout.root,
-                &["rev-list", "--count", &format!("{base}..refs/heads/{branch}")],
+                &[
+                    "rev-list",
+                    "--count",
+                    &format!("{base}..refs/heads/{branch}"),
+                ],
             )?
             .parse()
             .unwrap_or(0)
@@ -211,7 +227,11 @@ pub(crate) fn remove_agent_worktree(
         WorktreeState::Locked(reason) => bail!(
             "skipping {}: locked ({}); unlock it with `git worktree unlock` first",
             worktree.name,
-            if reason.is_empty() { "no reason given" } else { reason }
+            if reason.is_empty() {
+                "no reason given"
+            } else {
+                reason
+            }
         ),
         _ => {}
     }
@@ -227,7 +247,11 @@ pub(crate) fn remove_agent_worktree(
         args.push(&path);
         run_git(&checkout.root, &args)?;
     }
-    let delete = if force || worktree.ahead == 0 { "-D" } else { "-d" };
+    let delete = if force || worktree.ahead == 0 {
+        "-D"
+    } else {
+        "-d"
+    };
     run_git(&checkout.root, &["branch", delete, &worktree.branch])?;
     Ok(())
 }
@@ -274,7 +298,10 @@ pub(crate) fn merge_agent_worktree(
                 .map(|path| path.display().to_string())
                 .unwrap_or_default()
         ),
-        WorktreeState::Locked(_) | WorktreeState::Running | WorktreeState::Clean | WorktreeState::NoWorktree => {}
+        WorktreeState::Locked(_)
+        | WorktreeState::Running
+        | WorktreeState::Clean
+        | WorktreeState::NoWorktree => {}
     }
     // A running agent's committed work can be merged, but its worktree
     // must stay — it's still being worked in.
@@ -286,7 +313,12 @@ pub(crate) fn merge_agent_worktree(
         }
         return Ok(MergeOutcome::NothingToMerge);
     }
-    if !run_git(&checkout.root, &["status", "--porcelain", "--untracked-files=no"])?.is_empty() {
+    if !run_git(
+        &checkout.root,
+        &["status", "--porcelain", "--untracked-files=no"],
+    )?
+    .is_empty()
+    {
         bail!("your checkout has uncommitted changes; commit or stash them before merging");
     }
 
@@ -297,7 +329,12 @@ pub(crate) fn merge_agent_worktree(
             None => {
                 let subjects = run_git(
                     &checkout.root,
-                    &["log", "--reverse", "--format=- %s", &format!("HEAD..{reference}")],
+                    &[
+                        "log",
+                        "--reverse",
+                        "--format=- %s",
+                        &format!("HEAD..{reference}"),
+                    ],
                 )?;
                 format!("Squash branch '{}'\n\n{subjects}", worktree.branch)
             }
@@ -346,13 +383,15 @@ pub(crate) fn clean_candidates(worktrees: Vec<AgentWorktree>, all: bool) -> Vec<
     worktrees
         .into_iter()
         .filter(|worktree| {
-            !matches!(worktree.state, WorktreeState::Running | WorktreeState::Locked(_))
-                && (all
-                    || (worktree.ahead == 0
-                        && matches!(
-                            worktree.state,
-                            WorktreeState::Clean | WorktreeState::NoWorktree
-                        )))
+            !matches!(
+                worktree.state,
+                WorktreeState::Running | WorktreeState::Locked(_)
+            ) && (all
+                || (worktree.ahead == 0
+                    && matches!(
+                        worktree.state,
+                        WorktreeState::Clean | WorktreeState::NoWorktree
+                    )))
         })
         .collect()
 }
@@ -463,11 +502,24 @@ pub fn handle_worktrees_merge(
         println!("{}", get_formatted_json_string(&json, true)?);
     } else if !silent {
         let name = command.name.trim_start_matches(BRANCH_PREFIX);
-        let kept_running = matches!(outcome, MergeOutcome::Merged { kept_running: true, .. });
+        let kept_running = matches!(
+            outcome,
+            MergeOutcome::Merged {
+                kept_running: true,
+                ..
+            }
+        );
         match outcome {
             MergeOutcome::Merged { commits, into, .. } => {
-                let how = if command.squash { "squashed into" } else { "merged into" };
-                println!("{} {commits} commit(s) from {name} {how} {into}.", "✓".green_if_tty());
+                let how = if command.squash {
+                    "squashed into"
+                } else {
+                    "merged into"
+                };
+                println!(
+                    "{} {commits} commit(s) from {name} {how} {into}.",
+                    "✓".green_if_tty()
+                );
             }
             MergeOutcome::NothingToMerge => {
                 println!("{name} has no commits that aren't already in your branch.")
@@ -495,7 +547,10 @@ pub fn handle_worktrees_clean(
     let candidates = clean_candidates(list_agent_worktrees(&checkout)?, command.all);
     if candidates.is_empty() {
         if raw_output {
-            println!("{}", get_formatted_json_string(&serde_json::json!({ "removed": [] }), true)?);
+            println!(
+                "{}",
+                get_formatted_json_string(&serde_json::json!({ "removed": [] }), true)?
+            );
         } else if !silent {
             println!(
                 "Nothing to clean.{}",
@@ -569,7 +624,10 @@ pub fn handle_worktrees_clean(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handlers::run::worktree::{create_run_worktree, test_support::{fixture, git}};
+    use crate::handlers::run::worktree::{
+        create_run_worktree,
+        test_support::{fixture, git},
+    };
 
     fn checkout(repo: &Path) -> Checkout {
         open_checkout(repo).unwrap()
@@ -623,10 +681,14 @@ mod tests {
         let list = list_agent_worktrees(&checkout).unwrap();
         assert!(matches!(list[0].state, WorktreeState::Unsafe(_)));
 
-        let error = merge_agent_worktree(&checkout, "opal-reef-sky", false, None, false).unwrap_err();
+        let error =
+            merge_agent_worktree(&checkout, "opal-reef-sky", false, None, false).unwrap_err();
         assert!(error.to_string().contains("refusing to merge"), "{error}");
         assert!(remove_agent_worktree(&checkout, &list[0], true).is_err());
-        assert!(path.exists(), "unsafe worktree left for the user to inspect");
+        assert!(
+            path.exists(),
+            "unsafe worktree left for the user to inspect"
+        );
     }
 
     #[test]
@@ -634,7 +696,8 @@ mod tests {
         let (repo, _) = fixture();
         let path = agent(&repo, "amber-river-storm", 2);
         let checkout = checkout(&repo);
-        let outcome = merge_agent_worktree(&checkout, "amber-river-storm", false, None, false).unwrap();
+        let outcome =
+            merge_agent_worktree(&checkout, "amber-river-storm", false, None, false).unwrap();
         assert_eq!(
             outcome,
             MergeOutcome::Merged {
@@ -645,7 +708,10 @@ mod tests {
         );
         assert!(repo.join("amber-river-storm-1.txt").exists());
         assert!(!path.exists(), "worktree removed");
-        assert!(git(&repo, &["branch", "--list", "stashbase/*"]).is_empty(), "branch removed");
+        assert!(
+            git(&repo, &["branch", "--list", "stashbase/*"]).is_empty(),
+            "branch removed"
+        );
         assert_eq!(
             git(&repo, &["log", "-1", "--format=%s"]),
             "Merge branch 'stashbase/amber-river-storm'"
@@ -659,9 +725,15 @@ mod tests {
         let checkout = checkout(&repo);
         merge_agent_worktree(&checkout, "stashbase/cedar-moss-wave", true, None, false).unwrap();
         let message = git(&repo, &["log", "-1", "--format=%B"]);
-        assert!(message.starts_with("Squash branch 'stashbase/cedar-moss-wave'\n\n"), "{message}");
+        assert!(
+            message.starts_with("Squash branch 'stashbase/cedar-moss-wave'\n\n"),
+            "{message}"
+        );
         assert!(message.contains("- cedar-moss-wave commit 0"));
-        assert_eq!(git(&repo, &["rev-list", "--count", "--merges", "HEAD"]), "0");
+        assert_eq!(
+            git(&repo, &["rev-list", "--count", "--merges", "HEAD"]),
+            "0"
+        );
         assert!(git(&repo, &["branch", "--list", "stashbase/*"]).is_empty());
     }
 
@@ -684,13 +756,28 @@ mod tests {
         agent(&repo, "cedar-moss-wave", 2);
         let checkout = checkout(&repo);
 
-        merge_agent_worktree(&checkout, "amber-river-storm", false, Some("Add a (agent)"), false)
-            .unwrap();
+        merge_agent_worktree(
+            &checkout,
+            "amber-river-storm",
+            false,
+            Some("Add a (agent)"),
+            false,
+        )
+        .unwrap();
         assert_eq!(git(&repo, &["log", "-1", "--format=%B"]), "Add a (agent)");
 
-        merge_agent_worktree(&checkout, "cedar-moss-wave", true, Some("feat: agent work\n\nBody"), false)
-            .unwrap();
-        assert_eq!(git(&repo, &["log", "-1", "--format=%B"]), "feat: agent work\n\nBody");
+        merge_agent_worktree(
+            &checkout,
+            "cedar-moss-wave",
+            true,
+            Some("feat: agent work\n\nBody"),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            git(&repo, &["log", "-1", "--format=%B"]),
+            "feat: agent work\n\nBody"
+        );
 
         agent(&repo, "delta-dune-echo", 1);
         let error = merge_agent_worktree(&checkout, "delta-dune-echo", false, Some("  "), false)
@@ -705,13 +792,20 @@ mod tests {
         let checkout = checkout(&repo);
 
         std::fs::write(path.join("wip"), "wip").unwrap();
-        let error = merge_agent_worktree(&checkout, "iris-jade-lotus", false, None, false).unwrap_err();
+        let error =
+            merge_agent_worktree(&checkout, "iris-jade-lotus", false, None, false).unwrap_err();
         assert!(error.to_string().contains("uncommitted changes"), "{error}");
         std::fs::remove_file(path.join("wip")).unwrap();
 
         std::fs::write(repo.join("sub/f"), "user edit").unwrap();
-        let error = merge_agent_worktree(&checkout, "iris-jade-lotus", false, None, false).unwrap_err();
-        assert!(error.to_string().contains("your checkout has uncommitted changes"), "{error}");
+        let error =
+            merge_agent_worktree(&checkout, "iris-jade-lotus", false, None, false).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("your checkout has uncommitted changes"),
+            "{error}"
+        );
         assert!(path.exists() && git(&repo, &["branch", "--list", "stashbase/*"]).contains("iris"));
     }
 
@@ -724,7 +818,8 @@ mod tests {
         std::fs::write(repo.join("sub/f"), "user").unwrap();
         git(&repo, &["commit", "-qam", "user edit"]);
 
-        let error = merge_agent_worktree(&checkout(&repo), "lava-conflict", false, None, false).unwrap_err();
+        let error = merge_agent_worktree(&checkout(&repo), "lava-conflict", false, None, false)
+            .unwrap_err();
         assert!(error.to_string().contains("git merge --abort"), "{error}");
         assert!(wt.path.exists());
         git(&repo, &["merge", "--abort"]);
@@ -764,13 +859,26 @@ mod tests {
 
         let list = list_agent_worktrees(&checkout).unwrap();
         assert_eq!(list[0].state, WorktreeState::Running);
-        assert!(clean_candidates(list.clone(), true).is_empty(), "never cleaned, even with --all");
+        assert!(
+            clean_candidates(list.clone(), true).is_empty(),
+            "never cleaned, even with --all"
+        );
         assert!(remove_agent_worktree(&checkout, &list[0], true).is_err());
 
         let outcome = merge_agent_worktree(&checkout, "live-run", false, None, false).unwrap();
-        assert!(matches!(outcome, MergeOutcome::Merged { kept_running: true, commits: 1, .. }));
+        assert!(matches!(
+            outcome,
+            MergeOutcome::Merged {
+                kept_running: true,
+                commits: 1,
+                ..
+            }
+        ));
         assert!(repo.join("done.txt").exists(), "committed work merged");
-        assert!(wt.path.join("in-progress.txt").exists(), "worktree untouched");
+        assert!(
+            wt.path.join("in-progress.txt").exists(),
+            "worktree untouched"
+        );
     }
 
     #[test]
@@ -798,10 +906,22 @@ mod tests {
     fn worktree_locked_by_the_user_is_left_alone() {
         let (repo, _) = fixture();
         let wt = finished_run(&repo, "usb-drive");
-        git(&repo, &["worktree", "lock", "--reason", "on a USB drive", &wt.path.to_string_lossy()]);
+        git(
+            &repo,
+            &[
+                "worktree",
+                "lock",
+                "--reason",
+                "on a USB drive",
+                &wt.path.to_string_lossy(),
+            ],
+        );
         let checkout = checkout(&repo);
         let list = list_agent_worktrees(&checkout).unwrap();
-        assert_eq!(list[0].state, WorktreeState::Locked("on a USB drive".to_owned()));
+        assert_eq!(
+            list[0].state,
+            WorktreeState::Locked("on a USB drive".to_owned())
+        );
         assert!(clean_candidates(list, true).is_empty());
     }
 
@@ -810,6 +930,8 @@ mod tests {
         let (repo, _) = fixture();
         let path = agent(&repo, "sage-sand-sky", 0);
         let error = open_checkout(&path).unwrap_err();
-        assert!(error.to_string().contains("run `stashbase agent worktrees` from your own checkout"));
+        assert!(error
+            .to_string()
+            .contains("run `stashbase agent worktrees` from your own checkout"));
     }
 }

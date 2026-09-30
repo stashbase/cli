@@ -1174,9 +1174,13 @@ mod tests {
     #[test]
     fn worktree_is_rejected_with_the_docker_backend_for_now() {
         let profile = worktree_test_profile(crate::models::agent::SandboxBackend::Docker);
-        assert!(validate_profile(&profile).iter().any(|check| check.status == Status::Fail
-            && check.name == "Workspace worktree"
-            && check.message.contains("not yet supported with the Docker backend")));
+        assert!(validate_profile(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail
+                && check.name == "Workspace worktree"
+                && check
+                    .message
+                    .contains("not yet supported with the Docker backend")));
     }
 
     #[test]

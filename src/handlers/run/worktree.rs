@@ -209,7 +209,10 @@ pub(crate) fn verify_agent_worktree(path: &Path, common_dir: &Path) -> Result<()
 
     let commondir_file = admin_dir.join("commondir");
     if !std::fs::symlink_metadata(&commondir_file).is_ok_and(|meta| meta.is_file()) {
-        return Err(format!("{} is not a regular file", commondir_file.display()));
+        return Err(format!(
+            "{} is not a regular file",
+            commondir_file.display()
+        ));
     }
     let commondir = std::fs::read_to_string(&commondir_file)
         .map_err(|error| format!("cannot read {}: {error}", commondir_file.display()))?;
@@ -218,12 +221,18 @@ pub(crate) fn verify_agent_worktree(path: &Path, common_dir: &Path) -> Result<()
     let expected = std::fs::canonicalize(common_dir)
         .map_err(|error| format!("cannot resolve the repository's git dir: {error}"))?;
     if resolved != expected {
-        return Err(format!("{} points at another git dir", commondir_file.display()));
+        return Err(format!(
+            "{} points at another git dir",
+            commondir_file.display()
+        ));
     }
 
     let worktree_config = admin_dir.join("config.worktree");
     if std::fs::symlink_metadata(&worktree_config).is_ok() {
-        return Err(format!("{} was written during a run", worktree_config.display()));
+        return Err(format!(
+            "{} was written during a run",
+            worktree_config.display()
+        ));
     }
     Ok(())
 }
@@ -241,7 +250,11 @@ fn ensure_excluded(common_dir: &Path, relative: &Path) -> Result<(), String> {
     }
     std::fs::create_dir_all(&info)
         .map_err(|error| format!("failed to create {}: {error}", info.display()))?;
-    let separator = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
+    let separator = if current.is_empty() || current.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
     std::fs::write(
         &exclude,
         format!("{current}{separator}# stashbase agent worktrees\n{pattern}\n"),
@@ -251,12 +264,15 @@ fn ensure_excluded(common_dir: &Path, relative: &Path) -> Result<(), String> {
 
 fn snapshot_refs(repo_root: &Path, own_branch: &str) -> Result<BTreeMap<String, String>, String> {
     let own = format!("refs/heads/{own_branch}");
-    Ok(git(repo_root, &["for-each-ref", "--format=%(refname) %(objectname)"])?
-        .lines()
-        .filter_map(|line| line.split_once(' '))
-        .filter(|(name, _)| *name != own)
-        .map(|(name, oid)| (name.to_owned(), oid.to_owned()))
-        .collect())
+    Ok(git(
+        repo_root,
+        &["for-each-ref", "--format=%(refname) %(objectname)"],
+    )?
+    .lines()
+    .filter_map(|line| line.split_once(' '))
+    .filter(|(name, _)| *name != own)
+    .map(|(name, oid)| (name.to_owned(), oid.to_owned()))
+    .collect())
 }
 
 /// `worktrees_root` of `None` means `<repo root>/REPO_WORKTREES_DIR`.
@@ -265,15 +281,25 @@ pub(crate) fn create_run_worktree(
     name: &str,
     worktrees_root: Option<&Path>,
 ) -> Result<RunWorktree, String> {
-    let repo_root = git(cwd, &["rev-parse", "--show-toplevel"])
-        .map_err(|_| format!("--worktree: {} is not inside a git repository", cwd.display()))?;
+    let repo_root = git(cwd, &["rev-parse", "--show-toplevel"]).map_err(|_| {
+        format!(
+            "--worktree: {} is not inside a git repository",
+            cwd.display()
+        )
+    })?;
     let repo_root = std::fs::canonicalize(&repo_root)
         .map_err(|error| format!("failed to resolve {repo_root}: {error}"))?;
-    let common_dir = git(&repo_root, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?;
+    let common_dir = git(
+        &repo_root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
     let common_dir = std::fs::canonicalize(&common_dir)
         .map_err(|error| format!("failed to resolve {common_dir}: {error}"))?;
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-    let relative = cwd.strip_prefix(&repo_root).unwrap_or(Path::new("")).to_path_buf();
+    let relative = cwd
+        .strip_prefix(&repo_root)
+        .unwrap_or(Path::new(""))
+        .to_path_buf();
     if git(&repo_root, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_err() {
         return Err(format!(
             "--worktree: {} has no commits yet; the agent worktree is created from HEAD",
@@ -295,7 +321,10 @@ pub(crate) fn create_run_worktree(
         .map_err(|error| format!("failed to create {}: {error}", worktrees_root.display()))?;
     let path = worktrees_root.join(name);
     let path_str = path.to_string_lossy().into_owned();
-    git(&repo_root, &["worktree", "add", "-q", "-b", &branch, &path_str, "HEAD"])?;
+    git(
+        &repo_root,
+        &["worktree", "add", "-q", "-b", &branch, &path_str, "HEAD"],
+    )?;
 
     // From here on the worktree and branch exist, but the caller only gets
     // a `RunWorktree` (and with it cleanup) if every remaining step works —
@@ -305,7 +334,10 @@ pub(crate) fn create_run_worktree(
         if tests::FAIL_AFTER_ADD.with(std::cell::Cell::get) {
             return Err("injected failure after `git worktree add`".to_owned());
         }
-        git(&repo_root, &["worktree", "lock", "--reason", &lock_reason(), &path_str])?;
+        git(
+            &repo_root,
+            &["worktree", "lock", "--reason", &lock_reason(), &path_str],
+        )?;
         let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
 
         // `git worktree add` names the admin dir after the path's basename,
@@ -348,7 +380,10 @@ pub(crate) fn create_run_worktree(
 /// from the repo root — the agent never ran in the new worktree. `--force`
 /// twice also removes it if it was already locked.
 fn rollback_worktree(repo_root: &Path, path: &str, branch: &str) -> Result<(), String> {
-    git(repo_root, &["worktree", "remove", "--force", "--force", path])?;
+    git(
+        repo_root,
+        &["worktree", "remove", "--force", "--force", path],
+    )?;
     git(repo_root, &["branch", "-D", branch])?;
     Ok(())
 }
@@ -409,10 +444,16 @@ impl RunWorktree {
         for (name, before) in &self.ref_snapshot {
             if now.get(name) != Some(before) {
                 git(&self.repo_root, &["update-ref", name, before])?;
-                changes.push(format!("restored {name} to {}", &before[..before.len().min(12)]));
+                changes.push(format!(
+                    "restored {name} to {}",
+                    &before[..before.len().min(12)]
+                ));
             }
         }
-        for name in now.keys().filter(|name| !self.ref_snapshot.contains_key(*name)) {
+        for name in now
+            .keys()
+            .filter(|name| !self.ref_snapshot.contains_key(*name))
+        {
             git(&self.repo_root, &["update-ref", "-d", name])?;
             changes.push(format!("removed {name} created during the run"));
         }
@@ -442,7 +483,14 @@ impl RunWorktree {
         let hooks = self.common_dir.join("hooks");
         std::fs::create_dir_all(&hooks)
             .map_err(|error| format!("failed to create {}: {error}", hooks.display()))?;
-        for name in ["config", "hooks", "modules", "config.worktree", "HEAD", "index"] {
+        for name in [
+            "config",
+            "hooks",
+            "modules",
+            "config.worktree",
+            "HEAD",
+            "index",
+        ] {
             let path = self.common_dir.join(name);
             if path.exists() {
                 paths.push(path);
@@ -513,11 +561,21 @@ pub(crate) mod test_support {
     use std::process::Command;
 
     pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
-        let out = Command::new("git").arg("-C").arg(dir).args(args)
-            .env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@t")
-            .env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@t")
-            .output().expect("git runs");
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8_lossy(&out.stdout).trim().to_owned()
     }
 
@@ -525,8 +583,10 @@ pub(crate) mod test_support {
     /// `other`, plus an empty worktrees root — under the system temp dir,
     /// never the real project.
     pub(crate) fn fixture() -> (PathBuf, PathBuf) {
-        let base = std::env::temp_dir()
-            .join(format!("stashbase-wt-test-{}", uuid::Uuid::new_v4().simple()));
+        let base = std::env::temp_dir().join(format!(
+            "stashbase-wt-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
         let repo = base.join("repo");
         std::fs::create_dir_all(repo.join("sub")).unwrap();
         std::fs::write(repo.join("sub/f"), "x").unwrap();
@@ -574,7 +634,10 @@ mod tests {
         assert!(!root.join("ags_rollback").exists(), "worktree dir removed");
         assert!(git(&repo, &["branch", "--list", "stashbase/ags_rollback"]).is_empty());
         let listing = git(&repo, &["worktree", "list", "--porcelain"]);
-        assert!(!listing.contains("ags_rollback"), "not registered: {listing}");
+        assert!(
+            !listing.contains("ags_rollback"),
+            "not registered: {listing}"
+        );
 
         // The name is free again.
         create_run_worktree(&repo, "ags_rollback", Some(&root)).unwrap();
@@ -585,7 +648,10 @@ mod tests {
         let (repo, root) = fixture();
         let wt = create_run_worktree(&repo, "ags_a", Some(&root)).unwrap();
         assert_eq!(wt.branch, "stashbase/ags_a");
-        assert_eq!(git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]), "stashbase/ags_a");
+        assert_eq!(
+            git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "stashbase/ags_a"
+        );
         assert_eq!(wt.admin_dir, wt.common_dir.join("worktrees").join("ags_a"));
     }
 
@@ -607,7 +673,10 @@ mod tests {
 
     #[test]
     fn rejects_non_git_directory() {
-        let dir = std::env::temp_dir().join(format!("stashbase-wt-nogit-{}", uuid::Uuid::new_v4().simple()));
+        let dir = std::env::temp_dir().join(format!(
+            "stashbase-wt-nogit-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let error = create_run_worktree(&dir, "ags_d", Some(&dir.join("w"))).unwrap_err();
         assert!(error.contains("not inside a git repository"), "{error}");
@@ -620,8 +689,14 @@ mod tests {
         std::fs::write(wt.path.join(".git"), "gitdir: /evil\n").unwrap();
         std::fs::write(wt.admin_dir.join("commondir"), "/evil\n").unwrap();
         assert!(wt.restore_pointers().unwrap(), "tampering must be reported");
-        assert_eq!(git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]), "stashbase/ags_e");
-        assert!(!wt.restore_pointers().unwrap(), "second call finds nothing to fix");
+        assert_eq!(
+            git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "stashbase/ags_e"
+        );
+        assert!(
+            !wt.restore_pointers().unwrap(),
+            "second call finds nothing to fix"
+        );
     }
 
     #[test]
@@ -632,14 +707,23 @@ mod tests {
         let marker = root.join("fsmonitor-ran");
         std::fs::write(
             wt.admin_dir.join("config.worktree"),
-            format!("[core]\n\tfsmonitor = touch '{}'; false\n", marker.display()),
+            format!(
+                "[core]\n\tfsmonitor = touch '{}'; false\n",
+                marker.display()
+            ),
         )
         .unwrap();
 
-        assert!(wt.restore_pointers().unwrap(), "agent-written config must be reported");
+        assert!(
+            wt.restore_pointers().unwrap(),
+            "agent-written config must be reported"
+        );
         assert!(!wt.admin_dir.join("config.worktree").exists());
         git(&wt.path, &["status", "--porcelain"]);
-        assert!(!marker.exists(), "host git must not run the agent's fsmonitor");
+        assert!(
+            !marker.exists(),
+            "host git must not run the agent's fsmonitor"
+        );
     }
 
     #[test]
@@ -652,7 +736,9 @@ mod tests {
         #[cfg(not(unix))]
         std::fs::create_dir(wt.path.join(".git")).unwrap();
         assert!(wt.restore_pointers().unwrap());
-        assert!(std::fs::symlink_metadata(wt.path.join(".git")).unwrap().is_file());
+        assert!(std::fs::symlink_metadata(wt.path.join(".git"))
+            .unwrap()
+            .is_file());
     }
 
     #[test]
@@ -693,11 +779,20 @@ mod tests {
         let paths = wt.native_protected_paths().unwrap();
         let has = |p: &Path| paths.contains(&p.to_string_lossy().into_owned());
 
-        assert!(has(&repo.join("sub")), "checkout contents protected: {paths:?}");
-        assert!(!has(&wt.common_dir), "agent must be able to write objects/refs");
+        assert!(
+            has(&repo.join("sub")),
+            "checkout contents protected: {paths:?}"
+        );
+        assert!(
+            !has(&wt.common_dir),
+            "agent must be able to write objects/refs"
+        );
         assert!(has(&wt.common_dir.join("config")));
         assert!(has(&wt.common_dir.join("hooks")));
-        assert!(has(&wt.common_dir.join("HEAD")), "main checkout's branch protected");
+        assert!(
+            has(&wt.common_dir.join("HEAD")),
+            "main checkout's branch protected"
+        );
         assert!(has(&other.admin_dir), "other worktrees' metadata protected");
         assert!(!has(&wt.admin_dir), "own worktree metadata stays writable");
         assert!(!paths.iter().any(|p| Path::new(p).starts_with(&wt.path)));
@@ -717,9 +812,14 @@ mod tests {
         git(&wt.path, &["gc", "-q"]);
         wt.restore_pointers().unwrap();
         let changes = wt.restore_foreign_refs().unwrap();
-        assert!(changes.iter().any(|change| change.contains("refs/heads/other")));
+        assert!(changes
+            .iter()
+            .any(|change| change.contains("refs/heads/other")));
         assert_eq!(git(&repo, &["rev-parse", "other"]), other_before);
-        assert_eq!(git(&repo, &["log", "-1", "--format=%s", "stashbase/ags_gc"]), "agent");
+        assert_eq!(
+            git(&repo, &["log", "-1", "--format=%s", "stashbase/ags_gc"]),
+            "agent"
+        );
     }
 
     #[test]
@@ -734,7 +834,10 @@ mod tests {
         wt.restore_pointers().unwrap();
         wt.restore_foreign_refs().unwrap();
         assert_eq!(git(&repo, &["rev-parse", "v1"]), v1_before);
-        assert!(git(&repo, &["tag", "--list", "v2"]).is_empty(), "agent-created tag removed");
+        assert!(
+            git(&repo, &["tag", "--list", "v2"]).is_empty(),
+            "agent-created tag removed"
+        );
     }
 
     #[test]
@@ -744,18 +847,27 @@ mod tests {
         std::fs::write(first.path.join("work"), "in progress").unwrap();
         let error = create_run_worktree(&repo, "ags_dup", Some(&root)).unwrap_err();
         assert!(error.contains("already exists"), "{error}");
-        assert_eq!(std::fs::read_to_string(first.path.join("work")).unwrap(), "in progress");
-        assert_eq!(git(&first.path, &["rev-parse", "--abbrev-ref", "HEAD"]), "stashbase/ags_dup");
+        assert_eq!(
+            std::fs::read_to_string(first.path.join("work")).unwrap(),
+            "in progress"
+        );
+        assert_eq!(
+            git(&first.path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "stashbase/ags_dup"
+        );
     }
 
     #[test]
     fn repo_without_commits_is_rejected_clearly() {
-        let base = std::env::temp_dir()
-            .join(format!("stashbase-wt-empty-{}", uuid::Uuid::new_v4().simple()));
+        let base = std::env::temp_dir().join(format!(
+            "stashbase-wt-empty-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
         std::fs::create_dir_all(&base).unwrap();
         git(&base, &["init", "-q", "-b", "main", "repo"]);
         let repo = base.join("repo");
-        let error = create_run_worktree(&repo, "ags_empty", Some(&base.join("worktrees"))).unwrap_err();
+        let error =
+            create_run_worktree(&repo, "ags_empty", Some(&base.join("worktrees"))).unwrap_err();
         assert!(error.contains("no commits"), "{error}");
         assert!(!base.join("worktrees").join("ags_empty").exists());
     }
@@ -765,7 +877,17 @@ mod tests {
         let (repo, root) = fixture();
         let users_worktree = root.parent().unwrap().join("users-wt");
         let users_worktree_str = users_worktree.to_string_lossy().into_owned();
-        git(&repo, &["worktree", "add", "-q", "-b", "feature", &users_worktree_str]);
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "feature",
+                &users_worktree_str,
+            ],
+        );
         let users_worktree = std::fs::canonicalize(users_worktree).unwrap();
 
         let wt = create_run_worktree(&users_worktree, "ags_linked", Some(&root)).unwrap();
@@ -784,9 +906,15 @@ mod tests {
     fn agent_deleting_its_own_branch_does_not_break_cleanup() {
         let (repo, root) = fixture();
         let wt = create_run_worktree(&repo, "ags_selfdel", Some(&root)).unwrap();
-        git(&wt.path, &["update-ref", "-d", "refs/heads/stashbase/ags_selfdel"]);
+        git(
+            &wt.path,
+            &["update-ref", "-d", "refs/heads/stashbase/ags_selfdel"],
+        );
         wt.restore_pointers().unwrap();
-        assert!(wt.restore_foreign_refs().unwrap().is_empty(), "own branch is not a foreign ref");
+        assert!(
+            wt.restore_foreign_refs().unwrap().is_empty(),
+            "own branch is not a foreign ref"
+        );
         // With its branch gone the worktree can't be proven clean, so it is
         // kept for the user rather than removed.
         assert_eq!(wt.finish().unwrap(), WorktreeOutcome::Kept);
@@ -804,7 +932,10 @@ mod tests {
         let wt = create_run_worktree(&repo, "ags_in", None).unwrap();
         assert_eq!(wt.path, repo.join(".stashbase/worktrees/ags_in"));
         assert!(!wt.source_was_dirty);
-        assert!(git(&repo, &["status", "--porcelain"]).is_empty(), "worktree hidden");
+        assert!(
+            git(&repo, &["status", "--porcelain"]).is_empty(),
+            "worktree hidden"
+        );
 
         // Only the worktrees dir is ignored: committed profiles stay tracked.
         std::fs::write(repo.join(".stashbase/agents/coding.toml"), "changed").unwrap();
@@ -825,10 +956,19 @@ mod tests {
         let paths = wt.native_protected_paths().unwrap();
         let has = |p: &Path| paths.contains(&p.to_string_lossy().into_owned());
 
-        assert!(has(&repo.join(".stashbase/agents")), "agent can't edit its own profile");
-        assert!(has(&sibling.path), "agent can't touch another agent's worktree");
+        assert!(
+            has(&repo.join(".stashbase/agents")),
+            "agent can't edit its own profile"
+        );
+        assert!(
+            has(&sibling.path),
+            "agent can't touch another agent's worktree"
+        );
         assert!(has(&repo.join("sub")));
-        assert!(!paths.iter().any(|p| wt.path.starts_with(p)), "own worktree writable: {paths:?}");
+        assert!(
+            !paths.iter().any(|p| wt.path.starts_with(p)),
+            "own worktree writable: {paths:?}"
+        );
         assert!(!paths.iter().any(|p| Path::new(p).starts_with(&wt.path)));
         assert!(!has(&wt.common_dir));
     }
@@ -840,9 +980,14 @@ mod tests {
         let name = wt.path.file_name().unwrap().to_string_lossy().into_owned();
         let words: Vec<&str> = name.split('-').collect();
         assert_eq!(words.len(), 3, "{name}");
-        assert!(words.iter().all(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase())));
+        assert!(words
+            .iter()
+            .all(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase())));
         assert_eq!(wt.branch, format!("stashbase/{name}"));
-        assert_eq!(git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]), wt.branch);
+        assert_eq!(
+            git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            wt.branch
+        );
     }
 
     #[test]
@@ -877,25 +1022,40 @@ mod tests {
         assert_eq!(classify_lock(reason), RunLock::Running);
         let path = wt.path.to_string_lossy().into_owned();
         assert!(
-            Command::new("git").arg("-C").arg(&repo).args(["worktree", "remove", &path]).output().unwrap().status.code() != Some(0),
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["worktree", "remove", &path])
+                .output()
+                .unwrap()
+                .status
+                .code()
+                != Some(0),
             "git refuses to remove a running agent's worktree"
         );
 
         wt.restore_pointers().unwrap();
         wt.finish().unwrap();
-        assert!(!wt.path.exists(), "finish unlocks, then removes the clean worktree");
+        assert!(
+            !wt.path.exists(),
+            "finish unlocks, then removes the clean worktree"
+        );
     }
 
     #[test]
     fn lock_of_a_dead_run_is_stale_and_foreign_locks_are_other() {
         assert_eq!(
-            classify_lock(&format!("{LOCK_REASON_PREFIX}; pid=999999; started=Thu Jan  1 00:00:00 1970")),
+            classify_lock(&format!(
+                "{LOCK_REASON_PREFIX}; pid=999999; started=Thu Jan  1 00:00:00 1970"
+            )),
             RunLock::Stale
         );
         let me = std::process::id();
         if crate::handlers::agent::sessions::process_start_time(me).is_ok() {
             assert_eq!(
-                classify_lock(&format!("{LOCK_REASON_PREFIX}; pid={me}; started=not-my-start-time")),
+                classify_lock(&format!(
+                    "{LOCK_REASON_PREFIX}; pid={me}; started=not-my-start-time"
+                )),
                 RunLock::Stale,
                 "a reused pid with a different start time is not our run"
             );
@@ -905,7 +1065,10 @@ mod tests {
             RunLock::Running,
             "live pid with unknown start time is treated as running"
         );
-        assert_eq!(classify_lock("on a USB drive"), RunLock::Other("on a USB drive".to_owned()));
+        assert_eq!(
+            classify_lock("on a USB drive"),
+            RunLock::Other("on a USB drive".to_owned())
+        );
     }
 
     #[test]

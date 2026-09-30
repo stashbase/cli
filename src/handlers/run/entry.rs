@@ -166,7 +166,9 @@ impl RunWorktreeGuard {
 
     /// Where the agent should start, when running in a worktree.
     fn workdir(&self) -> Option<&Path> {
-        self.worktree.as_ref().map(|worktree| worktree.workdir.as_path())
+        self.worktree
+            .as_ref()
+            .map(|worktree| worktree.workdir.as_path())
     }
 
     fn finish(self) {
@@ -1516,9 +1518,7 @@ async fn handle_run(
     let sandbox_cpus = proxy_policy
         .as_ref()
         .and_then(|policy| policy.sandbox_cpus.clone());
-    let worktree_enabled = proxy_policy
-        .as_ref()
-        .is_some_and(|policy| policy.worktree);
+    let worktree_enabled = proxy_policy.as_ref().is_some_and(|policy| policy.worktree);
     let sandbox_isolated_paths = proxy_policy
         .as_ref()
         .map(|policy| policy.sandbox_isolated_paths.clone())
@@ -1830,14 +1830,23 @@ mod tests {
         super::finish_run_worktree(&wt, true);
 
         assert!(!wt.path.exists(), "clean worktree removed after repair");
-        assert_eq!(test_support::git(&repo, &["rev-parse", "other"]), other_before);
+        assert_eq!(
+            test_support::git(&repo, &["rev-parse", "other"]),
+            other_before
+        );
         assert_eq!(
             test_support::git(&repo, &["log", "-1", "--format=%s", "stashbase/ags_finish"]),
             "agent"
         );
     }
 
-    fn guarded_worktree(silent: bool) -> (std::path::PathBuf, std::path::PathBuf, super::RunWorktreeGuard) {
+    fn guarded_worktree(
+        silent: bool,
+    ) -> (
+        std::path::PathBuf,
+        std::path::PathBuf,
+        super::RunWorktreeGuard,
+    ) {
         let (repo, root) = crate::handlers::run::worktree::test_support::fixture();
         let worktree = super::prepare_run_worktree_in(true, true, &repo, Some(&root)).unwrap();
         let path = worktree.as_ref().unwrap().path.clone();
@@ -1853,7 +1862,10 @@ mod tests {
         };
         assert!(setup().is_err());
         assert!(!path.exists(), "clean worktree removed on the early return");
-        let listing = crate::handlers::run::worktree::test_support::git(&repo, &["worktree", "list", "--porcelain"]);
+        let listing = crate::handlers::run::worktree::test_support::git(
+            &repo,
+            &["worktree", "list", "--porcelain"],
+        );
         assert!(!listing.contains("locked"), "lock released: {listing}");
     }
 
@@ -1893,7 +1905,9 @@ mod tests {
         let worktree = super::prepare_run_worktree_in(true, true, &repo, Some(&root))
             .unwrap()
             .expect("worktree created");
-        assert!(worktree.path.starts_with(std::fs::canonicalize(&root).unwrap()));
+        assert!(worktree
+            .path
+            .starts_with(std::fs::canonicalize(&root).unwrap()));
         assert!(worktree.branch.starts_with("stashbase/"));
     }
 
