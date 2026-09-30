@@ -1137,8 +1137,8 @@ fn append_filesystem_mounts(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
 ) -> Result<(), String> {
-    let read_paths = super::subprocess::resolve_policy_paths(denied_read_paths);
-    let write_paths = super::subprocess::resolve_policy_paths(denied_write_paths);
+    let read_paths = super::subprocess::resolve_policy_paths(denied_read_paths, Path::new(cwd));
+    let write_paths = super::subprocess::resolve_policy_paths(denied_write_paths, Path::new(cwd));
 
     let cwd_is_denied_write = write_paths.iter().any(|path| path == cwd);
     if cwd_is_denied_write {

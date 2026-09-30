@@ -213,3 +213,21 @@ Checks whether the Docker sandbox backend can actually run here — the `docker`
 - The persistent home volume is shared across every profile and project — chat history and config from one profile's sandboxed sessions are visible to another profile's sandboxed sessions on the same machine. This is a privacy boundary, not a security one: it never grants access beyond what each run's own profile allows, since egress/credential policy is enforced per-run regardless of what's in the shared volume.
 
 This backend is opt-in only and does not change the default behavior of existing profiles.
+
+## Worktrees
+
+`--worktree` (or `worktree = true` under `[workspace]` in the profile) runs the agent in a fresh git worktree on its own branch, `stashbase/<name>` — where `<name>` is a random readable passphrase such as `amber-river-storm` — instead of your checkout — so several agents can work on the same repository in parallel without touching each other's files or your working tree. Native backend only for now; a Docker-backend profile with `worktree = true` fails validation.
+
+```bash
+stashbase agent run --profile coding --worktree -- claude
+```
+
+With `worktree = true` in the profile, `--worktree=false` skips the worktree for a single run.
+
+- The worktree is created from `HEAD` inside your repository at `.stashbase/worktrees/<name>`, so you can follow the agent's work in your IDE. stashbase adds `/.stashbase/worktrees/` to the repository's local `.git/info/exclude` (not your `.gitignore`), so agent worktrees never show up in `git status`; the rest of `.stashbase/` (e.g. committed profiles) stays tracked as before. Uncommitted changes in your checkout are **not** carried over (you get a warning if there are any). If you start from a subdirectory, the agent starts in the same subdirectory of the worktree. Relative `deny_read`/`deny_write` paths resolve inside the worktree.
+- The agent can commit, but for the run stashbase adds to `deny_write` the git files that your own `git` would later execute or act on — the repository's `config`, `hooks/`, submodule configs, your checkout's `HEAD` and `index`, and your other worktrees' metadata — plus everything else in your checkout — including `.stashbase/agents` profiles and other agents' worktrees — except the path to the agent's own worktree and the `.git` directory.
+- After the run, stashbase restores the worktree's `.git` pointer files (which the agent could otherwise redirect to make your own `git` run code), removes any per-worktree git config the agent wrote, and resets any branch or tag the agent moved, deleted or created outside its own branch — with a warning for each.
+- When the run ends, a clean worktree is removed and the branch is kept; a worktree with uncommitted changes is kept and its path printed. If the `stashbase` process is killed hard, remove the leftover with `git worktree remove .stashbase/worktrees/<name>`.
+- The worktree shares the repository's object store with your checkout, so it is fast and cheap on disk, but it is not a security boundary for repository *contents*: the agent can read every commit on every branch.
+
+Known gaps, since the native filesystem policy is a deny-list: the agent can still *create* new files in your checkout's top-level folder and in `.stashbase/` (it can't modify existing ones), and, as with any native run, write anywhere else not denied (e.g. `~/.gitconfig`).
