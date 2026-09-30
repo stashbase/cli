@@ -146,31 +146,64 @@ fn prepare_run_worktree(
     prepare_run_worktree_in(enabled, silent, &cwd, None)
 }
 
+/// Owns a run's agent worktree, if any, and cleans it up exactly once when
+/// dropped — on every exit path, including early `return`s, `?` and
+/// panics — so no setup failure can leave a worktree (and its lock)
+/// behind. The normal path calls `finish` explicitly to keep the cleanup
+/// output where it belongs.
+pub(crate) struct RunWorktreeGuard {
+    worktree: Option<super::worktree::RunWorktree>,
+    silent: bool,
+}
+
+impl RunWorktreeGuard {
+    fn none(silent: bool) -> Self {
+        Self {
+            worktree: None,
+            silent,
+        }
+    }
+
+    /// Where the agent should start, when running in a worktree.
+    fn workdir(&self) -> Option<&Path> {
+        self.worktree.as_ref().map(|worktree| worktree.workdir.as_path())
+    }
+
+    fn finish(self) {
+        drop(self);
+    }
+}
+
+impl Drop for RunWorktreeGuard {
+    fn drop(&mut self) {
+        if let Some(worktree) = self.worktree.take() {
+            finish_run_worktree(&worktree, self.silent);
+        }
+    }
+}
+
 /// `prepare_run_worktree` for the native backend, whose filesystem policy
 /// is a deny-list: also adds the paths `RunWorktree::native_protected_paths`
 /// names to the run's `deny_write`, so the agent can't touch the user's
-/// checkout or the git files host git executes. Fails closed — a worktree
-/// whose protections can't be computed is cleaned up and the run aborted.
+/// checkout or the git files host git executes. Fails closed — if the
+/// protections can't be computed the run is aborted, and the guard cleans
+/// the worktree up as it drops.
 fn prepare_native_run_worktree(
     enabled: bool,
     silent: bool,
     denied_write_paths: &mut Vec<String>,
-) -> anyhow::Result<Option<super::worktree::RunWorktree>> {
-    let Some(worktree) = prepare_run_worktree(enabled, silent)? else {
-        return Ok(None);
+) -> anyhow::Result<RunWorktreeGuard> {
+    let guard = RunWorktreeGuard {
+        worktree: prepare_run_worktree(enabled, silent)?,
+        silent,
     };
-    match worktree.native_protected_paths() {
-        Ok(paths) => {
-            denied_write_paths.extend(paths);
-            Ok(Some(worktree))
-        }
-        Err(error) => {
-            finish_run_worktree(&worktree, silent);
-            Err(anyhow::anyhow!(
-                "failed to protect the checkout for the agent worktree: {error}"
-            ))
-        }
+    if let Some(worktree) = &guard.worktree {
+        let paths = worktree.native_protected_paths().map_err(|error| {
+            anyhow::anyhow!("failed to protect the checkout for the agent worktree: {error}")
+        })?;
+        denied_write_paths.extend(paths);
     }
+    Ok(guard)
 }
 
 /// Post-run cleanup. Order matters: pointer files are restored first
@@ -256,7 +289,7 @@ pub async fn handle_remote_agent_run(
         let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
         // Worktree runs are native-backend only for now (validation rejects
         // `workspace.worktree` with Docker).
-        run_worktree = None;
+        run_worktree = RunWorktreeGuard::none(silent);
         setup_spinner = (!silent).then(|| {
             crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
         });
@@ -305,9 +338,6 @@ pub async fn handle_remote_agent_run(
             if let Some(network) = &docker_network {
                 let _ = super::docker_sandbox::remove_run_network(network);
             }
-            if let Some(worktree) = &run_worktree {
-                finish_run_worktree(worktree, silent);
-            }
             return Err(error);
         }
     };
@@ -322,9 +352,6 @@ pub async fn handle_remote_agent_run(
             proxy.stop().await;
             if let Some(network) = &docker_network {
                 let _ = super::docker_sandbox::remove_run_network(network);
-            }
-            if let Some(worktree) = &run_worktree {
-                finish_run_worktree(worktree, silent);
             }
             return Err(error);
         }
@@ -381,9 +408,6 @@ pub async fn handle_remote_agent_run(
                 }
                 let _ = super::docker_sandbox::remove_run_network(network);
                 proxy.stop().await;
-                if let Some(worktree) = &run_worktree {
-                    finish_run_worktree(worktree, silent);
-                }
                 return Err(anyhow::anyhow!(
                     "failed to start Docker sandbox network namespace holder: {error}"
                 ));
@@ -411,7 +435,7 @@ pub async fn handle_remote_agent_run(
         sandbox_memory.as_deref(),
         sandbox_cpus.as_deref(),
         &sandbox_isolated_paths,
-        run_worktree.as_ref().map(|worktree| worktree.workdir.as_path()),
+        run_worktree.workdir(),
     )
     .await;
     proxy.stop().await;
@@ -423,9 +447,7 @@ pub async fn handle_remote_agent_run(
             );
         }
     }
-    if let Some(worktree) = &run_worktree {
-        finish_run_worktree(worktree, silent);
-    }
+    run_worktree.finish();
     if !silent {
         eprintln!("Remote agent proxy relay stopped");
     }
@@ -1519,7 +1541,7 @@ async fn handle_run(
             let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
             // Worktree runs are native-backend only for now (validation
             // rejects `workspace.worktree` with Docker).
-            run_worktree = None;
+            run_worktree = RunWorktreeGuard::none(silent);
             setup_spinner = (!silent).then(|| {
                 crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
             });
@@ -1569,9 +1591,6 @@ async fn handle_run(
                 if let Some(network) = &docker_network {
                     let _ = super::docker_sandbox::remove_run_network(network);
                 }
-                if let Some(worktree) = &run_worktree {
-                    finish_run_worktree(worktree, silent);
-                }
                 return Err(error);
             }
         };
@@ -1589,9 +1608,6 @@ async fn handle_run(
                 proxy.stop().await;
                 if let Some(network) = &docker_network {
                     let _ = super::docker_sandbox::remove_run_network(network);
-                }
-                if let Some(worktree) = &run_worktree {
-                    finish_run_worktree(worktree, silent);
                 }
                 return Err(error);
             }
@@ -1646,9 +1662,6 @@ async fn handle_run(
                     }
                     let _ = super::docker_sandbox::remove_run_network(network);
                     proxy.stop().await;
-                    if let Some(worktree) = &run_worktree {
-                        finish_run_worktree(worktree, silent);
-                    }
                     return Err(anyhow::anyhow!(
                         "failed to start Docker sandbox network namespace holder: {error}"
                     ));
@@ -1676,7 +1689,7 @@ async fn handle_run(
             sandbox_memory.as_deref(),
             sandbox_cpus.as_deref(),
             &sandbox_isolated_paths,
-            run_worktree.as_ref().map(|worktree| worktree.workdir.as_path()),
+            run_worktree.workdir(),
         ));
         let result = command.await;
         proxy.stop().await;
@@ -1688,9 +1701,7 @@ async fn handle_run(
                 );
             }
         }
-        if let Some(worktree) = &run_worktree {
-            finish_run_worktree(worktree, silent);
-        }
+        run_worktree.finish();
         if !silent {
             eprintln!("Agent proxy stopped");
         }
@@ -1824,6 +1835,47 @@ mod tests {
             test_support::git(&repo, &["log", "-1", "--format=%s", "stashbase/ags_finish"]),
             "agent"
         );
+    }
+
+    fn guarded_worktree(silent: bool) -> (std::path::PathBuf, std::path::PathBuf, super::RunWorktreeGuard) {
+        let (repo, root) = crate::handlers::run::worktree::test_support::fixture();
+        let worktree = super::prepare_run_worktree_in(true, true, &repo, Some(&root)).unwrap();
+        let path = worktree.as_ref().unwrap().path.clone();
+        (repo, path, super::RunWorktreeGuard { worktree, silent })
+    }
+
+    #[test]
+    fn worktree_guard_cleans_up_when_setup_fails_with_an_early_return() {
+        let (repo, path, guard) = guarded_worktree(true);
+        let setup = move || -> anyhow::Result<()> {
+            let _guard = guard;
+            anyhow::bail!("proxy failed to start");
+        };
+        assert!(setup().is_err());
+        assert!(!path.exists(), "clean worktree removed on the early return");
+        let listing = crate::handlers::run::worktree::test_support::git(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(!listing.contains("locked"), "lock released: {listing}");
+    }
+
+    #[test]
+    fn worktree_guard_cleans_up_on_panic() {
+        let (_, path, guard) = guarded_worktree(true);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = guard;
+            panic!("unexpected failure mid-run");
+        }));
+        assert!(result.is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn worktree_guard_finishes_once() {
+        let (_, path, guard) = guarded_worktree(true);
+        assert_eq!(guard.workdir(), Some(path.as_path()));
+        guard.finish();
+        assert!(!path.exists());
+        // Dropping an empty guard is a no-op.
+        super::RunWorktreeGuard::none(true).finish();
     }
 
     #[test]

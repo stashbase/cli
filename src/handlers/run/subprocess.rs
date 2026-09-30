@@ -1720,7 +1720,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_outer_profile_preserves_codex_write_boundaries() {
-        let cwd = std::env::current_dir().unwrap();
+        // A fixed workspace, not the process cwd: other tests change the
+        // cwd concurrently.
+        let cwd = std::path::PathBuf::from("/some/workspace");
         let cwd_rule = format!(
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&cwd.to_string_lossy())
@@ -1735,12 +1737,12 @@ mod tests {
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&codex_home.to_string_lossy())
         );
-        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite, &std::env::current_dir().unwrap());
+        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite, &cwd);
         assert!(workspace.contains("(deny file-write* (subpath \"/\"))"));
         assert!(workspace.contains(&cwd_rule));
         assert!(workspace.contains(&codex_home_rule));
 
-        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly, &std::env::current_dir().unwrap());
+        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly, &cwd);
         assert!(read_only.contains("(deny file-write* (subpath \"/\"))"));
         assert!(!read_only.contains(&cwd_rule));
     }
