@@ -603,6 +603,21 @@ pub async fn handle_cli(args: Cli) {
                     )
                     .await
                 }
+                AgentSubcommand::Worktrees { command } => match command {
+                    crate::cmd::agent::AgentWorktreesSubcommand::List(_) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_list(raw_output)
+                    }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Merge(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_merge(
+                            command, raw_output, silent,
+                        )
+                    }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Clean(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_clean(
+                            command, raw_output, silent,
+                        )
+                    }
+                },
                 AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
                     crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
                         crate::handlers::agent::docker::handle_docker_cleanup_command(
@@ -801,6 +816,9 @@ pub async fn handle_cli(args: Cli) {
                     }
                     if let Some(cpus) = &agent_run.docker_cpus {
                         profile.sandbox.cpus = Some(cpus.clone());
+                    }
+                    if let Some(worktree) = agent_run.worktree {
+                        profile.workspace.worktree = worktree;
                     }
                     for path in &agent_run.docker_isolated_paths {
                         if !profile.sandbox.isolated_paths.contains(path) {
@@ -1006,6 +1024,7 @@ pub async fn handle_cli(args: Cli) {
                         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
                         sandbox_memory: profile.sandbox.memory.clone(),
                         sandbox_cpus: profile.sandbox.cpus.clone(),
+                        worktree: profile.workspace.worktree,
                         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
@@ -2400,6 +2419,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),

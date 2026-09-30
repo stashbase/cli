@@ -14,6 +14,7 @@ Stashbase is an open-source access layer that gives coding agents the access the
   - [Profile Syntax and Configuration](#profile-syntax-and-configuration)
   - [Filesystem and Network Containment](#filesystem-and-network-containment)
   - [Docker Sandbox Backend](#docker-sandbox-backend)
+  - [Parallel Agents in Git Worktrees](#parallel-agents-in-git-worktrees)
   - [Remote Agent Sessions](#remote-agent-sessions)
   - [MCP Tools Authorization](#mcp-tools-authorization)
   - [Audit Logs and Session Revocation](#audit-logs-and-session-revocation)
@@ -262,6 +263,29 @@ Or override the profile's choice for one invocation without editing the file: `-
 Claude Code and Codex are pre-installed in the default sandbox image; a profile can also run its own image or Dockerfile instead (`[sandbox] image`/`dockerfile`) to add other tools, without loosening any of the sandbox constraints themselves.
 
 See **[docs/sandboxing.md](docs/sandboxing.md)** for the full picture: how the network firewall is enforced, custom images, git identity forwarding, login persistence across images, Codex/Claude Code OAuth quirks, and current limitations.
+
+### Parallel Agents in Git Worktrees
+
+Run an agent in its own git worktree instead of your checkout, so several agents can work on one repository at once without touching each other's files or yours (native backend for now):
+
+```bash
+stashbase agent run --profile coding --worktree -- claude
+```
+
+```toml
+[workspace]
+worktree = true   # per profile; `--worktree=false` skips it for one run
+```
+
+Each run gets a readable name such as `amber-river-storm`: the worktree lives in the repo at `.stashbase/worktrees/amber-river-storm` (visible in your IDE, hidden from `git status`) on branch `stashbase/amber-river-storm`. The agent can commit there but can't change your checkout, your other branches, or git config and hooks. Review and integrate its work from your checkout:
+
+```bash
+stashbase agent worktrees list
+stashbase agent worktrees merge amber-river-storm   # --squash, -m "message", --keep
+stashbase agent worktrees clean
+```
+
+See **[docs/sandboxing.md](docs/sandboxing.md#worktrees)** for the protections, cleanup behavior and known gaps.
 
 ### Remote Agent Sessions
 

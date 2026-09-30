@@ -69,6 +69,17 @@ By default, enforcement uses the platform-native mechanism (Seatbelt on macOS, `
 
 See **[Sandboxing](sandboxing.md)** for the full picture: both backends, how the Docker backend's network firewall is enforced, custom images, git identity forwarding, login persistence, and Codex/Claude Code OAuth quirks.
 
+## Worktrees
+
+Run the agent in its own git worktree (branch `stashbase/<name>`, inside the repo at `.stashbase/worktrees/<name>`) instead of your checkout, so several agents can work in one repository in parallel:
+
+```toml
+[workspace]
+worktree = true
+```
+
+Or per run: `stashbase agent run --profile coding --worktree -- claude` (`--worktree=false` skips it when the profile turns it on). Native backend only for now. Review and merge the agent's work from your checkout with `stashbase agent worktrees list`, `merge <name>` and `clean` — see **[Worktrees](sandboxing.md#worktrees)**.
+
 ## Network Access and HTTP Rules
 
 By default, the proxy denies all connections. Allow specific destinations:

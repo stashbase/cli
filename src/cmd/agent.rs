@@ -45,6 +45,53 @@ pub enum AgentSubcommand {
     Logs(AgentLogsCommand),
     /// Manage Docker sandbox backend resources
     Docker(AgentDockerCommand),
+    /// Review, merge and clean up the git worktrees `agent run --worktree` leaves behind
+    Worktrees {
+        #[command(subcommand)]
+        command: AgentWorktreesSubcommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentWorktreesSubcommand {
+    /// List agent branches in this repository with their status and unmerged commits
+    List(AgentWorktreesListCommand),
+    /// Merge an agent's branch into your current branch, then remove its worktree and branch
+    Merge(AgentWorktreesMergeCommand),
+    /// Remove agent worktrees and branches whose work is already merged
+    Clean(AgentWorktreesCleanCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesListCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesMergeCommand {
+    /// Worktree name as shown by `list` (e.g. amber-river-storm), with or without the `stashbase/` prefix
+    pub name: String,
+
+    /// Combine the agent's commits into a single commit instead of a merge commit
+    #[arg(long)]
+    pub squash: bool,
+
+    /// Commit message for the merge (or squash) commit, used as given; defaults to git's own "Merge branch 'stashbase/<name>'" (or, with --squash, "Squash branch 'stashbase/<name>'" listing the squashed commits)
+    #[arg(short, long)]
+    pub message: Option<String>,
+
+    /// Keep the agent's worktree and branch after merging
+    #[arg(long)]
+    pub keep: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesCleanCommand {
+    /// Also remove unmerged work and worktrees with uncommitted changes
+    #[arg(long)]
+    pub all: bool,
+
+    /// Remove without prompting for confirmation
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -274,6 +321,21 @@ pub struct AgentRunCommand {
     /// run --cpus` value, e.g. "1.5". No cap by default.
     #[arg(long)]
     pub docker_cpus: Option<String>,
+
+    /// Run the agent in a fresh git worktree on branch `stashbase/<name>`
+    /// instead of the current checkout (native backend only). `--worktree`
+    /// turns it on and `--worktree=false` off for this run, overriding the
+    /// profile's `[workspace] worktree`; omit to use the profile's setting.
+    /// The value needs `=` so a following agent command (`--worktree
+    /// claude`) is never mistaken for it.
+    #[arg(
+        long,
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    pub worktree: Option<bool>,
 
     /// Add to the profile's `[sandbox] isolated_paths` for this run only:
     /// a directory relative to the working directory (e.g. "node_modules")
@@ -629,6 +691,31 @@ mod tests {
             AgentAuditGroupBy::from_str("secret", true),
             Ok(AgentAuditGroupBy::Binding)
         );
+    }
+
+    #[test]
+    fn worktree_flag_is_on_off_or_absent_and_never_swallows_the_command() {
+        use super::{AgentCommand, AgentSubcommand};
+        use crate::cmd::root::{Cli, EntityType};
+        use clap::Parser;
+
+        let parse = |args: &[&str]| {
+            let mut argv = vec!["stashbase", "agent", "run", "--profile", "p"];
+            argv.extend_from_slice(args);
+            match Cli::try_parse_from(argv).expect("parses").entity_type {
+                EntityType::Agent(AgentCommand {
+                    subcommand: AgentSubcommand::Run(run),
+                }) => run,
+                _ => panic!("expected `agent run`"),
+            }
+        };
+        assert_eq!(parse(&["claude"]).worktree, None);
+        let on = parse(&["--worktree", "claude"]);
+        assert_eq!(on.worktree, Some(true));
+        assert_eq!(on.command, vec!["claude".to_owned()]);
+        assert_eq!(parse(&["--worktree", "--", "claude"]).worktree, Some(true));
+        assert_eq!(parse(&["--worktree=true", "claude"]).worktree, Some(true));
+        assert_eq!(parse(&["--worktree=false", "claude"]).worktree, Some(false));
     }
 
     #[test]

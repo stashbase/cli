@@ -5,7 +5,7 @@ use std::io::IsTerminal;
 use std::io::{Read, Write};
 #[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use anyhow::{Context, Result};
@@ -103,6 +103,7 @@ pub async fn run_command_with_filesystem_policy(
         None,
         None,
         &[],
+        None,
     )
     .await
 }
@@ -132,8 +133,14 @@ pub async fn run_command_with_filesystem_policy_and_network(
     sandbox_memory: Option<&str>,
     sandbox_cpus: Option<&str>,
     sandbox_isolated_paths: &[String],
+    workdir: Option<&Path>,
 ) -> Result<ExitStatus> {
-    let current_dir = env::current_dir()?;
+    // `workdir` is `Some` for a `--worktree` run: the agent works in the
+    // worktree, not in the directory stashbase was started from.
+    let current_dir = match workdir {
+        Some(dir) => dir.to_path_buf(),
+        None => env::current_dir()?,
+    };
 
     if backend == crate::models::agent::SandboxBackend::Docker {
         if let Some(error) = super::docker_sandbox::docker_enforcement_error() {
@@ -207,6 +214,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
         denied_read_paths,
         denied_write_paths,
         codex_boundary,
+        &current_dir,
     )?;
     run_built_command(
         program,
@@ -592,9 +600,11 @@ fn sandbox_command(
         &[],
         &[],
         CodexSandboxBoundary::FullAccess,
+        &env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sandbox_command_with_filesystem_policy(
     command: &str,
     sandbox: bool,
@@ -603,6 +613,7 @@ fn sandbox_command_with_filesystem_policy(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     codex_boundary: CodexSandboxBoundary,
+    current_dir: &Path,
 ) -> Result<(String, Vec<String>)> {
     #[cfg(target_os = "linux")]
     let _ = env_vars;
@@ -620,8 +631,13 @@ fn sandbox_command_with_filesystem_policy(
                     if let Some(error) = bubblewrap_enforcement_error() {
                         anyhow::bail!(error);
                     }
-                    return bubblewrap_command(command, denied_read_paths, denied_write_paths)
-                        .map_err(|error| anyhow::anyhow!(error));
+                    return bubblewrap_command(
+                        command,
+                        denied_read_paths,
+                        denied_write_paths,
+                        current_dir,
+                    )
+                    .map_err(|error| anyhow::anyhow!(error));
                 }
             }
             #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -675,8 +691,8 @@ fn sandbox_command_with_filesystem_policy(
             {}
             {}
         "#,
-            codex_workspace_rules(codex_boundary),
-            denied_file_rules(denied_read_paths, denied_write_paths)
+            codex_workspace_rules(codex_boundary, current_dir),
+            denied_file_rules(denied_read_paths, denied_write_paths, current_dir)
         );
         return Ok((
             "/usr/bin/sandbox-exec".to_owned(),
@@ -698,7 +714,7 @@ fn sandbox_command_with_filesystem_policy(
             if let Some(error) = bubblewrap_enforcement_error() {
                 anyhow::bail!(error);
             }
-            return bubblewrap_command(command, denied_read_paths, denied_write_paths)
+            return bubblewrap_command(command, denied_read_paths, denied_write_paths, current_dir)
                 .map_err(|error| anyhow::anyhow!(error));
         }
         if !sandbox && denied_read_paths.is_empty() && denied_write_paths.is_empty() {
@@ -709,6 +725,7 @@ fn sandbox_command_with_filesystem_policy(
             sandbox,
             denied_read_paths,
             denied_write_paths,
+            current_dir,
         ));
     }
 
@@ -719,11 +736,11 @@ fn sandbox_command_with_filesystem_policy(
 }
 
 #[cfg(target_os = "macos")]
-fn codex_workspace_rules(boundary: CodexSandboxBoundary) -> String {
+fn codex_workspace_rules(boundary: CodexSandboxBoundary, current_dir: &Path) -> String {
     if boundary == CodexSandboxBoundary::FullAccess {
         return String::new();
     }
-    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let current_dir = current_dir.to_path_buf();
     let codex_home = env::var_os("CODEX_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")));
@@ -751,9 +768,9 @@ fn codex_workspace_rules(boundary: CodexSandboxBoundary) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
+fn denied_file_rules(deny_read: &[String], deny_write: &[String], current_dir: &Path) -> String {
     let mut rules = Vec::new();
-    for path in resolve_policy_paths(deny_read) {
+    for path in resolve_policy_paths(deny_read, current_dir) {
         let escaped = escape_sbpl_path(&path);
         let matcher = if PathBuf::from(&path).is_file() {
             "literal"
@@ -762,7 +779,7 @@ fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
         };
         rules.push(format!("(deny file-read* ({matcher} \"{escaped}\"))"));
     }
-    for path in resolve_policy_paths(deny_write) {
+    for path in resolve_policy_paths(deny_write, current_dir) {
         let escaped = escape_sbpl_path(&path);
         let matcher = if PathBuf::from(&path).is_file() {
             "literal"
@@ -780,9 +797,11 @@ fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
     }
 }
 
-pub(super) fn resolve_policy_paths(paths: &[String]) -> Vec<String> {
+/// Resolves `~`-prefixed and relative policy paths to absolute ones;
+/// relative paths are joined onto `base` (normally the process's cwd, but
+/// the worktree directory for a `--worktree` run).
+pub(super) fn resolve_policy_paths(paths: &[String], base: &Path) -> Vec<String> {
     let home = env::var_os("HOME").map(PathBuf::from);
-    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut resolved = paths
         .iter()
         .map(|path| {
@@ -799,7 +818,7 @@ pub(super) fn resolve_policy_paths(paths: &[String]) -> Vec<String> {
             if path.is_absolute() {
                 path
             } else {
-                current_dir.join(path)
+                base.join(path)
             }
         })
         .map(|path| path.to_string_lossy().into_owned())
@@ -877,11 +896,13 @@ fn filesystem_denial_from_line(
 
     let matches_path = |configured: &str| {
         let configured = configured.trim();
-        let Some(denied_path) = resolve_policy_paths(&[configured.to_owned()])
-            .into_iter()
-            .next()
-            .map(PathBuf::from)
-        else {
+        let Some(denied_path) = resolve_policy_paths(
+            &[configured.to_owned()],
+            &env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        )
+        .into_iter()
+        .next()
+        .map(PathBuf::from) else {
             return false;
         };
         line.split_whitespace().any(|token| {
@@ -1062,6 +1083,7 @@ fn bubblewrap_command(
     command: &str,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
+    current_dir: &Path,
 ) -> Result<(String, Vec<String>), String> {
     let executable = if command_in_path("bwrap") {
         "bwrap"
@@ -1079,12 +1101,9 @@ fn bubblewrap_command(
         "/dev".to_owned(),
         "/dev".to_owned(),
         "--chdir".to_owned(),
-        env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("/"))
-            .to_string_lossy()
-            .into_owned(),
+        current_dir.to_string_lossy().into_owned(),
     ];
-    let read_paths = resolve_policy_paths(denied_read_paths);
+    let read_paths = resolve_policy_paths(denied_read_paths, current_dir);
     for path in &read_paths {
         if PathBuf::from(path).is_dir() {
             args.extend(["--tmpfs".to_owned(), path.clone()]);
@@ -1097,7 +1116,7 @@ fn bubblewrap_command(
             args.extend(["--ro-bind".to_owned(), shadow_file, path.clone()]);
         }
     }
-    for path in resolve_policy_paths(denied_write_paths) {
+    for path in resolve_policy_paths(denied_write_paths, current_dir) {
         if read_paths.iter().any(|read| {
             let read = PathBuf::from(read);
             let path = PathBuf::from(&path);
@@ -1117,6 +1136,7 @@ fn systemd_command(
     sandbox: bool,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
+    current_dir: &Path,
 ) -> (String, Vec<String>) {
     // systemd applies these cgroup IP rules only to the child command. The
     // parent-owned proxy remains outside the scope and can forward approved
@@ -1133,10 +1153,10 @@ fn systemd_command(
             "--property=IPAddressAllow=::1".to_owned(),
         ]);
     }
-    for path in resolve_policy_paths(denied_read_paths) {
+    for path in resolve_policy_paths(denied_read_paths, current_dir) {
         args.push(format!("--property=InaccessiblePaths={path}"));
     }
-    for path in resolve_policy_paths(denied_write_paths) {
+    for path in resolve_policy_paths(denied_write_paths, current_dir) {
         args.push(format!("--property=ReadOnlyPaths={path}"));
     }
     args.extend(["--".to_owned(), command.to_owned()]);
@@ -1198,6 +1218,15 @@ mod tests {
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
+
+    #[test]
+    fn resolve_policy_paths_uses_the_given_base_for_relative_paths() {
+        let base = std::path::PathBuf::from("/some/worktree");
+        assert_eq!(
+            super::resolve_policy_paths(&["secrets".to_owned()], &base),
+            vec!["/some/worktree/secrets".to_owned()]
+        );
+    }
 
     fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1591,6 +1620,7 @@ mod tests {
             &["/tmp/private-agent-file".to_owned()],
             &[],
             CodexSandboxBoundary::FullAccess,
+            &std::env::current_dir().unwrap(),
         )
         .unwrap();
 
@@ -1694,7 +1724,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_outer_profile_preserves_codex_write_boundaries() {
-        let cwd = std::env::current_dir().unwrap();
+        // A fixed workspace, not the process cwd: other tests change the
+        // cwd concurrently.
+        let cwd = std::path::PathBuf::from("/some/workspace");
         let cwd_rule = format!(
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&cwd.to_string_lossy())
@@ -1709,12 +1741,12 @@ mod tests {
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&codex_home.to_string_lossy())
         );
-        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite);
+        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite, &cwd);
         assert!(workspace.contains("(deny file-write* (subpath \"/\"))"));
         assert!(workspace.contains(&cwd_rule));
         assert!(workspace.contains(&codex_home_rule));
 
-        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly);
+        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly, &cwd);
         assert!(read_only.contains("(deny file-write* (subpath \"/\"))"));
         assert!(!read_only.contains(&cwd_rule));
     }
@@ -1741,6 +1773,7 @@ mod tests {
             &[],
             &["blocked.txt".to_owned()],
             CodexSandboxBoundary::FullAccess,
+            &std::env::current_dir().unwrap(),
         )
         .unwrap();
         let status = Command::new(program)
@@ -1766,10 +1799,125 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// The native `--worktree` protections, enforced for real by Seatbelt:
+    /// the agent can commit in its worktree but not touch the user's
+    /// checkout or the git files host git executes.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_worktree_policy_allows_commits_but_protects_the_checkout() {
+        use crate::handlers::run::worktree::{create_run_worktree, test_support};
+        use std::process::Command;
+
+        let (repo, _root) = test_support::fixture();
+        std::fs::create_dir_all(repo.join(".stashbase/agents")).unwrap();
+        std::fs::write(repo.join(".stashbase/agents/coding.toml"), "").unwrap();
+        // Default location: nested inside the checkout it protects.
+        let wt = create_run_worktree(&repo, "ags_seatbelt", None).unwrap();
+        let denied_write = wt.native_protected_paths().unwrap();
+        let (program, args) = sandbox_command_with_filesystem_policy(
+            "/bin/sh",
+            false,
+            false,
+            &HashMap::new(),
+            &[],
+            &denied_write,
+            CodexSandboxBoundary::FullAccess,
+            &wt.workdir,
+        )
+        .unwrap();
+        let run = |script: &str| {
+            Command::new(&program)
+                .args(&args)
+                .args(["-c", script])
+                .current_dir(&wt.workdir)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t")
+                .stdin(std::process::Stdio::null())
+                .output()
+                .unwrap()
+        };
+
+        let commit = run("echo agent > agent.txt && git add agent.txt && git commit -qm agent");
+        assert!(
+            commit.status.success(),
+            "commit in the worktree must work: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+        assert_eq!(
+            test_support::git(
+                &repo,
+                &["log", "-1", "--format=%s", "stashbase/ags_seatbelt"]
+            ),
+            "agent"
+        );
+
+        let checkout_file = repo.join("sub/f");
+        let common = &wt.common_dir;
+        for (target, script) in [
+            (
+                checkout_file.clone(),
+                format!("echo evil > '{}'", checkout_file.display()),
+            ),
+            (
+                repo.join(".stashbase/agents/coding.toml"),
+                format!(
+                    "echo evil > '{}'",
+                    repo.join(".stashbase/agents/coding.toml").display()
+                ),
+            ),
+            (
+                common.join("config"),
+                format!("echo evil >> '{}'", common.join("config").display()),
+            ),
+            (
+                common.join("HEAD"),
+                format!("echo evil > '{}'", common.join("HEAD").display()),
+            ),
+            (
+                common.join("hooks/post-checkout"),
+                format!(
+                    "echo evil > '{}'",
+                    common.join("hooks/post-checkout").display()
+                ),
+            ),
+        ] {
+            let before = std::fs::read_to_string(&target).ok();
+            assert!(
+                !run(&script).status.success(),
+                "write to {} must be denied",
+                target.display()
+            );
+            assert_eq!(
+                std::fs::read_to_string(&target).ok(),
+                before,
+                "{}",
+                target.display()
+            );
+        }
+
+        // Swapping a protected path out from under the rules (rename, or
+        // replace with a symlink to agent-controlled content) must fail too.
+        let hooks = common.join("hooks");
+        let config = common.join("config");
+        for script in [
+            format!("mv '{0}' '{0}.bak'", hooks.display()),
+            format!("rm -rf '{0}' && ln -s /tmp '{0}'", hooks.display()),
+            format!("mv '{0}' '{0}.bak'", config.display()),
+            format!("rm -f '{0}' && ln -s /tmp/evil '{0}'", config.display()),
+        ] {
+            assert!(!run(&script).status.success(), "`{script}` must be denied");
+        }
+        assert!(std::fs::symlink_metadata(&hooks).unwrap().is_dir());
+        assert!(std::fs::symlink_metadata(&config).unwrap().is_file());
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_sandbox_uses_systemd_cgroup_network_rules() {
-        let (program, args) = super::systemd_command("curl", true, &[], &[]);
+        let (program, args) =
+            super::systemd_command("curl", true, &[], &[], std::path::Path::new("/"));
         assert_eq!(program, "systemd-run");
         assert!(args.contains(&"--property=IPAddressDeny=any".to_owned()));
         assert!(args.contains(&"--property=IPAddressAllow=127.0.0.1".to_owned()));
@@ -1793,6 +1941,7 @@ mod tests {
             "sh",
             &[private_dir.clone(), private_file.clone()],
             &[readonly_dir, readonly_file.clone()],
+            &root,
         )
         .unwrap();
         assert!(program == "bwrap" || program == "bubblewrap");

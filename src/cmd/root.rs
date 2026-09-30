@@ -126,6 +126,10 @@ impl EntityType {
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Logs(_),
             }) => false,
+            // Local git only.
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Worktrees { .. },
+            }) => false,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Doctor(_),
             }) => false,

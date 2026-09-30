@@ -156,7 +156,7 @@ fn session_directory() -> Result<PathBuf> {
         .join("agent-sessions"))
 }
 
-fn process_start_time(pid: u32) -> Result<String> {
+pub(crate) fn process_start_time(pid: u32) -> Result<String> {
     // ponytail: native start-time checks avoid dependencies; use pidfds or platform handles if one-second PID reuse proves insufficient.
     #[cfg(unix)]
     let output = Command::new("ps")
