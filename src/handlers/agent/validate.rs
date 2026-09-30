@@ -391,6 +391,15 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 .to_owned(),
         ));
     }
+    if profile.workspace.worktree
+        && profile.sandbox.backend == crate::models::agent::SandboxBackend::Docker
+    {
+        checks.push(fail(
+            "Workspace worktree",
+            "'workspace.worktree' is not yet supported with the Docker backend; use the native backend (--docker-sandbox false) for worktree runs."
+                .to_owned(),
+        ));
+    }
     if let Some(image) = &profile.sandbox.image {
         if image.trim().is_empty() {
             checks.push(fail(
@@ -1083,6 +1092,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1112,6 +1122,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1132,6 +1143,42 @@ mod tests {
             .any(|check| check.name == "Filesystem enforcement"));
     }
 
+    fn worktree_test_profile(backend: crate::models::agent::SandboxBackend) -> AgentProfile {
+        let mut profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            workspace: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: Vec::new(),
+        };
+        profile.workspace.worktree = true;
+        profile.sandbox.backend = backend;
+        profile
+    }
+
+    #[test]
+    fn worktree_is_accepted_with_the_native_backend() {
+        let profile = worktree_test_profile(crate::models::agent::SandboxBackend::Native);
+        assert!(!validate_profile(&profile)
+            .iter()
+            .any(|check| check.name == "Workspace worktree"));
+    }
+
+    #[test]
+    fn worktree_is_rejected_with_the_docker_backend_for_now() {
+        let profile = worktree_test_profile(crate::models::agent::SandboxBackend::Docker);
+        assert!(validate_profile(&profile).iter().any(|check| check.status == Status::Fail
+            && check.name == "Workspace worktree"
+            && check.message.contains("not yet supported with the Docker backend")));
+    }
+
     #[test]
     fn rejects_sandbox_image_and_dockerfile_set_together() {
         let mut profile = AgentProfile {
@@ -1141,6 +1188,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1166,6 +1214,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1220,6 +1269,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1320,6 +1370,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1355,6 +1406,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1391,6 +1443,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::new(),
@@ -1412,6 +1465,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::new().into(),
             personal_credentials: HashMap::from([(
@@ -1447,6 +1501,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -1507,6 +1562,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: crate::models::agent::AgentSecretsProfile {
                 project: Some("project".to_owned()),

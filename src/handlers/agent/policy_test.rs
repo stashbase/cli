@@ -330,6 +330,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),

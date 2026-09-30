@@ -681,6 +681,8 @@ pub struct ProxyPolicy {
     /// Docker backend only: `docker run --cpus` value, e.g. "1.5". No cap
     /// when unset.
     pub sandbox_cpus: Option<String>,
+    /// Run inside a per-session git worktree.
+    pub worktree: bool,
     /// Docker backend only: repo-relative directories backed by a per-repo
     /// volume instead of the host's copy (see `append_isolated_path_mounts`).
     pub sandbox_isolated_paths: Vec<String>,
@@ -795,6 +797,7 @@ impl ProxyPolicy {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -829,6 +832,7 @@ impl ProxyPolicy {
                 "sandbox_cpus={}",
                 self.sandbox_cpus.as_deref().unwrap_or("")
             ),
+            format!("worktree={}", self.worktree),
             format!(
                 "sandbox_isolated_paths={}",
                 self.sandbox_isolated_paths.join(",")
@@ -3562,6 +3566,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -3947,6 +3952,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
@@ -4079,6 +4085,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -4597,6 +4604,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
 
@@ -4644,6 +4652,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -4720,6 +4729,9 @@ mod tests {
         let mut docker_memory = docker.clone();
         docker_memory.sandbox_memory = Some("2g".to_owned());
         assert_ne!(docker.fingerprint(), docker_memory.fingerprint());
+        let mut docker_worktree = docker.clone();
+        docker_worktree.worktree = true;
+        assert_ne!(docker.fingerprint(), docker_worktree.fingerprint());
 
         let mut docker_cpus = docker.clone();
         docker_cpus.sandbox_cpus = Some("1.5".to_owned());
@@ -4818,6 +4830,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
         assert!(secret_allows_request(
@@ -4946,6 +4959,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
@@ -4992,6 +5006,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
 
@@ -5024,6 +5039,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
         let state = ProxyState {
@@ -5104,6 +5120,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
@@ -5160,6 +5177,7 @@ mod tests {
             sandbox_dockerfile: None,
             sandbox_memory: None,
             sandbox_cpus: None,
+            worktree: false,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
@@ -5528,6 +5546,7 @@ mod tests {
                 sandbox_dockerfile: None,
                 sandbox_memory: None,
                 sandbox_cpus: None,
+                worktree: false,
                 sandbox_isolated_paths: Vec::new(),
             },
             None,
@@ -5571,6 +5590,7 @@ mod tests {
                 sandbox_dockerfile: None,
                 sandbox_memory: None,
                 sandbox_cpus: None,
+                worktree: false,
                 sandbox_isolated_paths: Vec::new(),
             },
             None,
@@ -5615,6 +5635,7 @@ mod tests {
                 sandbox_dockerfile: None,
                 sandbox_memory: None,
                 sandbox_cpus: None,
+                worktree: false,
                 sandbox_isolated_paths: Vec::new(),
             },
             None,

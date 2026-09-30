@@ -802,6 +802,9 @@ pub async fn handle_cli(args: Cli) {
                     if let Some(cpus) = &agent_run.docker_cpus {
                         profile.sandbox.cpus = Some(cpus.clone());
                     }
+                    if let Some(worktree) = agent_run.worktree {
+                        profile.workspace.worktree = worktree;
+                    }
                     for path in &agent_run.docker_isolated_paths {
                         if !profile.sandbox.isolated_paths.contains(path) {
                             profile.sandbox.isolated_paths.push(path.clone());
@@ -1006,6 +1009,7 @@ pub async fn handle_cli(args: Cli) {
                         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
                         sandbox_memory: profile.sandbox.memory.clone(),
                         sandbox_cpus: profile.sandbox.cpus.clone(),
+                        worktree: profile.workspace.worktree,
                         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
@@ -2400,6 +2404,7 @@ mod tests {
             deny_hosts: None,
             filesystem: Default::default(),
             sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),

@@ -20,6 +20,10 @@ pub struct AgentProfile {
     /// native mechanism (Seatbelt/systemd-run/bubblewrap).
     #[serde(default)]
     pub sandbox: AgentSandboxProfile,
+    /// Where the agent works (`[workspace]`), as opposed to how it is
+    /// isolated (`[sandbox]`).
+    #[serde(default)]
+    pub workspace: AgentWorkspaceProfile,
     /// Named HTTP MCP servers and their tool policies.
     #[serde(default)]
     pub mcp_servers: HashMap<String, AgentMcpServer>,
@@ -108,6 +112,16 @@ impl SandboxBackend {
             None => self,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentWorkspaceProfile {
+    /// Native backend only (for now): run the agent inside a fresh git
+    /// worktree on its own `stashbase/<name>` branch instead of the
+    /// current checkout. See `handlers::run::worktree`.
+    #[serde(default)]
+    pub worktree: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -234,6 +248,20 @@ pub enum AgentHttpRuleEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_lives_under_workspace_not_sandbox() {
+        let profile: super::AgentProfile =
+            toml::from_str("[workspace]\nworktree = true\n").unwrap();
+        assert!(profile.workspace.worktree);
+        let empty: super::AgentProfile = toml::from_str("").unwrap();
+        assert!(!empty.workspace.worktree, "off unless the profile opts in");
+
+        let error = toml::from_str::<super::AgentProfile>("[sandbox]\nworktree = true\n")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("worktree"), "{error}");
+    }
 
     #[test]
     fn parses_env_rename_alongside_project_and_environment_fields() {

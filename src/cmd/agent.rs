@@ -275,6 +275,21 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub docker_cpus: Option<String>,
 
+    /// Run the agent in a fresh git worktree on branch `stashbase/<name>`
+    /// instead of the current checkout (native backend only). `--worktree`
+    /// turns it on and `--worktree=false` off for this run, overriding the
+    /// profile's `[workspace] worktree`; omit to use the profile's setting.
+    /// The value needs `=` so a following agent command (`--worktree
+    /// claude`) is never mistaken for it.
+    #[arg(
+        long,
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    pub worktree: Option<bool>,
+
     /// Add to the profile's `[sandbox] isolated_paths` for this run only:
     /// a directory relative to the working directory (e.g. "node_modules")
     /// that gets its own per-repo volume inside the container.
@@ -629,6 +644,31 @@ mod tests {
             AgentAuditGroupBy::from_str("secret", true),
             Ok(AgentAuditGroupBy::Binding)
         );
+    }
+
+    #[test]
+    fn worktree_flag_is_on_off_or_absent_and_never_swallows_the_command() {
+        use super::{AgentCommand, AgentSubcommand};
+        use crate::cmd::root::{Cli, EntityType};
+        use clap::Parser;
+
+        let parse = |args: &[&str]| {
+            let mut argv = vec!["stashbase", "agent", "run", "--profile", "p"];
+            argv.extend_from_slice(args);
+            match Cli::try_parse_from(argv).expect("parses").entity_type {
+                EntityType::Agent(AgentCommand {
+                    subcommand: AgentSubcommand::Run(run),
+                }) => run,
+                _ => panic!("expected `agent run`"),
+            }
+        };
+        assert_eq!(parse(&["claude"]).worktree, None);
+        let on = parse(&["--worktree", "claude"]);
+        assert_eq!(on.worktree, Some(true));
+        assert_eq!(on.command, vec!["claude".to_owned()]);
+        assert_eq!(parse(&["--worktree", "--", "claude"]).worktree, Some(true));
+        assert_eq!(parse(&["--worktree=true", "claude"]).worktree, Some(true));
+        assert_eq!(parse(&["--worktree=false", "claude"]).worktree, Some(false));
     }
 
     #[test]
