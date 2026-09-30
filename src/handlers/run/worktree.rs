@@ -804,7 +804,9 @@ mod tests {
         let other = create_run_worktree(&repo, "ags_k0", Some(&root)).unwrap();
         let wt = create_run_worktree(&repo, "ags_k", Some(&root)).unwrap();
         let paths = wt.native_protected_paths().unwrap();
-        let has = |p: &Path| paths.contains(&p.to_string_lossy().into_owned());
+        // Compare as paths, not strings: on Windows `join(".stashbase/agents")`
+        // mixes separators that `Path` equality treats alike.
+        let has = |p: &Path| paths.iter().any(|path| Path::new(path) == p);
 
         assert!(
             has(&repo.join("sub")),
@@ -981,7 +983,9 @@ mod tests {
         let sibling = create_run_worktree(&repo, "ags_sib", None).unwrap();
         let wt = create_run_worktree(&repo, "ags_own", None).unwrap();
         let paths = wt.native_protected_paths().unwrap();
-        let has = |p: &Path| paths.contains(&p.to_string_lossy().into_owned());
+        // Compare as paths, not strings: on Windows `join(".stashbase/agents")`
+        // mixes separators that `Path` equality treats alike.
+        let has = |p: &Path| paths.iter().any(|path| Path::new(path) == p);
 
         assert!(
             has(&repo.join(".stashbase/agents")),
