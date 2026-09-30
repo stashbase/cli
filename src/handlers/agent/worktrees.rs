@@ -15,7 +15,7 @@ use tabled::Tabled;
 
 use crate::cmd::agent::{AgentWorktreesCleanCommand, AgentWorktreesMergeCommand};
 use crate::handlers::run::worktree::{
-    classify_lock, git, verify_agent_worktree, RunLock, BRANCH_PREFIX,
+    canonicalize, classify_lock, git, verify_agent_worktree, RunLock, BRANCH_PREFIX,
 };
 use crate::utils::output::{get_formatted_json_string, ColorizeIfColoredOutput};
 
@@ -67,13 +67,13 @@ fn run_git(dir: &Path, args: &[&str]) -> Result<String> {
 pub(crate) fn open_checkout(cwd: &Path) -> Result<Checkout> {
     let root = run_git(cwd, &["rev-parse", "--show-toplevel"])
         .map_err(|_| anyhow::anyhow!("{} is not inside a git repository", cwd.display()))?;
-    let root = std::fs::canonicalize(&root).with_context(|| format!("failed to resolve {root}"))?;
+    let root = canonicalize(&root).with_context(|| format!("failed to resolve {root}"))?;
     let common_dir = run_git(
         &root,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )?;
-    let common_dir = std::fs::canonicalize(&common_dir)
-        .with_context(|| format!("failed to resolve {common_dir}"))?;
+    let common_dir =
+        canonicalize(&common_dir).with_context(|| format!("failed to resolve {common_dir}"))?;
     let branch = run_git(&root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).ok();
     if branch
         .as_deref()

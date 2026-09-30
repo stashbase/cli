@@ -42,6 +42,29 @@ pub(crate) enum WorktreeOutcome {
     Kept,
 }
 
+/// `std::fs::canonicalize`, but without Windows' verbatim `\\?\` prefix
+/// (`\\?\C:\repo` → `C:\repo`, `\\?\UNC\server\share` →
+/// `\\server\share`): git can't handle verbatim paths ("could not create
+/// leading directories of '//?/C:/…'"), and every path here ends up in a
+/// git command or is compared with one git printed. Elsewhere it is plain
+/// `canonicalize`.
+pub(crate) fn canonicalize(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+    let path = std::fs::canonicalize(path)?;
+    #[cfg(windows)]
+    {
+        let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return Ok(PathBuf::from(format!(r"\\{rest}")));
+        }
+        if let Some(rest) = text.strip_prefix(r"\\?\") {
+            if rest.as_bytes().get(1) == Some(&b':') {
+                return Ok(PathBuf::from(rest));
+            }
+        }
+    }
+    Ok(path)
+}
+
 /// Runs `git -C dir ...` with no inherited `GIT_DIR`/`GIT_WORK_TREE`/
 /// `GIT_COMMON_DIR` that could redirect it to another repository.
 pub(crate) fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -196,9 +219,9 @@ pub(crate) fn verify_agent_worktree(path: &Path, common_dir: &Path) -> Result<()
         .map(|rest| PathBuf::from(rest.trim_end_matches('\n')))
         .filter(|_| contents.ends_with('\n') && contents.lines().count() == 1)
         .ok_or_else(|| format!("{} has unexpected contents", pointer.display()))?;
-    let worktrees_dir = std::fs::canonicalize(common_dir.join("worktrees"))
+    let worktrees_dir = canonicalize(common_dir.join("worktrees"))
         .map_err(|error| format!("cannot resolve the repository's worktrees dir: {error}"))?;
-    let admin_dir = std::fs::canonicalize(&admin_dir)
+    let admin_dir = canonicalize(&admin_dir)
         .map_err(|_| format!("{} points at a missing git dir", pointer.display()))?;
     if admin_dir.parent() != Some(worktrees_dir.as_path()) {
         return Err(format!(
@@ -216,9 +239,9 @@ pub(crate) fn verify_agent_worktree(path: &Path, common_dir: &Path) -> Result<()
     }
     let commondir = std::fs::read_to_string(&commondir_file)
         .map_err(|error| format!("cannot read {}: {error}", commondir_file.display()))?;
-    let resolved = std::fs::canonicalize(admin_dir.join(commondir.trim_end_matches('\n')))
+    let resolved = canonicalize(admin_dir.join(commondir.trim_end_matches('\n')))
         .map_err(|_| format!("{} points at a missing directory", commondir_file.display()))?;
-    let expected = std::fs::canonicalize(common_dir)
+    let expected = canonicalize(common_dir)
         .map_err(|error| format!("cannot resolve the repository's git dir: {error}"))?;
     if resolved != expected {
         return Err(format!(
@@ -287,15 +310,15 @@ pub(crate) fn create_run_worktree(
             cwd.display()
         )
     })?;
-    let repo_root = std::fs::canonicalize(&repo_root)
+    let repo_root = canonicalize(&repo_root)
         .map_err(|error| format!("failed to resolve {repo_root}: {error}"))?;
     let common_dir = git(
         &repo_root,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )?;
-    let common_dir = std::fs::canonicalize(&common_dir)
+    let common_dir = canonicalize(&common_dir)
         .map_err(|error| format!("failed to resolve {common_dir}: {error}"))?;
-    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let cwd = canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     let relative = cwd
         .strip_prefix(&repo_root)
         .unwrap_or(Path::new(""))
@@ -338,7 +361,7 @@ pub(crate) fn create_run_worktree(
             &repo_root,
             &["worktree", "lock", "--reason", &lock_reason(), &path_str],
         )?;
-        let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let path = canonicalize(&path).unwrap_or_else(|_| path.clone());
 
         // `git worktree add` names the admin dir after the path's basename,
         // uniquified with a numeric suffix on collision — read it back from
@@ -351,6 +374,10 @@ pub(crate) fn create_run_worktree(
                 .strip_prefix("gitdir: ")
                 .ok_or_else(|| "unexpected worktree .git file format".to_owned())?,
         );
+        // Git writes this with forward slashes on Windows; resolve it so it
+        // compares equal to the other (native) paths. `pointer_file` keeps
+        // the exact bytes for `restore_pointers`.
+        let admin_dir = canonicalize(&admin_dir).unwrap_or(admin_dir);
         let commondir_file = std::fs::read_to_string(admin_dir.join("commondir"))
             .map_err(|error| format!("failed to read the worktree's commondir: {error}"))?;
         let ref_snapshot = snapshot_refs(&repo_root, &branch)?;
@@ -598,7 +625,7 @@ pub(crate) mod test_support {
         git(&repo, &["add", "."]);
         git(&repo, &["commit", "-qm", "init"]);
         git(&repo, &["branch", "other"]);
-        let repo = std::fs::canonicalize(repo).unwrap();
+        let repo = super::canonicalize(repo).unwrap();
         (repo, base.join("worktrees"))
     }
 }
@@ -888,7 +915,7 @@ mod tests {
                 &users_worktree_str,
             ],
         );
-        let users_worktree = std::fs::canonicalize(users_worktree).unwrap();
+        let users_worktree = canonicalize(users_worktree).unwrap();
 
         let wt = create_run_worktree(&users_worktree, "ags_linked", Some(&root)).unwrap();
         assert_eq!(wt.repo_root, users_worktree);

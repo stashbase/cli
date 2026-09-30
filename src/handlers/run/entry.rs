@@ -1907,7 +1907,7 @@ mod tests {
             .expect("worktree created");
         assert!(worktree
             .path
-            .starts_with(std::fs::canonicalize(&root).unwrap()));
+            .starts_with(crate::handlers::run::worktree::canonicalize(&root).unwrap()));
         assert!(worktree.branch.starts_with("stashbase/"));
     }
 
