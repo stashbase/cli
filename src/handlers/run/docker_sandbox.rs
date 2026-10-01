@@ -2859,7 +2859,8 @@ mod tests {
         let rw = pos(&format!("-v {c}:{c}"));
         // Overlays must come after the rw mount so they shadow it.
         for name in ["config", "hooks", "HEAD", "index"] {
-            assert!(pos(&format!("-v {c}/{name}:{c}/{name}:ro")) > rw, "{name}");
+            let p = common.join(name).to_string_lossy().into_owned();
+            assert!(pos(&format!("-v {p}:{p}:ro")) > rw, "{name}");
         }
     }
 
@@ -2874,14 +2875,13 @@ mod tests {
     #[test]
     fn git_mounts_hide_other_worktrees() {
         let (common, mounts) = git_mount_fixture();
-        let c = common.to_string_lossy();
         let a = mounts.admin_dir.to_string_lossy();
         let mut args = Vec::new();
         append_git_mounts(&mut args, &mounts).unwrap();
         let specs = mount_specs(&args);
         let tmpfs = specs
             .iter()
-            .position(|s| *s == format!("--tmpfs {c}/worktrees"))
+            .position(|s| *s == format!("--tmpfs {}", common.join("worktrees").display()))
             .expect("worktrees hidden");
         let own = specs
             .iter()
@@ -2893,7 +2893,10 @@ mod tests {
         );
         let config = specs
             .iter()
-            .position(|s| *s == format!("-v {a}/config.worktree:{a}/config.worktree:ro"))
+            .position(|s| {
+                let config = mounts.admin_dir.join("config.worktree");
+                *s == format!("-v {0}:{0}:ro", config.display())
+            })
             .expect("own worktree config mounted read-only");
         assert!(
             config > own,
@@ -2906,10 +2909,10 @@ mod tests {
     fn git_mounts_protect_submodule_configs_when_present() {
         let (common, mounts) = git_mount_fixture();
         std::fs::create_dir_all(common.join("modules")).unwrap();
-        let c = common.to_string_lossy();
         let mut args = Vec::new();
         append_git_mounts(&mut args, &mounts).unwrap();
-        assert!(mount_specs(&args).contains(&format!("-v {c}/modules:{c}/modules:ro")));
+        let modules = common.join("modules").to_string_lossy().into_owned();
+        assert!(mount_specs(&args).contains(&format!("-v {modules}:{modules}:ro")));
     }
 
     #[test]
