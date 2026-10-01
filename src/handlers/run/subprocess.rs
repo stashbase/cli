@@ -104,6 +104,7 @@ pub async fn run_command_with_filesystem_policy(
         None,
         &[],
         None,
+        None,
     )
     .await
 }
@@ -134,6 +135,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
     sandbox_cpus: Option<&str>,
     sandbox_isolated_paths: &[String],
     workdir: Option<&Path>,
+    git_mounts: Option<&super::docker_sandbox::GitMounts>,
 ) -> Result<ExitStatus> {
     // `workdir` is `Some` for a `--worktree` run: the agent works in the
     // worktree, not in the directory stashbase was started from.
@@ -165,6 +167,8 @@ pub async fn run_command_with_filesystem_policy_and_network(
         let (program, launcher_args) = super::docker_sandbox::docker_run_command(
             command,
             network,
+            &current_dir,
+            git_mounts,
             denied_read_paths,
             denied_write_paths,
             &env_vars,

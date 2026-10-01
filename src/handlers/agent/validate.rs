@@ -391,12 +391,15 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 .to_owned(),
         ));
     }
+    // The worktree's `.git` file holds a host path (`C:/...` on Windows)
+    // that git inside a Linux container can't resolve.
     if profile.workspace.worktree
         && profile.sandbox.backend == crate::models::agent::SandboxBackend::Docker
+        && cfg!(windows)
     {
         checks.push(fail(
             "Workspace worktree",
-            "'workspace.worktree' is not yet supported with the Docker backend; use the native backend (--docker-sandbox false) for worktree runs."
+            "'workspace.worktree' with the Docker backend is not yet supported on Windows."
                 .to_owned(),
         ));
     }
@@ -1172,15 +1175,12 @@ mod tests {
     }
 
     #[test]
-    fn worktree_is_rejected_with_the_docker_backend_for_now() {
+    fn worktree_with_the_docker_backend_is_rejected_only_on_windows() {
         let profile = worktree_test_profile(crate::models::agent::SandboxBackend::Docker);
-        assert!(validate_profile(&profile)
+        let rejected = validate_profile(&profile)
             .iter()
-            .any(|check| check.status == Status::Fail
-                && check.name == "Workspace worktree"
-                && check
-                    .message
-                    .contains("not yet supported with the Docker backend")));
+            .any(|check| check.status == Status::Fail && check.name == "Workspace worktree");
+        assert_eq!(rejected, cfg!(windows));
     }
 
     #[test]

@@ -2,9 +2,11 @@
 //! worktree, and after the (sandboxed) run, undo anything the agent could
 //! have done to the shared git dir that would bite the host later.
 //!
-//! Native backend only for now. The agent can write the repo's common git
-//! dir (it must, to commit), so `native_protected_paths` adds the files
-//! host git executes or acts on to the run's deny-list. Two pointer files
+//! The agent can write the repo's common git dir (it must, to commit), so
+//! the files host git executes or acts on are kept out of its reach: the
+//! native backend adds `native_protected_paths` to the run's deny-list, the
+//! Docker backend mounts them read-only (`docker_sandbox::append_git_mounts`)
+//! and never mounts the user's checkout at all. Two pointer files
 //! must stay writable for git to work at all: the worktree's own `.git`
 //! file and its admin dir's `commondir`. Either can be redirected to an
 //! attacker-controlled git dir whose config runs code (`core.fsmonitor`)

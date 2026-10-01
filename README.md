@@ -266,7 +266,7 @@ See **[docs/sandboxing.md](docs/sandboxing.md)** for the full picture: how the n
 
 ### Parallel Agents in Git Worktrees
 
-Run an agent in its own git worktree instead of your checkout, so several agents can work on one repository at once without touching each other's files or yours (native backend for now):
+Run an agent in its own git worktree instead of your checkout, so several agents can work on one repository at once without touching each other's files or yours (native backend, or Docker on macOS/Linux):
 
 ```bash
 stashbase agent run --profile coding --worktree -- claude

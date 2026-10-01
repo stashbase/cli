@@ -323,7 +323,7 @@ pub struct AgentRunCommand {
     pub docker_cpus: Option<String>,
 
     /// Run the agent in a fresh git worktree on branch `stashbase/<name>`
-    /// instead of the current checkout (native backend only). `--worktree`
+    /// instead of the current checkout. `--worktree`
     /// turns it on and `--worktree=false` off for this run, overriding the
     /// profile's `[workspace] worktree`; omit to use the profile's setting.
     /// The value needs `=` so a following agent command (`--worktree

@@ -246,6 +246,13 @@ pub(crate) fn remove_agent_worktree(
         }
         args.push(&path);
         run_git(&checkout.root, &args)?;
+        // A Docker run's isolated-path volumes are keyed by the worktree
+        // path; nothing else will ever use them. No-op without Docker.
+        for error in crate::handlers::run::docker_sandbox::remove_isolated_path_volumes_under(
+            Path::new(path.as_ref()),
+        ) {
+            eprintln!("warning: failed to remove isolated path volume {error}");
+        }
     }
     let delete = if force || worktree.ahead == 0 {
         "-D"

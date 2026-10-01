@@ -78,7 +78,7 @@ Run the agent in its own git worktree (branch `stashbase/<name>`, inside the rep
 worktree = true
 ```
 
-Or per run: `stashbase agent run --profile coding --worktree -- claude` (`--worktree=false` skips it when the profile turns it on). Native backend only for now. Review and merge the agent's work from your checkout with `stashbase agent worktrees list`, `merge <name>` and `clean` — see **[Worktrees](sandboxing.md#worktrees)**.
+Or per run: `stashbase agent run --profile coding --worktree -- claude` (`--worktree=false` skips it when the profile turns it on). Works with the native backend and, on macOS/Linux, the Docker backend. Review and merge the agent's work from your checkout with `stashbase agent worktrees list`, `merge <name>` and `clean` — see **[Worktrees](sandboxing.md#worktrees)**.
 
 ## Network Access and HTTP Rules
 

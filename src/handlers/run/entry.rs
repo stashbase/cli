@@ -154,14 +154,26 @@ fn prepare_run_worktree(
 pub(crate) struct RunWorktreeGuard {
     worktree: Option<super::worktree::RunWorktree>,
     silent: bool,
+    /// Docker backend: the run's isolated-path volumes are keyed by the
+    /// worktree path, so they go away with a removed worktree.
+    docker: bool,
 }
 
 impl RunWorktreeGuard {
+    #[cfg(test)]
     fn none(silent: bool) -> Self {
         Self {
             worktree: None,
             silent,
+            docker: false,
         }
+    }
+
+    /// What the agent container needs mounted besides the worktree.
+    fn git_mounts(&self) -> Option<super::docker_sandbox::GitMounts> {
+        self.worktree
+            .as_ref()
+            .map(super::docker_sandbox::GitMounts::from)
     }
 
     /// Where the agent should start, when running in a worktree.
@@ -179,7 +191,7 @@ impl RunWorktreeGuard {
 impl Drop for RunWorktreeGuard {
     fn drop(&mut self) {
         if let Some(worktree) = self.worktree.take() {
-            finish_run_worktree(&worktree, self.silent);
+            finish_run_worktree(&worktree, self.docker, self.silent);
         }
     }
 }
@@ -198,6 +210,7 @@ fn prepare_native_run_worktree(
     let guard = RunWorktreeGuard {
         worktree: prepare_run_worktree(enabled, silent)?,
         silent,
+        docker: false,
     };
     if let Some(worktree) = &guard.worktree {
         let paths = worktree.native_protected_paths().map_err(|error| {
@@ -208,11 +221,23 @@ fn prepare_native_run_worktree(
     Ok(guard)
 }
 
+/// `prepare_run_worktree` for the Docker backend. Nothing to add to the
+/// policy: the container only ever sees the worktree and the git mounts
+/// from `RunWorktreeGuard::git_mounts` (see
+/// `docker_sandbox::append_git_mounts`), never the user's checkout.
+fn prepare_docker_run_worktree(enabled: bool, silent: bool) -> anyhow::Result<RunWorktreeGuard> {
+    Ok(RunWorktreeGuard {
+        worktree: prepare_run_worktree(enabled, silent)?,
+        silent,
+        docker: true,
+    })
+}
+
 /// Post-run cleanup. Order matters: pointer files are restored first
 /// because every later step runs host git that would otherwise follow a
 /// tampered pointer (see `worktree.rs` module docs). Errors are reported,
 /// never allowed to mask the run's own exit status.
-fn finish_run_worktree(worktree: &super::worktree::RunWorktree, silent: bool) {
+fn finish_run_worktree(worktree: &super::worktree::RunWorktree, docker: bool, silent: bool) {
     match worktree.restore_pointers() {
         Ok(true) => eprintln!(
             "warning: the agent modified the worktree's git pointer files; they were restored"
@@ -237,6 +262,13 @@ fn finish_run_worktree(worktree: &super::worktree::RunWorktree, silent: bool) {
     }
     match worktree.finish() {
         Ok(super::worktree::WorktreeOutcome::Removed) => {
+            if docker {
+                for error in
+                    super::docker_sandbox::remove_isolated_path_volumes_under(&worktree.path)
+                {
+                    eprintln!("warning: failed to remove isolated path volume {error}");
+                }
+            }
             if !silent {
                 eprintln!("Agent work is on branch {}", worktree.branch);
             }
@@ -289,9 +321,7 @@ pub async fn handle_remote_agent_run(
         // same stream (see the same reasoning for the proxy-started
         // message below).
         let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
-        // Worktree runs are native-backend only for now (validation rejects
-        // `workspace.worktree` with Docker).
-        run_worktree = RunWorktreeGuard::none(silent);
+        run_worktree = prepare_docker_run_worktree(worktree_enabled, silent)?;
         setup_spinner = (!silent).then(|| {
             crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
         });
@@ -438,6 +468,7 @@ pub async fn handle_remote_agent_run(
         sandbox_cpus.as_deref(),
         &sandbox_isolated_paths,
         run_worktree.workdir(),
+        run_worktree.git_mounts().as_ref(),
     )
     .await;
     proxy.stop().await;
@@ -1539,9 +1570,7 @@ async fn handle_run(
             // the same stream (see the same reasoning for the
             // proxy-started message below).
             let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
-            // Worktree runs are native-backend only for now (validation
-            // rejects `workspace.worktree` with Docker).
-            run_worktree = RunWorktreeGuard::none(silent);
+            run_worktree = prepare_docker_run_worktree(worktree_enabled, silent)?;
             setup_spinner = (!silent).then(|| {
                 crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
             });
@@ -1671,6 +1700,7 @@ async fn handle_run(
         if let Some(mut spinner) = setup_spinner.take() {
             spinner.clear();
         }
+        let git_mounts = run_worktree.git_mounts();
         let command = Box::pin(subprocess::run_command_with_filesystem_policy_and_network(
             &cmd,
             args,
@@ -1690,6 +1720,7 @@ async fn handle_run(
             sandbox_cpus.as_deref(),
             &sandbox_isolated_paths,
             run_worktree.workdir(),
+            git_mounts.as_ref(),
         ));
         let result = command.await;
         proxy.stop().await;
@@ -1827,7 +1858,7 @@ mod tests {
         test_support::git(&wt.path, &["update-ref", "refs/heads/other", "HEAD"]);
         std::fs::write(wt.path.join(".git"), "gitdir: /nonexistent\n").unwrap();
 
-        super::finish_run_worktree(&wt, true);
+        super::finish_run_worktree(&wt, false, true);
 
         assert!(!wt.path.exists(), "clean worktree removed after repair");
         assert_eq!(
@@ -1850,7 +1881,15 @@ mod tests {
         let (repo, root) = crate::handlers::run::worktree::test_support::fixture();
         let worktree = super::prepare_run_worktree_in(true, true, &repo, Some(&root)).unwrap();
         let path = worktree.as_ref().unwrap().path.clone();
-        (repo, path, super::RunWorktreeGuard { worktree, silent })
+        (
+            repo,
+            path,
+            super::RunWorktreeGuard {
+                worktree,
+                silent,
+                docker: false,
+            },
+        )
     }
 
     #[test]
