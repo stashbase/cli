@@ -412,15 +412,18 @@ struct WorktreeRow {
     path: String,
 }
 
+/// Plain text on purpose: the table library counts ANSI color codes as
+/// visible characters, which throws the columns out of line.
 fn state_label(state: &WorktreeState) -> String {
     match state {
-        WorktreeState::Clean => "clean".to_owned(),
-        WorktreeState::Uncommitted => "uncommitted changes".yellow_if_tty(),
-        WorktreeState::NoWorktree => "branch only".to_owned(),
-        WorktreeState::Unsafe(_) => "UNSAFE".red_if_tty(),
-        WorktreeState::Running => "running".blue_if_tty(),
-        WorktreeState::Locked(_) => "locked".to_owned(),
+        WorktreeState::Clean => "clean",
+        WorktreeState::Uncommitted => "uncommitted changes",
+        WorktreeState::NoWorktree => "branch only",
+        WorktreeState::Unsafe(_) => "UNSAFE",
+        WorktreeState::Running => "running",
+        WorktreeState::Locked(_) => "locked",
     }
+    .to_owned()
 }
 
 fn display_path(checkout: &Checkout, path: &Option<PathBuf>) -> String {
@@ -463,6 +466,7 @@ pub fn handle_worktrees_list(raw_output: bool) -> Result<()> {
         })
         .collect();
     println!("{}", crate::utils::tables::build::build_table(&rows));
+    println!();
     for worktree in &worktrees {
         if let WorktreeState::Unsafe(reason) = &worktree.state {
             eprintln!(
