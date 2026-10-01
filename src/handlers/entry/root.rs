@@ -820,6 +820,12 @@ pub async fn handle_cli(args: Cli) {
                     if let Some(worktree) = agent_run.worktree {
                         profile.workspace.worktree = worktree;
                     }
+                    if agent_run.resume.is_some() {
+                        if agent_run.worktree == Some(false) {
+                            anyhow::bail!("--resume continues a worktree run; it can't be combined with --worktree=false");
+                        }
+                        profile.workspace.worktree = true;
+                    }
                     for path in &agent_run.docker_isolated_paths {
                         if !profile.sandbox.isolated_paths.contains(path) {
                             profile.sandbox.isolated_paths.push(path.clone());
@@ -1025,6 +1031,7 @@ pub async fn handle_cli(args: Cli) {
                         sandbox_memory: profile.sandbox.memory.clone(),
                         sandbox_cpus: profile.sandbox.cpus.clone(),
                         worktree: profile.workspace.worktree,
+                        worktree_resume: agent_run.resume.clone(),
                         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();

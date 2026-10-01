@@ -337,6 +337,12 @@ pub struct AgentRunCommand {
     )]
     pub worktree: Option<bool>,
 
+    /// Continue an earlier agent run in its worktree (by name, as shown by
+    /// `agent worktrees list`): reuses the worktree if it was kept, or
+    /// recreates it from its `stashbase/<name>` branch. Implies `--worktree`.
+    #[arg(long, value_name = "NAME")]
+    pub resume: Option<String>,
+
     /// Add to the profile's `[sandbox] isolated_paths` for this run only:
     /// a directory relative to the working directory (e.g. "node_modules")
     /// that gets its own per-repo volume inside the container.
@@ -716,6 +722,9 @@ mod tests {
         assert_eq!(parse(&["--worktree", "--", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=true", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=false", "claude"]).worktree, Some(false));
+        let resume = parse(&["--resume", "amber-river-storm", "claude"]);
+        assert_eq!(resume.resume.as_deref(), Some("amber-river-storm"));
+        assert_eq!(resume.command, vec!["claude".to_owned()]);
     }
 
     #[test]

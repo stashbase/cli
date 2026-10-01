@@ -285,6 +285,8 @@ stashbase agent worktrees merge amber-river-storm   # --squash, -m "message", --
 stashbase agent worktrees clean
 ```
 
+Continue an earlier run on its branch with `stashbase agent run --profile coding --resume amber-river-storm -- claude`.
+
 See **[docs/sandboxing.md](docs/sandboxing.md#worktrees)** for the protections, cleanup behavior and known gaps.
 
 ### Remote Agent Sessions

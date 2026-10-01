@@ -113,19 +113,31 @@ fn ensure_docker_images_available(
 }
 
 fn prepare_run_worktree_in(
-    enabled: bool,
+    request: Option<&super::worktree::WorktreeRequest>,
     silent: bool,
     cwd: &Path,
     worktrees_root: Option<&Path>,
 ) -> anyhow::Result<Option<super::worktree::RunWorktree>> {
-    if !enabled {
+    let Some(request) = request else {
         return Ok(None);
-    }
-    let worktree = super::worktree::create_named_run_worktree(cwd, worktrees_root)
-        .map_err(|error| anyhow::anyhow!("failed to create agent worktree: {error}"))?;
+    };
+    let worktree = match request {
+        super::worktree::WorktreeRequest::New => {
+            super::worktree::create_named_run_worktree(cwd, worktrees_root)
+                .map_err(|error| anyhow::anyhow!("failed to create agent worktree: {error}"))?
+        }
+        super::worktree::WorktreeRequest::Resume(name) => {
+            super::worktree::resume_run_worktree(cwd, name, worktrees_root)
+                .map_err(|error| anyhow::anyhow!("failed to resume agent worktree: {error}"))?
+        }
+    };
     if !silent {
+        let verb = match request {
+            super::worktree::WorktreeRequest::New => "Agent worktree",
+            super::worktree::WorktreeRequest::Resume(_) => "Resuming agent worktree",
+        };
         eprintln!(
-            "Agent worktree: {} (branch {})",
+            "{verb}: {} (branch {})",
             worktree.path.display(),
             worktree.branch
         );
@@ -139,11 +151,11 @@ fn prepare_run_worktree_in(
 }
 
 fn prepare_run_worktree(
-    enabled: bool,
+    request: Option<&super::worktree::WorktreeRequest>,
     silent: bool,
 ) -> anyhow::Result<Option<super::worktree::RunWorktree>> {
     let cwd = std::env::current_dir()?;
-    prepare_run_worktree_in(enabled, silent, &cwd, None)
+    prepare_run_worktree_in(request, silent, &cwd, None)
 }
 
 /// Owns a run's agent worktree, if any, and cleans it up exactly once when
@@ -203,12 +215,12 @@ impl Drop for RunWorktreeGuard {
 /// protections can't be computed the run is aborted, and the guard cleans
 /// the worktree up as it drops.
 fn prepare_native_run_worktree(
-    enabled: bool,
+    request: Option<&super::worktree::WorktreeRequest>,
     silent: bool,
     denied_write_paths: &mut Vec<String>,
 ) -> anyhow::Result<RunWorktreeGuard> {
     let guard = RunWorktreeGuard {
-        worktree: prepare_run_worktree(enabled, silent)?,
+        worktree: prepare_run_worktree(request, silent)?,
         silent,
         docker: false,
     };
@@ -225,9 +237,12 @@ fn prepare_native_run_worktree(
 /// policy: the container only ever sees the worktree and the git mounts
 /// from `RunWorktreeGuard::git_mounts` (see
 /// `docker_sandbox::append_git_mounts`), never the user's checkout.
-fn prepare_docker_run_worktree(enabled: bool, silent: bool) -> anyhow::Result<RunWorktreeGuard> {
+fn prepare_docker_run_worktree(
+    request: Option<&super::worktree::WorktreeRequest>,
+    silent: bool,
+) -> anyhow::Result<RunWorktreeGuard> {
     Ok(RunWorktreeGuard {
-        worktree: prepare_run_worktree(enabled, silent)?,
+        worktree: prepare_run_worktree(request, silent)?,
         silent,
         docker: true,
     })
@@ -310,7 +325,7 @@ pub async fn handle_remote_agent_run(
     let sandbox_memory = policy.sandbox_memory.clone();
     let sandbox_cpus = policy.sandbox_cpus.clone();
     let sandbox_isolated_paths = policy.sandbox_isolated_paths.clone();
-    let worktree_enabled = policy.worktree;
+    let worktree_request = policy.worktree_request();
     let command_audit_log = audit_log.clone();
     let mut setup_spinner: Option<spinoff::Spinner> = None;
     let run_worktree;
@@ -321,7 +336,7 @@ pub async fn handle_remote_agent_run(
         // same stream (see the same reasoning for the proxy-started
         // message below).
         let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
-        run_worktree = prepare_docker_run_worktree(worktree_enabled, silent)?;
+        run_worktree = prepare_docker_run_worktree(worktree_request.as_ref(), silent)?;
         setup_spinner = (!silent).then(|| {
             crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
         });
@@ -337,8 +352,11 @@ pub async fn handle_remote_agent_run(
             agent_image,
         )
     } else {
-        run_worktree =
-            prepare_native_run_worktree(worktree_enabled, silent, &mut denied_write_paths)?;
+        run_worktree = prepare_native_run_worktree(
+            worktree_request.as_ref(),
+            silent,
+            &mut denied_write_paths,
+        )?;
         (None, String::new())
     };
     let proxy_start_result = if let Some(network) = &docker_network {
@@ -1549,7 +1567,9 @@ async fn handle_run(
     let sandbox_cpus = proxy_policy
         .as_ref()
         .and_then(|policy| policy.sandbox_cpus.clone());
-    let worktree_enabled = proxy_policy.as_ref().is_some_and(|policy| policy.worktree);
+    let worktree_request = proxy_policy
+        .as_ref()
+        .and_then(super::proxy::ProxyPolicy::worktree_request);
     let sandbox_isolated_paths = proxy_policy
         .as_ref()
         .map(|policy| policy.sandbox_isolated_paths.clone())
@@ -1570,7 +1590,7 @@ async fn handle_run(
             // the same stream (see the same reasoning for the
             // proxy-started message below).
             let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
-            run_worktree = prepare_docker_run_worktree(worktree_enabled, silent)?;
+            run_worktree = prepare_docker_run_worktree(worktree_request.as_ref(), silent)?;
             setup_spinner = (!silent).then(|| {
                 crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
             });
@@ -1587,8 +1607,11 @@ async fn handle_run(
                 agent_image,
             )
         } else {
-            run_worktree =
-                prepare_native_run_worktree(worktree_enabled, silent, &mut denied_write_paths)?;
+            run_worktree = prepare_native_run_worktree(
+                worktree_request.as_ref(),
+                silent,
+                &mut denied_write_paths,
+            )?;
             (None, String::new())
         };
         let proxy_start_result = if let Some(network) = &docker_network {
@@ -1879,7 +1902,13 @@ mod tests {
         super::RunWorktreeGuard,
     ) {
         let (repo, root) = crate::handlers::run::worktree::test_support::fixture();
-        let worktree = super::prepare_run_worktree_in(true, true, &repo, Some(&root)).unwrap();
+        let worktree = super::prepare_run_worktree_in(
+            Some(&crate::handlers::run::worktree::WorktreeRequest::New),
+            true,
+            &repo,
+            Some(&root),
+        )
+        .unwrap();
         let path = worktree.as_ref().unwrap().path.clone();
         (
             repo,
@@ -1930,9 +1959,39 @@ mod tests {
     }
 
     #[test]
+    fn prepare_run_worktree_resumes_a_kept_worktree() {
+        use crate::handlers::run::worktree::{test_support, WorktreeOutcome, WorktreeRequest};
+        let (repo, root) = test_support::fixture();
+        let first =
+            super::prepare_run_worktree_in(Some(&WorktreeRequest::New), true, &repo, Some(&root))
+                .unwrap()
+                .unwrap();
+        std::fs::write(first.path.join("wip.txt"), "x").unwrap();
+        first.restore_pointers().unwrap();
+        assert_eq!(first.finish().unwrap(), WorktreeOutcome::Kept);
+        let name = first
+            .path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+
+        let resumed = super::prepare_run_worktree_in(
+            Some(&WorktreeRequest::Resume(name)),
+            true,
+            &repo,
+            Some(&root),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(resumed.path, first.path);
+        assert!(resumed.path.join("wip.txt").exists());
+    }
+
+    #[test]
     fn prepare_run_worktree_is_a_no_op_when_disabled() {
         assert!(
-            super::prepare_run_worktree_in(false, true, std::path::Path::new("/"), None)
+            super::prepare_run_worktree_in(None, true, std::path::Path::new("/"), None)
                 .unwrap()
                 .is_none()
         );
@@ -1941,9 +2000,14 @@ mod tests {
     #[test]
     fn prepare_run_worktree_creates_a_named_worktree_when_enabled() {
         let (repo, root) = crate::handlers::run::worktree::test_support::fixture();
-        let worktree = super::prepare_run_worktree_in(true, true, &repo, Some(&root))
-            .unwrap()
-            .expect("worktree created");
+        let worktree = super::prepare_run_worktree_in(
+            Some(&crate::handlers::run::worktree::WorktreeRequest::New),
+            true,
+            &repo,
+            Some(&root),
+        )
+        .unwrap()
+        .expect("worktree created");
         assert!(worktree
             .path
             .starts_with(crate::handlers::run::worktree::canonicalize(&root).unwrap()));

@@ -474,6 +474,9 @@ pub fn handle_worktrees_list(raw_output: bool) -> Result<()> {
     if let Some(branch) = &checkout.branch {
         println!("\"not merged\" counts commits that {branch} doesn't have yet.");
     }
+    println!(
+        "Continue one with `stashbase agent run --profile <profile> --resume <name> -- <agent>`."
+    );
     Ok(())
 }
 

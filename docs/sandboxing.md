@@ -232,6 +232,16 @@ With `worktree = true` in the profile, `--worktree=false` skips the worktree for
 - When the run ends, a clean worktree is removed and the branch is kept; a worktree with uncommitted changes is kept and its path printed. If the `stashbase` process is killed hard, remove the leftover with `git worktree remove .stashbase/worktrees/<name>`.
 - The worktree shares the repository's object store with your checkout, so it is fast and cheap on disk, but it is not a security boundary for repository *contents*: the agent can read every commit on every branch.
 
+### Continuing a run
+
+To pick up where an earlier run stopped — on the same branch, in the same worktree — pass its name (as shown by `stashbase agent worktrees list`) to `--resume`:
+
+```bash
+stashbase agent run --profile coding --resume amber-river-storm -- claude
+```
+
+If the worktree was kept (it had uncommitted changes) the agent continues in it, uncommitted work included; if it was removed, it's recreated from the `stashbase/amber-river-storm` branch. `--resume` implies `--worktree` and works with both backends. A worktree another run is still using, one you locked yourself, or one whose git pointer files don't check out (`UNSAFE`) is refused. This continues the agent's *workspace*, not its conversation — use the agent's own option for that too (e.g. `claude --continue`).
+
 ### Reviewing and merging agent work
 
 The agent can't merge into your branches itself — its branch is the only one it may change — so integrate its work from your own checkout:
