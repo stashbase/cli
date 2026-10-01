@@ -68,7 +68,12 @@ pub enum AgentWorktreesSubcommand {
 #[derive(Debug, Args)]
 pub struct AgentWorktreesRemoveCommand {
     /// Worktree name as shown by `list` (e.g. amber-river-storm), with or without the `stashbase/` prefix
-    pub name: String,
+    #[arg(required_unless_present = "all", conflicts_with = "all")]
+    pub name: Option<String>,
+
+    /// Remove every agent worktree and branch (running, locked and UNSAFE ones are skipped)
+    #[arg(long)]
+    pub all: bool,
 
     /// Remove only the worktree and keep the branch (e.g. to `--resume` it later)
     #[arg(long)]
@@ -739,6 +744,24 @@ mod tests {
         assert_eq!(parse(&["--worktree", "--", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=true", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=false", "claude"]).worktree, Some(false));
+        assert!(Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "worktrees",
+            "delete",
+            "--all",
+            "--yes"
+        ])
+        .is_ok());
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "worktrees", "remove"]).is_err(),
+            "a name or --all is required"
+        );
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "worktrees", "remove", "x", "--all"])
+                .is_err(),
+            "not both"
+        );
         for alias in ["remove", "delete"] {
             let parsed = Cli::try_parse_from([
                 "stashbase",

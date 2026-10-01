@@ -443,6 +443,25 @@ pub(crate) fn remove_named_agent_worktree(
     Ok(worktree)
 }
 
+/// What `remove --all` removes: every agent worktree (and branch, unless
+/// `keep_branch`) except ones a run is using, the user locked, or that
+/// look tampered with — those are never touched in bulk. With
+/// `keep_branch`, branches without a worktree have nothing to remove.
+pub(crate) fn remove_all_candidates(
+    worktrees: Vec<AgentWorktree>,
+    keep_branch: bool,
+) -> Vec<AgentWorktree> {
+    worktrees
+        .into_iter()
+        .filter(|worktree| {
+            matches!(
+                worktree.state,
+                WorktreeState::Clean | WorktreeState::Uncommitted | WorktreeState::NoWorktree
+            ) && !(keep_branch && worktree.path.is_none())
+        })
+        .collect()
+}
+
 /// What `clean` removes: without `all`, only agent work that is already in
 /// the checkout's branch and has no uncommitted changes. Worktrees a run is
 /// still using (or someone locked) are never candidates, even with `all`.
@@ -618,8 +637,11 @@ pub fn handle_worktrees_remove(
     silent: bool,
 ) -> Result<()> {
     let checkout = open_checkout(&std::env::current_dir()?)?;
+    let Some(name) = command.name.as_deref() else {
+        return remove_all(&checkout, &command, raw_output, silent);
+    };
     let worktrees = list_agent_worktrees(&checkout)?;
-    let worktree = find(&worktrees, &command.name)?;
+    let worktree = find(&worktrees, name)?;
     // Refuse running/locked/unsafe worktrees before asking anything.
     match &worktree.state {
         WorktreeState::Unsafe(_) | WorktreeState::Running | WorktreeState::Locked(_) => {
@@ -647,7 +669,7 @@ pub fn handle_worktrees_remove(
     if !discard {
         return Ok(());
     }
-    let removed = remove_named_agent_worktree(&checkout, &command.name, command.keep_branch, true)?;
+    let removed = remove_named_agent_worktree(&checkout, name, command.keep_branch, true)?;
     if raw_output {
         println!(
             "{}",
@@ -667,6 +689,109 @@ pub fn handle_worktrees_remove(
             );
         } else {
             println!("Removed {} (worktree and branch).", removed.name);
+        }
+    }
+    Ok(())
+}
+
+fn remove_all(
+    checkout: &Checkout,
+    command: &AgentWorktreesRemoveCommand,
+    raw_output: bool,
+    silent: bool,
+) -> Result<()> {
+    let worktrees = list_agent_worktrees(checkout)?;
+    let skipped: Vec<_> = worktrees
+        .iter()
+        .filter(|worktree| {
+            matches!(
+                worktree.state,
+                WorktreeState::Running | WorktreeState::Locked(_) | WorktreeState::Unsafe(_)
+            )
+        })
+        .map(|worktree| (worktree.name.clone(), state_label(&worktree.state)))
+        .collect();
+    let candidates = remove_all_candidates(worktrees, command.keep_branch);
+    if !silent && !raw_output {
+        for (name, state) in &skipped {
+            println!("Skipping {name} ({state}).");
+        }
+    }
+    if candidates.is_empty() {
+        if raw_output {
+            println!(
+                "{}",
+                get_formatted_json_string(&serde_json::json!({ "removed": [] }), true)?
+            );
+        } else if !silent {
+            println!("Nothing to remove.");
+        }
+        return Ok(());
+    }
+    if !silent && !raw_output {
+        let what = if command.keep_branch {
+            "worktrees (branches are kept)"
+        } else {
+            "worktrees and branches"
+        };
+        println!("Will remove these agent {what}:\n");
+        for worktree in &candidates {
+            let losses = removal_losses(worktree, command.keep_branch);
+            let detail = if losses.is_empty() {
+                "nothing unmerged".to_owned()
+            } else {
+                format!("{} will be lost", losses.join(" and "))
+            };
+            println!("  {} ({detail})", worktree.name);
+        }
+        println!();
+    }
+    let confirmed = if command.yes {
+        true
+    } else if silent || raw_output {
+        bail!(
+            "{} agent worktree(s) to remove; re-run with --yes to remove them",
+            candidates.len()
+        );
+    } else {
+        crate::utils::interaction::confirm_opt(&format!("Remove all {}?", candidates.len()))
+            .unwrap_or(false)
+    };
+    if !confirmed {
+        return Ok(());
+    }
+
+    let mut removed = Vec::new();
+    let mut failed = Vec::new();
+    for worktree in &candidates {
+        let discard = !removal_losses(worktree, command.keep_branch).is_empty();
+        match remove_agent_worktree_with(checkout, worktree, discard, command.keep_branch) {
+            Ok(()) => removed.push(worktree.name.clone()),
+            Err(error) => failed.push((worktree.name.clone(), error.to_string())),
+        }
+    }
+    if raw_output {
+        let failed: Vec<_> = failed
+            .iter()
+            .map(|(name, error)| serde_json::json!({ "name": name, "error": error }))
+            .collect();
+        println!(
+            "{}",
+            get_formatted_json_string(
+                &serde_json::json!({
+                    "removed": removed,
+                    "failed": failed,
+                    "branch_kept": command.keep_branch,
+                }),
+                true
+            )?
+        );
+    } else {
+        for (name, error) in &failed {
+            eprintln!("warning: {name}: {error}");
+        }
+        if !silent {
+            println!("Removed {} agent worktree(s).", removed.len());
         }
     }
     Ok(())
@@ -1118,6 +1243,55 @@ mod tests {
         let resumed =
             crate::handlers::run::worktree::resume_run_worktree(&repo, "park-it", None).unwrap();
         assert!(resumed.path.join("park-it-0.txt").exists());
+    }
+
+    #[test]
+    fn remove_all_takes_everything_except_running_and_locked_worktrees() {
+        let (repo, _) = fixture();
+        agent(&repo, "merged-run", 0);
+        let dirty = agent(&repo, "dirty-run", 1);
+        std::fs::write(dirty.join("wip"), "wip").unwrap();
+        let gone = agent(&repo, "branch-only", 1);
+        git(&repo, &["worktree", "remove", &gone.to_string_lossy()]);
+        let running = create_run_worktree(&repo, "live-run", None).unwrap();
+        let locked = agent(&repo, "user-locked", 0);
+        git(
+            &repo,
+            &[
+                "worktree",
+                "lock",
+                "--reason",
+                "mine",
+                &locked.to_string_lossy(),
+            ],
+        );
+        let checkout = checkout(&repo);
+        let names = |keep_branch: bool| {
+            let mut names: Vec<_> =
+                remove_all_candidates(list_agent_worktrees(&checkout).unwrap(), keep_branch)
+                    .into_iter()
+                    .map(|w| w.name)
+                    .collect();
+            names.sort();
+            names
+        };
+
+        assert_eq!(names(false), vec!["branch-only", "dirty-run", "merged-run"]);
+        // With --keep-branch a branch-only entry has nothing to remove.
+        assert_eq!(names(true), vec!["dirty-run", "merged-run"]);
+
+        for worktree in remove_all_candidates(list_agent_worktrees(&checkout).unwrap(), false) {
+            let discard = !removal_losses(&worktree, false).is_empty();
+            remove_agent_worktree_with(&checkout, &worktree, discard, false).unwrap();
+        }
+        let mut left: Vec<_> = list_agent_worktrees(&checkout)
+            .unwrap()
+            .into_iter()
+            .map(|w| w.name)
+            .collect();
+        left.sort();
+        assert_eq!(left, vec!["live-run", "user-locked"]);
+        assert!(running.path.exists());
     }
 
     #[test]
