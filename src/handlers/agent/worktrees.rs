@@ -455,7 +455,7 @@ pub fn handle_worktrees_list(raw_output: bool) -> Result<()> {
                 state_label(&worktree.state)
             },
             ahead: match worktree.ahead {
-                0 => "merged".to_owned(),
+                0 => "none".to_owned(),
                 1 => "1 commit".to_owned(),
                 n => format!("{n} commits"),
             },
