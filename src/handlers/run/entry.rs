@@ -270,7 +270,7 @@ fn finish_run_worktree(worktree: &super::worktree::RunWorktree, docker: bool, si
     match worktree.restore_foreign_refs() {
         Ok(changes) => {
             for change in changes {
-                eprintln!("warning: the agent changed a ref outside its branch; {change}");
+                eprintln!("warning: {change}");
             }
         }
         Err(error) => eprintln!("warning: failed to check refs after the run: {error}"),
@@ -1878,7 +1878,8 @@ mod tests {
         let wt = create_run_worktree(&repo, "ags_finish", Some(&root)).unwrap();
         let other_before = test_support::git(&repo, &["rev-parse", "other"]);
         test_support::git(&wt.path, &["commit", "-q", "--allow-empty", "-m", "agent"]);
-        test_support::git(&wt.path, &["update-ref", "refs/heads/other", "HEAD"]);
+        let rewritten = test_support::unrelated_commit(&wt.path);
+        test_support::git(&wt.path, &["update-ref", "refs/heads/other", &rewritten]);
         std::fs::write(wt.path.join(".git"), "gitdir: /nonexistent\n").unwrap();
 
         super::finish_run_worktree(&wt, false, true);

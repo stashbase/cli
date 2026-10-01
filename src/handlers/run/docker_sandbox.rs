@@ -3044,7 +3044,7 @@ mod tests {
              test -e '{checkout_file}' && exit 11; \
              echo evil >> '{config}' && exit 12; \
              mv '{hooks}' '{hooks}.bak' && exit 13; \
-             git update-ref refs/heads/other HEAD || exit 14; \
+             git update-ref refs/heads/other $(git commit-tree HEAD^{{tree}} -m evil) || exit 14; \
              printf '[core]\\n\\tfsmonitor = true\\n' > '{admin}/config.worktree' 2>/dev/null && exit 15; \
              echo 'gitdir: /evil' > .git || exit 16; \
              exit 0"

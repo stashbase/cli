@@ -663,29 +663,116 @@ impl RunWorktree {
         Ok(pointer || commondir || worktree_config)
     }
 
-    /// Puts every ref other than this run's own branch back where it was
-    /// before the run: moved/deleted refs are reset, refs the agent created
-    /// are deleted. Returns a human-readable line per change.
+    /// Undoes what the agent could have done to refs outside its own
+    /// branch, without undoing the user's own work: worktree runs exist so
+    /// the user can keep working in parallel, and an agent's ref changes
+    /// can't be told apart from the user's (both write the same refs and
+    /// reflogs). So only what can be undone without losing anything is:
+    ///
+    /// - deleted refs are restored (nothing is lost by recreating a ref);
+    /// - new commits on top of a ref (fast-forward) and newly created refs
+    ///   are kept — they replace nothing — and reported;
+    /// - a rewritten ref (amend, rebase, reset, …) is reset to its old
+    ///   value, with the command to redo it if it was the user, unless it's
+    ///   checked out in some worktree: resetting it there would leave that
+    ///   working tree out of step with its branch, so it's only reported,
+    ///   with the command to reset it.
+    ///
+    /// Returns one human-readable line per change.
     pub fn restore_foreign_refs(&self) -> Result<Vec<String>, String> {
         let now = snapshot_refs(&self.repo_root, &self.branch)?;
+        let checked_out = self.checked_out_branches()?;
+        let short = |sha: &str| sha[..sha.len().min(12)].to_owned();
         let mut changes = Vec::new();
         for (name, before) in &self.ref_snapshot {
-            if now.get(name) != Some(before) {
+            let Some(after) = now.get(name) else {
                 git(&self.repo_root, &["update-ref", name, before])?;
                 changes.push(format!(
-                    "restored {name} to {}",
-                    &before[..before.len().min(12)]
+                    "{name} was deleted during the run; restored it at {}",
+                    short(before)
+                ));
+                continue;
+            };
+            if after == before {
+                continue;
+            }
+            let fast_forward = git(
+                &self.repo_root,
+                &["merge-base", "--is-ancestor", before, after],
+            )
+            .is_ok();
+            if fast_forward {
+                changes.push(format!(
+                    "{name} got new commits during the run; kept them:\n{}",
+                    self.commit_summary(before, after)
+                ));
+            } else if checked_out.contains(name) {
+                changes.push(format!(
+                    "{name} (checked out) was rewritten during the run from {} to {}; left as is — if that wasn't you: git update-ref {name} {before}",
+                    short(before),
+                    short(after)
+                ));
+            } else {
+                git(&self.repo_root, &["update-ref", name, before])?;
+                changes.push(format!(
+                    "{name} was rewritten during the run; reset it to {} — if that was you: git update-ref {name} {after}",
+                    short(before)
                 ));
             }
         }
-        for name in now
-            .keys()
-            .filter(|name| !self.ref_snapshot.contains_key(*name))
+        for (name, after) in now
+            .iter()
+            .filter(|(name, _)| !self.ref_snapshot.contains_key(*name))
         {
-            git(&self.repo_root, &["update-ref", "-d", name])?;
-            changes.push(format!("removed {name} created during the run"));
+            changes.push(format!(
+                "{name} was created during the run (at {}); kept it",
+                short(after)
+            ));
         }
         Ok(changes)
+    }
+
+    /// Up to five `<sha> <subject> (<author>)` lines for `before..after`.
+    fn commit_summary(&self, before: &str, after: &str) -> String {
+        let range = format!("{before}..{after}");
+        let log = git(
+            &self.repo_root,
+            &["log", "--format=  %h %s (%an)", "--max-count=6", &range],
+        )
+        .unwrap_or_default();
+        let lines: Vec<&str> = log.lines().collect();
+        if lines.len() > 5 {
+            let total = git(&self.repo_root, &["rev-list", "--count", &range])
+                .unwrap_or_else(|_| "more".to_owned());
+            format!("{}\n  … {total} commits in total", lines[..5].join("\n"))
+        } else {
+            lines.join("\n")
+        }
+    }
+
+    /// `refs/heads/...` names checked out in any worktree other than this
+    /// run's own.
+    fn checked_out_branches(&self) -> Result<std::collections::BTreeSet<String>, String> {
+        let listing = git(&self.repo_root, &["worktree", "list", "--porcelain"])?;
+        let own = canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
+        let mut branches = std::collections::BTreeSet::new();
+        for block in listing.split("\n\n") {
+            let mut path = None;
+            let mut branch = None;
+            for line in block.lines() {
+                if let Some(rest) = line.strip_prefix("worktree ") {
+                    path = Some(PathBuf::from(rest));
+                } else if let Some(rest) = line.strip_prefix("branch ") {
+                    branch = Some(rest.to_owned());
+                }
+            }
+            if let (Some(path), Some(branch)) = (path, branch) {
+                if canonicalize(&path).unwrap_or(path) != own {
+                    branches.insert(branch);
+                }
+            }
+        }
+        Ok(branches)
     }
 
     /// Paths the native backend must deny writes to for this run: the git
@@ -832,11 +919,17 @@ pub(crate) mod test_support {
         let repo = super::canonicalize(repo).unwrap();
         (repo, base.join("worktrees"))
     }
+
+    /// A commit with `dir`'s tree but no parent: pointing an existing ref
+    /// at it is a rewrite, never a fast-forward.
+    pub(crate) fn unrelated_commit(dir: &Path) -> String {
+        git(dir, &["commit-tree", "HEAD^{tree}", "-m", "rewritten"])
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::{fixture, git};
+    use super::test_support::{fixture, git, unrelated_commit};
     use super::*;
 
     thread_local! {
@@ -1115,7 +1208,7 @@ mod tests {
     }
 
     #[test]
-    fn foreign_refs_are_restored_and_own_branch_is_not() {
+    fn rewritten_foreign_refs_are_reset_and_new_ones_kept() {
         let (repo, root) = fixture();
         let wt = create_run_worktree(&repo, "ags_g", Some(&root)).unwrap();
         let other_before = git(&repo, &["rev-parse", "other"]);
@@ -1123,14 +1216,82 @@ mod tests {
         git(&wt.path, &["add", "n"]);
         git(&wt.path, &["commit", "-qm", "agent"]);
         let agent_tip = git(&wt.path, &["rev-parse", "HEAD"]);
-        git(&wt.path, &["update-ref", "refs/heads/other", "HEAD"]);
+        let rewritten = unrelated_commit(&wt.path);
+        git(&wt.path, &["update-ref", "refs/heads/other", &rewritten]);
         git(&wt.path, &["branch", "brand-new"]);
         wt.restore_pointers().unwrap();
         let changed = wt.restore_foreign_refs().unwrap();
         assert_eq!(git(&repo, &["rev-parse", "other"]), other_before);
         assert_eq!(git(&repo, &["rev-parse", "stashbase/ags_g"]), agent_tip);
-        assert!(changed.iter().any(|c| c.contains("refs/heads/other")));
-        assert!(changed.iter().any(|c| c.contains("refs/heads/brand-new")));
+        assert!(changed.iter().any(|c| c.contains("refs/heads/other")
+            && c.contains(&format!("git update-ref refs/heads/other {rewritten}"))));
+        assert_eq!(
+            git(&repo, &["rev-parse", "brand-new"]),
+            agent_tip,
+            "new branch kept"
+        );
+        assert!(changed
+            .iter()
+            .any(|c| c.contains("refs/heads/brand-new") && c.contains("kept")));
+    }
+
+    #[test]
+    fn users_own_commits_during_a_run_are_kept() {
+        let (repo, root) = fixture();
+        let wt = create_run_worktree(&repo, "ags_parallel", Some(&root)).unwrap();
+        // The user keeps working: commits on the checked-out branch and on
+        // another one, while the agent works in its worktree.
+        git(
+            &repo,
+            &["commit", "-q", "--allow-empty", "-m", "user on main"],
+        );
+        git(&repo, &["switch", "-q", "other"]);
+        git(
+            &repo,
+            &["commit", "-q", "--allow-empty", "-m", "user on other"],
+        );
+        git(&repo, &["switch", "-q", "main"]);
+        let main_tip = git(&repo, &["rev-parse", "main"]);
+        let other_tip = git(&repo, &["rev-parse", "other"]);
+
+        wt.restore_pointers().unwrap();
+        let changes = wt.restore_foreign_refs().unwrap();
+
+        assert_eq!(git(&repo, &["rev-parse", "main"]), main_tip);
+        assert_eq!(git(&repo, &["rev-parse", "other"]), other_tip);
+        assert!(changes
+            .iter()
+            .any(|c| c.contains("refs/heads/main") && c.contains("user on main")));
+        assert!(
+            git(&repo, &["status", "--porcelain"]).is_empty(),
+            "checkout untouched"
+        );
+    }
+
+    #[test]
+    fn rewritten_checked_out_branch_is_left_with_a_warning() {
+        let (repo, root) = fixture();
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "to amend"]);
+        let before = git(&repo, &["rev-parse", "main"]);
+        let wt = create_run_worktree(&repo, "ags_amend", Some(&root)).unwrap();
+        git(
+            &repo,
+            &["commit", "-q", "--amend", "--allow-empty", "-m", "amended"],
+        );
+        let amended = git(&repo, &["rev-parse", "main"]);
+
+        wt.restore_pointers().unwrap();
+        let changes = wt.restore_foreign_refs().unwrap();
+
+        assert_eq!(
+            git(&repo, &["rev-parse", "main"]),
+            amended,
+            "user's amend kept"
+        );
+        assert!(git(&repo, &["status", "--porcelain"]).is_empty());
+        assert!(changes.iter().any(|c| c.contains("refs/heads/main")
+            && c.contains("left as is")
+            && c.contains(&format!("git update-ref refs/heads/main {before}"))));
     }
 
     #[test]
@@ -1187,7 +1348,8 @@ mod tests {
         // the agent moves it, then gc again for good measure — the layout
         // that lost every branch in the feasibility spike.
         git(&wt.path, &["pack-refs", "--all"]);
-        git(&wt.path, &["update-ref", "refs/heads/other", "HEAD"]);
+        let rewritten = unrelated_commit(&wt.path);
+        git(&wt.path, &["update-ref", "refs/heads/other", &rewritten]);
         git(&wt.path, &["gc", "-q"]);
         wt.restore_pointers().unwrap();
         let changes = wt.restore_foreign_refs().unwrap();
@@ -1202,20 +1364,20 @@ mod tests {
     }
 
     #[test]
-    fn tags_moved_or_created_during_the_run_are_restored() {
+    fn moved_tags_are_reset_and_new_tags_kept() {
         let (repo, root) = fixture();
         git(&repo, &["tag", "v1"]);
         let v1_before = git(&repo, &["rev-parse", "v1"]);
         let wt = create_run_worktree(&repo, "ags_tag", Some(&root)).unwrap();
-        git(&wt.path, &["commit", "-q", "--allow-empty", "-m", "agent"]);
-        git(&wt.path, &["tag", "-f", "v1"]);
+        let rewritten = unrelated_commit(&wt.path);
+        git(&wt.path, &["tag", "-f", "v1", &rewritten]);
         git(&wt.path, &["tag", "v2"]);
         wt.restore_pointers().unwrap();
         wt.restore_foreign_refs().unwrap();
         assert_eq!(git(&repo, &["rev-parse", "v1"]), v1_before);
         assert!(
-            git(&repo, &["tag", "--list", "v2"]).is_empty(),
-            "agent-created tag removed"
+            !git(&repo, &["tag", "--list", "v2"]).is_empty(),
+            "new tag kept"
         );
     }
 
