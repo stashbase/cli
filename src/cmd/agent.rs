@@ -60,6 +60,23 @@ pub enum AgentWorktreesSubcommand {
     Merge(AgentWorktreesMergeCommand),
     /// Remove agent worktrees and branches whose work is already merged
     Clean(AgentWorktreesCleanCommand),
+    /// Remove one agent's worktree and branch, discarding its work (asks first if anything unmerged would be lost)
+    #[command(visible_alias = "delete")]
+    Remove(AgentWorktreesRemoveCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesRemoveCommand {
+    /// Worktree name as shown by `list` (e.g. amber-river-storm), with or without the `stashbase/` prefix
+    pub name: String,
+
+    /// Remove only the worktree and keep the branch (e.g. to `--resume` it later)
+    #[arg(long)]
+    pub keep_branch: bool,
+
+    /// Remove without prompting, even if unmerged commits or uncommitted changes are lost
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Args)]
@@ -722,6 +739,17 @@ mod tests {
         assert_eq!(parse(&["--worktree", "--", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=true", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=false", "claude"]).worktree, Some(false));
+        for alias in ["remove", "delete"] {
+            let parsed = Cli::try_parse_from([
+                "stashbase",
+                "agent",
+                "worktrees",
+                alias,
+                "amber-river-storm",
+                "--keep-branch",
+            ]);
+            assert!(parsed.is_ok(), "`agent worktrees {alias}` parses");
+        }
         let resume = parse(&["--resume", "amber-river-storm", "claude"]);
         assert_eq!(resume.resume.as_deref(), Some("amber-river-storm"));
         assert_eq!(resume.command, vec!["claude".to_owned()]);

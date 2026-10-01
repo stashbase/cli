@@ -13,7 +13,9 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use tabled::Tabled;
 
-use crate::cmd::agent::{AgentWorktreesCleanCommand, AgentWorktreesMergeCommand};
+use crate::cmd::agent::{
+    AgentWorktreesCleanCommand, AgentWorktreesMergeCommand, AgentWorktreesRemoveCommand,
+};
 use crate::handlers::run::worktree::{
     canonicalize, classify_lock, git, verify_agent_worktree, RunLock, BRANCH_PREFIX,
 };
@@ -215,6 +217,17 @@ pub(crate) fn remove_agent_worktree(
     worktree: &AgentWorktree,
     force: bool,
 ) -> Result<()> {
+    remove_agent_worktree_with(checkout, worktree, force, false)
+}
+
+/// `remove_agent_worktree`, optionally keeping the branch (only the
+/// worktree goes, e.g. to `--resume` it later).
+fn remove_agent_worktree_with(
+    checkout: &Checkout,
+    worktree: &AgentWorktree,
+    force: bool,
+    keep_branch: bool,
+) -> Result<()> {
     match &worktree.state {
         WorktreeState::Unsafe(reason) => bail!(
             "skipping {}: {reason}; inspect it by hand before running git there",
@@ -253,6 +266,9 @@ pub(crate) fn remove_agent_worktree(
         ) {
             eprintln!("warning: failed to remove isolated path volume {error}");
         }
+    }
+    if keep_branch {
+        return Ok(());
     }
     let delete = if force || worktree.ahead == 0 {
         "-D"
@@ -379,6 +395,52 @@ pub(crate) fn merge_agent_worktree(
         into,
         kept_running: running,
     })
+}
+
+/// What removing `worktree` would irrecoverably lose, for the
+/// confirmation prompt; empty when nothing is lost (its work is merged, or
+/// only the worktree goes and it has no uncommitted changes).
+pub(crate) fn removal_losses(worktree: &AgentWorktree, keep_branch: bool) -> Vec<String> {
+    let mut losses = Vec::new();
+    if worktree.state == WorktreeState::Uncommitted {
+        losses.push("uncommitted changes".to_owned());
+    }
+    if !keep_branch && worktree.ahead > 0 {
+        losses.push(match worktree.ahead {
+            1 => "1 unmerged commit".to_owned(),
+            n => format!("{n} unmerged commits"),
+        });
+    }
+    losses
+}
+
+/// Removes one agent's worktree and (unless `keep_branch`) its branch.
+/// `discard` must be true to lose anything `removal_losses` reports.
+pub(crate) fn remove_named_agent_worktree(
+    checkout: &Checkout,
+    name: &str,
+    keep_branch: bool,
+    discard: bool,
+) -> Result<AgentWorktree> {
+    let worktrees = list_agent_worktrees(checkout)?;
+    let worktree = find(&worktrees, name)?.clone();
+    if keep_branch && worktree.path.is_none() {
+        bail!(
+            "{} has no worktree to remove (only its branch, {}, is left)",
+            worktree.name,
+            worktree.branch
+        );
+    }
+    let losses = removal_losses(&worktree, keep_branch);
+    if !losses.is_empty() && !discard {
+        bail!(
+            "removing {} would lose its {}; confirm to discard them",
+            worktree.name,
+            losses.join(" and ")
+        );
+    }
+    remove_agent_worktree_with(checkout, &worktree, !losses.is_empty(), keep_branch)?;
+    Ok(worktree)
 }
 
 /// What `clean` removes: without `all`, only agent work that is already in
@@ -545,6 +607,66 @@ pub fn handle_worktrees_merge(
             );
         } else if !command.keep {
             println!("Removed the agent's worktree and branch.");
+        }
+    }
+    Ok(())
+}
+
+pub fn handle_worktrees_remove(
+    command: AgentWorktreesRemoveCommand,
+    raw_output: bool,
+    silent: bool,
+) -> Result<()> {
+    let checkout = open_checkout(&std::env::current_dir()?)?;
+    let worktrees = list_agent_worktrees(&checkout)?;
+    let worktree = find(&worktrees, &command.name)?;
+    // Refuse running/locked/unsafe worktrees before asking anything.
+    match &worktree.state {
+        WorktreeState::Unsafe(_) | WorktreeState::Running | WorktreeState::Locked(_) => {
+            return remove_agent_worktree(&checkout, worktree, false);
+        }
+        _ => {}
+    }
+    let losses = removal_losses(worktree, command.keep_branch);
+    let discard = if losses.is_empty() || command.yes {
+        true
+    } else if silent || raw_output {
+        bail!(
+            "removing {} would lose its {}; re-run with --yes to discard them",
+            worktree.name,
+            losses.join(" and ")
+        );
+    } else {
+        crate::utils::interaction::confirm_opt(&format!(
+            "{} has {} that will be lost. Remove it?",
+            worktree.name,
+            losses.join(" and ")
+        ))
+        .unwrap_or(false)
+    };
+    if !discard {
+        return Ok(());
+    }
+    let removed = remove_named_agent_worktree(&checkout, &command.name, command.keep_branch, true)?;
+    if raw_output {
+        println!(
+            "{}",
+            get_formatted_json_string(
+                &serde_json::json!({
+                    "removed": removed.name,
+                    "branch_kept": command.keep_branch,
+                }),
+                true,
+            )?
+        );
+    } else if !silent {
+        if command.keep_branch {
+            println!(
+                "Removed the worktree of {}; its branch {} is kept.",
+                removed.name, removed.branch
+            );
+        } else {
+            println!("Removed {} (worktree and branch).", removed.name);
         }
     }
     Ok(())
@@ -937,6 +1059,75 @@ mod tests {
             WorktreeState::Locked("on a USB drive".to_owned())
         );
         assert!(clean_candidates(list, true).is_empty());
+    }
+
+    #[test]
+    fn remove_discards_unmerged_work_only_when_confirmed() {
+        let (repo, _) = fixture();
+        let path = agent(&repo, "wrong-turn", 2);
+        std::fs::write(path.join("wip"), "wip").unwrap();
+        let checkout = checkout(&repo);
+
+        let list = list_agent_worktrees(&checkout).unwrap();
+        assert_eq!(
+            removal_losses(&list[0], false),
+            vec![
+                "uncommitted changes".to_owned(),
+                "2 unmerged commits".to_owned()
+            ]
+        );
+        let error = remove_named_agent_worktree(&checkout, "wrong-turn", false, false).unwrap_err();
+        assert!(error.to_string().contains("would lose"), "{error}");
+        assert!(path.exists(), "nothing removed without confirmation");
+
+        remove_named_agent_worktree(&checkout, "stashbase/wrong-turn", false, true).unwrap();
+        assert!(!path.exists());
+        assert!(git(&repo, &["branch", "--list", "stashbase/wrong-turn"]).is_empty());
+    }
+
+    #[test]
+    fn remove_of_merged_work_needs_no_confirmation() {
+        let (repo, _) = fixture();
+        let path = agent(&repo, "already-in", 0);
+        let checkout = checkout(&repo);
+        assert!(removal_losses(&list_agent_worktrees(&checkout).unwrap()[0], false).is_empty());
+        remove_named_agent_worktree(&checkout, "already-in", false, false).unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn remove_keep_branch_removes_only_the_worktree_and_can_be_resumed() {
+        let (repo, _) = fixture();
+        let path = agent(&repo, "park-it", 1);
+        let checkout = checkout(&repo);
+        // Committed work stays on the branch, so nothing is lost.
+        assert!(removal_losses(&list_agent_worktrees(&checkout).unwrap()[0], true).is_empty());
+        remove_named_agent_worktree(&checkout, "park-it", true, false).unwrap();
+        assert!(!path.exists());
+        assert_eq!(
+            git(&repo, &["log", "-1", "--format=%s", "stashbase/park-it"]),
+            "park-it commit 0"
+        );
+
+        let error = remove_named_agent_worktree(&checkout, "park-it", true, true).unwrap_err();
+        assert!(
+            error.to_string().contains("no worktree to remove"),
+            "{error}"
+        );
+
+        let resumed =
+            crate::handlers::run::worktree::resume_run_worktree(&repo, "park-it", None).unwrap();
+        assert!(resumed.path.join("park-it-0.txt").exists());
+    }
+
+    #[test]
+    fn remove_refuses_a_running_worktree() {
+        let (repo, _) = fixture();
+        let wt = create_run_worktree(&repo, "busy-agent", None).unwrap();
+        let error =
+            remove_named_agent_worktree(&checkout(&repo), "busy-agent", false, true).unwrap_err();
+        assert!(error.to_string().contains("still working in it"), "{error}");
+        assert!(wt.path.exists());
     }
 
     #[test]

@@ -617,6 +617,11 @@ pub async fn handle_cli(args: Cli) {
                             command, raw_output, silent,
                         )
                     }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Remove(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_remove(
+                            command, raw_output, silent,
+                        )
+                    }
                 },
                 AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
                     crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {

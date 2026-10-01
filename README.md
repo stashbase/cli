@@ -283,6 +283,7 @@ Each run gets a readable name such as `amber-river-storm`: the worktree lives in
 stashbase agent worktrees list
 stashbase agent worktrees merge amber-river-storm   # --squash, -m "message", --keep
 stashbase agent worktrees clean
+stashbase agent worktrees remove amber-river-storm  # discard one agent's work; --keep-branch
 ```
 
 Continue an earlier run on its branch with `stashbase agent run --profile coding --resume amber-river-storm -- claude`.
