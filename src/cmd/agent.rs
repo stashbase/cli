@@ -60,8 +60,8 @@ pub enum AgentWorktreesSubcommand {
     Merge(AgentWorktreesMergeCommand),
     /// Remove agent worktrees and branches whose work is already merged
     Clean(AgentWorktreesCleanCommand),
-    /// Remove one agent's worktree and branch, discarding its work (asks first if anything unmerged would be lost)
-    #[command(visible_alias = "delete")]
+    /// Remove one agent's worktree and branch, discarding its work
+    #[command(alias = "delete")]
     Remove(AgentWorktreesRemoveCommand),
 }
 
