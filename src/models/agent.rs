@@ -117,7 +117,7 @@ impl SandboxBackend {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentWorkspaceProfile {
-    /// Native backend only (for now): run the agent inside a fresh git
+    /// Run the agent inside a fresh git
     /// worktree on its own `stashbase/<name>` branch instead of the
     /// current checkout. See `handlers::run::worktree`.
     #[serde(default)]

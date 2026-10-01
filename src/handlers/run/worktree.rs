@@ -2,9 +2,11 @@
 //! worktree, and after the (sandboxed) run, undo anything the agent could
 //! have done to the shared git dir that would bite the host later.
 //!
-//! Native backend only for now. The agent can write the repo's common git
-//! dir (it must, to commit), so `native_protected_paths` adds the files
-//! host git executes or acts on to the run's deny-list. Two pointer files
+//! The agent can write the repo's common git dir (it must, to commit), so
+//! the files host git executes or acts on are kept out of its reach: the
+//! native backend adds `native_protected_paths` to the run's deny-list, the
+//! Docker backend mounts them read-only (`docker_sandbox::append_git_mounts`)
+//! and never mounts the user's checkout at all. Two pointer files
 //! must stay writable for git to work at all: the worktree's own `.git`
 //! file and its admin dir's `commondir`. Either can be redirected to an
 //! attacker-controlled git dir whose config runs code (`core.fsmonitor`)
@@ -34,6 +36,13 @@ pub(crate) struct RunWorktree {
     /// The caller's checkout had uncommitted changes, which the worktree
     /// (created from `HEAD`) does not carry over.
     pub source_was_dirty: bool,
+}
+
+/// A run's worktree: a fresh one, or an earlier run's to continue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WorktreeRequest {
+    New,
+    Resume(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -250,12 +259,16 @@ pub(crate) fn verify_agent_worktree(path: &Path, common_dir: &Path) -> Result<()
         ));
     }
 
+    // An empty regular file is the placeholder each run puts there (see
+    // `WORKTREE_CONFIG_PLACEHOLDER`); anything else was written by an agent.
     let worktree_config = admin_dir.join("config.worktree");
-    if std::fs::symlink_metadata(&worktree_config).is_ok() {
-        return Err(format!(
-            "{} was written during a run",
-            worktree_config.display()
-        ));
+    if let Ok(meta) = std::fs::symlink_metadata(&worktree_config) {
+        if !(meta.is_file() && meta.len() == 0) {
+            return Err(format!(
+                "{} was written during a run",
+                worktree_config.display()
+            ));
+        }
     }
     Ok(())
 }
@@ -298,12 +311,17 @@ fn snapshot_refs(repo_root: &Path, own_branch: &str) -> Result<BTreeMap<String, 
     .collect())
 }
 
-/// `worktrees_root` of `None` means `<repo root>/REPO_WORKTREES_DIR`.
-pub(crate) fn create_run_worktree(
-    cwd: &Path,
-    name: &str,
-    worktrees_root: Option<&Path>,
-) -> Result<RunWorktree, String> {
+/// The repository a run starts from, resolved from the caller's cwd.
+struct RepoContext {
+    repo_root: PathBuf,
+    common_dir: PathBuf,
+    /// The caller's cwd relative to the repo root, so the agent starts in
+    /// the same subdirectory of its worktree.
+    relative: PathBuf,
+    worktrees_root: PathBuf,
+}
+
+fn open_repo(cwd: &Path, worktrees_root: Option<&Path>) -> Result<RepoContext, String> {
     let repo_root = git(cwd, &["rev-parse", "--show-toplevel"]).map_err(|_| {
         format!(
             "--worktree: {} is not inside a git repository",
@@ -323,95 +341,266 @@ pub(crate) fn create_run_worktree(
         .strip_prefix(&repo_root)
         .unwrap_or(Path::new(""))
         .to_path_buf();
-    if git(&repo_root, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_err() {
-        return Err(format!(
-            "--worktree: {} has no commits yet; the agent worktree is created from HEAD",
-            repo_root.display()
-        ));
-    }
     let worktrees_root = worktrees_root
         .map(Path::to_path_buf)
         .unwrap_or_else(|| repo_root.join(REPO_WORKTREES_DIR));
-    // Before the dirty check, so worktrees from earlier runs don't count
-    // as uncommitted changes.
+    // Before any dirty check, so worktrees from earlier runs don't count as
+    // uncommitted changes.
     if let Ok(inside) = worktrees_root.strip_prefix(&repo_root) {
         ensure_excluded(&common_dir, inside)?;
     }
-    let source_was_dirty = !git(&repo_root, &["status", "--porcelain"])?.is_empty();
+    Ok(RepoContext {
+        repo_root,
+        common_dir,
+        relative,
+        worktrees_root,
+    })
+}
 
-    let branch = format!("{BRANCH_PREFIX}{name}");
-    std::fs::create_dir_all(&worktrees_root)
-        .map_err(|error| format!("failed to create {}: {error}", worktrees_root.display()))?;
-    let path = worktrees_root.join(name);
+/// The steps shared by a new and a resumed run once the worktree exists:
+/// lock it for this run and capture what the post-run restore needs.
+fn attach_run_worktree(
+    repo: &RepoContext,
+    path: &Path,
+    branch: &str,
+    source_was_dirty: bool,
+) -> Result<RunWorktree, String> {
+    #[cfg(test)]
+    if tests::FAIL_AFTER_ADD.with(std::cell::Cell::get) {
+        return Err("injected failure after `git worktree add`".to_owned());
+    }
     let path_str = path.to_string_lossy().into_owned();
     git(
-        &repo_root,
+        &repo.repo_root,
+        &["worktree", "lock", "--reason", &lock_reason(), &path_str],
+    )?;
+    let path = canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+
+    // `git worktree add` names the admin dir after the path's basename,
+    // uniquified with a numeric suffix on collision — read it back from
+    // the pointer file rather than assuming.
+    let pointer_file = std::fs::read_to_string(path.join(".git"))
+        .map_err(|error| format!("failed to read the worktree's .git file: {error}"))?;
+    let admin_dir = PathBuf::from(
+        pointer_file
+            .trim()
+            .strip_prefix("gitdir: ")
+            .ok_or_else(|| "unexpected worktree .git file format".to_owned())?,
+    );
+    // Git writes this with forward slashes on Windows; resolve it so it
+    // compares equal to the other (native) paths. `pointer_file` keeps
+    // the exact bytes for `restore_pointers`.
+    let admin_dir = canonicalize(&admin_dir).unwrap_or(admin_dir);
+    ensure_worktree_config_placeholder(&admin_dir)?;
+    let commondir_file = std::fs::read_to_string(admin_dir.join("commondir"))
+        .map_err(|error| format!("failed to read the worktree's commondir: {error}"))?;
+    let ref_snapshot = snapshot_refs(&repo.repo_root, branch)?;
+
+    Ok(RunWorktree {
+        workdir: path.join(&repo.relative),
+        repo_root: repo.repo_root.clone(),
+        common_dir: repo.common_dir.clone(),
+        path,
+        admin_dir,
+        branch: branch.to_owned(),
+        pointer_file,
+        commondir_file,
+        ref_snapshot,
+        source_was_dirty,
+    })
+}
+
+/// `worktrees_root` of `None` means `<repo root>/REPO_WORKTREES_DIR`.
+pub(crate) fn create_run_worktree(
+    cwd: &Path,
+    name: &str,
+    worktrees_root: Option<&Path>,
+) -> Result<RunWorktree, String> {
+    let repo = open_repo(cwd, worktrees_root)?;
+    if git(
+        &repo.repo_root,
+        &["rev-parse", "--verify", "--quiet", "HEAD"],
+    )
+    .is_err()
+    {
+        return Err(format!(
+            "--worktree: {} has no commits yet; the agent worktree is created from HEAD",
+            repo.repo_root.display()
+        ));
+    }
+    let source_was_dirty = !git(&repo.repo_root, &["status", "--porcelain"])?.is_empty();
+
+    let branch = format!("{BRANCH_PREFIX}{name}");
+    std::fs::create_dir_all(&repo.worktrees_root).map_err(|error| {
+        format!(
+            "failed to create {}: {error}",
+            repo.worktrees_root.display()
+        )
+    })?;
+    let path = repo.worktrees_root.join(name);
+    let path_str = path.to_string_lossy().into_owned();
+    git(
+        &repo.repo_root,
         &["worktree", "add", "-q", "-b", &branch, &path_str, "HEAD"],
     )?;
 
     // From here on the worktree and branch exist, but the caller only gets
     // a `RunWorktree` (and with it cleanup) if every remaining step works —
     // so undo them here on failure rather than leave a locked orphan.
-    let finish_setup = || -> Result<RunWorktree, String> {
-        #[cfg(test)]
-        if tests::FAIL_AFTER_ADD.with(std::cell::Cell::get) {
-            return Err("injected failure after `git worktree add`".to_owned());
+    attach_run_worktree(&repo, &path, &branch, source_was_dirty).map_err(|error| {
+        match rollback_worktree(&repo.repo_root, &path_str, Some(&branch)) {
+            Ok(()) => error,
+            Err(rollback) => format!(
+                "{error} (and removing the half-created worktree failed: {rollback}; remove {path_str} and branch {branch} by hand)"
+            ),
         }
-        git(
-            &repo_root,
-            &["worktree", "lock", "--reason", &lock_reason(), &path_str],
-        )?;
-        let path = canonicalize(&path).unwrap_or_else(|_| path.clone());
+    })
+}
 
-        // `git worktree add` names the admin dir after the path's basename,
-        // uniquified with a numeric suffix on collision — read it back from
-        // the pointer file rather than assuming.
-        let pointer_file = std::fs::read_to_string(path.join(".git"))
-            .map_err(|error| format!("failed to read the worktree's .git file: {error}"))?;
-        let admin_dir = PathBuf::from(
-            pointer_file
-                .trim()
-                .strip_prefix("gitdir: ")
-                .ok_or_else(|| "unexpected worktree .git file format".to_owned())?,
-        );
-        // Git writes this with forward slashes on Windows; resolve it so it
-        // compares equal to the other (native) paths. `pointer_file` keeps
-        // the exact bytes for `restore_pointers`.
-        let admin_dir = canonicalize(&admin_dir).unwrap_or(admin_dir);
-        let commondir_file = std::fs::read_to_string(admin_dir.join("commondir"))
-            .map_err(|error| format!("failed to read the worktree's commondir: {error}"))?;
-        let ref_snapshot = snapshot_refs(&repo_root, &branch)?;
+/// What git has registered for one worktree, from `git worktree list
+/// --porcelain`.
+#[derive(Debug)]
+struct RegisteredWorktree {
+    branch: Option<String>,
+    /// `Some("")` when locked without a reason.
+    lock: Option<String>,
+}
 
-        Ok(RunWorktree {
-            workdir: path.join(&relative),
-            repo_root: repo_root.clone(),
-            common_dir: common_dir.clone(),
-            path,
-            admin_dir,
-            branch: branch.clone(),
-            pointer_file,
-            commondir_file,
-            ref_snapshot,
-            source_was_dirty,
-        })
-    };
-    finish_setup().map_err(|error| match rollback_worktree(&repo_root, &path_str, &branch) {
-        Ok(()) => error,
-        Err(rollback) => format!(
-            "{error} (and removing the half-created worktree failed: {rollback}; remove {path_str} and branch {branch} by hand)"
-        ),
+/// The worktree git has registered at `path`, if any.
+fn registered_worktree(
+    repo_root: &Path,
+    path: &Path,
+) -> Result<Option<RegisteredWorktree>, String> {
+    let listing = git(repo_root, &["worktree", "list", "--porcelain"])?;
+    let wanted = canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    for block in listing.split("\n\n") {
+        let mut found = false;
+        let mut branch = None;
+        let mut lock = None;
+        for line in block.lines() {
+            if let Some(rest) = line.strip_prefix("worktree ") {
+                let listed = Path::new(rest);
+                found = canonicalize(listed).unwrap_or_else(|_| listed.to_path_buf()) == wanted;
+            } else if let Some(rest) = line.strip_prefix("branch refs/heads/") {
+                branch = Some(rest.to_owned());
+            } else if line == "locked" {
+                lock = Some(String::new());
+            } else if let Some(reason) = line.strip_prefix("locked ") {
+                lock = Some(reason.to_owned());
+            }
+        }
+        if found {
+            return Ok(Some(RegisteredWorktree { branch, lock }));
+        }
+    }
+    Ok(None)
+}
+
+/// Continues an earlier run on its `stashbase/<name>` branch: reuses the
+/// worktree if it was kept, or recreates it from the branch if it was
+/// removed. A kept worktree was written by an earlier agent and may be a
+/// leftover from a killed run, so it is only reused if its pointer files
+/// pass `verify_agent_worktree`, and never while another run holds it.
+/// On failure the agent's work is never touched: a reused worktree is just
+/// unlocked again, and a recreated one is removed but its branch kept.
+pub(crate) fn resume_run_worktree(
+    cwd: &Path,
+    name: &str,
+    worktrees_root: Option<&Path>,
+) -> Result<RunWorktree, String> {
+    let name = name.trim_start_matches(BRANCH_PREFIX);
+    let repo = open_repo(cwd, worktrees_root)?;
+    let branch = format!("{BRANCH_PREFIX}{name}");
+    let path = repo.worktrees_root.join(name);
+    let path_str = path.to_string_lossy().into_owned();
+
+    if path.exists() {
+        verify_agent_worktree(&path, &repo.common_dir).map_err(|reason| {
+            format!("refusing to resume {name}: {reason}; inspect {path_str} by hand first")
+        })?;
+        let registered = registered_worktree(&repo.repo_root, &path)?
+            .ok_or_else(|| format!("{path_str} is not a git worktree of this repository"))?;
+        if registered.branch.as_deref() != Some(branch.as_str()) {
+            return Err(format!(
+                "{path_str} is on {}, not {branch}",
+                registered.branch.as_deref().unwrap_or("a detached HEAD")
+            ));
+        }
+        match registered.lock.as_deref().map(classify_lock) {
+            Some(RunLock::Running) => {
+                return Err(format!("{name} is in use by a running agent"));
+            }
+            Some(RunLock::Other(reason)) => {
+                return Err(format!(
+                    "{name} is locked ({}); unlock it with `git worktree unlock` first",
+                    if reason.is_empty() {
+                        "no reason given"
+                    } else {
+                        &reason
+                    }
+                ));
+            }
+            Some(RunLock::Stale) => {
+                git(&repo.repo_root, &["worktree", "unlock", &path_str])?;
+            }
+            None => {}
+        }
+        return attach_run_worktree(&repo, &path, &branch, false).inspect_err(|_| {
+            let _ = git(&repo.repo_root, &["worktree", "unlock", &path_str]);
+        });
+    }
+
+    if git(
+        &repo.repo_root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .is_err()
+    {
+        return Err(format!(
+            "no agent worktree or branch named '{name}'; see `stashbase agent worktrees list`"
+        ));
+    }
+    // Forget the record of a worktree dir that was deleted by hand, which
+    // would otherwise keep `git worktree add` from reusing the path.
+    git(&repo.repo_root, &["worktree", "prune"])?;
+    std::fs::create_dir_all(&repo.worktrees_root).map_err(|error| {
+        format!(
+            "failed to create {}: {error}",
+            repo.worktrees_root.display()
+        )
+    })?;
+    git(
+        &repo.repo_root,
+        &["worktree", "add", "-q", &path_str, &branch],
+    )?;
+    attach_run_worktree(&repo, &path, &branch, false).map_err(|error| {
+        match rollback_worktree(&repo.repo_root, &path_str, None) {
+            Ok(()) => error,
+            Err(rollback) => format!(
+                "{error} (and removing the recreated worktree failed: {rollback}; remove {path_str} by hand)"
+            ),
+        }
     })
 }
 
 /// Undoes a `git worktree add` whose setup didn't complete. Runs git only
 /// from the repo root — the agent never ran in the new worktree. `--force`
 /// twice also removes it if it was already locked.
-fn rollback_worktree(repo_root: &Path, path: &str, branch: &str) -> Result<(), String> {
+/// `branch` is deleted too when given — only for a branch this setup just
+/// created, never an existing agent branch being resumed.
+fn rollback_worktree(repo_root: &Path, path: &str, branch: Option<&str>) -> Result<(), String> {
     git(
         repo_root,
         &["worktree", "remove", "--force", "--force", path],
     )?;
-    git(repo_root, &["branch", "-D", branch])?;
+    if let Some(branch) = branch {
+        git(repo_root, &["branch", "-D", branch])?;
+    }
     Ok(())
 }
 
@@ -434,57 +623,156 @@ fn restore_file(file: &Path, expected: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Removes `path` whatever it is (file, symlink or directory). Returns
-/// whether anything was there.
-fn remove_any(path: &Path) -> Result<bool, String> {
-    let removed = match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
-        Ok(_) => std::fs::remove_file(path),
-        Err(_) => return Ok(false),
-    };
-    removed.map_err(|error| format!("failed to remove {}: {error}", path.display()))?;
-    Ok(true)
+/// `config.worktree` in a worktree's admin dir is git config for that
+/// worktree alone, read whenever the repo sets `extensions.worktreeConfig`
+/// — by the agent's git, but also by any host git that touches the
+/// worktree *during* the run, such as the user's IDE showing the worktree.
+/// So each run puts an empty placeholder there and keeps the agent from
+/// writing it: the Docker backend mounts it read-only, the native backend
+/// denies writes to it (`native_protected_paths`). An empty file sets
+/// nothing, and `verify_agent_worktree` accepts exactly that.
+const WORKTREE_CONFIG_PLACEHOLDER: &str = "";
+
+fn ensure_worktree_config_placeholder(admin_dir: &Path) -> Result<(), String> {
+    let path = admin_dir.join("config.worktree");
+    if std::fs::symlink_metadata(&path).is_ok() {
+        // A resumed worktree already has one, verified empty before reuse.
+        return Ok(());
+    }
+    std::fs::write(&path, WORKTREE_CONFIG_PLACEHOLDER)
+        .map_err(|error| format!("failed to create {}: {error}", path.display()))
 }
 
 impl RunWorktree {
     /// Must run before any host-side git command in `self.path`. Returns
     /// whether anything had been tampered with.
     ///
-    /// Also removes `<admin_dir>/config.worktree`, which a fresh worktree
-    /// never has: when the user's repo sets `extensions.worktreeConfig`,
-    /// git reads it as this worktree's config, so the agent could put
-    /// `core.fsmonitor` or `core.hooksPath` there and run code the next time
-    /// host git (including this cleanup) touches the worktree.
+    /// Also resets `<admin_dir>/config.worktree` to the empty placeholder:
+    /// when the user's repo sets `extensions.worktreeConfig`, git reads it
+    /// as this worktree's config, so anything an agent got into it (e.g.
+    /// `core.fsmonitor`, `core.hooksPath`) would run the next time host git
+    /// (including this cleanup) touches the worktree. The run's sandbox
+    /// already keeps the agent from writing it; this is the backstop.
     pub fn restore_pointers(&self) -> Result<bool, String> {
         let pointer = restore_file(&self.path.join(".git"), &self.pointer_file)?;
         let commondir = restore_file(&self.admin_dir.join("commondir"), &self.commondir_file)?;
-        let worktree_config = remove_any(&self.admin_dir.join("config.worktree"))?;
+        let worktree_config = restore_file(
+            &self.admin_dir.join("config.worktree"),
+            WORKTREE_CONFIG_PLACEHOLDER,
+        )?;
         Ok(pointer || commondir || worktree_config)
     }
 
-    /// Puts every ref other than this run's own branch back where it was
-    /// before the run: moved/deleted refs are reset, refs the agent created
-    /// are deleted. Returns a human-readable line per change.
+    /// Undoes what the agent could have done to refs outside its own
+    /// branch, without undoing the user's own work: worktree runs exist so
+    /// the user can keep working in parallel, and an agent's ref changes
+    /// can't be told apart from the user's (both write the same refs and
+    /// reflogs). So only what can be undone without losing anything is:
+    ///
+    /// - deleted refs are restored (nothing is lost by recreating a ref);
+    /// - new commits on top of a ref (fast-forward) and newly created refs
+    ///   are kept — they replace nothing — and reported;
+    /// - a rewritten ref (amend, rebase, reset, …) is reset to its old
+    ///   value, with the command to redo it if it was the user, unless it's
+    ///   checked out in some worktree: resetting it there would leave that
+    ///   working tree out of step with its branch, so it's only reported,
+    ///   with the command to reset it.
+    ///
+    /// Returns one human-readable line per change.
     pub fn restore_foreign_refs(&self) -> Result<Vec<String>, String> {
         let now = snapshot_refs(&self.repo_root, &self.branch)?;
+        let checked_out = self.checked_out_branches()?;
+        let short = |sha: &str| sha[..sha.len().min(12)].to_owned();
         let mut changes = Vec::new();
         for (name, before) in &self.ref_snapshot {
-            if now.get(name) != Some(before) {
+            let Some(after) = now.get(name) else {
                 git(&self.repo_root, &["update-ref", name, before])?;
                 changes.push(format!(
-                    "restored {name} to {}",
-                    &before[..before.len().min(12)]
+                    "{name} was deleted during the run; restored it at {}",
+                    short(before)
+                ));
+                continue;
+            };
+            if after == before {
+                continue;
+            }
+            let fast_forward = git(
+                &self.repo_root,
+                &["merge-base", "--is-ancestor", before, after],
+            )
+            .is_ok();
+            if fast_forward {
+                changes.push(format!(
+                    "{name} got new commits during the run; kept them:\n{}",
+                    self.commit_summary(before, after)
+                ));
+            } else if checked_out.contains(name) {
+                changes.push(format!(
+                    "{name} (checked out) was rewritten during the run from {} to {}; left as is — if that wasn't you: git update-ref {name} {before}",
+                    short(before),
+                    short(after)
+                ));
+            } else {
+                git(&self.repo_root, &["update-ref", name, before])?;
+                changes.push(format!(
+                    "{name} was rewritten during the run; reset it to {} — if that was you: git update-ref {name} {after}",
+                    short(before)
                 ));
             }
         }
-        for name in now
-            .keys()
-            .filter(|name| !self.ref_snapshot.contains_key(*name))
+        for (name, after) in now
+            .iter()
+            .filter(|(name, _)| !self.ref_snapshot.contains_key(*name))
         {
-            git(&self.repo_root, &["update-ref", "-d", name])?;
-            changes.push(format!("removed {name} created during the run"));
+            changes.push(format!(
+                "{name} was created during the run (at {}); kept it",
+                short(after)
+            ));
         }
         Ok(changes)
+    }
+
+    /// Up to five `<sha> <subject> (<author>)` lines for `before..after`.
+    fn commit_summary(&self, before: &str, after: &str) -> String {
+        let range = format!("{before}..{after}");
+        let log = git(
+            &self.repo_root,
+            &["log", "--format=  %h %s (%an)", "--max-count=6", &range],
+        )
+        .unwrap_or_default();
+        let lines: Vec<&str> = log.lines().collect();
+        if lines.len() > 5 {
+            let total = git(&self.repo_root, &["rev-list", "--count", &range])
+                .unwrap_or_else(|_| "more".to_owned());
+            format!("{}\n  … {total} commits in total", lines[..5].join("\n"))
+        } else {
+            lines.join("\n")
+        }
+    }
+
+    /// `refs/heads/...` names checked out in any worktree other than this
+    /// run's own.
+    fn checked_out_branches(&self) -> Result<std::collections::BTreeSet<String>, String> {
+        let listing = git(&self.repo_root, &["worktree", "list", "--porcelain"])?;
+        let own = canonicalize(&self.path).unwrap_or_else(|_| self.path.clone());
+        let mut branches = std::collections::BTreeSet::new();
+        for block in listing.split("\n\n") {
+            let mut path = None;
+            let mut branch = None;
+            for line in block.lines() {
+                if let Some(rest) = line.strip_prefix("worktree ") {
+                    path = Some(PathBuf::from(rest));
+                } else if let Some(rest) = line.strip_prefix("branch ") {
+                    branch = Some(rest.to_owned());
+                }
+            }
+            if let (Some(path), Some(branch)) = (path, branch) {
+                if canonicalize(&path).unwrap_or(path) != own {
+                    branches.insert(branch);
+                }
+            }
+        }
+        Ok(branches)
     }
 
     /// Paths the native backend must deny writes to for this run: the git
@@ -531,6 +819,9 @@ impl RunWorktree {
                 }
             }
         }
+        // This run's own admin dir must stay writable (HEAD, index, logs),
+        // except its worktree config — see `WORKTREE_CONFIG_PLACEHOLDER`.
+        paths.push(self.admin_dir.join("config.worktree"));
         Ok(paths
             .into_iter()
             .map(|path| path.to_string_lossy().into_owned())
@@ -628,11 +919,17 @@ pub(crate) mod test_support {
         let repo = super::canonicalize(repo).unwrap();
         (repo, base.join("worktrees"))
     }
+
+    /// A commit with `dir`'s tree but no parent: pointing an existing ref
+    /// at it is a rewrite, never a fast-forward.
+    pub(crate) fn unrelated_commit(dir: &Path) -> String {
+        git(dir, &["commit-tree", "HEAD^{tree}", "-m", "rewritten"])
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::test_support::{fixture, git};
+    use super::test_support::{fixture, git, unrelated_commit};
     use super::*;
 
     thread_local! {
@@ -645,9 +942,147 @@ mod tests {
         let (repo, root) = fixture();
         let wt = create_run_worktree(&repo, "ags_locked_rollback", Some(&root)).unwrap();
         let path = wt.path.to_string_lossy().into_owned();
-        rollback_worktree(&repo, &path, &wt.branch).unwrap();
+        rollback_worktree(&repo, &path, Some(&wt.branch)).unwrap();
         assert!(!wt.path.exists());
         assert!(git(&repo, &["branch", "--list", &wt.branch]).is_empty());
+    }
+
+    /// A worktree whose run ended with uncommitted work, so it was kept.
+    fn kept_run(repo: &Path, root: &Path, name: &str) -> RunWorktree {
+        let wt = create_run_worktree(repo, name, Some(root)).unwrap();
+        std::fs::write(wt.path.join("wip.txt"), "in progress").unwrap();
+        wt.restore_pointers().unwrap();
+        assert_eq!(wt.finish().unwrap(), WorktreeOutcome::Kept);
+        wt
+    }
+
+    #[test]
+    fn resume_reuses_a_kept_worktree_with_its_uncommitted_work() {
+        let (repo, root) = fixture();
+        let first = kept_run(&repo, &root, "ags_resume_kept");
+
+        let wt = resume_run_worktree(&repo, "ags_resume_kept", Some(&root)).unwrap();
+        assert_eq!(wt.path, first.path);
+        assert_eq!(wt.branch, "stashbase/ags_resume_kept");
+        assert!(!wt.source_was_dirty);
+        assert_eq!(
+            std::fs::read_to_string(wt.path.join("wip.txt")).unwrap(),
+            "in progress"
+        );
+        let lock = registered_worktree(&repo, &wt.path).unwrap().unwrap().lock;
+        assert_eq!(lock.as_deref().map(classify_lock), Some(RunLock::Running));
+
+        // A resumed run finishes like any other: kept again while dirty.
+        wt.restore_pointers().unwrap();
+        assert_eq!(wt.finish().unwrap(), WorktreeOutcome::Kept);
+    }
+
+    #[test]
+    fn resume_recreates_a_removed_worktree_from_its_branch() {
+        let (repo, root) = fixture();
+        let first = create_run_worktree(&repo, "ags_resume_branch", Some(&root)).unwrap();
+        git(
+            &first.path,
+            &["commit", "-q", "--allow-empty", "-m", "first run"],
+        );
+        first.restore_pointers().unwrap();
+        assert_eq!(first.finish().unwrap(), WorktreeOutcome::Removed);
+
+        let wt = resume_run_worktree(&repo, "stashbase/ags_resume_branch", Some(&root)).unwrap();
+        assert!(wt.path.exists());
+        assert_eq!(git(&wt.path, &["log", "-1", "--format=%s"]), "first run");
+        assert_eq!(
+            git(&wt.path, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "stashbase/ags_resume_branch"
+        );
+    }
+
+    #[test]
+    fn resume_starts_in_the_same_subdirectory() {
+        let (repo, root) = fixture();
+        kept_run(&repo, &root, "ags_resume_sub");
+        let wt = resume_run_worktree(&repo.join("sub"), "ags_resume_sub", Some(&root)).unwrap();
+        assert_eq!(wt.workdir, wt.path.join("sub"));
+    }
+
+    #[test]
+    fn resume_refuses_a_running_locked_or_tampered_worktree() {
+        let (repo, root) = fixture();
+        // Still locked by this live process: a run in progress.
+        create_run_worktree(&repo, "ags_busy", Some(&root)).unwrap();
+        let error = resume_run_worktree(&repo, "ags_busy", Some(&root)).unwrap_err();
+        assert!(error.contains("in use by a running agent"), "{error}");
+
+        let locked = kept_run(&repo, &root, "ags_user_locked");
+        let path = locked.path.to_string_lossy().into_owned();
+        git(
+            &repo,
+            &["worktree", "lock", "--reason", "on a USB drive", &path],
+        );
+        let error = resume_run_worktree(&repo, "ags_user_locked", Some(&root)).unwrap_err();
+        assert!(error.contains("on a USB drive"), "{error}");
+
+        let tampered = kept_run(&repo, &root, "ags_tampered");
+        std::fs::write(tampered.path.join(".git"), "gitdir: /tmp/evil\n").unwrap();
+        let error = resume_run_worktree(&repo, "ags_tampered", Some(&root)).unwrap_err();
+        assert!(error.contains("refusing to resume"), "{error}");
+    }
+
+    #[test]
+    fn resume_takes_over_a_stale_lock() {
+        let (repo, root) = fixture();
+        let kept = kept_run(&repo, &root, "ags_stale");
+        let path = kept.path.to_string_lossy().into_owned();
+        let reason = format!("{LOCK_REASON_PREFIX}; pid=999999; started=Thu Jan  1 00:00:00 1970");
+        git(&repo, &["worktree", "lock", "--reason", &reason, &path]);
+
+        let wt = resume_run_worktree(&repo, "ags_stale", Some(&root)).unwrap();
+        let lock = registered_worktree(&repo, &wt.path).unwrap().unwrap().lock;
+        assert_eq!(lock.as_deref().map(classify_lock), Some(RunLock::Running));
+    }
+
+    #[test]
+    fn resume_of_an_unknown_name_fails_without_creating_anything() {
+        let (repo, root) = fixture();
+        let error = resume_run_worktree(&repo, "ags_nope", Some(&root)).unwrap_err();
+        assert!(
+            error.contains("no agent worktree or branch named 'ags_nope'"),
+            "{error}"
+        );
+        assert!(!root.join("ags_nope").exists());
+    }
+
+    #[test]
+    fn failed_resume_never_deletes_the_agents_work() {
+        let (repo, root) = fixture();
+        // Kept worktree: a failed resume leaves it, unlocked again.
+        let kept = kept_run(&repo, &root, "ags_keep_on_fail");
+        FAIL_AFTER_ADD.with(|fail| fail.set(true));
+        assert!(resume_run_worktree(&repo, "ags_keep_on_fail", Some(&root)).is_err());
+        FAIL_AFTER_ADD.with(|fail| fail.set(false));
+        assert!(kept.path.join("wip.txt").exists());
+        let lock = registered_worktree(&repo, &kept.path)
+            .unwrap()
+            .unwrap()
+            .lock;
+        assert_eq!(lock, None, "unlocked again");
+
+        // Branch only: the recreated worktree is removed, the branch kept.
+        let gone = create_run_worktree(&repo, "ags_branch_on_fail", Some(&root)).unwrap();
+        git(&gone.path, &["commit", "-q", "--allow-empty", "-m", "work"]);
+        gone.restore_pointers().unwrap();
+        gone.finish().unwrap();
+        FAIL_AFTER_ADD.with(|fail| fail.set(true));
+        assert!(resume_run_worktree(&repo, "ags_branch_on_fail", Some(&root)).is_err());
+        FAIL_AFTER_ADD.with(|fail| fail.set(false));
+        assert!(!gone.path.exists());
+        assert_eq!(
+            git(
+                &repo,
+                &["log", "-1", "--format=%s", "stashbase/ags_branch_on_fail"]
+            ),
+            "work"
+        );
     }
 
     #[test]
@@ -745,7 +1180,11 @@ mod tests {
             wt.restore_pointers().unwrap(),
             "agent-written config must be reported"
         );
-        assert!(!wt.admin_dir.join("config.worktree").exists());
+        assert_eq!(
+            std::fs::read_to_string(wt.admin_dir.join("config.worktree")).unwrap(),
+            "",
+            "reset to the empty placeholder"
+        );
         git(&wt.path, &["status", "--porcelain"]);
         assert!(
             !marker.exists(),
@@ -769,7 +1208,7 @@ mod tests {
     }
 
     #[test]
-    fn foreign_refs_are_restored_and_own_branch_is_not() {
+    fn rewritten_foreign_refs_are_reset_and_new_ones_kept() {
         let (repo, root) = fixture();
         let wt = create_run_worktree(&repo, "ags_g", Some(&root)).unwrap();
         let other_before = git(&repo, &["rev-parse", "other"]);
@@ -777,14 +1216,82 @@ mod tests {
         git(&wt.path, &["add", "n"]);
         git(&wt.path, &["commit", "-qm", "agent"]);
         let agent_tip = git(&wt.path, &["rev-parse", "HEAD"]);
-        git(&wt.path, &["update-ref", "refs/heads/other", "HEAD"]);
+        let rewritten = unrelated_commit(&wt.path);
+        git(&wt.path, &["update-ref", "refs/heads/other", &rewritten]);
         git(&wt.path, &["branch", "brand-new"]);
         wt.restore_pointers().unwrap();
         let changed = wt.restore_foreign_refs().unwrap();
         assert_eq!(git(&repo, &["rev-parse", "other"]), other_before);
         assert_eq!(git(&repo, &["rev-parse", "stashbase/ags_g"]), agent_tip);
-        assert!(changed.iter().any(|c| c.contains("refs/heads/other")));
-        assert!(changed.iter().any(|c| c.contains("refs/heads/brand-new")));
+        assert!(changed.iter().any(|c| c.contains("refs/heads/other")
+            && c.contains(&format!("git update-ref refs/heads/other {rewritten}"))));
+        assert_eq!(
+            git(&repo, &["rev-parse", "brand-new"]),
+            agent_tip,
+            "new branch kept"
+        );
+        assert!(changed
+            .iter()
+            .any(|c| c.contains("refs/heads/brand-new") && c.contains("kept")));
+    }
+
+    #[test]
+    fn users_own_commits_during_a_run_are_kept() {
+        let (repo, root) = fixture();
+        let wt = create_run_worktree(&repo, "ags_parallel", Some(&root)).unwrap();
+        // The user keeps working: commits on the checked-out branch and on
+        // another one, while the agent works in its worktree.
+        git(
+            &repo,
+            &["commit", "-q", "--allow-empty", "-m", "user on main"],
+        );
+        git(&repo, &["switch", "-q", "other"]);
+        git(
+            &repo,
+            &["commit", "-q", "--allow-empty", "-m", "user on other"],
+        );
+        git(&repo, &["switch", "-q", "main"]);
+        let main_tip = git(&repo, &["rev-parse", "main"]);
+        let other_tip = git(&repo, &["rev-parse", "other"]);
+
+        wt.restore_pointers().unwrap();
+        let changes = wt.restore_foreign_refs().unwrap();
+
+        assert_eq!(git(&repo, &["rev-parse", "main"]), main_tip);
+        assert_eq!(git(&repo, &["rev-parse", "other"]), other_tip);
+        assert!(changes
+            .iter()
+            .any(|c| c.contains("refs/heads/main") && c.contains("user on main")));
+        assert!(
+            git(&repo, &["status", "--porcelain"]).is_empty(),
+            "checkout untouched"
+        );
+    }
+
+    #[test]
+    fn rewritten_checked_out_branch_is_left_with_a_warning() {
+        let (repo, root) = fixture();
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "to amend"]);
+        let before = git(&repo, &["rev-parse", "main"]);
+        let wt = create_run_worktree(&repo, "ags_amend", Some(&root)).unwrap();
+        git(
+            &repo,
+            &["commit", "-q", "--amend", "--allow-empty", "-m", "amended"],
+        );
+        let amended = git(&repo, &["rev-parse", "main"]);
+
+        wt.restore_pointers().unwrap();
+        let changes = wt.restore_foreign_refs().unwrap();
+
+        assert_eq!(
+            git(&repo, &["rev-parse", "main"]),
+            amended,
+            "user's amend kept"
+        );
+        assert!(git(&repo, &["status", "--porcelain"]).is_empty());
+        assert!(changes.iter().any(|c| c.contains("refs/heads/main")
+            && c.contains("left as is")
+            && c.contains(&format!("git update-ref refs/heads/main {before}"))));
     }
 
     #[test]
@@ -819,6 +1326,10 @@ mod tests {
         assert!(has(&wt.common_dir.join("config")));
         assert!(has(&wt.common_dir.join("hooks")));
         assert!(
+            has(&wt.admin_dir.join("config.worktree")),
+            "own worktree config protected while the admin dir stays writable"
+        );
+        assert!(
             has(&wt.common_dir.join("HEAD")),
             "main checkout's branch protected"
         );
@@ -837,7 +1348,8 @@ mod tests {
         // the agent moves it, then gc again for good measure — the layout
         // that lost every branch in the feasibility spike.
         git(&wt.path, &["pack-refs", "--all"]);
-        git(&wt.path, &["update-ref", "refs/heads/other", "HEAD"]);
+        let rewritten = unrelated_commit(&wt.path);
+        git(&wt.path, &["update-ref", "refs/heads/other", &rewritten]);
         git(&wt.path, &["gc", "-q"]);
         wt.restore_pointers().unwrap();
         let changes = wt.restore_foreign_refs().unwrap();
@@ -852,20 +1364,20 @@ mod tests {
     }
 
     #[test]
-    fn tags_moved_or_created_during_the_run_are_restored() {
+    fn moved_tags_are_reset_and_new_tags_kept() {
         let (repo, root) = fixture();
         git(&repo, &["tag", "v1"]);
         let v1_before = git(&repo, &["rev-parse", "v1"]);
         let wt = create_run_worktree(&repo, "ags_tag", Some(&root)).unwrap();
-        git(&wt.path, &["commit", "-q", "--allow-empty", "-m", "agent"]);
-        git(&wt.path, &["tag", "-f", "v1"]);
+        let rewritten = unrelated_commit(&wt.path);
+        git(&wt.path, &["tag", "-f", "v1", &rewritten]);
         git(&wt.path, &["tag", "v2"]);
         wt.restore_pointers().unwrap();
         wt.restore_foreign_refs().unwrap();
         assert_eq!(git(&repo, &["rev-parse", "v1"]), v1_before);
         assert!(
-            git(&repo, &["tag", "--list", "v2"]).is_empty(),
-            "agent-created tag removed"
+            !git(&repo, &["tag", "--list", "v2"]).is_empty(),
+            "new tag kept"
         );
     }
 
@@ -1036,9 +1548,21 @@ mod tests {
         assert!(verify_agent_worktree(&wt.path, &wt.common_dir).is_err());
         wt.restore_pointers().unwrap();
 
-        std::fs::write(wt.admin_dir.join("config.worktree"), "[core]\n").unwrap();
+        // Every run leaves an empty placeholder: that's fine...
+        let config = wt.admin_dir.join("config.worktree");
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "");
+        verify_agent_worktree(&wt.path, &wt.common_dir).unwrap();
+        // ...any content isn't...
+        std::fs::write(&config, "[core]\n").unwrap();
         let error = verify_agent_worktree(&wt.path, &wt.common_dir).unwrap_err();
         assert!(error.contains("config.worktree"), "{error}");
+        // ...and neither is a symlink, even to an empty file.
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&config).unwrap();
+            std::os::unix::fs::symlink("/dev/null", &config).unwrap();
+            assert!(verify_agent_worktree(&wt.path, &wt.common_dir).is_err());
+        }
     }
 
     #[test]

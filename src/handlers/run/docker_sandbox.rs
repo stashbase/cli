@@ -801,6 +801,8 @@ fn docker_run_user_flag_args() -> Vec<String> {
 pub(crate) fn docker_run_command(
     command: &str,
     network: &DockerRunNetwork,
+    workdir: &Path,
+    git_mounts: Option<&GitMounts>,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     env_vars: &std::collections::HashMap<String, String>,
@@ -810,8 +812,9 @@ pub(crate) fn docker_run_command(
     cpus_limit: Option<&str>,
     isolated_paths: &[String],
 ) -> Result<(String, Vec<String>), String> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    let cwd_str = cwd.to_string_lossy().into_owned();
+    // The agent's working directory: the caller's cwd, or for a
+    // `--worktree` run the worktree (see `handlers::run::worktree`).
+    let cwd_str = workdir.to_string_lossy().into_owned();
 
     let mut args = vec![
         "run".to_owned(),
@@ -881,6 +884,9 @@ pub(crate) fn docker_run_command(
 
     append_filesystem_mounts(&mut args, &cwd_str, denied_read_paths, denied_write_paths)?;
     append_isolated_path_mounts(&mut args, &cwd_str, isolated_paths)?;
+    if let Some(git_mounts) = git_mounts {
+        append_git_mounts(&mut args, git_mounts)?;
+    }
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
 
     // A named Docker volume, not a bind mount of the real host home
@@ -1120,6 +1126,30 @@ pub(crate) fn list_isolated_path_volumes() -> Result<Vec<IsolatedPathVolume>, St
         .collect())
 }
 
+/// Removes the isolated-path volumes of every run whose working directory
+/// was `dir` or inside it — i.e. an agent worktree's, when the worktree is
+/// removed. A worktree path is unique per run, so its volumes would never
+/// be reused and would otherwise pile up. Returns one message per volume
+/// that couldn't be removed; without Docker there's nothing to remove.
+pub(crate) fn remove_isolated_path_volumes_under(dir: &Path) -> Vec<String> {
+    if docker_enforcement_error().is_some() {
+        return Vec::new();
+    }
+    let volumes = match list_isolated_path_volumes() {
+        Ok(volumes) => volumes,
+        Err(error) => return vec![format!("failed to list isolated path volumes: {error}")],
+    };
+    volumes
+        .into_iter()
+        .filter(|volume| Path::new(&volume.repo).starts_with(dir))
+        .filter_map(|volume| {
+            remove_volume(&volume.name)
+                .err()
+                .map(|error| format!("{} ({}): {error}", volume.name, volume.path))
+        })
+        .collect()
+}
+
 pub(crate) fn remove_volume(name: &str) -> Result<(), String> {
     let output = std::process::Command::new("docker")
         .args(["volume", "rm", name])
@@ -1128,6 +1158,94 @@ pub(crate) fn remove_volume(name: &str) -> Result<(), String> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
     }
+    Ok(())
+}
+
+/// What a `--worktree` run's container needs besides the worktree itself —
+/// see `append_git_mounts`.
+#[derive(Debug, Clone)]
+pub(crate) struct GitMounts {
+    pub common_dir: PathBuf,
+    pub admin_dir: PathBuf,
+}
+
+impl From<&super::worktree::RunWorktree> for GitMounts {
+    fn from(worktree: &super::worktree::RunWorktree) -> Self {
+        GitMounts {
+            common_dir: worktree.common_dir.clone(),
+            admin_dir: worktree.admin_dir.clone(),
+        }
+    }
+}
+
+/// Mounts the repo's common git dir so git inside the agent's worktree
+/// works, without giving the agent anything the *host's* git would later
+/// execute or act on.
+///
+/// The whole common dir is mounted read-write, not piecemeal: a partial
+/// mount (only `objects/`, `refs/` and the worktree's admin dir) lost every
+/// branch in the feasibility spike — a `git gc` in the container packed
+/// all refs into an unmounted `packed-refs` (discarded with the container)
+/// while deleting the loose refs on the host. Read-only overlays, appended
+/// after the rw mount so they shadow it, then cover what host git runs or
+/// relies on: `config` (e.g. `core.fsmonitor`, `core.hooksPath`), `hooks/`,
+/// `modules/` (submodule configs), and the main checkout's `HEAD` and
+/// `index` (which would otherwise let the agent switch the user's branch).
+/// `hooks/` is pre-created on the host if missing, since an absent mount
+/// target would let the agent create it in the writable parent. Other
+/// worktrees' admin dirs are hidden behind a tmpfs — their `commondir`
+/// files are as dangerous as ours and nothing restores them after the run
+/// — and this run's own admin dir is bind-mounted back on top.
+///
+/// The user's checkout itself is never mounted: only these paths and the
+/// worktree (at the same host paths, so the worktree's `.git` pointer
+/// resolves inside the container).
+fn append_git_mounts(args: &mut Vec<String>, mounts: &GitMounts) -> Result<(), String> {
+    let common = mounts.common_dir.to_string_lossy().into_owned();
+    if common.is_empty() || common == "/" {
+        return Err("refusing to mount an empty or root git directory".to_owned());
+    }
+    let hooks = mounts.common_dir.join("hooks");
+    std::fs::create_dir_all(&hooks)
+        .map_err(|error| format!("failed to create {}: {error}", hooks.display()))?;
+
+    args.extend(["-v".to_owned(), format!("{common}:{common}")]);
+    for name in [
+        "config",
+        "hooks",
+        "modules",
+        "config.worktree",
+        "HEAD",
+        "index",
+    ] {
+        let path = mounts.common_dir.join(name);
+        if path.exists() {
+            let path = path.to_string_lossy();
+            args.extend(["-v".to_owned(), format!("{path}:{path}:ro")]);
+        }
+    }
+    let worktrees = mounts
+        .common_dir
+        .join("worktrees")
+        .to_string_lossy()
+        .into_owned();
+    let admin = mounts.admin_dir.to_string_lossy().into_owned();
+    args.extend(["--tmpfs".to_owned(), worktrees]);
+    args.extend(["-v".to_owned(), format!("{admin}:{admin}")]);
+    // This run's worktree config stays read-only on top of its writable
+    // admin dir (see `worktree::WORKTREE_CONFIG_PLACEHOLDER`). The run
+    // creates the placeholder; create it here too if missing, since an
+    // absent mount target would let the agent create it.
+    let worktree_config = mounts.admin_dir.join("config.worktree");
+    if std::fs::symlink_metadata(&worktree_config).is_err() {
+        std::fs::write(&worktree_config, "")
+            .map_err(|error| format!("failed to create {}: {error}", worktree_config.display()))?;
+    }
+    let worktree_config = worktree_config.to_string_lossy();
+    args.extend([
+        "-v".to_owned(),
+        format!("{worktree_config}:{worktree_config}:ro"),
+    ]);
     Ok(())
 }
 
@@ -1837,6 +1955,8 @@ mod tests {
         let (program, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &env_vars,
@@ -1869,6 +1989,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -1899,6 +2021,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             std::slice::from_ref(&nested),
             &[],
             &std::collections::HashMap::new(),
@@ -1963,6 +2087,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             std::slice::from_ref(&nested),
             &[],
             &std::collections::HashMap::new(),
@@ -2021,6 +2147,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             std::slice::from_ref(&nested),
             &std::collections::HashMap::new(),
@@ -2052,6 +2180,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             std::slice::from_ref(&missing),
             std::slice::from_ref(&missing),
             &std::collections::HashMap::new(),
@@ -2081,6 +2211,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             std::slice::from_ref(&cwd),
             &std::collections::HashMap::new(),
@@ -2111,6 +2243,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2140,6 +2274,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &env_vars,
@@ -2179,6 +2315,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &env_vars,
@@ -2210,6 +2348,8 @@ mod tests {
         let result = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &env_vars,
@@ -2233,6 +2373,8 @@ mod tests {
         let result = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &env_vars,
@@ -2254,6 +2396,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2277,6 +2421,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2300,6 +2446,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2322,6 +2470,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2377,6 +2527,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2412,6 +2564,8 @@ mod tests {
         assert!(docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2460,6 +2614,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2494,6 +2650,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2518,6 +2676,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2541,6 +2701,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2566,6 +2728,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2589,6 +2753,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -2630,6 +2796,8 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
+            &std::env::current_dir().unwrap(),
+            None,
             &[],
             &[],
             &env_vars,
@@ -2644,5 +2812,279 @@ mod tests {
         // exist; no extra mount for a CA path that's already inside the
         // working directory.
         assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 2);
+    }
+
+    fn git_mount_fixture() -> (PathBuf, GitMounts) {
+        let common = std::env::temp_dir()
+            .join(format!(
+                "stashbase-gitmounts-{}",
+                uuid::Uuid::new_v4().simple()
+            ))
+            .join(".git");
+        let admin = common.join("worktrees").join("amber-river-storm");
+        std::fs::create_dir_all(&admin).unwrap();
+        std::fs::create_dir_all(common.join("worktrees").join("someone-else")).unwrap();
+        std::fs::write(common.join("config"), "").unwrap();
+        std::fs::write(common.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(common.join("index"), "").unwrap();
+        (
+            common.clone(),
+            GitMounts {
+                common_dir: common,
+                admin_dir: admin,
+            },
+        )
+    }
+
+    fn mount_specs(args: &[String]) -> Vec<String> {
+        args.windows(2)
+            .filter(|w| w[0] == "-v" || w[0] == "--tmpfs")
+            .map(|w| format!("{} {}", w[0], w[1]))
+            .collect()
+    }
+
+    #[test]
+    fn git_mounts_whole_common_dir_rw_with_ro_overlays_after_it() {
+        let (common, mounts) = git_mount_fixture();
+        let c = common.to_string_lossy();
+        let mut args = Vec::new();
+        append_git_mounts(&mut args, &mounts).unwrap();
+        let specs = mount_specs(&args);
+        let pos = |needle: &str| {
+            specs
+                .iter()
+                .position(|s| s == needle)
+                .unwrap_or_else(|| panic!("missing {needle} in {specs:?}"))
+        };
+        let rw = pos(&format!("-v {c}:{c}"));
+        // Overlays must come after the rw mount so they shadow it.
+        for name in ["config", "hooks", "HEAD", "index"] {
+            let p = common.join(name).to_string_lossy().into_owned();
+            assert!(pos(&format!("-v {p}:{p}:ro")) > rw, "{name}");
+        }
+    }
+
+    #[test]
+    fn git_mounts_precreate_hooks_dir() {
+        let (common, mounts) = git_mount_fixture();
+        assert!(!common.join("hooks").exists());
+        append_git_mounts(&mut Vec::new(), &mounts).unwrap();
+        assert!(common.join("hooks").is_dir());
+    }
+
+    #[test]
+    fn git_mounts_hide_other_worktrees() {
+        let (common, mounts) = git_mount_fixture();
+        let a = mounts.admin_dir.to_string_lossy();
+        let mut args = Vec::new();
+        append_git_mounts(&mut args, &mounts).unwrap();
+        let specs = mount_specs(&args);
+        let tmpfs = specs
+            .iter()
+            .position(|s| *s == format!("--tmpfs {}", common.join("worktrees").display()))
+            .expect("worktrees hidden");
+        let own = specs
+            .iter()
+            .position(|s| *s == format!("-v {a}:{a}"))
+            .expect("own admin dir mounted");
+        assert!(
+            own > tmpfs,
+            "own admin dir must be mounted on top of the tmpfs"
+        );
+        let config = specs
+            .iter()
+            .position(|s| {
+                let config = mounts.admin_dir.join("config.worktree");
+                *s == format!("-v {0}:{0}:ro", config.display())
+            })
+            .expect("own worktree config mounted read-only");
+        assert!(
+            config > own,
+            "read-only overlay must come after the admin dir mount"
+        );
+        assert!(mounts.admin_dir.join("config.worktree").is_file());
+    }
+
+    #[test]
+    fn git_mounts_protect_submodule_configs_when_present() {
+        let (common, mounts) = git_mount_fixture();
+        std::fs::create_dir_all(common.join("modules")).unwrap();
+        let mut args = Vec::new();
+        append_git_mounts(&mut args, &mounts).unwrap();
+        let modules = common.join("modules").to_string_lossy().into_owned();
+        assert!(mount_specs(&args).contains(&format!("-v {modules}:{modules}:ro")));
+    }
+
+    #[test]
+    fn docker_run_command_uses_the_given_workdir_and_git_mounts() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (common, mounts) = git_mount_fixture();
+        let workdir = std::env::temp_dir().join("stashbase-some-worktree");
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &workdir,
+            Some(&mounts),
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        let w = workdir.to_string_lossy().into_owned();
+        let c = common.to_string_lossy().into_owned();
+        assert!(args.windows(2).any(|p| p[0] == "-w" && p[1] == w));
+        assert!(args
+            .windows(2)
+            .any(|p| p[0] == "-v" && p[1] == format!("{w}:{w}")));
+        assert!(args
+            .windows(2)
+            .any(|p| p[0] == "-v" && p[1] == format!("{c}:{c}")));
+    }
+
+    #[test]
+    fn remove_isolated_path_volumes_under_removes_the_worktrees_volumes() {
+        let _guard = docker_daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if docker_enforcement_error().is_some() {
+            eprintln!("skipping: Docker not available in this environment");
+            return;
+        }
+        let worktree = format!("/stashbase-test-worktree-{}", uuid::Uuid::new_v4().simple());
+        let workdir = format!("{worktree}/sub");
+        let other = format!("{worktree}-other");
+        let create = |cwd: &str, path: &str| {
+            let name = isolated_path_volume_name(cwd, path);
+            let output = std::process::Command::new("docker")
+                .args([
+                    "volume",
+                    "create",
+                    "--label",
+                    &format!("{ISOLATED_PATH_LABEL}={path}"),
+                    "--label",
+                    &format!("{ISOLATED_PATH_REPO_LABEL}={cwd}"),
+                    &name,
+                ])
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            name
+        };
+        let inside = create(&workdir, "node_modules");
+        let unrelated = create(&other, "node_modules");
+
+        let errors = remove_isolated_path_volumes_under(Path::new(&worktree));
+
+        assert!(errors.is_empty(), "{errors:?}");
+        let exists = |name: &str| {
+            std::process::Command::new("docker")
+                .args(["volume", "inspect", name])
+                .output()
+                .is_ok_and(|output| output.status.success())
+        };
+        assert!(!exists(&inside), "the worktree's volume is removed");
+        assert!(exists(&unrelated), "a sibling path's volume is kept");
+        let _ = remove_volume(&unrelated);
+    }
+
+    /// End to end against a real container, with the layout a `--worktree`
+    /// run uses: git works in the worktree, protected files stay read-only,
+    /// the user's checkout isn't visible at all, and the host-side restore
+    /// undoes what the agent did. Skips without Docker or without the
+    /// default image already built (it never builds or pulls one).
+    #[test]
+    fn worktree_git_works_in_a_container_and_host_restores_afterwards() {
+        use crate::handlers::run::worktree::{create_run_worktree, test_support};
+
+        let _guard = docker_daemon_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if docker_enforcement_error().is_some() {
+            eprintln!("skipping: Docker not available in this environment");
+            return;
+        }
+        let image_present = std::process::Command::new("docker")
+            .args(["image", "inspect", DEFAULT_SANDBOX_IMAGE])
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if !image_present {
+            eprintln!("skipping: {DEFAULT_SANDBOX_IMAGE} is not built");
+            return;
+        }
+
+        let (repo, _) = test_support::fixture();
+        let wt = create_run_worktree(&repo, "amber-river-storm", None).unwrap();
+        let other_before = test_support::git(&repo, &["rev-parse", "other"]);
+        let w = wt.path.to_string_lossy().into_owned();
+        let mut args = vec![
+            "run".to_owned(),
+            "--rm".to_owned(),
+            "--entrypoint".to_owned(),
+            "sh".to_owned(),
+            "-v".to_owned(),
+            format!("{w}:{w}"),
+            "-w".to_owned(),
+            w.clone(),
+        ];
+        args.extend(docker_run_user_flag_args());
+        append_git_mounts(&mut args, &GitMounts::from(&wt)).unwrap();
+        let config = wt.common_dir.join("config").to_string_lossy().into_owned();
+        let hooks = wt.common_dir.join("hooks").to_string_lossy().into_owned();
+        let admin = wt.admin_dir.to_string_lossy().into_owned();
+        let checkout_file = repo.join("sub/f").to_string_lossy().into_owned();
+        let script = format!(
+            "export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t HOME=/tmp; \
+             git config --global --add safe.directory '*' && \
+             echo agent > agent.txt && git add agent.txt && git commit -qm agent || exit 10; \
+             test -e '{checkout_file}' && exit 11; \
+             echo evil >> '{config}' && exit 12; \
+             mv '{hooks}' '{hooks}.bak' && exit 13; \
+             git update-ref refs/heads/other $(git commit-tree HEAD^{{tree}} -m evil) || exit 14; \
+             printf '[core]\\n\\tfsmonitor = true\\n' > '{admin}/config.worktree' 2>/dev/null && exit 15; \
+             echo 'gitdir: /evil' > .git || exit 16; \
+             exit 0"
+        );
+        args.extend([DEFAULT_SANDBOX_IMAGE.to_owned(), "-c".to_owned(), script]);
+        let output = std::process::Command::new("docker")
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "container script failed with {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert!(wt.restore_pointers().unwrap(), "tampering must be detected");
+        assert_eq!(
+            std::fs::read_to_string(wt.admin_dir.join("config.worktree")).unwrap(),
+            "",
+            "the agent couldn't write its worktree config"
+        );
+        assert!(wt.common_dir.join("hooks").is_dir());
+        let changes = wt.restore_foreign_refs().unwrap();
+        assert!(changes
+            .iter()
+            .any(|change| change.contains("refs/heads/other")));
+        assert_eq!(
+            test_support::git(&repo, &["rev-parse", "other"]),
+            other_before
+        );
+        assert_eq!(
+            test_support::git(
+                &repo,
+                &["log", "-1", "--format=%s", "stashbase/amber-river-storm"]
+            ),
+            "agent"
+        );
     }
 }

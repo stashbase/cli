@@ -266,7 +266,7 @@ See **[docs/sandboxing.md](docs/sandboxing.md)** for the full picture: how the n
 
 ### Parallel Agents in Git Worktrees
 
-Run an agent in its own git worktree instead of your checkout, so several agents can work on one repository at once without touching each other's files or yours (native backend for now):
+Run an agent in its own git worktree instead of your checkout, so several agents can work on one repository at once without touching each other's files or yours (native backend, or Docker on macOS/Linux):
 
 ```bash
 stashbase agent run --profile coding --worktree -- claude
@@ -277,13 +277,16 @@ stashbase agent run --profile coding --worktree -- claude
 worktree = true   # per profile; `--worktree=false` skips it for one run
 ```
 
-Each run gets a readable name such as `amber-river-storm`: the worktree lives in the repo at `.stashbase/worktrees/amber-river-storm` (visible in your IDE, hidden from `git status`) on branch `stashbase/amber-river-storm`. The agent can commit there but can't change your checkout, your other branches, or git config and hooks. Review and integrate its work from your checkout:
+Each run gets a readable name such as `amber-river-storm`: the worktree lives in the repo at `.stashbase/worktrees/amber-river-storm` (visible in your IDE, hidden from `git status`) on branch `stashbase/amber-river-storm`. The agent can commit there but can't change your checkout or git config and hooks, and stashbase checks your other branches after the run (without undoing commits you made meanwhile). Review and integrate its work from your checkout:
 
 ```bash
 stashbase agent worktrees list
 stashbase agent worktrees merge amber-river-storm   # --squash, -m "message", --keep
 stashbase agent worktrees clean
+stashbase agent worktrees remove amber-river-storm  # discard one agent's work; --keep-branch
 ```
+
+Continue an earlier run on its branch with `stashbase agent run --profile coding --resume amber-river-storm -- claude`.
 
 See **[docs/sandboxing.md](docs/sandboxing.md#worktrees)** for the protections, cleanup behavior and known gaps.
 

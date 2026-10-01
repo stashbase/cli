@@ -683,6 +683,10 @@ pub struct ProxyPolicy {
     pub sandbox_cpus: Option<String>,
     /// Run inside a per-session git worktree.
     pub worktree: bool,
+    /// With `worktree`: continue this earlier run's worktree (`--resume`)
+    /// instead of creating a new one. Where the agent works, not what it
+    /// may do — so not part of the fingerprint.
+    pub worktree_resume: Option<String>,
     /// Docker backend only: repo-relative directories backed by a per-repo
     /// volume instead of the host's copy (see `append_isolated_path_mounts`).
     pub sandbox_isolated_paths: Vec<String>,
@@ -780,6 +784,14 @@ impl SecretInjection {
 }
 
 impl ProxyPolicy {
+    /// What kind of agent worktree this run wants, if any.
+    pub(crate) fn worktree_request(&self) -> Option<super::worktree::WorktreeRequest> {
+        self.worktree.then(|| match &self.worktree_resume {
+            Some(name) => super::worktree::WorktreeRequest::Resume(name.clone()),
+            None => super::worktree::WorktreeRequest::New,
+        })
+    }
+
     pub fn permissive() -> Self {
         Self {
             secret_policies: HashMap::new(),
@@ -798,6 +810,7 @@ impl ProxyPolicy {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -3567,6 +3580,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -3953,6 +3967,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
@@ -4086,6 +4101,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -4605,6 +4621,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
 
@@ -4653,6 +4670,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         }
     }
@@ -4732,6 +4750,22 @@ mod tests {
         let mut docker_worktree = docker.clone();
         docker_worktree.worktree = true;
         assert_ne!(docker.fingerprint(), docker_worktree.fingerprint());
+        // Which worktree a run resumes is where it works, not what it may
+        // do: the same policy either way.
+        let mut resumed = docker_worktree.clone();
+        resumed.worktree_resume = Some("amber-river-storm".to_owned());
+        assert_eq!(docker_worktree.fingerprint(), resumed.fingerprint());
+        assert_eq!(docker.worktree_request(), None);
+        assert_eq!(
+            docker_worktree.worktree_request(),
+            Some(super::super::worktree::WorktreeRequest::New)
+        );
+        assert_eq!(
+            resumed.worktree_request(),
+            Some(super::super::worktree::WorktreeRequest::Resume(
+                "amber-river-storm".to_owned()
+            ))
+        );
 
         let mut docker_cpus = docker.clone();
         docker_cpus.sandbox_cpus = Some("1.5".to_owned());
@@ -4831,6 +4865,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
         assert!(secret_allows_request(
@@ -4960,6 +4995,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
@@ -5007,6 +5043,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
 
@@ -5040,6 +5077,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
         let state = ProxyState {
@@ -5121,6 +5159,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
@@ -5178,6 +5217,7 @@ mod tests {
             sandbox_memory: None,
             sandbox_cpus: None,
             worktree: false,
+            worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
@@ -5547,6 +5587,7 @@ mod tests {
                 sandbox_memory: None,
                 sandbox_cpus: None,
                 worktree: false,
+                worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
             },
             None,
@@ -5591,6 +5632,7 @@ mod tests {
                 sandbox_memory: None,
                 sandbox_cpus: None,
                 worktree: false,
+                worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
             },
             None,
@@ -5636,6 +5678,7 @@ mod tests {
                 sandbox_memory: None,
                 sandbox_cpus: None,
                 worktree: false,
+                worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
             },
             None,

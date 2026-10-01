@@ -60,6 +60,28 @@ pub enum AgentWorktreesSubcommand {
     Merge(AgentWorktreesMergeCommand),
     /// Remove agent worktrees and branches whose work is already merged
     Clean(AgentWorktreesCleanCommand),
+    /// Remove one agent's worktree and branch, discarding its work
+    #[command(alias = "delete")]
+    Remove(AgentWorktreesRemoveCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesRemoveCommand {
+    /// Worktree name as shown by `list` (e.g. amber-river-storm), with or without the `stashbase/` prefix
+    #[arg(required_unless_present = "all", conflicts_with = "all")]
+    pub name: Option<String>,
+
+    /// Remove every agent worktree and branch (running, locked and UNSAFE ones are skipped)
+    #[arg(long)]
+    pub all: bool,
+
+    /// Remove only the worktree and keep the branch (e.g. to `--resume` it later)
+    #[arg(long)]
+    pub keep_branch: bool,
+
+    /// Remove without prompting, even if unmerged commits or uncommitted changes are lost
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Args)]
@@ -323,7 +345,7 @@ pub struct AgentRunCommand {
     pub docker_cpus: Option<String>,
 
     /// Run the agent in a fresh git worktree on branch `stashbase/<name>`
-    /// instead of the current checkout (native backend only). `--worktree`
+    /// instead of the current checkout. `--worktree`
     /// turns it on and `--worktree=false` off for this run, overriding the
     /// profile's `[workspace] worktree`; omit to use the profile's setting.
     /// The value needs `=` so a following agent command (`--worktree
@@ -336,6 +358,12 @@ pub struct AgentRunCommand {
         value_parser = clap::builder::BoolishValueParser::new()
     )]
     pub worktree: Option<bool>,
+
+    /// Continue an earlier agent run in its worktree (by name, as shown by
+    /// `agent worktrees list`): reuses the worktree if it was kept, or
+    /// recreates it from its `stashbase/<name>` branch. Implies `--worktree`.
+    #[arg(long, value_name = "NAME")]
+    pub resume: Option<String>,
 
     /// Add to the profile's `[sandbox] isolated_paths` for this run only:
     /// a directory relative to the working directory (e.g. "node_modules")
@@ -716,6 +744,38 @@ mod tests {
         assert_eq!(parse(&["--worktree", "--", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=true", "claude"]).worktree, Some(true));
         assert_eq!(parse(&["--worktree=false", "claude"]).worktree, Some(false));
+        assert!(Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "worktrees",
+            "delete",
+            "--all",
+            "--yes"
+        ])
+        .is_ok());
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "worktrees", "remove"]).is_err(),
+            "a name or --all is required"
+        );
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "worktrees", "remove", "x", "--all"])
+                .is_err(),
+            "not both"
+        );
+        for alias in ["remove", "delete"] {
+            let parsed = Cli::try_parse_from([
+                "stashbase",
+                "agent",
+                "worktrees",
+                alias,
+                "amber-river-storm",
+                "--keep-branch",
+            ]);
+            assert!(parsed.is_ok(), "`agent worktrees {alias}` parses");
+        }
+        let resume = parse(&["--resume", "amber-river-storm", "claude"]);
+        assert_eq!(resume.resume.as_deref(), Some("amber-river-storm"));
+        assert_eq!(resume.command, vec!["claude".to_owned()]);
     }
 
     #[test]
