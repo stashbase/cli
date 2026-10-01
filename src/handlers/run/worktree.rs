@@ -259,12 +259,16 @@ pub(crate) fn verify_agent_worktree(path: &Path, common_dir: &Path) -> Result<()
         ));
     }
 
+    // An empty regular file is the placeholder each run puts there (see
+    // `WORKTREE_CONFIG_PLACEHOLDER`); anything else was written by an agent.
     let worktree_config = admin_dir.join("config.worktree");
-    if std::fs::symlink_metadata(&worktree_config).is_ok() {
-        return Err(format!(
-            "{} was written during a run",
-            worktree_config.display()
-        ));
+    if let Ok(meta) = std::fs::symlink_metadata(&worktree_config) {
+        if !(meta.is_file() && meta.len() == 0) {
+            return Err(format!(
+                "{} was written during a run",
+                worktree_config.display()
+            ));
+        }
     }
     Ok(())
 }
@@ -387,6 +391,7 @@ fn attach_run_worktree(
     // compares equal to the other (native) paths. `pointer_file` keeps
     // the exact bytes for `restore_pointers`.
     let admin_dir = canonicalize(&admin_dir).unwrap_or(admin_dir);
+    ensure_worktree_config_placeholder(&admin_dir)?;
     let commondir_file = std::fs::read_to_string(admin_dir.join("commondir"))
         .map_err(|error| format!("failed to read the worktree's commondir: {error}"))?;
     let ref_snapshot = snapshot_refs(&repo.repo_root, branch)?;
@@ -618,31 +623,43 @@ fn restore_file(file: &Path, expected: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Removes `path` whatever it is (file, symlink or directory). Returns
-/// whether anything was there.
-fn remove_any(path: &Path) -> Result<bool, String> {
-    let removed = match std::fs::symlink_metadata(path) {
-        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
-        Ok(_) => std::fs::remove_file(path),
-        Err(_) => return Ok(false),
-    };
-    removed.map_err(|error| format!("failed to remove {}: {error}", path.display()))?;
-    Ok(true)
+/// `config.worktree` in a worktree's admin dir is git config for that
+/// worktree alone, read whenever the repo sets `extensions.worktreeConfig`
+/// — by the agent's git, but also by any host git that touches the
+/// worktree *during* the run, such as the user's IDE showing the worktree.
+/// So each run puts an empty placeholder there and keeps the agent from
+/// writing it: the Docker backend mounts it read-only, the native backend
+/// denies writes to it (`native_protected_paths`). An empty file sets
+/// nothing, and `verify_agent_worktree` accepts exactly that.
+const WORKTREE_CONFIG_PLACEHOLDER: &str = "";
+
+fn ensure_worktree_config_placeholder(admin_dir: &Path) -> Result<(), String> {
+    let path = admin_dir.join("config.worktree");
+    if std::fs::symlink_metadata(&path).is_ok() {
+        // A resumed worktree already has one, verified empty before reuse.
+        return Ok(());
+    }
+    std::fs::write(&path, WORKTREE_CONFIG_PLACEHOLDER)
+        .map_err(|error| format!("failed to create {}: {error}", path.display()))
 }
 
 impl RunWorktree {
     /// Must run before any host-side git command in `self.path`. Returns
     /// whether anything had been tampered with.
     ///
-    /// Also removes `<admin_dir>/config.worktree`, which a fresh worktree
-    /// never has: when the user's repo sets `extensions.worktreeConfig`,
-    /// git reads it as this worktree's config, so the agent could put
-    /// `core.fsmonitor` or `core.hooksPath` there and run code the next time
-    /// host git (including this cleanup) touches the worktree.
+    /// Also resets `<admin_dir>/config.worktree` to the empty placeholder:
+    /// when the user's repo sets `extensions.worktreeConfig`, git reads it
+    /// as this worktree's config, so anything an agent got into it (e.g.
+    /// `core.fsmonitor`, `core.hooksPath`) would run the next time host git
+    /// (including this cleanup) touches the worktree. The run's sandbox
+    /// already keeps the agent from writing it; this is the backstop.
     pub fn restore_pointers(&self) -> Result<bool, String> {
         let pointer = restore_file(&self.path.join(".git"), &self.pointer_file)?;
         let commondir = restore_file(&self.admin_dir.join("commondir"), &self.commondir_file)?;
-        let worktree_config = remove_any(&self.admin_dir.join("config.worktree"))?;
+        let worktree_config = restore_file(
+            &self.admin_dir.join("config.worktree"),
+            WORKTREE_CONFIG_PLACEHOLDER,
+        )?;
         Ok(pointer || commondir || worktree_config)
     }
 
@@ -715,6 +732,9 @@ impl RunWorktree {
                 }
             }
         }
+        // This run's own admin dir must stay writable (HEAD, index, logs),
+        // except its worktree config — see `WORKTREE_CONFIG_PLACEHOLDER`.
+        paths.push(self.admin_dir.join("config.worktree"));
         Ok(paths
             .into_iter()
             .map(|path| path.to_string_lossy().into_owned())
@@ -1067,7 +1087,11 @@ mod tests {
             wt.restore_pointers().unwrap(),
             "agent-written config must be reported"
         );
-        assert!(!wt.admin_dir.join("config.worktree").exists());
+        assert_eq!(
+            std::fs::read_to_string(wt.admin_dir.join("config.worktree")).unwrap(),
+            "",
+            "reset to the empty placeholder"
+        );
         git(&wt.path, &["status", "--porcelain"]);
         assert!(
             !marker.exists(),
@@ -1140,6 +1164,10 @@ mod tests {
         );
         assert!(has(&wt.common_dir.join("config")));
         assert!(has(&wt.common_dir.join("hooks")));
+        assert!(
+            has(&wt.admin_dir.join("config.worktree")),
+            "own worktree config protected while the admin dir stays writable"
+        );
         assert!(
             has(&wt.common_dir.join("HEAD")),
             "main checkout's branch protected"
@@ -1358,9 +1386,21 @@ mod tests {
         assert!(verify_agent_worktree(&wt.path, &wt.common_dir).is_err());
         wt.restore_pointers().unwrap();
 
-        std::fs::write(wt.admin_dir.join("config.worktree"), "[core]\n").unwrap();
+        // Every run leaves an empty placeholder: that's fine...
+        let config = wt.admin_dir.join("config.worktree");
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "");
+        verify_agent_worktree(&wt.path, &wt.common_dir).unwrap();
+        // ...any content isn't...
+        std::fs::write(&config, "[core]\n").unwrap();
         let error = verify_agent_worktree(&wt.path, &wt.common_dir).unwrap_err();
         assert!(error.contains("config.worktree"), "{error}");
+        // ...and neither is a symlink, even to an empty file.
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&config).unwrap();
+            std::os::unix::fs::symlink("/dev/null", &config).unwrap();
+            assert!(verify_agent_worktree(&wt.path, &wt.common_dir).is_err());
+        }
     }
 
     #[test]

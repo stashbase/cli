@@ -1232,6 +1232,20 @@ fn append_git_mounts(args: &mut Vec<String>, mounts: &GitMounts) -> Result<(), S
     let admin = mounts.admin_dir.to_string_lossy().into_owned();
     args.extend(["--tmpfs".to_owned(), worktrees]);
     args.extend(["-v".to_owned(), format!("{admin}:{admin}")]);
+    // This run's worktree config stays read-only on top of its writable
+    // admin dir (see `worktree::WORKTREE_CONFIG_PLACEHOLDER`). The run
+    // creates the placeholder; create it here too if missing, since an
+    // absent mount target would let the agent create it.
+    let worktree_config = mounts.admin_dir.join("config.worktree");
+    if std::fs::symlink_metadata(&worktree_config).is_err() {
+        std::fs::write(&worktree_config, "")
+            .map_err(|error| format!("failed to create {}: {error}", worktree_config.display()))?;
+    }
+    let worktree_config = worktree_config.to_string_lossy();
+    args.extend([
+        "-v".to_owned(),
+        format!("{worktree_config}:{worktree_config}:ro"),
+    ]);
     Ok(())
 }
 
@@ -2877,6 +2891,15 @@ mod tests {
             own > tmpfs,
             "own admin dir must be mounted on top of the tmpfs"
         );
+        let config = specs
+            .iter()
+            .position(|s| *s == format!("-v {a}/config.worktree:{a}/config.worktree:ro"))
+            .expect("own worktree config mounted read-only");
+        assert!(
+            config > own,
+            "read-only overlay must come after the admin dir mount"
+        );
+        assert!(mounts.admin_dir.join("config.worktree").is_file());
     }
 
     #[test]
@@ -3022,7 +3045,7 @@ mod tests {
              echo evil >> '{config}' && exit 12; \
              mv '{hooks}' '{hooks}.bak' && exit 13; \
              git update-ref refs/heads/other HEAD || exit 14; \
-             printf '[core]\\n\\tfsmonitor = true\\n' > '{admin}/config.worktree' || exit 15; \
+             printf '[core]\\n\\tfsmonitor = true\\n' > '{admin}/config.worktree' 2>/dev/null && exit 15; \
              echo 'gitdir: /evil' > .git || exit 16; \
              exit 0"
         );
@@ -3039,7 +3062,11 @@ mod tests {
         );
 
         assert!(wt.restore_pointers().unwrap(), "tampering must be detected");
-        assert!(!wt.admin_dir.join("config.worktree").exists());
+        assert_eq!(
+            std::fs::read_to_string(wt.admin_dir.join("config.worktree")).unwrap(),
+            "",
+            "the agent couldn't write its worktree config"
+        );
         assert!(wt.common_dir.join("hooks").is_dir());
         let changes = wt.restore_foreign_refs().unwrap();
         assert!(changes

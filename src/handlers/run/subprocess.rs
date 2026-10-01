@@ -1876,6 +1876,13 @@ mod tests {
                 format!("echo evil >> '{}'", common.join("config").display()),
             ),
             (
+                wt.admin_dir.join("config.worktree"),
+                format!(
+                    "echo evil > '{}'",
+                    wt.admin_dir.join("config.worktree").display()
+                ),
+            ),
+            (
                 common.join("HEAD"),
                 format!("echo evil > '{}'", common.join("HEAD").display()),
             ),
