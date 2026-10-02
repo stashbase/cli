@@ -9,73 +9,43 @@ use crate::{
     models::{api_client::OutputError, validation::InputValidationError},
 };
 
-/// Flag *names* that may be reported, for non-agent commands only. Values are
-/// never read. Every entry must be a real long flag (see the test that walks
-/// the clap tree). Do not add flags whose names could carry user data.
-pub const ALLOWED_FLAGS: &[&str] = &[
-    "--json",
-    "--silent",
-    "--proxy",
-    "--overwrite",
-    "--only",
-    "--exclude",
-    "--scope",
-    "--file",
-    "--config",
-    "--format",
-    "--auth-check",
-    "--verbose",
-];
+/// Flag *names* that may be reported. Values are never read. Every entry
+/// must be a real long flag (see the test that walks the clap tree). Do not
+/// add flags whose names could carry user data.
+pub const ALLOWED_FLAGS: &[&str] = &["--json", "--silent"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackedCommand {
     Setup,
-    Pull,
-    Push,
-    Run,
-    Doctor,
     AgentInit,
     AgentRun,
-    AgentDoctor,
-    AgentValidate,
-    AgentExplain,
-    AgentPolicy,
-    AgentMcp,
-    AgentDocker,
-    AgentWorktrees,
 }
 
 impl TrackedCommand {
     /// The command is chosen from the parsed clap enum, never from argv text.
+    /// Only the activation funnel is tracked: setup, agent init and agent
+    /// run. Everything else sends nothing.
     pub fn from_entity(entity: &EntityType) -> Option<Self> {
         match entity {
             EntityType::Setup(_) => Some(Self::Setup),
-            EntityType::Pull(_) => Some(Self::Pull),
-            EntityType::Push(_) => Some(Self::Push),
-            EntityType::Run(_) => Some(Self::Run),
-            EntityType::Doctor(_) => Some(Self::Doctor),
-            // Exhaustive on purpose: a new `agent` subcommand must be classified
-            // here as tracked or not before the crate compiles.
+            // Exhaustive on purpose: a new `agent` subcommand must be
+            // classified here as tracked or not before the crate compiles.
             EntityType::Agent(AgentCommand { subcommand }) => match subcommand {
                 AgentSubcommand::Init(_) => Some(Self::AgentInit),
                 AgentSubcommand::Run(_) => Some(Self::AgentRun),
-                AgentSubcommand::Doctor(_) => Some(Self::AgentDoctor),
-                AgentSubcommand::Validate(_) => Some(Self::AgentValidate),
-                AgentSubcommand::Explain(_) => Some(Self::AgentExplain),
-                AgentSubcommand::Policy(_) => Some(Self::AgentPolicy),
-                AgentSubcommand::Mcp(_) => Some(Self::AgentMcp),
-                AgentSubcommand::Docker(_) => Some(Self::AgentDocker),
-                AgentSubcommand::Worktrees { .. } => Some(Self::AgentWorktrees),
-                // Not tracked: `hooks` (its bare form is the broker that agent
-                // tools call automatically, where a request would add latency
-                // to every call), `sessions` and `profiles` (low signal), the
-                // hidden MCP helpers, and local audit logs.
-                AgentSubcommand::Hooks(_)
-                | AgentSubcommand::Sessions { .. }
+                AgentSubcommand::Doctor(_)
+                | AgentSubcommand::Validate(_)
+                | AgentSubcommand::Explain(_)
+                | AgentSubcommand::Policy(_)
                 | AgentSubcommand::Profiles(_)
+                | AgentSubcommand::Mcp(_)
                 | AgentSubcommand::McpTools(_)
                 | AgentSubcommand::McpCheck(_)
-                | AgentSubcommand::Logs(_) => None,
+                | AgentSubcommand::Sessions { .. }
+                | AgentSubcommand::Hooks(_)
+                | AgentSubcommand::Logs(_)
+                | AgentSubcommand::Docker(_)
+                | AgentSubcommand::Worktrees { .. } => None,
             },
             _ => None,
         }
@@ -84,35 +54,13 @@ impl TrackedCommand {
     pub fn label(self) -> &'static str {
         match self {
             Self::Setup => "setup",
-            Self::Pull => "pull",
-            Self::Push => "push",
-            Self::Run => "run",
-            Self::Doctor => "doctor",
             Self::AgentInit => "agent init",
             Self::AgentRun => "agent run",
-            Self::AgentDoctor => "agent doctor",
-            Self::AgentValidate => "agent validate",
-            Self::AgentExplain => "agent explain",
-            Self::AgentPolicy => "agent policy",
-            Self::AgentMcp => "agent mcp",
-            Self::AgentDocker => "agent docker",
-            Self::AgentWorktrees => "agent worktrees",
         }
     }
 
     pub fn is_agent(self) -> bool {
-        matches!(
-            self,
-            Self::AgentInit
-                | Self::AgentRun
-                | Self::AgentDoctor
-                | Self::AgentValidate
-                | Self::AgentExplain
-                | Self::AgentPolicy
-                | Self::AgentMcp
-                | Self::AgentDocker
-                | Self::AgentWorktrees
-        )
+        matches!(self, Self::AgentInit | Self::AgentRun)
     }
 }
 
@@ -295,7 +243,7 @@ impl Event {
     pub fn sample() -> Event {
         Event::new(
             Invocation {
-                command: TrackedCommand::Pull,
+                command: TrackedCommand::Setup,
                 flags: vec![],
                 duration_ms: 1,
                 exit_code: 0,
@@ -339,42 +287,14 @@ mod tests {
     }
 
     #[test]
-    fn tracks_only_allowlisted_commands() {
+    fn tracks_only_the_funnel_commands() {
         let tracked: Vec<(&[&str], &str)> = vec![
             (&["stashbase", "setup"], "setup"),
-            (&["stashbase", "pull"], "pull"),
-            (&["stashbase", "push"], "push"),
-            (&["stashbase", "run", "--", "echo", "hi"], "run"),
-            (&["stashbase", "doctor"], "doctor"),
             (&["stashbase", "agent", "init", "p"], "agent init"),
             (
                 &["stashbase", "agent", "run", "--profile", "p", "--", "echo"],
                 "agent run",
             ),
-            (&["stashbase", "agent", "doctor", "curl"], "agent doctor"),
-            (
-                &["stashbase", "agent", "validate", "--profile", "p"],
-                "agent validate",
-            ),
-            (
-                &[
-                    "stashbase", "agent", "explain", "--profile", "p", "--host", "h", "--method",
-                    "GET", "--path", "/",
-                ],
-                "agent explain",
-            ),
-            (
-                &["stashbase", "agent", "policy", "test", "--profile", "p"],
-                "agent policy",
-            ),
-            (
-                &[
-                    "stashbase", "agent", "mcp", "configure", "--profile", "p", "--server", "s",
-                ],
-                "agent mcp",
-            ),
-            (&["stashbase", "agent", "docker", "status"], "agent docker"),
-            (&["stashbase", "agent", "worktrees", "list"], "agent worktrees"),
         ];
         for (args, label) in tracked {
             let cli = parse(args);
@@ -407,10 +327,26 @@ mod tests {
     }
 
     #[test]
-    fn low_signal_and_automatic_agent_commands_are_not_tracked() {
+    fn everything_outside_the_funnel_is_not_tracked() {
         // `agent hooks` with no subcommand is the entry point agent tools
         // call automatically; a request there would add latency to every call.
         for args in [
+            &["stashbase", "pull"][..],
+            &["stashbase", "push"][..],
+            &["stashbase", "run", "--", "echo", "hi"][..],
+            &["stashbase", "doctor"][..],
+            &["stashbase", "agent", "doctor", "curl"][..],
+            &["stashbase", "agent", "validate", "--profile", "p"][..],
+            &[
+                "stashbase", "agent", "explain", "--profile", "p", "--host", "h", "--method",
+                "GET", "--path", "/",
+            ][..],
+            &["stashbase", "agent", "policy", "test", "--profile", "p"][..],
+            &[
+                "stashbase", "agent", "mcp", "configure", "--profile", "p", "--server", "s",
+            ][..],
+            &["stashbase", "agent", "docker", "status"][..],
+            &["stashbase", "agent", "worktrees", "list"][..],
             &["stashbase", "agent", "profiles", "list"][..],
             &["stashbase", "agent", "profiles", "show", "p"][..],
             &["stashbase", "agent", "sessions", "list"][..],
@@ -449,24 +385,21 @@ mod tests {
     fn flags_are_names_only_and_never_leak_values() {
         let args = argv(&[
             "stashbase",
-            "push",
+            "setup",
             "--api-key",
             "sk-live-SECRET",
             "--environment=prod-SECRET",
             "--only",
             "DB_PASSWORD_SECRET",
-            "--set",
-            "TOKEN=SECRET",
+            "--silent=SECRET",
             "--json",
             "--",
-            "--only",
-            "after-separator",
+            "--silent",
         ]);
-        let flags = collect_flags(TrackedCommand::Push, &args);
-        assert_eq!(flags, vec!["--json", "--only"]);
+        let flags = collect_flags(TrackedCommand::Setup, &args);
+        assert_eq!(flags, vec!["--json", "--silent"]);
         let joined = flags.join(" ");
         assert!(!joined.contains("SECRET"));
-        assert!(!joined.contains("after-separator"));
     }
 
     #[test]
@@ -479,8 +412,9 @@ mod tests {
     fn event_body_contains_no_sentinel_values() {
         let args = argv(&[
             "stashbase",
+            "agent",
             "run",
-            "--project",
+            "--profile",
             "SENTINEL_PROJECT",
             "--api-key",
             "SENTINEL_KEY",
@@ -514,7 +448,7 @@ mod tests {
 
     #[test]
     fn event_schema_is_pinned() {
-        let event = Event::new(invocation(TrackedCommand::Pull), Uuid::new_v4());
+        let event = Event::new(invocation(TrackedCommand::Setup), Uuid::new_v4());
         let value = serde_json::to_value(&event).unwrap();
         let mut keys: Vec<&str> = value
             .as_object()
@@ -545,7 +479,7 @@ mod tests {
         // The extra `agent run` keys are pinned in
         // agent_run_fields_are_flattened_and_remote_runs_omit_counts.
         assert_eq!(value["event"], "cli_command");
-        assert_eq!(value["command"], "pull");
+        assert_eq!(value["command"], "setup");
         assert_eq!(value["outcome"], "error");
         assert_eq!(value["error_kind"], "network");
     }

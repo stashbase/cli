@@ -7,18 +7,15 @@ people get stuck.
 
 ## What is sent
 
-One event per run of these commands only: `setup`, `pull`, `push`, `run`,
-`doctor`, and the `agent` commands (`init`, `run`, `doctor`, `validate`, `explain`,
-`policy`, `mcp`, `docker` and `worktrees`), reported only by family (for example
-`agent docker`, never `agent docker status`). Not tracked: `agent logs`, `agent profiles`,
-`agent sessions`, `agent hooks` (including the entry point that agent tools call
-automatically) and the hidden MCP helper commands.
+One event per run of these three commands only, which together show whether people get
+set up and reach a protected agent run: `setup`, `agent init` and `agent run`. Every other
+command sends nothing.
 
 | Field | Meaning |
 |---|---|
 | `event` | always `cli_command` |
-| `command` | which command ran, e.g. `pull` or `agent run` |
-| `flags` | names of a fixed set of flags that were present (never their values); always empty for `agent` commands |
+| `command` | which command ran: `setup`, `agent init` or `agent run` |
+| `flags` | names of the `--json` or `--silent` flags if present (never any values); always empty for `agent` commands |
 | `outcome` | `ok`, `error` or `aborted` |
 | `error_kind` | only on error: `auth`, `network`, `not_found`, `validation` or `other` |
 | `duration_ms` | how long the command took |
