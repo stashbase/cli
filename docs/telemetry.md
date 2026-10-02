@@ -37,9 +37,12 @@ that fails earlier, for example on a missing profile, has none of them):
 | `sandbox_backend` | `native` or `docker`, the sandbox backend the run used |
 | `policy_allow`, `policy_deny`, `policy_block` | how many policy decisions the proxy made (one HTTPS request can produce more than one allow, for the tunnel and for the forwarded request); only for local runs with the audit log on (the default); counts only, never hosts, paths or policy content |
 
-The event is sent once, when the command exits, with a 500 ms limit. A slow or
-unreachable network just means the event is dropped; it never changes the
-command's result or exit code.
+The event is sent once, when the command finishes, by a short-lived background copy of
+`stashbase` that the command starts and does not wait for, so telemetry never delays your
+command. The background process receives the event on its standard input, has no terminal
+access, and gives up and exits after at most 5 seconds. If you look at your process list you
+may briefly see a second `stashbase` process; that is the sender. A slow or unreachable
+network just means the event is dropped; it never changes the command's result or exit code.
 
 You can see the exact event before anything is sent: set
 `STASHBASE_TELEMETRY_DEBUG=1` and it is printed to stderr instead. This works even before the

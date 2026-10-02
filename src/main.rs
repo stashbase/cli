@@ -25,6 +25,13 @@ pub static REQUEST_TIMEOUT_SECS: OnceCell<u64> = OnceCell::new();
 pub static REQUEST_ABORTED: AtomicBool = AtomicBool::new(false);
 
 fn main() {
+    // The detached telemetry sender is this same binary; it must not run a
+    // command, report telemetry itself, or touch the terminal.
+    if telemetry::send::is_worker() {
+        telemetry::send::run_worker_from_stdin();
+        return;
+    }
+
     init_logger();
     enable_virtual_terminal();
     set_handlers();

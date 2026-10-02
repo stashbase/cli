@@ -189,7 +189,7 @@ pub fn finish(exit_code: i32) {
                 return; // an ID that cannot be remembered would inflate install counts
             }
             let event = make_event(pending, recorded_error, exit_code, &signals, install_id);
-            send::post(&send::endpoint(), &event, send::TIMEOUT);
+            send::dispatch(&event);
         }
     }
 }

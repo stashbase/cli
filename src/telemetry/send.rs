@@ -1,13 +1,24 @@
-use std::time::Duration;
+use std::{
+    io::{self, Read, Write},
+    process::{Command, Stdio},
+    time::Duration,
+};
 
 use reqwest::header::CONTENT_TYPE;
 
 use super::event::Event;
 use crate::api::client::{get_api_url, CLI_USER_AGENT};
 
-/// Hard cap on the whole request, connect included. Short on purpose: this
-/// runs on every tracked exit, and slow connections simply drop the event.
-pub const TIMEOUT: Duration = Duration::from_millis(500);
+/// When set to `1`, this binary acts as the short-lived sender instead of
+/// running a command (see `is_worker`).
+pub const WORKER_ENV: &str = "STASHBASE_TELEMETRY_WORKER";
+
+/// Generous on purpose: nothing waits for the worker, so a slow connection
+/// costs the user nothing.
+pub const WORKER_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Events are a few hundred bytes; anything larger is not ours.
+const MAX_PAYLOAD: u64 = 16 * 1024;
 
 pub fn endpoint() -> String {
     format!("{}/v1/telemetry", get_api_url())
@@ -20,16 +31,88 @@ pub fn print_debug(event: &Event) {
     }
 }
 
-/// Sends one event and returns. Never panics, never returns an error, and
-/// never takes longer than roughly `timeout`.
+pub fn is_worker() -> bool {
+    std::env::var_os(WORKER_ENV).is_some_and(|value| value == "1")
+}
+
+/// Hands the finished event to a detached copy of this binary and returns
+/// immediately, so the command never waits on the network. The caller has
+/// already decided that sending is allowed. Every failure is ignored and the
+/// event is simply dropped.
+pub fn dispatch(event: &Event) {
+    let Ok(payload) = serde_json::to_vec(event) else {
+        return;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let mut command = Command::new(exe);
+    command.env(WORKER_ENV, "1");
+    let _ = spawn_with_payload(command, &payload);
+}
+
+/// Starts `command` detached from this process and terminal, writes
+/// `payload` to its stdin and returns without waiting for it. Stdout and
+/// stderr go to the null device so the child never keeps a pipe open (for
+/// example in `stashbase pull | cat`).
+fn spawn_with_payload(mut command: Command, payload: &[u8]) -> io::Result<()> {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    detach(&mut command);
+    let mut child = command.spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        // Far below the pipe buffer size, so this cannot block. Dropping
+        // stdin closes the pipe, which is the child's end-of-input.
+        let _ = stdin.write_all(payload);
+    }
+    // Deliberately not waited on.
+    Ok(())
+}
+
+#[cfg(unix)]
+fn detach(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    // Own process group, so Ctrl-C in the terminal does not kill the sender.
+    command.process_group(0);
+}
+
+#[cfg(windows)]
+fn detach(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+}
+
+pub fn run_worker_from_stdin() {
+    run_worker(io::stdin(), &endpoint(), WORKER_TIMEOUT);
+}
+
+/// The sender side: reads one event from `input` and posts it. Input that is
+/// empty, too large or not a JSON object is dropped without any request.
+pub fn run_worker(input: impl Read, endpoint: &str, timeout: Duration) {
+    let mut body = Vec::new();
+    if input.take(MAX_PAYLOAD + 1).read_to_end(&mut body).is_err() {
+        return;
+    }
+    if body.is_empty() || body.len() as u64 > MAX_PAYLOAD {
+        return;
+    }
+    if !serde_json::from_slice::<serde_json::Value>(&body).is_ok_and(|value| value.is_object()) {
+        return;
+    }
+    post_json(endpoint, body, timeout);
+}
+
+/// Posts `body` and returns. Never panics, never returns an error, and never
+/// takes longer than roughly `timeout`.
 ///
 /// The request runs on its own thread with its own runtime because callers
 /// may already be inside the `#[tokio::main]` runtime, where starting a
 /// second one on the same thread would panic.
-pub fn post(endpoint: &str, event: &Event, timeout: Duration) {
-    let Ok(body) = serde_json::to_vec(event) else {
-        return;
-    };
+pub fn post_json(endpoint: &str, body: Vec<u8>, timeout: Duration) {
     let endpoint = endpoint.to_owned();
     let handle = std::thread::spawn(move || {
         let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -74,6 +157,10 @@ mod tests {
     use super::*;
     use crate::telemetry::event::Event;
 
+    fn body(event: &Event) -> Vec<u8> {
+        serde_json::to_vec(event).unwrap()
+    }
+
     /// Accepts one connection, reads a full HTTP request, answers 204 and
     /// returns the raw request text.
     fn serve_once(listener: TcpListener) -> thread::JoinHandle<String> {
@@ -112,9 +199,9 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = serve_once(listener);
 
-        post(
+        post_json(
             &format!("http://{addr}/v1/telemetry"),
-            &Event::sample(),
+            body(&Event::sample()),
             Duration::from_secs(3),
         );
 
@@ -134,9 +221,9 @@ mod tests {
         });
 
         let started = Instant::now();
-        post(
+        post_json(
             &format!("http://{addr}/v1/telemetry"),
-            &Event::sample(),
+            body(&Event::sample()),
             Duration::from_millis(300),
         );
         assert!(started.elapsed() < Duration::from_millis(1500), "{:?}", started.elapsed());
@@ -149,21 +236,86 @@ mod tests {
             listener.local_addr().unwrap().port()
         }; // listener dropped: nothing is listening on this port any more
         let started = Instant::now();
-        post(
+        post_json(
             &format!("http://127.0.0.1:{port}/v1/telemetry"),
-            &Event::sample(),
+            body(&Event::sample()),
             Duration::from_secs(1),
         );
         assert!(started.elapsed() < Duration::from_millis(1500));
     }
 
     #[test]
-    fn default_timeout_is_half_a_second() {
-        assert_eq!(TIMEOUT, Duration::from_millis(500));
+    fn endpoint_uses_the_api_url() {
+        assert!(endpoint().ends_with("/v1/telemetry"));
     }
 
     #[test]
-    fn endpoint_uses_the_api_url() {
-        assert!(endpoint().ends_with("/v1/telemetry"));
+    fn worker_forwards_its_input_to_the_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = serve_once(listener);
+
+        run_worker(
+            std::io::Cursor::new(body(&Event::sample())),
+            &format!("http://{addr}/v1/telemetry"),
+            Duration::from_secs(3),
+        );
+
+        let request = server.join().unwrap();
+        assert!(request.starts_with("POST /v1/telemetry"), "{request}");
+        assert!(request.contains("\"event\":\"cli_command\""));
+    }
+
+    #[test]
+    fn worker_sends_nothing_for_empty_or_oversized_input() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("http://{}/v1/telemetry", listener.local_addr().unwrap());
+
+        run_worker(std::io::Cursor::new(Vec::new()), &url, Duration::from_secs(1));
+        run_worker(
+            std::io::Cursor::new(vec![b'x'; (MAX_PAYLOAD as usize) + 1]),
+            &url,
+            Duration::from_secs(1),
+        );
+
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "no connection should have been made"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawning_returns_immediately_and_the_payload_arrives_later() {
+        let out = std::env::temp_dir().join(format!("stashbase-spawn-{}", uuid::Uuid::new_v4()));
+        let mut command = std::process::Command::new("sh");
+        command
+            .arg("-c")
+            .arg("sleep 1; cat > \"$OUT\"")
+            .env("OUT", &out);
+
+        let started = Instant::now();
+        spawn_with_payload(command, b"hello").unwrap();
+        assert!(
+            started.elapsed() < Duration::from_millis(400),
+            "the caller must not wait for the child: {:?}",
+            started.elapsed()
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !out.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(50));
+        }
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "hello");
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn a_missing_binary_is_an_error_not_a_panic() {
+        let command = std::process::Command::new("/definitely/not/a/stashbase/binary");
+        assert!(spawn_with_payload(command, b"x").is_err());
     }
 }
