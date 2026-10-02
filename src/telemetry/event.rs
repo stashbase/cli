@@ -9,11 +9,6 @@ use crate::{
     models::{api_client::OutputError, validation::InputValidationError},
 };
 
-/// Flag *names* that may be reported. Values are never read. Every entry
-/// must be a real long flag (see the test that walks the clap tree). Do not
-/// add flags whose names could carry user data.
-pub const ALLOWED_FLAGS: &[&str] = &["--json", "--silent"];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackedCommand {
     Setup,
@@ -58,10 +53,6 @@ impl TrackedCommand {
             Self::AgentRun => "agent run",
         }
     }
-
-    pub fn is_agent(self) -> bool {
-        matches!(self, Self::AgentInit | Self::AgentRun)
-    }
 }
 
 impl Serialize for TrackedCommand {
@@ -70,31 +61,6 @@ impl Serialize for TrackedCommand {
     }
 }
 
-/// Returns the allowlisted flag names present in `argv`, sorted and
-/// de-duplicated. Scanning stops at `--`. Only the text before `=` is looked
-/// at, and only to match it against `ALLOWED_FLAGS`; nothing from argv is
-/// ever copied into the result.
-pub fn collect_flags(command: TrackedCommand, argv: &[String]) -> Vec<&'static str> {
-    if command.is_agent() {
-        return Vec::new();
-    }
-    let mut found: Vec<&'static str> = Vec::new();
-    for token in argv.iter().skip(1) {
-        if token == "--" {
-            break;
-        }
-        let name = token.split('=').next().unwrap_or("");
-        if let Some(allowed) = ALLOWED_FLAGS.iter().find(|flag| **flag == name) {
-            if !found.contains(allowed) {
-                found.push(allowed);
-            }
-        }
-    }
-    found.sort_unstable();
-    found
-}
-
-/// Which kind of profile an `agent run` loaded. Never the path or the name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileSource {
@@ -182,7 +148,6 @@ pub fn classify_error(error: &anyhow::Error) -> ErrorKind {
 
 pub struct Invocation {
     pub command: TrackedCommand,
-    pub flags: Vec<&'static str>,
     pub duration_ms: u64,
     pub exit_code: i32,
     pub aborted: bool,
@@ -198,7 +163,6 @@ pub struct Invocation {
 pub struct Event {
     pub event: &'static str,
     pub command: TrackedCommand,
-    pub flags: Vec<&'static str>,
     pub outcome: Outcome,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<ErrorKind>,
@@ -224,7 +188,6 @@ impl Event {
         Self {
             event: "cli_command",
             command: invocation.command,
-            flags: invocation.flags,
             outcome,
             error_kind,
             duration_ms: invocation.duration_ms,
@@ -244,7 +207,6 @@ impl Event {
         Event::new(
             Invocation {
                 command: TrackedCommand::Setup,
-                flags: vec![],
                 duration_ms: 1,
                 exit_code: 0,
                 aborted: false,
@@ -259,7 +221,7 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
-    use clap::{CommandFactory, Parser};
+    use clap::Parser;
     use uuid::Uuid;
 
     use super::*;
@@ -269,14 +231,9 @@ mod tests {
         Cli::try_parse_from(args).unwrap()
     }
 
-    fn argv(args: &[&str]) -> Vec<String> {
-        args.iter().map(|a| a.to_string()).collect()
-    }
-
     fn invocation(command: TrackedCommand) -> Invocation {
         Invocation {
             command,
-            flags: vec!["--json"],
             duration_ms: 12,
             exit_code: 1,
             aborted: false,
@@ -363,54 +320,8 @@ mod tests {
     }
 
     #[test]
-    fn every_allowed_flag_exists_in_the_cli() {
-        fn collect(cmd: &clap::Command, out: &mut Vec<String>) {
-            for arg in cmd.get_arguments() {
-                if let Some(long) = arg.get_long() {
-                    out.push(format!("--{long}"));
-                }
-            }
-            for sub in cmd.get_subcommands() {
-                collect(sub, out);
-            }
-        }
-        let mut known = Vec::new();
-        collect(&Cli::command(), &mut known);
-        for flag in ALLOWED_FLAGS {
-            assert!(known.iter().any(|k| k == flag), "{flag} is not a real flag");
-        }
-    }
-
-    #[test]
-    fn flags_are_names_only_and_never_leak_values() {
-        let args = argv(&[
-            "stashbase",
-            "setup",
-            "--api-key",
-            "sk-live-SECRET",
-            "--environment=prod-SECRET",
-            "--only",
-            "DB_PASSWORD_SECRET",
-            "--silent=SECRET",
-            "--json",
-            "--",
-            "--silent",
-        ]);
-        let flags = collect_flags(TrackedCommand::Setup, &args);
-        assert_eq!(flags, vec!["--json", "--silent"]);
-        let joined = flags.join(" ");
-        assert!(!joined.contains("SECRET"));
-    }
-
-    #[test]
-    fn agent_commands_never_report_flags() {
-        let args = argv(&["stashbase", "agent", "run", "--profile", "p", "--json"]);
-        assert!(collect_flags(TrackedCommand::AgentRun, &args).is_empty());
-    }
-
-    #[test]
     fn event_body_contains_no_sentinel_values() {
-        let args = argv(&[
+        let cli = parse(&[
             "stashbase",
             "agent",
             "run",
@@ -424,13 +335,10 @@ mod tests {
             "SENTINEL_TOKEN",
             "/home/SENTINEL_PATH",
         ]);
-        let cli = parse(&args.iter().map(String::as_str).collect::<Vec<_>>());
         let command = TrackedCommand::from_entity(&cli.entity_type).unwrap();
-        let flags = collect_flags(command, &args);
         let event = Event::new(
             Invocation {
                 command,
-                flags,
                 duration_ms: 5,
                 exit_code: 1,
                 aborted: false,
@@ -467,7 +375,6 @@ mod tests {
                 "error_kind",
                 "event",
                 "event_id",
-                "flags",
                 "install_id",
                 "is_tty",
                 "os",

@@ -19,14 +19,13 @@ use uuid::Uuid;
 use crate::cmd::root::EntityType;
 use consent::{Decision, Signals};
 use event::{
-    classify_error, collect_flags, AgentRunInfo, ErrorKind, Event, Invocation, ProfileSource,
+    classify_error, AgentRunInfo, ErrorKind, Event, Invocation, ProfileSource,
     SandboxKind, TrackedCommand,
 };
 use state::State;
 
 struct Pending {
     command: TrackedCommand,
-    flags: Vec<&'static str>,
     started: Instant,
 }
 
@@ -115,13 +114,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Registers the invocation if (and only if) it is a tracked command. Reads
-/// `argv` solely to match flag names against the allowlist.
-pub fn begin(entity: &EntityType, argv: &[String]) {
+/// Registers the invocation if (and only if) it is a tracked command. It is
+/// given only the parsed command, never the raw arguments.
+pub fn begin(entity: &EntityType) {
     if let Some(command) = TrackedCommand::from_entity(entity) {
         *lock(&PENDING) = Some(Pending {
             command,
-            flags: collect_flags(command, argv),
             started: Instant::now(),
         });
     }
@@ -204,7 +202,6 @@ fn make_event(
     Event::new(
         Invocation {
             command: pending.command,
-            flags: pending.flags,
             duration_ms: pending.started.elapsed().as_millis() as u64,
             exit_code,
             aborted: crate::REQUEST_ABORTED.load(Ordering::SeqCst),

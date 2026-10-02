@@ -40,10 +40,7 @@ fn main() {
     set_color_choice(args.color);
     set_request_timeout_secs(args.timeout);
 
-    let argv: Vec<String> = std::env::args_os()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
-    telemetry::begin(&args.entity_type, &argv);
+    telemetry::begin(&args.entity_type);
 
     handle_cli(args);
 

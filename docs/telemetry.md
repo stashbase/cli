@@ -15,7 +15,6 @@ command sends nothing.
 |---|---|
 | `event` | always `cli_command` |
 | `command` | which command ran: `setup`, `agent init` or `agent run` |
-| `flags` | names of the `--json` or `--silent` flags if present (never any values); always empty for `agent` commands |
 | `outcome` | `ok`, `error` or `aborted` |
 | `error_kind` | only on error: `auth`, `network`, `not_found`, `validation` or `other` |
 | `duration_ms` | how long the command took |
