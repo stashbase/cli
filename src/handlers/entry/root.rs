@@ -58,6 +58,7 @@ use crate::{
             subprocess::CommandFailed,
         },
         setup::setup,
+        telemetry::handle_telemetry_command,
     },
     models::{config::Config, validation::InputValidationError},
     utils::{
@@ -384,6 +385,13 @@ fn remote_source_env_names(bindings: &[crate::api::remote_proxy::RemoteBinding])
 pub async fn handle_cli(args: Cli) {
     if let EntityType::Generate(cmd) = args.entity_type {
         if let Err(e) = handle_generate_command(cmd, args.raw) {
+            eprintln!("{:?}", e);
+        }
+        return;
+    }
+
+    if let EntityType::Telemetry(cmd) = args.entity_type {
+        if let Err(e) = handle_telemetry_command(cmd.subcommand) {
             eprintln!("{:?}", e);
         }
         return;
@@ -1430,6 +1438,7 @@ pub async fn handle_cli(args: Cli) {
             EntityType::Open => handle_open_dashboard(api_key, silent).await,
             EntityType::Generate(_) => unreachable!(),
             EntityType::Doctor(_) => unreachable!(),
+            EntityType::Telemetry(_) => unreachable!(),
         };
 
         if let Err(err) = result {

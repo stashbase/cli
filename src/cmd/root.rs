@@ -14,6 +14,7 @@ use super::{
     run::RunCommand,
     secrets::SecretArgs,
     setup::SetupCommand,
+    telemetry::TelemetryCommand,
     webhooks::WebhookCommand,
 };
 
@@ -112,6 +113,9 @@ pub enum EntityType {
     /// Show details of currently authenticated entity
     #[clap(name = "whoami", aliases = &["me"])]
     Whoami(WhoamiCommand),
+
+    /// Control privacy-preserving telemetry
+    Telemetry(TelemetryCommand),
 }
 
 impl EntityType {
@@ -120,6 +124,7 @@ impl EntityType {
             EntityType::Generate(_) => false,
             EntityType::Config(_) => false,
             EntityType::Doctor(_) => false,
+            EntityType::Telemetry(_) => false,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Init(_),
             }) => false,

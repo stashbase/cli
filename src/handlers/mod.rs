@@ -12,4 +12,5 @@ pub mod run;
 pub mod scans;
 pub mod secrets;
 pub mod setup;
+pub mod telemetry;
 pub mod webhooks;
