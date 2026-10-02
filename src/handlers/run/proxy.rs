@@ -1284,6 +1284,10 @@ impl Proxy {
             ("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()),
             ("NO_PROXY".to_owned(), String::new()),
             ("no_proxy".to_owned(), String::new()),
+            // Marks every agent session (native, Docker and remote) so a
+            // Stashbase CLI run by the agent never sends telemetry, whatever
+            // the profile's egress policy allows.
+            ("STASHBASE_SANDBOX".to_owned(), "1".to_owned()),
         ]);
         for placeholder in state.secrets.keys() {
             let env_name = child_env_name_for_placeholder(
@@ -4930,6 +4934,21 @@ mod tests {
         assert_eq!(
             proxy.child_env().get("GITHUB_TOKEN").map(String::as_str),
             Some("**STASHBASE_GITHUB_TOKEN**")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn child_environment_marks_the_session_so_telemetry_stays_off() {
+        // A Stashbase CLI run by the agent must never send telemetry, even if
+        // the profile's egress policy would allow the API host.
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            proxy.child_env().get("STASHBASE_SANDBOX").map(String::as_str),
+            Some("1")
         );
         proxy.stop().await;
     }
