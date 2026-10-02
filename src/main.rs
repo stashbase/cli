@@ -16,6 +16,7 @@ mod config;
 mod handlers;
 mod logging;
 mod models;
+mod telemetry;
 mod utils;
 
 pub static SUBPROCESS_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
@@ -32,7 +33,14 @@ fn main() {
     set_color_choice(args.color);
     set_request_timeout_secs(args.timeout);
 
+    let argv: Vec<String> = std::env::args_os()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    telemetry::begin(&args.entity_type, &argv);
+
     handle_cli(args);
+
+    telemetry::finish(0);
 
     if REQUEST_ABORTED.load(Ordering::SeqCst) {
         std::process::exit(130);
