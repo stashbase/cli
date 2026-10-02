@@ -261,14 +261,50 @@ mod tests {
     }
 
     #[test]
-    fn root_handler_has_no_raw_process_exit() {
-        // Every exit in handle_cli must go through telemetry::exit so the
-        // outcome is reported. Scans and `agent docker shell` are untracked
-        // and live in other files.
-        let source = include_str!("../handlers/entry/root.rs");
+    fn no_raw_process_exit_outside_the_allowlist() {
+        // Every exit reachable from a tracked command must go through
+        // telemetry::exit so its outcome is reported. Allowed: telemetry's own
+        // helper, main.rs (runs after the event was sent, or on a forced
+        // double Ctrl-C), and the untracked `scans` commands.
+        const ALLOWED: &[&str] = &[
+            "src/telemetry/mod.rs",
+            "src/main.rs",
+            "src/handlers/scans/",
+        ];
+
+        fn visit(dir: &Path, root: &Path, offenders: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    visit(&path, root, offenders);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                    continue;
+                }
+                let relative = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                if ALLOWED.iter().any(|allowed| relative.starts_with(allowed)) {
+                    continue;
+                }
+                if std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("std::process::exit")
+                {
+                    offenders.push(relative);
+                }
+            }
+        }
+
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut offenders = Vec::new();
+        visit(&root.join("src"), root, &mut offenders);
         assert!(
-            !source.contains("std::process::exit"),
-            "use crate::telemetry::exit instead of std::process::exit in handlers/entry/root.rs"
+            offenders.is_empty(),
+            "use crate::telemetry::exit instead of std::process::exit in: {offenders:?}"
         );
     }
 
