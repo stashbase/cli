@@ -1057,6 +1057,26 @@ pub async fn handle_cli(args: Cli) {
                         profile_source,
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,
                     )?;
+                    let telemetry_profile_source = if agent_run.policy_file.is_some() {
+                        crate::telemetry::event::ProfileSource::File
+                    } else if loaded_from_directory {
+                        crate::telemetry::event::ProfileSource::Directory
+                    } else {
+                        crate::telemetry::event::ProfileSource::Global
+                    };
+                    crate::telemetry::set_agent_run(
+                        telemetry_profile_source,
+                        agent_run.remote,
+                        match profile.sandbox.backend {
+                            crate::models::agent::SandboxBackend::Docker => {
+                                crate::telemetry::event::SandboxKind::Docker
+                            }
+                            crate::models::agent::SandboxBackend::Native => {
+                                crate::telemetry::event::SandboxKind::Native
+                            }
+                        },
+                        agent_run.audit_log,
+                    );
                     let local_session_id = format!("ags_{}", ShortUuid::generate());
                     let audit_log = (!agent_run.remote)
                         .then(|| {

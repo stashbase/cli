@@ -330,6 +330,9 @@ impl ProxyAuditLog {
         operation: Option<&str>,
         mcp_tool: Option<&str>,
     ) {
+        // Every audit event, including streamed request outcomes, passes
+        // through here. Only the action kind is counted, never its details.
+        crate::telemetry::count_action(action);
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
