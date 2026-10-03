@@ -154,9 +154,8 @@ pub fn decide(signals: &Signals, state: &State) -> Decision {
 pub fn write_notice(out: &mut impl Write) {
     let _ = writeln!(
         out,
-        "\nStashbase collects privacy-preserving telemetry: which command ran and whether it\n\
-         succeeded, never arguments, paths, secrets or hosts. Details: docs/telemetry.md\n\
-         Disable: stashbase config telemetry disable (or STASHBASE_TELEMETRY=0, DO_NOT_TRACK=1)\n"
+        "\nStashbase collects privacy-preserving telemetry: which command ran and whether it succeeded,\n\
+         never arguments, paths, secrets or hosts. Opt out: stashbase config telemetry disable\n"
     );
 }
 
@@ -246,15 +245,15 @@ mod tests {
     }
 
     #[test]
-    fn notice_names_the_opt_outs_and_what_is_never_collected() {
+    fn notice_names_the_opt_out_and_what_is_never_collected() {
         let mut out = Vec::new();
         write_notice(&mut out);
         let text = String::from_utf8(out).unwrap();
-        assert!(text.contains("stashbase config telemetry disable"));
-        assert!(text.contains("STASHBASE_TELEMETRY=0"));
-        assert!(text.contains("DO_NOT_TRACK=1"));
-        assert!(text.contains("never"));
-        assert!(text.contains("docs/telemetry.md"));
+        // The environment variables and the schema live in docs/telemetry.md
+        // and `config telemetry status`; the notice carries the essentials.
+        assert!(text.contains("stashbase config telemetry disable"), "{text}");
+        assert!(text.contains("never arguments, paths, secrets or hosts"), "{text}");
+        assert!(text.contains("which command ran"), "{text}");
     }
 
     #[test]
@@ -263,8 +262,8 @@ mod tests {
         write_notice(&mut out);
         let text = String::from_utf8(out).unwrap();
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert!(lines.len() <= 3, "{} lines:\n{text}", lines.len());
-        assert!(lines.iter().all(|l| l.len() <= 100), "{text}");
+        assert!(lines.len() <= 2, "{} lines:\n{text}", lines.len());
+        assert!(lines.iter().all(|l| l.len() <= 95), "{text}");
         // The command that ran is reported (setup, pull, ...); only its
         // arguments are not. Do not claim otherwise.
         assert!(!text.contains("never collects commands"), "{text}");
