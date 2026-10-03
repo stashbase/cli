@@ -3,8 +3,9 @@ use uuid::Uuid;
 
 use crate::{
     cmd::{
-        agent::{AgentCommand, AgentSubcommand},
+        agent::{AgentCommand, AgentDockerSubcommand, AgentSubcommand},
         root::EntityType,
+        scans::ScanSubcommand,
         secrets::{SchemaSecretSubcommand, SecretSubcommand},
     },
     models::{api_client::OutputError, validation::InputValidationError},
@@ -17,20 +18,29 @@ pub enum TrackedCommand {
     Push,
     Run,
     SecretsSchemaPull,
+    ScanInstall,
     AgentInit,
     AgentRun,
+    AgentDockerBuild,
 }
 
 impl TrackedCommand {
     /// The command is chosen from the parsed clap enum, never from argv text.
-    /// Tracked: setup, pull, push, run, secrets schema pull, agent init and
-    /// agent run. Everything else sends nothing.
+    /// Tracked: setup, pull, push, run, secrets schema pull, scan install,
+    /// agent init, agent run and agent docker build. Everything else sends
+    /// nothing.
     pub fn from_entity(entity: &EntityType) -> Option<Self> {
         match entity {
             EntityType::Setup(_) => Some(Self::Setup),
             EntityType::Pull(_) => Some(Self::Pull),
             EntityType::Push(_) => Some(Self::Push),
             EntityType::Run(_) => Some(Self::Run),
+            // Only `scan install` (adopting the git hook) is tracked within
+            // `scan`; the checks themselves run from git hooks on every commit.
+            EntityType::Scan(scan) => match &scan.subcommand {
+                ScanSubcommand::Install(_) => Some(Self::ScanInstall),
+                _ => None,
+            },
             // Only `secrets schema pull` (the redacted schema for coding
             // agents) is tracked within `secrets`; the rest is visible through
             // the REST API.
@@ -56,8 +66,16 @@ impl TrackedCommand {
                 | AgentSubcommand::Sessions { .. }
                 | AgentSubcommand::Hooks(_)
                 | AgentSubcommand::Logs(_)
-                | AgentSubcommand::Docker(_)
                 | AgentSubcommand::Worktrees { .. } => None,
+                // Only `docker build` (adopting the Docker backend) is tracked;
+                // status, cleanup, doctor and shell are noise.
+                AgentSubcommand::Docker(docker) => match &docker.subcommand {
+                    AgentDockerSubcommand::Build(_) => Some(Self::AgentDockerBuild),
+                    AgentDockerSubcommand::Cleanup(_)
+                    | AgentDockerSubcommand::Status(_)
+                    | AgentDockerSubcommand::Doctor(_)
+                    | AgentDockerSubcommand::Shell(_) => None,
+                },
             },
             _ => None,
         }
@@ -70,8 +88,10 @@ impl TrackedCommand {
             Self::Push => "push",
             Self::Run => "run",
             Self::SecretsSchemaPull => "secrets schema pull",
+            Self::ScanInstall => "scan install",
             Self::AgentInit => "agent init",
             Self::AgentRun => "agent run",
+            Self::AgentDockerBuild => "agent docker build",
         }
     }
 }
@@ -278,6 +298,8 @@ mod tests {
                 ],
                 "secrets schema pull",
             ),
+            (&["stashbase", "agent", "docker", "build"], "agent docker build"),
+            (&["stashbase", "scan", "install", "pre-commit"], "scan install"),
             (&["stashbase", "agent", "init", "p"], "agent init"),
             (
                 &["stashbase", "agent", "run", "--profile", "p", "--", "echo"],
@@ -334,6 +356,11 @@ mod tests {
                 "stashbase", "agent", "mcp", "configure", "--profile", "p", "--server", "s",
             ][..],
             &["stashbase", "agent", "docker", "status"][..],
+            &["stashbase", "agent", "docker", "doctor"][..],
+            // Only `scan install` is tracked within `scan`; the checks run
+            // from git hooks on every commit.
+            &["stashbase", "scan", "staged"][..],
+            &["stashbase", "scan", "uninstall", "pre-commit"][..],
             &["stashbase", "agent", "worktrees", "list"][..],
             &["stashbase", "agent", "profiles", "list"][..],
             &["stashbase", "agent", "profiles", "show", "p"][..],

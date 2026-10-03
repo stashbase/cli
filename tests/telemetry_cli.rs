@@ -230,6 +230,24 @@ fn run_and_secrets_schema_pull_report_by_their_own_labels() {
 }
 
 #[test]
+fn scan_install_reports_but_the_scans_themselves_do_not() {
+    let sandbox = Sandbox::new(); // already a git repository
+    sandbox.enable();
+
+    let install = sandbox.run(&["scan", "install", "pre-commit"]);
+    let events_install = events(&install);
+    assert_eq!(events_install.len(), 1, "{}", stderr(&install));
+    assert_eq!(events_install[0]["command"], "scan install");
+    assert_eq!(events_install[0]["outcome"], "ok", "{}", stderr(&install));
+
+    // The checks run from git hooks on every commit and must never report.
+    for args in [&["scan", "staged"][..], &["scan", "changes"][..], &["scan", "unpushed"][..]] {
+        let out = sandbox.run(args);
+        assert!(events(&out).is_empty(), "{args:?} reported: {}", stderr(&out));
+    }
+}
+
+#[test]
 fn other_secrets_commands_report_nothing() {
     let sandbox = Sandbox::new();
     sandbox.enable();
