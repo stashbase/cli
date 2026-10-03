@@ -286,7 +286,11 @@ mod tests {
             body(&Event::sample()),
             Duration::from_millis(300),
         );
-        assert!(started.elapsed() < Duration::from_millis(1500), "{:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_millis(1500),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
@@ -332,7 +336,11 @@ mod tests {
         listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}/v1/telemetry", listener.local_addr().unwrap());
 
-        run_worker(std::io::Cursor::new(Vec::new()), &url, Duration::from_secs(1));
+        run_worker(
+            std::io::Cursor::new(Vec::new()),
+            &url,
+            Duration::from_secs(1),
+        );
         run_worker(
             std::io::Cursor::new(vec![b'x'; (MAX_PAYLOAD as usize) + 1]),
             &url,
@@ -382,9 +390,19 @@ mod tests {
     #[test]
     fn recognises_the_telemetry_post_on_the_api_host() {
         let api = Some("api.stashbase.dev");
-        assert!(is_telemetry_request(api, Some("api.stashbase.dev"), "POST", "/v1/telemetry"));
+        assert!(is_telemetry_request(
+            api,
+            Some("api.stashbase.dev"),
+            "POST",
+            "/v1/telemetry"
+        ));
         // Host case and a trailing dot are the same host; the method is case-insensitive.
-        assert!(is_telemetry_request(api, Some("API.Stashbase.Dev."), "post", "/v1/telemetry"));
+        assert!(is_telemetry_request(
+            api,
+            Some("API.Stashbase.Dev."),
+            "post",
+            "/v1/telemetry"
+        ));
     }
 
     #[test]
@@ -393,9 +411,19 @@ mod tests {
         let host = Some("api.stashbase.dev");
         assert!(!is_telemetry_request(api, host, "GET", "/v1/telemetry"));
         assert!(!is_telemetry_request(api, host, "POST", "/v1/secrets"));
-        assert!(!is_telemetry_request(api, host, "POST", "/v1/telemetry/other"));
+        assert!(!is_telemetry_request(
+            api,
+            host,
+            "POST",
+            "/v1/telemetry/other"
+        ));
         assert!(!is_telemetry_request(api, host, "POST", "/v1/telemetryx"));
-        assert!(!is_telemetry_request(api, Some("example.com"), "POST", "/v1/telemetry"));
+        assert!(!is_telemetry_request(
+            api,
+            Some("example.com"),
+            "POST",
+            "/v1/telemetry"
+        ));
         assert!(!is_telemetry_request(api, None, "POST", "/v1/telemetry"));
         assert!(!is_telemetry_request(None, host, "POST", "/v1/telemetry"));
     }

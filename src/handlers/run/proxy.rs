@@ -4246,7 +4246,8 @@ mod tests {
         // A permissive policy allows every host, so only the telemetry rule can
         // refuse this. It is the boundary an agent cannot switch off by
         // clearing STASHBASE_SANDBOX in its own environment.
-        let api_host = crate::telemetry::send::destination_host().expect("the destination has a host");
+        let api_host =
+            crate::telemetry::send::destination_host().expect("the destination has a host");
         let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
@@ -4998,7 +4999,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            proxy.child_env().get("STASHBASE_SANDBOX").map(String::as_str),
+            proxy
+                .child_env()
+                .get("STASHBASE_SANDBOX")
+                .map(String::as_str),
             Some("1")
         );
         proxy.stop().await;

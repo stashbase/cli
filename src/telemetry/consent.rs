@@ -212,21 +212,38 @@ mod tests {
 
     #[test]
     fn do_not_track_disables_unless_zero_or_false() {
-        for (value, off) in [("1", true), ("true", true), ("yes", true), ("0", false), ("false", false), ("", false)] {
+        for (value, off) in [
+            ("1", true),
+            ("true", true),
+            ("yes", true),
+            ("0", false),
+            ("false", false),
+            ("", false),
+        ] {
             let signals = Signals {
                 do_not_track: Some(value.to_string()),
                 ..human()
             };
             let expected = if off { Decision::Off } else { Decision::Send };
-            assert_eq!(decide(&signals, &seen()), expected, "DO_NOT_TRACK={value:?}");
+            assert_eq!(
+                decide(&signals, &seen()),
+                expected,
+                "DO_NOT_TRACK={value:?}"
+            );
         }
     }
 
     #[test]
     fn ci_and_sandbox_always_disable() {
         for signals in [
-            Signals { ci: true, ..human() },
-            Signals { sandbox: true, ..human() },
+            Signals {
+                ci: true,
+                ..human()
+            },
+            Signals {
+                sandbox: true,
+                ..human()
+            },
         ] {
             assert_eq!(decide(&signals, &seen()), Decision::Off);
             assert_eq!(decide(&signals, &State::default()), Decision::Off);
@@ -241,7 +258,10 @@ mod tests {
             ..State::default()
         };
         assert_eq!(decide(&human(), &state), Decision::Off);
-        assert_eq!(off_reason(&human(), &state), Some("opted out with `stashbase config telemetry disable`"));
+        assert_eq!(
+            off_reason(&human(), &state),
+            Some("opted out with `stashbase config telemetry disable`")
+        );
     }
 
     #[test]
@@ -251,8 +271,14 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         // The environment variables and the schema live in docs/telemetry.md
         // and `config telemetry status`; the notice carries the essentials.
-        assert!(text.contains("stashbase config telemetry disable"), "{text}");
-        assert!(text.contains("never arguments, paths, secrets or hosts"), "{text}");
+        assert!(
+            text.contains("stashbase config telemetry disable"),
+            "{text}"
+        );
+        assert!(
+            text.contains("never arguments, paths, secrets or hosts"),
+            "{text}"
+        );
         assert!(text.contains("which command ran"), "{text}");
     }
 
@@ -290,10 +316,22 @@ mod tests {
             ..human()
         };
         for signals in [
-            Signals { ci: true, ..debug.clone() },
-            Signals { sandbox: true, ..debug.clone() },
-            Signals { telemetry_env: Some("0".into()), ..debug.clone() },
-            Signals { do_not_track: Some("1".into()), ..debug.clone() },
+            Signals {
+                ci: true,
+                ..debug.clone()
+            },
+            Signals {
+                sandbox: true,
+                ..debug.clone()
+            },
+            Signals {
+                telemetry_env: Some("0".into()),
+                ..debug.clone()
+            },
+            Signals {
+                do_not_track: Some("1".into()),
+                ..debug.clone()
+            },
         ] {
             assert_eq!(decide(&signals, &seen()), Decision::Off);
         }
@@ -333,7 +371,10 @@ mod tests {
         };
         assert_eq!(decide(&proxied, &seen()), Decision::Off);
         assert_eq!(decide(&proxied, &State::default()), Decision::Off);
-        let debug = Signals { debug: true, ..proxied.clone() };
+        let debug = Signals {
+            debug: true,
+            ..proxied.clone()
+        };
         assert_eq!(decide(&debug, &seen()), Decision::Off);
         assert_eq!(
             off_reason(&proxied, &seen()),
@@ -354,7 +395,10 @@ mod tests {
             Some("the API URL is not Stashbase's own service")
         );
         // Debug mode does not override it: nothing would be sent anyway.
-        let debug = Signals { debug: true, ..custom.clone() };
+        let debug = Signals {
+            debug: true,
+            ..custom.clone()
+        };
         assert_eq!(decide(&debug, &seen()), Decision::Off);
 
         // An explicit telemetry URL is the opt-in to send somewhere else.

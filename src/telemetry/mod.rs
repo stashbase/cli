@@ -19,8 +19,8 @@ use uuid::Uuid;
 use crate::cmd::root::EntityType;
 use consent::{Decision, Signals};
 use event::{
-    classify_error, AgentRunInfo, ErrorKind, Event, Invocation, ProfileSource,
-    SandboxKind, TrackedCommand,
+    classify_error, AgentRunInfo, ErrorKind, Event, Invocation, ProfileSource, SandboxKind,
+    TrackedCommand,
 };
 use state::State;
 
@@ -139,7 +139,9 @@ pub fn agent_run_info(start: &AgentRunStart, allow: u32, deny: u32, block: u32) 
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Registers the invocation if (and only if) it is a tracked command. It is
@@ -296,7 +298,8 @@ mod tests {
     use crate::telemetry::state::State;
 
     fn temp_path(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("stashbase-telemetry-{name}-{}", Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("stashbase-telemetry-{name}-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("telemetry.json")
     }
@@ -313,7 +316,8 @@ mod tests {
 
     #[test]
     fn notice_is_skipped_when_it_cannot_be_remembered() {
-        let dir = std::env::temp_dir().join(format!("stashbase-telemetry-blocked-{}", Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("stashbase-telemetry-blocked-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let blocker = dir.join("file");
         std::fs::write(&blocker, b"x").unwrap();
@@ -322,7 +326,10 @@ mod tests {
         let mut state = State::default();
         let mut out = Vec::new();
         assert!(!show_notice_once(&path, &mut state, &mut out));
-        assert!(out.is_empty(), "must stay silent rather than repeat the notice every run");
+        assert!(
+            out.is_empty(),
+            "must stay silent rather than repeat the notice every run"
+        );
     }
 
     #[test]
@@ -331,11 +338,7 @@ mod tests {
         // telemetry::exit so its outcome is reported. Allowed: telemetry's own
         // helper, main.rs (runs after the event was sent, or on a forced
         // double Ctrl-C), and the untracked `scans` commands.
-        const ALLOWED: &[&str] = &[
-            "src/telemetry/mod.rs",
-            "src/main.rs",
-            "src/handlers/scans/",
-        ];
+        const ALLOWED: &[&str] = &["src/telemetry/mod.rs", "src/main.rs", "src/handlers/scans/"];
 
         fn visit(dir: &Path, root: &Path, offenders: &mut Vec<String>) {
             for entry in std::fs::read_dir(dir).unwrap() {
@@ -420,7 +423,10 @@ mod tests {
             counts_available: true,
         };
         let info = agent_run_info(&local, 4, 2, 1);
-        assert_eq!((info.policy_allow, info.policy_deny, info.policy_block), (Some(4), Some(2), Some(1)));
+        assert_eq!(
+            (info.policy_allow, info.policy_deny, info.policy_block),
+            (Some(4), Some(2), Some(1))
+        );
         assert!(info.sandbox_backend == event::SandboxKind::Docker && !info.remote);
 
         for (remote, audit_log) in [(true, true), (true, false), (false, false)] {

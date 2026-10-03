@@ -127,7 +127,8 @@ impl Sandbox {
     /// Where the CLI keeps its config file for this isolated HOME.
     fn config_file(&self) -> PathBuf {
         if cfg!(target_os = "macos") {
-            self.home.join("Library/Application Support/stashbase/config.toml")
+            self.home
+                .join("Library/Application Support/stashbase/config.toml")
         } else {
             self.home.join(".config/stashbase/config.toml")
         }
@@ -159,7 +160,12 @@ fn events(out: &Output) -> Vec<Value> {
 }
 
 fn keys(event: &Value) -> Vec<&str> {
-    let mut keys: Vec<&str> = event.as_object().unwrap().keys().map(String::as_str).collect();
+    let mut keys: Vec<&str> = event
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     keys.sort_unstable();
     keys
 }
@@ -228,7 +234,10 @@ fn config_telemetry_manages_the_setting() {
 
     let off = sandbox.run(&["config", "telemetry", "disable"]);
     assert!(off.status.success(), "{}", stderr(&off));
-    assert!(events(&off).is_empty(), "config telemetry must never report itself");
+    assert!(
+        events(&off).is_empty(),
+        "config telemetry must never report itself"
+    );
     let after_off = sandbox.run(&["agent", "init", "a"]);
     assert!(events(&after_off).is_empty());
 
@@ -251,7 +260,11 @@ fn the_top_level_telemetry_command_is_gone() {
     let out = sandbox.run(&["telemetry", "status"]);
 
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
-    assert!(stderr(&out).contains("unrecognized subcommand"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("unrecognized subcommand"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 /// Opting out must never depend on the config file being readable, or a broken
@@ -292,11 +305,17 @@ fn config_print_shows_the_telemetry_state() {
     sandbox.run(&["config", "telemetry", "disable"]);
     let disabled = sandbox.run(&["config", "print"]);
     let text = String::from_utf8_lossy(&disabled.stdout).into_owned();
-    assert!(text.contains("# telemetry: disabled (opted out with"), "{text}");
+    assert!(
+        text.contains("# telemetry: disabled (opted out with"),
+        "{text}"
+    );
 
     let in_ci = sandbox.run_with(&["config", "print"], &[("CI", "true")]);
     let text = String::from_utf8_lossy(&in_ci.stdout).into_owned();
-    assert!(text.contains("# telemetry: disabled (running in CI)"), "{text}");
+    assert!(
+        text.contains("# telemetry: disabled (running in CI)"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -331,9 +350,17 @@ fn scan_install_reports_but_the_scans_themselves_do_not() {
     assert_eq!(events_install[0]["outcome"], "ok", "{}", stderr(&install));
 
     // The checks run from git hooks on every commit and must never report.
-    for args in [&["scan", "staged"][..], &["scan", "changes"][..], &["scan", "unpushed"][..]] {
+    for args in [
+        &["scan", "staged"][..],
+        &["scan", "changes"][..],
+        &["scan", "unpushed"][..],
+    ] {
         let out = sandbox.run(args);
-        assert!(events(&out).is_empty(), "{args:?} reported: {}", stderr(&out));
+        assert!(
+            events(&out).is_empty(),
+            "{args:?} reported: {}",
+            stderr(&out)
+        );
     }
 }
 
@@ -344,13 +371,33 @@ fn agent_run_reports_whether_it_used_a_worktree() {
     sandbox.enable();
     sandbox.write_profile("p", "egress_hosts = [\"example.com\"]\n");
     let committed = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"])
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "init",
+        ])
         .current_dir(&sandbox.cwd)
         .status()
         .unwrap();
     assert!(committed.success());
 
-    let with = sandbox.run(&["agent", "run", "--profile", "p", "--worktree", "--", "sh", "-c", "exit 0"]);
+    let with = sandbox.run(&[
+        "agent",
+        "run",
+        "--profile",
+        "p",
+        "--worktree",
+        "--",
+        "sh",
+        "-c",
+        "exit 0",
+    ]);
     if stderr(&with).contains("Operation not permitted") {
         eprintln!("skipping: the macOS sandbox cannot be applied from inside another sandbox");
         return;
@@ -359,7 +406,12 @@ fn agent_run_reports_whether_it_used_a_worktree() {
     assert_eq!(events(&with)[0]["worktree"], true, "{}", stderr(&with));
 
     let without = sandbox.run(&["agent", "run", "--profile", "p", "--", "sh", "-c", "exit 0"]);
-    assert_eq!(events(&without)[0]["worktree"], false, "{}", stderr(&without));
+    assert_eq!(
+        events(&without)[0]["worktree"],
+        false,
+        "{}",
+        stderr(&without)
+    );
 }
 
 #[test]
@@ -372,7 +424,11 @@ fn other_secrets_commands_report_nothing() {
         &["secrets", "get", "-p", "p", "-e", "e", "NAME"][..],
     ] {
         let out = sandbox.run(args);
-        assert!(events(&out).is_empty(), "{args:?} reported: {}", stderr(&out));
+        assert!(
+            events(&out).is_empty(),
+            "{args:?} reported: {}",
+            stderr(&out)
+        );
     }
 }
 
@@ -445,7 +501,10 @@ fn the_event_never_contains_what_the_user_typed() {
     let out = sandbox.run(&["agent", "init", "SENTINEL_PROFILE_NAME"]);
 
     let all = stderr(&out);
-    let event_lines: Vec<&str> = all.lines().filter(|l| l.starts_with(DEBUG_PREFIX)).collect();
+    let event_lines: Vec<&str> = all
+        .lines()
+        .filter(|l| l.starts_with(DEBUG_PREFIX))
+        .collect();
     assert_eq!(event_lines.len(), 1);
     assert!(!event_lines[0].contains("SENTINEL"), "{}", event_lines[0]);
     assert!(
@@ -468,7 +527,11 @@ fn commands_outside_the_funnel_report_nothing() {
         &["agent", "logs", "list"][..],
     ] {
         let out = sandbox.run(args);
-        assert!(events(&out).is_empty(), "{args:?} reported: {}", stderr(&out));
+        assert!(
+            events(&out).is_empty(),
+            "{args:?} reported: {}",
+            stderr(&out)
+        );
     }
 }
 
@@ -489,7 +552,10 @@ fn every_off_switch_suppresses_the_event() {
         // The marker was scrubbed, but the agent proxy's CA variables remain
         // (a local session, then a remote one).
         ("SSL_CERT_FILE", "/tmp/stashbase-proxy-ca-0c9d1f2e.pem"),
-        ("NODE_EXTRA_CA_CERTS", "/home/u/.cache/stashbase/remote-proxy-abc123.pem"),
+        (
+            "NODE_EXTRA_CA_CERTS",
+            "/home/u/.cache/stashbase/remote-proxy-abc123.pem",
+        ),
     ]
     .into_iter()
     .enumerate()
@@ -507,7 +573,10 @@ fn an_ordinary_ca_bundle_does_not_suppress_the_event() {
     sandbox.enable();
 
     // A developer's own CA setup must not be mistaken for an agent session.
-    let out = sandbox.run_with(&["agent", "init", "a"], &[("SSL_CERT_FILE", "/etc/ssl/cert.pem")]);
+    let out = sandbox.run_with(
+        &["agent", "init", "a"],
+        &[("SSL_CERT_FILE", "/etc/ssl/cert.pem")],
+    );
     assert_eq!(events(&out).len(), 1, "{}", stderr(&out));
 }
 
@@ -516,7 +585,11 @@ fn a_non_default_api_url_sends_nothing_unless_the_destination_is_explicit() {
     let sandbox = Sandbox::new();
     sandbox.enable();
     let run = |api_url: &str, telemetry_url: Option<&str>| {
-        let mut command = sandbox.command(&["agent", "init", &Uuid::new_v4().to_string()], api_url, true);
+        let mut command = sandbox.command(
+            &["agent", "init", &Uuid::new_v4().to_string()],
+            api_url,
+            true,
+        );
         command.env_remove("STASHBASE_TELEMETRY_URL");
         if let Some(url) = telemetry_url {
             command.env("STASHBASE_TELEMETRY_URL", url);
@@ -531,7 +604,10 @@ fn a_non_default_api_url_sends_nothing_unless_the_destination_is_explicit() {
     assert_eq!(run("https://api.stashbase.dev", None), 1);
     assert_eq!(run("https://API.stashbase.dev/", None), 1);
     // An explicit telemetry URL is the opt-in to send somewhere else.
-    assert_eq!(run("https://stashbase.example.com", Some("http://127.0.0.1:1")), 1);
+    assert_eq!(
+        run("https://stashbase.example.com", Some("http://127.0.0.1:1")),
+        1
+    );
 }
 
 #[test]
@@ -575,7 +651,13 @@ fn an_agent_run_that_fails_to_start_is_not_reported_as_a_success() {
     // call it a failed start, and report no funnel fields.
     assert_eq!(events[0]["outcome"], "error", "{}", events[0]);
     assert_eq!(events[0]["error_kind"], "validation");
-    for key in ["profile_source", "remote", "sandbox_backend", "worktree", "policy_allow"] {
+    for key in [
+        "profile_source",
+        "remote",
+        "sandbox_backend",
+        "worktree",
+        "policy_allow",
+    ] {
         assert!(events[0].get(key).is_none(), "{key} present");
     }
 }
@@ -594,7 +676,13 @@ fn an_agent_run_that_fails_after_validation_but_before_launch_reports_no_funnel_
     assert_eq!(events.len(), 1, "{}", stderr(&out));
     assert_eq!(events[0]["command"], "agent run");
     assert_eq!(events[0]["outcome"], "error", "{}", events[0]);
-    for key in ["profile_source", "remote", "sandbox_backend", "worktree", "policy_allow"] {
+    for key in [
+        "profile_source",
+        "remote",
+        "sandbox_backend",
+        "worktree",
+        "policy_allow",
+    ] {
         assert!(
             events[0].get(key).is_none(),
             "{key} reported for a run that never launched: {}",
@@ -766,7 +854,9 @@ fn the_detached_sender_delivers_the_event_to_the_endpoint() {
         .recv_timeout(Duration::from_secs(10))
         .expect("the detached sender never delivered the event");
     assert!(request.starts_with("POST /v1/telemetry"), "{request}");
-    assert!(request.to_ascii_lowercase().contains("content-type: application/json"));
+    assert!(request
+        .to_ascii_lowercase()
+        .contains("content-type: application/json"));
     let body = request.split("\r\n\r\n").nth(1).unwrap();
     let event: Value = serde_json::from_str(body).unwrap();
     assert_eq!(event["command"], "agent init");
@@ -793,7 +883,11 @@ fn reports_from_inside_a_session(scrub: &str) -> Option<(Vec<String>, Vec<String
     // long enough for its sender to try.
     let inside = format!("{scrub} {BIN} pull >/dev/null 2>&1; sleep 2");
     let out = sandbox
-        .command(&["agent", "run", "--profile", "p", "--", "sh", "-c", &inside], &url, false)
+        .command(
+            &["agent", "run", "--profile", "p", "--", "sh", "-c", &inside],
+            &url,
+            false,
+        )
         .output()
         .unwrap();
     if stderr(&out).contains("Operation not permitted") {
@@ -826,10 +920,15 @@ fn reports_from_inside_a_session(scrub: &str) -> Option<(Vec<String>, Vec<String
 #[cfg(target_os = "macos")]
 #[test]
 fn a_scrubbed_marker_alone_does_not_get_telemetry_out() {
-    let Some((commands, actions)) = reports_from_inside_a_session("env -u STASHBASE_SANDBOX") else {
+    let Some((commands, actions)) = reports_from_inside_a_session("env -u STASHBASE_SANDBOX")
+    else {
         return;
     };
-    assert_eq!(commands, vec!["agent run".to_owned()], "the inner pull must not report");
+    assert_eq!(
+        commands,
+        vec!["agent run".to_owned()],
+        "the inner pull must not report"
+    );
     assert!(
         !actions.iter().any(|a| a == "telemetry_blocked"),
         "the CLI should not have tried at all: {actions:?}"
@@ -848,7 +947,11 @@ fn removing_the_marker_and_the_ca_variables_still_hits_the_proxy_block() {
     let Some((commands, actions)) = reports_from_inside_a_session(scrub) else {
         return;
     };
-    assert_eq!(commands, vec!["agent run".to_owned()], "the inner pull must not report");
+    assert_eq!(
+        commands,
+        vec!["agent run".to_owned()],
+        "the inner pull must not report"
+    );
     // Positive evidence that the inner CLI really tried, and the proxy stopped it.
     assert!(
         actions.iter().any(|a| a == "telemetry_blocked"),

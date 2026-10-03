@@ -295,13 +295,25 @@ mod tests {
             (&["stashbase", "run", "--", "echo", "hi"], "run"),
             (
                 &[
-                    "stashbase", "secrets", "schema", "pull", "--project", "p", "--environment",
+                    "stashbase",
+                    "secrets",
+                    "schema",
+                    "pull",
+                    "--project",
+                    "p",
+                    "--environment",
                     "e",
                 ],
                 "secrets schema pull",
             ),
-            (&["stashbase", "agent", "docker", "build"], "agent docker build"),
-            (&["stashbase", "scan", "install", "pre-commit"], "scan install"),
+            (
+                &["stashbase", "agent", "docker", "build"],
+                "agent docker build",
+            ),
+            (
+                &["stashbase", "scan", "install", "pre-commit"],
+                "scan install",
+            ),
             (&["stashbase", "agent", "init", "p"], "agent init"),
             (
                 &["stashbase", "agent", "run", "--profile", "p", "--", "echo"],
@@ -350,12 +362,28 @@ mod tests {
             &["stashbase", "agent", "doctor", "curl"][..],
             &["stashbase", "agent", "validate", "--profile", "p"][..],
             &[
-                "stashbase", "agent", "explain", "--profile", "p", "--host", "h", "--method",
-                "GET", "--path", "/",
+                "stashbase",
+                "agent",
+                "explain",
+                "--profile",
+                "p",
+                "--host",
+                "h",
+                "--method",
+                "GET",
+                "--path",
+                "/",
             ][..],
             &["stashbase", "agent", "policy", "test", "--profile", "p"][..],
             &[
-                "stashbase", "agent", "mcp", "configure", "--profile", "p", "--server", "s",
+                "stashbase",
+                "agent",
+                "mcp",
+                "configure",
+                "--profile",
+                "p",
+                "--server",
+                "s",
             ][..],
             &["stashbase", "config", "telemetry", "status"][..],
             &["stashbase", "agent", "docker", "status"][..],
@@ -507,7 +535,13 @@ mod tests {
             Uuid::new_v4(),
         ))
         .unwrap();
-        for key in ["profile_source", "remote", "sandbox_backend", "worktree", "policy_allow"] {
+        for key in [
+            "profile_source",
+            "remote",
+            "sandbox_backend",
+            "worktree",
+            "policy_allow",
+        ] {
             assert!(failed_early.get(key).is_none(), "{key}");
         }
     }
@@ -532,7 +566,8 @@ mod tests {
     fn classify_error_never_depends_on_message_text() {
         let plain = anyhow::anyhow!("401 unauthorized for /home/user/.secret");
         assert_eq!(classify_error(&plain), ErrorKind::Other);
-        let validation = anyhow::anyhow!(crate::models::validation::InputValidationError::MissingApiKey);
+        let validation =
+            anyhow::anyhow!(crate::models::validation::InputValidationError::MissingApiKey);
         assert_eq!(classify_error(&validation), ErrorKind::Validation);
     }
 }

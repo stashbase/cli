@@ -32,7 +32,10 @@ pub fn run(
             state.enabled = Some(true);
             state.notice_shown = true;
             state::save(path, &state)?;
-            writeln!(out, "Telemetry enabled. See docs/telemetry.md for exactly what is sent.")?;
+            writeln!(
+                out,
+                "Telemetry enabled. See docs/telemetry.md for exactly what is sent."
+            )?;
         }
         TelemetrySubcommand::Disable => {
             state.enabled = Some(false);
@@ -91,7 +94,11 @@ mod tests {
         dir.join("telemetry.json")
     }
 
-    fn run_to_string(sub: TelemetrySubcommand, path: &std::path::Path, signals: &Signals) -> String {
+    fn run_to_string(
+        sub: TelemetrySubcommand,
+        path: &std::path::Path,
+        signals: &Signals,
+    ) -> String {
         let mut out = Vec::new();
         run(sub, path, signals, &mut out).unwrap();
         String::from_utf8(out).unwrap()
@@ -106,7 +113,10 @@ mod tests {
         run_to_string(TelemetrySubcommand::Enable, &path, &Signals::default());
         let loaded = state::load(&path);
         assert_eq!(loaded.enabled, Some(true));
-        assert!(loaded.notice_shown, "explicitly enabling counts as having seen the notice");
+        assert!(
+            loaded.notice_shown,
+            "explicitly enabling counts as having seen the notice"
+        );
     }
 
     #[test]
@@ -117,7 +127,10 @@ mod tests {
         assert!(text.contains("disabled"), "{text}");
         assert!(text.contains("telemetry disable"), "{text}");
 
-        let in_ci = Signals { ci: true, ..Signals::default() };
+        let in_ci = Signals {
+            ci: true,
+            ..Signals::default()
+        };
         let text = run_to_string(TelemetrySubcommand::Status, &path, &in_ci);
         assert!(text.contains("CI"), "{text}");
     }
@@ -138,16 +151,25 @@ mod tests {
     fn the_telemetry_command_itself_is_never_tracked() {
         for sub in ["enable", "disable", "status"] {
             let cli = Cli::try_parse_from(["stashbase", "config", "telemetry", sub]).unwrap();
-            assert!(TrackedCommand::from_entity(&cli.entity_type).is_none(), "{sub}");
+            assert!(
+                TrackedCommand::from_entity(&cli.entity_type).is_none(),
+                "{sub}"
+            );
             assert!(!cli.entity_type.requires_api_key(), "{sub}");
         }
     }
 
     #[test]
     fn the_summary_says_enabled_or_why_it_is_off() {
-        assert_eq!(summary(&Signals::default(), &state::State::default()), "enabled");
+        assert_eq!(
+            summary(&Signals::default(), &state::State::default()),
+            "enabled"
+        );
 
-        let ci = Signals { ci: true, ..Signals::default() };
+        let ci = Signals {
+            ci: true,
+            ..Signals::default()
+        };
         assert_eq!(
             summary(&ci, &state::State::default()),
             "disabled (running in CI)"
@@ -159,6 +181,9 @@ mod tests {
         };
         let text = summary(&Signals::default(), &opted_out);
         assert!(text.starts_with("disabled (opted out with"), "{text}");
-        assert!(text.contains("stashbase config telemetry disable"), "{text}");
+        assert!(
+            text.contains("stashbase config telemetry disable"),
+            "{text}"
+        );
     }
 }
