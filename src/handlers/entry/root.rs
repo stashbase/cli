@@ -1066,7 +1066,7 @@ pub async fn handle_cli(args: Cli) {
                     } else {
                         crate::telemetry::event::ProfileSource::Global
                     };
-                    crate::telemetry::set_agent_run(
+                    crate::telemetry::prepare_agent_run(
                         telemetry_profile_source,
                         agent_run.remote,
                         match profile.sandbox.backend {

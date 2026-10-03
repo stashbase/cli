@@ -456,6 +456,29 @@ fn an_agent_run_that_fails_to_start_is_not_reported_as_a_success() {
     }
 }
 
+#[test]
+fn an_agent_run_that_fails_after_validation_but_before_launch_reports_no_funnel_fields() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    sandbox.write_profile("p", "egress_hosts = [\"example.com\"]\n");
+
+    // The profile resolves, then --remote rejects it (no secret bindings):
+    // after validation, but before anything is launched.
+    let out = sandbox.run(&["agent", "run", "--profile", "p", "--remote", "--", "true"]);
+
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["command"], "agent run");
+    assert_eq!(events[0]["outcome"], "error", "{}", events[0]);
+    for key in ["profile_source", "remote", "sandbox_backend", "worktree", "policy_allow"] {
+        assert!(
+            events[0].get(key).is_none(),
+            "{key} reported for a run that never launched: {}",
+            events[0]
+        );
+    }
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn agent_run_passes_the_exit_code_through_and_reports_the_funnel_fields() {

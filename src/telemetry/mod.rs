@@ -7,7 +7,7 @@ use std::{
     io::Write,
     path::Path,
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Mutex, MutexGuard,
     },
     time::Instant,
@@ -51,13 +51,16 @@ pub struct AgentRunStart {
 }
 
 static AGENT_RUN: Lazy<Mutex<Option<AgentRunStart>>> = Lazy::new(|| Mutex::new(None));
+static AGENT_LAUNCHED: AtomicBool = AtomicBool::new(false);
 static POLICY_ALLOW: AtomicU32 = AtomicU32::new(0);
 static POLICY_DENY: AtomicU32 = AtomicU32::new(0);
 static POLICY_BLOCK: AtomicU32 = AtomicU32::new(0);
 
-/// Called once, just before an `agent run` launches, with values the CLI has
-/// already resolved. Never pass paths, names or policy contents.
-pub fn set_agent_run(
+/// Records the funnel values of an `agent run` once its profile is resolved.
+/// They are only reported if `mark_agent_run_launched` is also called, so a
+/// run that fails while the audit log, proxy or sandbox are being set up does
+/// not count as launched. Never pass paths, names or policy contents.
+pub fn prepare_agent_run(
     profile_source: ProfileSource,
     remote: bool,
     sandbox_backend: SandboxKind,
@@ -71,6 +74,12 @@ pub fn set_agent_run(
         worktree,
         counts_available: !remote && audit_log_enabled,
     });
+}
+
+/// Called at the point the agent process is about to start, after the proxy
+/// and sandbox are up. A no-op for commands that never prepared an agent run.
+pub fn mark_agent_run_launched() {
+    AGENT_LAUNCHED.store(true, Ordering::SeqCst);
 }
 
 /// Classifies a proxy audit action by kind only. The action string is never
@@ -98,6 +107,21 @@ pub fn count_action(action: &str) {
         None => return,
     };
     counter.fetch_add(1, Ordering::Relaxed);
+}
+
+/// The funnel fields, but only for a run that was both prepared and
+/// launched. A run that failed in between has none, which is how a failed
+/// start differs from a started run in the data.
+fn launched_agent_run(
+    prepared: Option<&AgentRunStart>,
+    launched: bool,
+    allow: u32,
+    deny: u32,
+    block: u32,
+) -> Option<AgentRunInfo> {
+    prepared
+        .filter(|_| launched)
+        .map(|start| agent_run_info(start, allow, deny, block))
 }
 
 /// Builds the funnel fields; counts are omitted unless they are available.
@@ -210,14 +234,14 @@ fn make_event(
     install_id: Uuid,
 ) -> Event {
     let aborted = crate::REQUEST_ABORTED.load(Ordering::SeqCst);
-    let agent_run = lock(&AGENT_RUN).take().map(|start| {
-        agent_run_info(
-            &start,
-            POLICY_ALLOW.load(Ordering::Relaxed),
-            POLICY_DENY.load(Ordering::Relaxed),
-            POLICY_BLOCK.load(Ordering::Relaxed),
-        )
-    });
+    let prepared = lock(&AGENT_RUN).take();
+    let agent_run = launched_agent_run(
+        prepared.as_ref(),
+        AGENT_LAUNCHED.load(Ordering::SeqCst),
+        POLICY_ALLOW.load(Ordering::Relaxed),
+        POLICY_DENY.load(Ordering::Relaxed),
+        POLICY_BLOCK.load(Ordering::Relaxed),
+    );
     let recorded_error = never_launched_error(
         pending.command,
         agent_run.is_some(),
@@ -449,5 +473,22 @@ mod tests {
         // Only `agent run` has a launch point.
         assert_eq!(never_launched_error(Setup, false, 0, false, None), None);
         assert_eq!(never_launched_error(AgentInit, false, 0, false, None), None);
+    }
+
+    #[test]
+    fn funnel_fields_need_both_preparation_and_launch() {
+        let start = || AgentRunStart {
+            profile_source: event::ProfileSource::Directory,
+            remote: false,
+            sandbox_backend: event::SandboxKind::Native,
+            worktree: false,
+            counts_available: true,
+        };
+        // Prepared and launched: reported.
+        assert!(launched_agent_run(Some(&start()), true, 1, 2, 3).is_some());
+        // Prepared but the proxy or child never started: not reported.
+        assert!(launched_agent_run(Some(&start()), false, 1, 2, 3).is_none());
+        // Never prepared: not reported.
+        assert!(launched_agent_run(None, true, 1, 2, 3).is_none());
     }
 }

@@ -250,6 +250,10 @@ async fn run_built_command(
     audit_log: Option<super::proxy::ProxyAuditLog>,
     current_dir: PathBuf,
 ) -> Result<ExitStatus> {
+    // The proxy, sandbox and environment are ready and the child is about to
+    // start: this is when an `agent run` counts as launched for telemetry.
+    crate::telemetry::mark_agent_run_launched();
+
     // NOTE: for the Docker backend, `program` is `docker` — every
     // `cmd.env_remove`/`cmd.env` call below acts on the `docker` CLI
     // process's own environment, not the container's. The container only
