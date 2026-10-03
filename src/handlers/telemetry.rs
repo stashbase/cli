@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn the_telemetry_command_itself_is_never_tracked() {
         for sub in ["enable", "disable", "status", "reset"] {
-            let cli = Cli::try_parse_from(["stashbase", "telemetry", sub]).unwrap();
+            let cli = Cli::try_parse_from(["stashbase", "config", "telemetry", sub]).unwrap();
             assert!(TrackedCommand::from_entity(&cli.entity_type).is_none(), "{sub}");
             assert!(!cli.entity_type.requires_api_key(), "{sub}");
         }
@@ -170,6 +170,6 @@ mod tests {
         };
         let text = summary(&Signals::default(), &opted_out);
         assert!(text.starts_with("disabled (opted out with"), "{text}");
-        assert!(text.contains("stashbase telemetry disable"), "{text}");
+        assert!(text.contains("stashbase config telemetry disable"), "{text}");
     }
 }

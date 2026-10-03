@@ -74,7 +74,7 @@ pub enum ConfigSubcommand {
     /// Reset config file
     Reset(ResetConfig),
 
-    /// Privacy-preserving usage telemetry (same as `stashbase telemetry`)
+    /// Privacy-preserving usage telemetry
     Telemetry(crate::cmd::telemetry::TelemetryCommand),
 }
 

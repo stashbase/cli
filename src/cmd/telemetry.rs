@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]
-#[command(override_usage = "telemetry <COMMAND>")]
+#[command(override_usage = "config telemetry <COMMAND>")]
 pub struct TelemetryCommand {
     #[clap(subcommand)]
     pub subcommand: TelemetrySubcommand,

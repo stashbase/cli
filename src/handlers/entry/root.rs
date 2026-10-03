@@ -19,7 +19,7 @@ use crate::{
             AgentAuditGroupBy, AgentLogsCommand, AgentLogsListCommand, AgentLogsSubcommand,
             AgentLogsSummaryCommand, AgentProfileSource, AgentSubcommand,
         },
-        config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
+        config::{ConfigCommand, ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
@@ -390,7 +390,12 @@ pub async fn handle_cli(args: Cli) {
         return;
     }
 
-    if let EntityType::Telemetry(cmd) = args.entity_type {
+    // `config telemetry ...` is handled before the config file is read, so
+    // opting out never depends on config.toml being readable.
+    if let EntityType::Config(ConfigCommand {
+        subcommand: ConfigSubcommand::Telemetry(cmd),
+    }) = args.entity_type
+    {
         if let Err(e) = handle_telemetry_command(cmd.subcommand) {
             eprintln!("{:?}", e);
         }
@@ -1464,7 +1469,6 @@ pub async fn handle_cli(args: Cli) {
             EntityType::Open => handle_open_dashboard(api_key, silent).await,
             EntityType::Generate(_) => unreachable!(),
             EntityType::Doctor(_) => unreachable!(),
-            EntityType::Telemetry(_) => unreachable!(),
         };
 
         if let Err(err) = result {

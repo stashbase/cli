@@ -12,7 +12,7 @@ use uuid::Uuid;
 pub struct State {
     #[serde(default)]
     pub install_id: Option<Uuid>,
-    /// `Some(false)` is an explicit opt-out via `stashbase telemetry disable`.
+    /// `Some(false)` is an explicit opt-out via `stashbase config telemetry disable`.
     #[serde(default)]
     pub enabled: Option<bool>,
     #[serde(default)]

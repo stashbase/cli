@@ -120,7 +120,7 @@ impl Sandbox {
     /// A human has agreed to telemetry (this also counts as having seen the
     /// first-run notice, which cannot be shown without a terminal).
     fn enable(&self) {
-        let out = self.run(&["telemetry", "enable"]);
+        let out = self.run(&["config", "telemetry", "enable"]);
         assert!(out.status.success(), "{}", stderr(&out));
     }
 
@@ -222,7 +222,7 @@ fn pull_and_push_each_report_one_event_when_they_fail() {
 }
 
 #[test]
-fn config_telemetry_is_an_alias_for_the_telemetry_command() {
+fn config_telemetry_manages_the_setting() {
     let sandbox = Sandbox::new();
     sandbox.enable();
 
@@ -243,6 +243,33 @@ fn config_telemetry_is_an_alias_for_the_telemetry_command() {
     assert_eq!(events(&after_on).len(), 1);
 }
 
+/// There is no top-level `telemetry` command: the setting lives under `config`.
+#[test]
+fn the_top_level_telemetry_command_is_gone() {
+    let sandbox = Sandbox::new();
+
+    let out = sandbox.run(&["telemetry", "status"]);
+
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("unrecognized subcommand"), "{}", stderr(&out));
+}
+
+/// Opting out must never depend on the config file being readable, or a broken
+/// config.toml would trap the user in telemetry.
+#[test]
+fn config_telemetry_works_even_when_config_toml_is_broken() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    std::fs::create_dir_all(sandbox.config_file().parent().unwrap()).unwrap();
+    std::fs::write(sandbox.config_file(), "this is = = not toml [[[\n").unwrap();
+
+    let off = sandbox.run(&["config", "telemetry", "disable"]);
+    assert!(off.status.success(), "{}", stderr(&off));
+    let status = sandbox.run(&["config", "telemetry", "status"]);
+    let text = String::from_utf8_lossy(&status.stdout).into_owned();
+    assert!(text.contains("disabled"), "{text} / {}", stderr(&status));
+}
+
 #[test]
 fn config_print_shows_the_telemetry_state() {
     let sandbox = Sandbox::new();
@@ -253,7 +280,7 @@ fn config_print_shows_the_telemetry_state() {
     assert!(text.contains("# telemetry: enabled"), "{text}");
     assert!(events(&enabled).is_empty());
 
-    sandbox.run(&["telemetry", "disable"]);
+    sandbox.run(&["config", "telemetry", "disable"]);
     let disabled = sandbox.run(&["config", "print"]);
     let text = String::from_utf8_lossy(&disabled.stdout).into_owned();
     assert!(text.contains("# telemetry: disabled (opted out with"), "{text}");
@@ -427,7 +454,7 @@ fn commands_outside_the_funnel_report_nothing() {
     for args in [
         &["doctor"][..],
         &["generate", "uuid"][..],
-        &["telemetry", "status"][..],
+        &["config", "telemetry", "status"][..],
         &["agent", "profiles", "list"][..],
         &["agent", "logs", "list"][..],
     ] {
@@ -503,11 +530,11 @@ fn disable_and_enable_switch_telemetry() {
     let sandbox = Sandbox::new();
     sandbox.enable();
 
-    sandbox.run(&["telemetry", "disable"]);
+    sandbox.run(&["config", "telemetry", "disable"]);
     let off = sandbox.run(&["agent", "init", "a"]);
     assert!(events(&off).is_empty());
 
-    sandbox.run(&["telemetry", "enable"]);
+    sandbox.run(&["config", "telemetry", "enable"]);
     let on = sandbox.run(&["agent", "init", "b"]);
     assert_eq!(events(&on).len(), 1);
 }

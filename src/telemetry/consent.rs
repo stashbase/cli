@@ -129,7 +129,7 @@ pub fn off_reason(signals: &Signals, state: &State) -> Option<&'static str> {
         }
     }
     if state.enabled == Some(false) {
-        return Some("opted out with `stashbase telemetry disable`");
+        return Some("opted out with `stashbase config telemetry disable`");
     }
     None
 }
@@ -156,7 +156,7 @@ pub fn write_notice(out: &mut impl Write) {
         out,
         "\nStashbase collects privacy-preserving telemetry: which command ran and whether it\n\
          succeeded, never arguments, paths, secrets or hosts. Details: docs/telemetry.md\n\
-         Disable: stashbase telemetry disable (or STASHBASE_TELEMETRY=0, DO_NOT_TRACK=1)\n"
+         Disable: stashbase config telemetry disable (or STASHBASE_TELEMETRY=0, DO_NOT_TRACK=1)\n"
     );
 }
 
@@ -242,7 +242,7 @@ mod tests {
             ..State::default()
         };
         assert_eq!(decide(&human(), &state), Decision::Off);
-        assert_eq!(off_reason(&human(), &state), Some("opted out with `stashbase telemetry disable`"));
+        assert_eq!(off_reason(&human(), &state), Some("opted out with `stashbase config telemetry disable`"));
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
         let mut out = Vec::new();
         write_notice(&mut out);
         let text = String::from_utf8(out).unwrap();
-        assert!(text.contains("stashbase telemetry disable"));
+        assert!(text.contains("stashbase config telemetry disable"));
         assert!(text.contains("STASHBASE_TELEMETRY=0"));
         assert!(text.contains("DO_NOT_TRACK=1"));
         assert!(text.contains("never"));
