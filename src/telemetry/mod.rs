@@ -199,25 +199,59 @@ fn make_event(
     signals: &Signals,
     install_id: Uuid,
 ) -> Event {
+    let aborted = crate::REQUEST_ABORTED.load(Ordering::SeqCst);
+    let agent_run = lock(&AGENT_RUN).take().map(|start| {
+        agent_run_info(
+            &start,
+            POLICY_ALLOW.load(Ordering::Relaxed),
+            POLICY_DENY.load(Ordering::Relaxed),
+            POLICY_BLOCK.load(Ordering::Relaxed),
+        )
+    });
+    let recorded_error = never_launched_error(
+        pending.command,
+        agent_run.is_some(),
+        exit_code,
+        aborted,
+        recorded_error,
+    );
     Event::new(
         Invocation {
             command: pending.command,
             duration_ms: pending.started.elapsed().as_millis() as u64,
             exit_code,
-            aborted: crate::REQUEST_ABORTED.load(Ordering::SeqCst),
+            aborted,
             recorded_error,
             is_tty: signals.interactive,
-            agent_run: lock(&AGENT_RUN).take().map(|start| {
-                agent_run_info(
-                    &start,
-                    POLICY_ALLOW.load(Ordering::Relaxed),
-                    POLICY_DENY.load(Ordering::Relaxed),
-                    POLICY_BLOCK.load(Ordering::Relaxed),
-                )
-            }),
+            agent_run,
         },
         install_id,
     )
+}
+
+/// Several `agent run` validation failures (profile not found, invalid
+/// secret source, ...) print a message and return normally, so the process
+/// exits 0. An `agent run` that never reached its launch point (where
+/// `set_agent_run` is called) is a failed start, not a successful run; report
+/// it as a validation error so it cannot inflate the funnel. Anything already
+/// recorded, aborted or exiting non-zero is left as it is.
+fn never_launched_error(
+    command: TrackedCommand,
+    launched: bool,
+    exit_code: i32,
+    aborted: bool,
+    recorded: Option<ErrorKind>,
+) -> Option<ErrorKind> {
+    if command == TrackedCommand::AgentRun
+        && !launched
+        && exit_code == 0
+        && !aborted
+        && recorded.is_none()
+    {
+        Some(ErrorKind::Validation)
+    } else {
+        recorded
+    }
 }
 
 #[cfg(test)]
@@ -375,5 +409,33 @@ mod tests {
         count_action("host_denied");
         count_action("session_started"); // not a decision: must not count
         assert!(POLICY_DENY.load(std::sync::atomic::Ordering::Relaxed) > before);
+    }
+
+    #[test]
+    fn an_agent_run_that_never_launched_is_a_failed_start() {
+        // Several pre-launch validation failures print a message and return
+        // normally (exit 0); they must not be reported as a successful run.
+        assert_eq!(
+            never_launched_error(TrackedCommand::AgentRun, false, 0, false, None),
+            Some(ErrorKind::Validation)
+        );
+    }
+
+    #[test]
+    fn launched_aborted_failed_or_other_commands_are_left_alone() {
+        use TrackedCommand::*;
+        // Launched: a clean exit really is a success.
+        assert_eq!(never_launched_error(AgentRun, true, 0, false, None), None);
+        // Ctrl-C before launch stays "aborted", a non-zero exit stays an error,
+        // and an error that was already recorded keeps its category.
+        assert_eq!(never_launched_error(AgentRun, false, 0, true, None), None);
+        assert_eq!(never_launched_error(AgentRun, false, 1, false, None), None);
+        assert_eq!(
+            never_launched_error(AgentRun, false, 0, false, Some(ErrorKind::Network)),
+            Some(ErrorKind::Network)
+        );
+        // Only `agent run` has a launch point.
+        assert_eq!(never_launched_error(Setup, false, 0, false, None), None);
+        assert_eq!(never_launched_error(AgentInit, false, 0, false, None), None);
     }
 }
