@@ -401,6 +401,8 @@ mod tests {
             ("upgrade_closed", None),
             ("tls_trust_failed", None),
             ("request_invalid", None),
+            // The proxy refusing a telemetry POST is not a user policy decision.
+            ("telemetry_blocked", None),
             ("upstream_timeout", None),
             ("something_new", None),
         ] {

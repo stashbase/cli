@@ -551,6 +551,74 @@ fn capture_one_request(listener: TcpListener) -> mpsc::Receiver<String> {
     receiver
 }
 
+/// Accepts connections for the rest of the process and keeps every request
+/// body it receives, answering each with 204.
+fn capture_all_requests(listener: TcpListener) -> std::sync::Arc<std::sync::Mutex<Vec<String>>> {
+    let bodies = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = bodies.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let sink = sink.clone();
+            thread::spawn(move || {
+                let mut stream = stream;
+                let mut buf = vec![0u8; 16 * 1024];
+                let mut total = 0;
+                loop {
+                    let Ok(n) = stream.read(&mut buf[total..]) else {
+                        return;
+                    };
+                    if n == 0 {
+                        break;
+                    }
+                    total += n;
+                    let text = String::from_utf8_lossy(&buf[..total]).to_ascii_lowercase();
+                    if let Some(head_end) = text.find("\r\n\r\n") {
+                        let length = text
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if total >= head_end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\ncontent-length: 0\r\n\r\n");
+                let text = String::from_utf8_lossy(&buf[..total]).into_owned();
+                if let Some(body) = text.split("\r\n\r\n").nth(1) {
+                    sink.lock().unwrap().push(body.to_owned());
+                }
+            });
+        }
+    });
+    bodies
+}
+
+fn audit_actions(home: &std::path::Path) -> Vec<String> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                for line in std::fs::read_to_string(&path).unwrap_or_default().lines() {
+                    if let Ok(value) = serde_json::from_str::<Value>(line) {
+                        if let Some(action) = value["action"].as_str() {
+                            out.push(action.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut actions = Vec::new();
+    walk(home, &mut actions);
+    actions
+}
+
 fn bind_loopback() -> Option<(TcpListener, String)> {
     let listener = TcpListener::bind("127.0.0.1:0").ok()?;
     let url = format!("http://{}", listener.local_addr().ok()?);
@@ -583,6 +651,72 @@ fn the_detached_sender_delivers_the_event_to_the_endpoint() {
     let event: Value = serde_json::from_str(body).unwrap();
     assert_eq!(event["command"], "agent init");
     assert_eq!(keys(&event), BASE_KEYS);
+}
+
+/// The `STASHBASE_SANDBOX` marker lives in the agent's own environment, so an
+/// agent can remove it. The proxy therefore refuses the telemetry POST itself:
+/// every request of a local session passes through it, whatever the profile's
+/// egress policy allows (here it allows the "API" host).
+#[cfg(target_os = "macos")]
+#[test]
+fn an_agent_cannot_get_telemetry_out_by_removing_the_sandbox_marker() {
+    let Some((listener, url)) = bind_loopback() else {
+        eprintln!("skipping: loopback ports are not available");
+        return;
+    };
+    let received = capture_all_requests(listener);
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    sandbox.write_profile("p", "egress_hosts = [\"127.0.0.1\"]\n");
+
+    // Inside the session: remove the marker, then run a tracked command, and
+    // keep the session open long enough for its sender to try.
+    let inside = format!("env -u STASHBASE_SANDBOX {BIN} pull >/dev/null 2>&1; sleep 2");
+    let out = sandbox
+        .command(&["agent", "run", "--profile", "p", "--", "sh", "-c", &inside], &url, false)
+        .output()
+        .unwrap();
+    if stderr(&out).contains("Operation not permitted") {
+        eprintln!("skipping: the macOS sandbox cannot be applied from inside another sandbox");
+        return;
+    }
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    // The host's own `agent run` event does arrive; wait for it.
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let commands = loop {
+        let commands: Vec<String> = received
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|body| serde_json::from_str::<Value>(body).ok())
+            .filter_map(|event| event["command"].as_str().map(str::to_owned))
+            .collect();
+        if commands.iter().any(|c| c == "agent run") || Instant::now() > deadline {
+            break commands;
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+    thread::sleep(Duration::from_millis(500)); // let any stray event land
+
+    let commands: Vec<String> = received
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|body| serde_json::from_str::<Value>(body).ok())
+        .filter_map(|event| event["command"].as_str().map(str::to_owned))
+        .chain(commands)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(commands, vec!["agent run".to_owned()], "the inner pull must not report");
+
+    // Positive evidence that the inner CLI really tried, and the proxy stopped it.
+    let actions = audit_actions(&sandbox.home);
+    assert!(
+        actions.iter().any(|a| a == "telemetry_blocked"),
+        "the proxy never logged the blocked telemetry POST: {actions:?}"
+    );
 }
 
 fn fastest_of(runs: usize, mut run: impl FnMut() -> Output) -> Duration {

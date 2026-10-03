@@ -1742,6 +1742,32 @@ fn proxy_request(
 
         let request_id = new_local_request_id();
         let host = request_host(&request, connect_authority.as_deref());
+        // The agent controls its own environment, so the STASHBASE_SANDBOX
+        // marker alone cannot keep telemetry out of an agent session. Every
+        // request of a local session passes through this proxy, so refuse the
+        // CLI's telemetry POST here, ahead of any egress policy.
+        if crate::telemetry::send::is_telemetry_request(
+            crate::api::client::get_api_host().as_deref(),
+            host.as_deref(),
+            request.method().as_str(),
+            request.uri().path(),
+        ) {
+            state.record_audit_with_request(
+                &request_id,
+                "telemetry_blocked",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response_with_id(
+                StatusCode::FORBIDDEN,
+                "proxy.telemetry_not_allowed",
+                "Agent Proxy never forwards Stashbase telemetry from an agent session",
+                Some(&request_id),
+            ));
+        }
         if state.host_is_denied(host.as_deref()) {
             debug!(
                 "proxy denied destination: {}",
@@ -4212,6 +4238,31 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn the_proxy_refuses_stashbase_telemetry_even_when_egress_is_unrestricted() {
+        // A permissive policy allows every host, so only the telemetry rule can
+        // refuse this. It is the boundary an agent cannot switch off by
+        // clearing STASHBASE_SANDBOX in its own environment.
+        let api_host = crate::api::client::get_api_host().expect("the API URL has a host");
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .post(format!("http://{api_host}/v1/telemetry"))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.bytes().await.unwrap();
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(error.error.code, "proxy.telemetry_not_allowed");
         proxy.stop().await;
     }
 
