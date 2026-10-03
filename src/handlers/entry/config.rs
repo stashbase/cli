@@ -116,6 +116,15 @@ pub fn handle_config_commands(
                     }
                 }
             }
+
+            // A TOML comment, so the output stays valid TOML.
+            println!(
+                "# telemetry: {}",
+                crate::handlers::telemetry::current_summary()
+            );
+        }
+        ConfigSubcommand::Telemetry(command) => {
+            crate::handlers::telemetry::handle_telemetry_command(command.subcommand, json_output)?;
         }
         ConfigSubcommand::Reset(r) => {
             reset_config(r.force)?;

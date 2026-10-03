@@ -19,7 +19,7 @@ use crate::{
             AgentAuditGroupBy, AgentLogsCommand, AgentLogsListCommand, AgentLogsSubcommand,
             AgentLogsSummaryCommand, AgentProfileSource, AgentSubcommand,
         },
-        config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
+        config::{ConfigCommand, ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
@@ -58,6 +58,7 @@ use crate::{
             subprocess::CommandFailed,
         },
         setup::setup,
+        telemetry::handle_telemetry_command,
     },
     models::{config::Config, validation::InputValidationError},
     utils::{
@@ -88,7 +89,7 @@ fn install_remote_agent_shutdown_handler() {
             _ = interrupt.recv() => 130,
         };
         crate::api::remote_proxy::end_registered_agent_run().await;
-        std::process::exit(exit_code);
+        crate::telemetry::exit(exit_code);
     });
 }
 
@@ -99,7 +100,7 @@ fn install_remote_agent_shutdown_handler() {
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
             crate::api::remote_proxy::end_registered_agent_run().await;
-            std::process::exit(130);
+            crate::telemetry::exit(130);
         }
     });
 }
@@ -389,16 +390,29 @@ pub async fn handle_cli(args: Cli) {
         return;
     }
 
+    // `config telemetry ...` is handled before the config file is read, so
+    // opting out never depends on config.toml being readable.
+    if let EntityType::Config(ConfigCommand {
+        subcommand: ConfigSubcommand::Telemetry(cmd),
+    }) = args.entity_type
+    {
+        if let Err(e) = handle_telemetry_command(cmd.subcommand, args.raw) {
+            eprintln!("{:?}", e);
+        }
+        return;
+    }
+
     if let EntityType::Doctor(cmd) = args.entity_type {
         match handle_doctor_command(cmd, args.raw, args.api_key).await {
             Ok(has_failures) => {
                 if has_failures {
-                    std::process::exit(1);
+                    crate::telemetry::exit(1);
                 }
             }
             Err(e) => {
+                crate::telemetry::record_error(&e);
                 eprintln!("{:?}", e);
-                std::process::exit(1);
+                crate::telemetry::exit(1);
             }
         }
         return;
@@ -414,6 +428,7 @@ pub async fn handle_cli(args: Cli) {
             return;
         } else if let EntityType::Setup(_) = args.entity_type {
             if let Err(err) = setup(config) {
+                crate::telemetry::record_error(&err);
                 eprintln!("{:?}", err);
             }
 
@@ -423,6 +438,9 @@ pub async fn handle_cli(args: Cli) {
         let profile_name = match config::resolve_profile_name(&config) {
             Ok(profile) => profile,
             Err(error) => {
+                // Printed and returned normally (exit 0): record it, or
+                // telemetry would report this failed command as a success.
+                crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Validation);
                 eprintln!("{}", error);
                 return;
             }
@@ -490,7 +508,9 @@ pub async fn handle_cli(args: Cli) {
                     eprintln!("{}", json_str);
                 }
             }
-            std::process::exit(1);
+            // The CLI itself calls this an authentication error.
+            crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Auth);
+            crate::telemetry::exit(1);
         }
 
         // Local commands such as `agent logs` do not need Stashbase authentication.
@@ -648,7 +668,7 @@ pub async fn handle_cli(args: Cli) {
                         )
                         .await
                         {
-                            Ok(true) => std::process::exit(1),
+                            Ok(true) => crate::telemetry::exit(1),
                             Ok(false) => Ok(()),
                             Err(error) => Err(error),
                         }
@@ -669,7 +689,7 @@ pub async fn handle_cli(args: Cli) {
                 },
                 AgentSubcommand::Doctor(agent_doctor) => {
                     match handle_agent_doctor_command(agent_doctor, raw_output).await {
-                        Ok(true) => std::process::exit(1),
+                        Ok(true) => crate::telemetry::exit(1),
                         Ok(false) => Ok(()),
                         Err(error) => Err(error),
                     }
@@ -687,7 +707,7 @@ pub async fn handle_cli(args: Cli) {
                             &config,
                             raw_output,
                         ) {
-                            Ok(true) => std::process::exit(1),
+                            Ok(true) => crate::telemetry::exit(1),
                             Ok(false) => Ok(()),
                             Err(error) => Err(error),
                         }
@@ -702,7 +722,7 @@ pub async fn handle_cli(args: Cli) {
                         )
                         .await
                         {
-                            Ok(true) => std::process::exit(1),
+                            Ok(true) => crate::telemetry::exit(1),
                             Ok(false) => Ok(()),
                             Err(error) => Err(error),
                         }
@@ -717,14 +737,14 @@ pub async fn handle_cli(args: Cli) {
                         &config,
                         raw_output,
                     ) {
-                        Ok(true) => std::process::exit(1),
+                        Ok(true) => crate::telemetry::exit(1),
                         Ok(false) => Ok(()),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Validate(agent_validate) => {
                     match handle_agent_validate_command(agent_validate, &config, raw_output).await {
-                        Ok(true) => std::process::exit(1),
+                        Ok(true) => crate::telemetry::exit(1),
                         Ok(false) => Ok(()),
                         Err(error) => Err(error),
                     }
@@ -740,7 +760,7 @@ pub async fn handle_cli(args: Cli) {
                             silent,
                             raw_output,
                         ) {
-                            Ok(true) => std::process::exit(1),
+                            Ok(true) => crate::telemetry::exit(1),
                             Ok(false) => Ok(()),
                             Err(error) => Err(error),
                         }
@@ -943,7 +963,7 @@ pub async fn handle_cli(args: Cli) {
                                 .format_error_output(raw_output)
                                 .unwrap_or_else(|_| "Error formatting validation error".to_owned())
                         );
-                        std::process::exit(1);
+                        crate::telemetry::exit(1);
                     }
                     let secret_bindings = profile
                         .secrets
@@ -1047,6 +1067,27 @@ pub async fn handle_cli(args: Cli) {
                         profile_source,
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,
                     )?;
+                    let telemetry_profile_source = if agent_run.policy_file.is_some() {
+                        crate::telemetry::event::ProfileSource::File
+                    } else if loaded_from_directory {
+                        crate::telemetry::event::ProfileSource::Directory
+                    } else {
+                        crate::telemetry::event::ProfileSource::Global
+                    };
+                    crate::telemetry::prepare_agent_run(
+                        telemetry_profile_source,
+                        agent_run.remote,
+                        match profile.sandbox.backend {
+                            crate::models::agent::SandboxBackend::Docker => {
+                                crate::telemetry::event::SandboxKind::Docker
+                            }
+                            crate::models::agent::SandboxBackend::Native => {
+                                crate::telemetry::event::SandboxKind::Native
+                            }
+                        },
+                        profile.workspace.worktree,
+                        agent_run.audit_log,
+                    );
                     let local_session_id = format!("ags_{}", ShortUuid::generate());
                     let audit_log = (!agent_run.remote)
                         .then(|| {
@@ -1436,8 +1477,9 @@ pub async fn handle_cli(args: Cli) {
                 return;
             }
             eprintln!("{:?}", err);
+            crate::telemetry::record_error(&err);
             if let Some(command_failed) = err.downcast_ref::<CommandFailed>() {
-                std::process::exit(command_failed.exit_code());
+                crate::telemetry::exit(command_failed.exit_code());
             }
         }
     } else {
@@ -1456,6 +1498,9 @@ pub async fn handle_cli(args: Cli) {
             eprintln!("{}", "Request aborted".red_if_tty_stderr());
             return;
         }
+        // An unreadable or malformed config file: printed, then a normal
+        // return (exit 0). Record it so it is not reported as a success.
+        crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Validation);
         eprintln!("{:?}", err);
     }
 }

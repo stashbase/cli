@@ -690,6 +690,8 @@ pub(crate) fn docker_shell_command_args(
         format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
         "-e".to_owned(),
         format!("HOME={CONTAINER_HOME}"),
+        "-e".to_owned(),
+        "STASHBASE_SANDBOX=1".to_owned(),
         "-w".to_owned(),
         CONTAINER_HOME.to_owned(),
         "--entrypoint".to_owned(),
@@ -901,6 +903,8 @@ pub(crate) fn docker_run_command(
         format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
         "-e".to_owned(),
         format!("HOME={CONTAINER_HOME}"),
+        "-e".to_owned(),
+        "STASHBASE_SANDBOX=1".to_owned(),
     ]);
 
     args.extend(["-w".to_owned(), cwd_str]);
@@ -2484,6 +2488,7 @@ mod tests {
         .unwrap();
         assert!(args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
         assert!(args.contains(&format!("HOME={CONTAINER_HOME}")));
+        assert!(args.contains(&"STASHBASE_SANDBOX=1".to_owned()));
     }
 
     #[test]
@@ -2585,6 +2590,7 @@ mod tests {
         assert!(joined.starts_with("run --rm -i -t "));
         assert!(joined.contains(&format!("-v {PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
         assert!(joined.contains(&format!("-e HOME={CONTAINER_HOME}")));
+        assert!(joined.contains("-e STASHBASE_SANDBOX=1"));
         assert!(joined.contains(&format!("-w {CONTAINER_HOME}")));
         assert!(joined.ends_with("--entrypoint bash my/image:tag"));
     }

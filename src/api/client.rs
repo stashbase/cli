@@ -36,6 +36,13 @@ pub fn get_api_url() -> String {
         .unwrap_or_else(|| DEFAULT_API_URL.to_string())
 }
 
+/// Whether the API URL is Stashbase's own service, as opposed to a
+/// self-hosted or staging server set through `STASHBASE_API_URL` (or baked
+/// in at build time).
+pub fn is_default_api_url() -> bool {
+    get_api_url().eq_ignore_ascii_case(DEFAULT_API_URL)
+}
+
 /// Hostname used for the current API endpoint, including local development
 /// overrides supplied through `STASHBASE_API_URL`.
 pub fn get_api_host() -> Option<String> {

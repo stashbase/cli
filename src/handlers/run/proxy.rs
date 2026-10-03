@@ -330,6 +330,9 @@ impl ProxyAuditLog {
         operation: Option<&str>,
         mcp_tool: Option<&str>,
     ) {
+        // Every audit event, including streamed request outcomes, passes
+        // through here. Only the action kind is counted, never its details.
+        crate::telemetry::count_action(action);
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
@@ -1281,6 +1284,10 @@ impl Proxy {
             ("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()),
             ("NO_PROXY".to_owned(), String::new()),
             ("no_proxy".to_owned(), String::new()),
+            // Marks every agent session (native, Docker and remote) so a
+            // Stashbase CLI run by the agent never sends telemetry, whatever
+            // the profile's egress policy allows.
+            ("STASHBASE_SANDBOX".to_owned(), "1".to_owned()),
         ]);
         for placeholder in state.secrets.keys() {
             let env_name = child_env_name_for_placeholder(
@@ -1735,6 +1742,32 @@ fn proxy_request(
 
         let request_id = new_local_request_id();
         let host = request_host(&request, connect_authority.as_deref());
+        // The agent controls its own environment, so the STASHBASE_SANDBOX
+        // marker alone cannot keep telemetry out of an agent session. Every
+        // request of a local session passes through this proxy, so refuse the
+        // CLI's telemetry POST here, ahead of any egress policy.
+        if crate::telemetry::send::is_telemetry_request(
+            crate::telemetry::send::destination_host().as_deref(),
+            host.as_deref(),
+            request.method().as_str(),
+            request.uri().path(),
+        ) {
+            state.record_audit_with_request(
+                &request_id,
+                "telemetry_blocked",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response_with_id(
+                StatusCode::FORBIDDEN,
+                "proxy.telemetry_not_allowed",
+                "Agent Proxy never forwards Stashbase telemetry from an agent session",
+                Some(&request_id),
+            ));
+        }
         if state.host_is_denied(host.as_deref()) {
             debug!(
                 "proxy denied destination: {}",
@@ -4209,6 +4242,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_proxy_refuses_stashbase_telemetry_even_when_egress_is_unrestricted() {
+        // A permissive policy allows every host, so only the telemetry rule can
+        // refuse this. It is the boundary an agent cannot switch off by
+        // clearing STASHBASE_SANDBOX in its own environment.
+        let api_host =
+            crate::telemetry::send::destination_host().expect("the destination has a host");
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .post(format!("http://{api_host}/v1/telemetry"))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.bytes().await.unwrap();
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(error.error.code, "proxy.telemetry_not_allowed");
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
     async fn proxy_errors_use_the_api_error_envelope() {
         let response = proxy_error_response(
             StatusCode::FORBIDDEN,
@@ -4927,6 +4986,24 @@ mod tests {
         assert_eq!(
             proxy.child_env().get("GITHUB_TOKEN").map(String::as_str),
             Some("**STASHBASE_GITHUB_TOKEN**")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn child_environment_marks_the_session_so_telemetry_stays_off() {
+        // A Stashbase CLI run by the agent must never send telemetry, even if
+        // the profile's egress policy would allow the API host.
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            proxy
+                .child_env()
+                .get("STASHBASE_SANDBOX")
+                .map(String::as_str),
+            Some("1")
         );
         proxy.stop().await;
     }

@@ -585,7 +585,7 @@ pub async fn handle_docker_shell_command(command: AgentDockerShellCommand) -> Re
     // Mirror the shell's own exit code (e.g. `exit 3`, or 130 after Ctrl-C)
     // rather than turning it into an error message.
     if !status.success() {
-        std::process::exit(status.code().unwrap_or(1));
+        crate::telemetry::exit(status.code().unwrap_or(1));
     }
     Ok(())
 }
