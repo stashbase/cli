@@ -12,17 +12,21 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackedCommand {
     Setup,
+    Pull,
+    Push,
     AgentInit,
     AgentRun,
 }
 
 impl TrackedCommand {
     /// The command is chosen from the parsed clap enum, never from argv text.
-    /// Only the activation funnel is tracked: setup, agent init and agent
-    /// run. Everything else sends nothing.
+    /// Tracked: setup, pull, push, agent init and agent run. Everything else
+    /// sends nothing.
     pub fn from_entity(entity: &EntityType) -> Option<Self> {
         match entity {
             EntityType::Setup(_) => Some(Self::Setup),
+            EntityType::Pull(_) => Some(Self::Pull),
+            EntityType::Push(_) => Some(Self::Push),
             // Exhaustive on purpose: a new `agent` subcommand must be
             // classified here as tracked or not before the crate compiles.
             EntityType::Agent(AgentCommand { subcommand }) => match subcommand {
@@ -49,6 +53,8 @@ impl TrackedCommand {
     pub fn label(self) -> &'static str {
         match self {
             Self::Setup => "setup",
+            Self::Pull => "pull",
+            Self::Push => "push",
             Self::AgentInit => "agent init",
             Self::AgentRun => "agent run",
         }
@@ -244,9 +250,11 @@ mod tests {
     }
 
     #[test]
-    fn tracks_only_the_funnel_commands() {
+    fn tracks_only_the_listed_commands() {
         let tracked: Vec<(&[&str], &str)> = vec![
             (&["stashbase", "setup"], "setup"),
+            (&["stashbase", "pull"], "pull"),
+            (&["stashbase", "push"], "push"),
             (&["stashbase", "agent", "init", "p"], "agent init"),
             (
                 &["stashbase", "agent", "run", "--profile", "p", "--", "echo"],
@@ -284,12 +292,10 @@ mod tests {
     }
 
     #[test]
-    fn everything_outside_the_funnel_is_not_tracked() {
+    fn everything_else_is_not_tracked() {
         // `agent hooks` with no subcommand is the entry point agent tools
         // call automatically; a request there would add latency to every call.
         for args in [
-            &["stashbase", "pull"][..],
-            &["stashbase", "push"][..],
             &["stashbase", "run", "--", "echo", "hi"][..],
             &["stashbase", "doctor"][..],
             &["stashbase", "agent", "doctor", "curl"][..],

@@ -7,14 +7,14 @@ people get stuck.
 
 ## What is sent
 
-One event per run of these three commands only, which together show whether people get
-set up and reach a protected agent run: `setup`, `agent init` and `agent run`. Every other
-command sends nothing.
+One event per run of these five commands only, which show whether people get set up, use
+their secrets and reach a protected agent run: `setup`, `pull`, `push`, `agent init` and
+`agent run`. Every other command sends nothing.
 
 | Field | Meaning |
 |---|---|
 | `event` | always `cli_command` |
-| `command` | which command ran: `setup`, `agent init` or `agent run` |
+| `command` | which command ran: `setup`, `pull`, `push`, `agent init` or `agent run` |
 | `outcome` | `ok`, `error` or `aborted` |
 | `error_kind` | only on error: `auth`, `network`, `not_found`, `validation` or `other` |
 | `duration_ms` | how long the command took |

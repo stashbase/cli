@@ -193,6 +193,35 @@ fn a_failed_agent_init_reports_an_error_with_a_category() {
 }
 
 #[test]
+fn pull_and_push_each_report_one_event_when_they_fail() {
+    let sandbox = Sandbox::new(); // an empty project: no stashbase.yaml
+    sandbox.enable();
+
+    for command in ["pull", "push"] {
+        let out = sandbox.run(&[command, "--api-key", "dummy-key"]);
+
+        let events = events(&out);
+        assert_eq!(events.len(), 1, "{command}: {}", stderr(&out));
+        assert_eq!(events[0]["command"], command);
+        assert_eq!(events[0]["outcome"], "error", "{command}: {}", events[0]);
+        assert_eq!(keys(&events[0]).len(), BASE_KEYS.len() + 1, "{}", events[0]); // + error_kind
+        assert!(!events[0].to_string().contains("dummy-key"));
+    }
+}
+
+#[test]
+fn a_missing_config_file_is_reported_as_a_validation_error() {
+    let sandbox = Sandbox::new(); // no stashbase.yaml
+    sandbox.enable();
+
+    let out = sandbox.run(&["pull", "--api-key", "dummy-key"]);
+
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["error_kind"], "validation", "{}", events[0]);
+}
+
+#[test]
 fn the_event_never_contains_what_the_user_typed() {
     let sandbox = Sandbox::new();
     sandbox.enable();
