@@ -22,7 +22,7 @@ of `secrets`, `scan` and `agent docker`.
 | `duration_ms` | how long the command took |
 | `cli_version`, `os`, `arch` | CLI version and platform |
 | `is_tty` | whether it ran in an interactive terminal |
-| `install_id` | random ID stored on your machine, not linked to your account; it is persistent, so the data is pseudonymous rather than fully anonymous (`stashbase config telemetry reset` generates a new one) |
+| `install_id` | random ID stored on your machine, not linked to your account; it is persistent, so the data is pseudonymous rather than fully anonymous (it is stored in `telemetry.json` in your config directory; deleting that file gives you a new one) |
 | `event_id`, `timestamp_ms` | unique event ID and the time the command finished (Unix milliseconds, from your machine's clock) |
 
 `agent run` events also include these once the run has actually started (a run
@@ -92,6 +92,6 @@ Any one of these:
 - `DO_NOT_TRACK=1`
 
 `stashbase config telemetry status` shows the current state and why,
-`stashbase config telemetry enable` turns it back on, and `stashbase config telemetry reset`
-generates a new install ID. `stashbase config print` also shows the current state on its last
-line. These commands work even if your `config.toml` is unreadable.
+`stashbase config telemetry enable` turns it back on, and `stashbase config print` also shows
+the current state on its last line. These commands work even if your `config.toml` is
+unreadable.

@@ -15,6 +15,4 @@ pub enum TelemetrySubcommand {
     Disable,
     /// Show whether telemetry is enabled, and why
     Status,
-    /// Generate a new random install ID
-    Reset,
 }

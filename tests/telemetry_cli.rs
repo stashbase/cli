@@ -271,6 +271,15 @@ fn config_telemetry_works_even_when_config_toml_is_broken() {
 }
 
 #[test]
+fn there_is_no_telemetry_reset_command() {
+    let sandbox = Sandbox::new();
+
+    let out = sandbox.run(&["config", "telemetry", "reset"]);
+
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+#[test]
 fn config_print_shows_the_telemetry_state() {
     let sandbox = Sandbox::new();
     sandbox.enable();

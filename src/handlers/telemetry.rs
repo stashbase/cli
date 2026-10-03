@@ -39,11 +39,6 @@ pub fn run(
             state::save(path, &state)?;
             writeln!(out, "Telemetry disabled.")?;
         }
-        TelemetrySubcommand::Reset => {
-            state.install_id = None;
-            state::save(path, &state)?;
-            writeln!(out, "Install ID reset.")?;
-        }
         TelemetrySubcommand::Status => print_status(&state, signals, out)?,
     }
     Ok(())
@@ -135,19 +130,13 @@ mod tests {
     }
 
     #[test]
-    fn reset_clears_the_install_id() {
-        let path = temp_path();
-        let mut s = state::State::default();
-        s.ensure_install_id();
-        state::save(&path, &s).unwrap();
-
-        run_to_string(TelemetrySubcommand::Reset, &path, &Signals::default());
-        assert_eq!(state::load(&path).install_id, None);
+    fn there_is_no_reset_subcommand() {
+        assert!(Cli::try_parse_from(["stashbase", "config", "telemetry", "reset"]).is_err());
     }
 
     #[test]
     fn the_telemetry_command_itself_is_never_tracked() {
-        for sub in ["enable", "disable", "status", "reset"] {
+        for sub in ["enable", "disable", "status"] {
             let cli = Cli::try_parse_from(["stashbase", "config", "telemetry", sub]).unwrap();
             assert!(TrackedCommand::from_entity(&cli.entity_type).is_none(), "{sub}");
             assert!(!cli.entity_type.requires_api_key(), "{sub}");
