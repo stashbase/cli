@@ -236,6 +236,19 @@ pub async fn run_command_with_filesystem_policy_and_network(
     .await
 }
 
+/// Starts `expression`, calls `on_launched` once the child process exists,
+/// then waits for it. Equivalent to `expression.run()`, except that it tells
+/// the caller when the spawn has actually succeeded, so a failure to start
+/// the child is never reported as a launched run.
+fn run_marking_launch(
+    expression: &Expression,
+    on_launched: impl FnOnce(),
+) -> std::io::Result<std::process::Output> {
+    let handle = expression.start()?;
+    on_launched();
+    handle.into_output()
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_built_command(
     program: String,
@@ -250,10 +263,6 @@ async fn run_built_command(
     audit_log: Option<super::proxy::ProxyAuditLog>,
     current_dir: PathBuf,
 ) -> Result<ExitStatus> {
-    // The proxy, sandbox and environment are ready and the child is about to
-    // start: this is when an `agent run` counts as launched for telemetry.
-    crate::telemetry::mark_agent_run_launched();
-
     // NOTE: for the Docker backend, `program` is `docker` — every
     // `cmd.env_remove`/`cmd.env` call below acts on the `docker` CLI
     // process's own environment, not the container's. The container only
@@ -341,11 +350,14 @@ async fn run_built_command(
                 terminal.flush()?;
                 Ok::<_, std::io::Error>(captured)
             });
-            let output = cmd
+            let child = cmd
                 .stdout_file(terminal_output)
                 .stderr_file(stderr_writer)
-                .unchecked()
-                .run()?;
+                .unchecked();
+            // The child exists now: an `agent run` counts as launched for
+            // telemetry only from this point.
+            let output = run_marking_launch(&child, crate::telemetry::mark_agent_run_launched)?;
+            drop(child);
             let stderr = stderr_forwarder
                 .join()
                 .map_err(|_| anyhow::anyhow!("stderr forwarding thread panicked"))??;
@@ -357,11 +369,11 @@ async fn run_built_command(
             )?;
             output.status
         } else {
-            let output = cmd
+            let child = cmd
                 .stdout_file(terminal_output)
                 .stderr_capture()
-                .unchecked()
-                .run()?;
+                .unchecked();
+            let output = run_marking_launch(&child, crate::telemetry::mark_agent_run_launched)?;
             emit_child_stderr(
                 &output.stderr,
                 denied_read_paths,
@@ -375,6 +387,8 @@ async fn run_built_command(
     #[cfg(not(unix))]
     let status = {
         let mut reader = cmd.stdout_to_stderr().unchecked().reader()?;
+        // The child exists now: an `agent run` counts as launched for telemetry.
+        crate::telemetry::mark_agent_run_launched();
         {
             let mut lines = BufReader::new(&mut reader).lines();
             while let Some(line) = lines.next() {
@@ -1216,7 +1230,7 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 mod tests {
     use super::{
         codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
-        run_command, sandbox_command, should_inherit_terminal_streams,
+        run_command, run_marking_launch, sandbox_command, should_inherit_terminal_streams,
     };
     #[cfg(target_os = "macos")]
     use super::{
@@ -1405,6 +1419,25 @@ mod tests {
             &[".git".to_owned()],
         );
         assert_eq!(denial, None);
+    }
+
+    #[test]
+    fn launch_is_reported_only_after_the_child_really_started() {
+        use std::cell::Cell;
+        let launched = Cell::new(0);
+
+        // The program cannot be started: nothing may be marked as launched.
+        let missing =
+            duct::cmd("/definitely/not/a/stashbase/binary", Vec::<String>::new()).unchecked();
+        assert!(run_marking_launch(&missing, || launched.set(launched.get() + 1)).is_err());
+        assert_eq!(launched.get(), 0);
+
+        // A child that starts counts as launched even if it then exits
+        // non-zero, and its exit status still comes through.
+        let failing = duct::cmd("sh", ["-c", "exit 3"]).unchecked();
+        let output = run_marking_launch(&failing, || launched.set(launched.get() + 1)).unwrap();
+        assert_eq!(output.status.code(), Some(3));
+        assert_eq!(launched.get(), 1);
     }
 
     #[tokio::test]
