@@ -7,7 +7,6 @@ use std::{
 
 use anyhow::{bail, Result};
 use log::debug;
-use spinoff::Streams;
 
 use crate::{
     api::secrets,
@@ -29,6 +28,7 @@ use crate::{
         interaction::{self, select},
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::format_secrets,
+        spinner::Streams,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
             validate_project_environment_identifier, validate_secret_names,
