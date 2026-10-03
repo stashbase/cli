@@ -80,7 +80,7 @@ pub fn off_reason(signals: &Signals, state: &State) -> Option<&'static str> {
         }
     }
     if state.enabled == Some(false) {
-        return Some("disabled with `stashbase telemetry disable`");
+        return Some("opted out with `stashbase telemetry disable`");
     }
     None
 }
@@ -194,7 +194,7 @@ mod tests {
             ..State::default()
         };
         assert_eq!(decide(&human(), &state), Decision::Off);
-        assert_eq!(off_reason(&human(), &state), Some("disabled with `stashbase telemetry disable`"));
+        assert_eq!(off_reason(&human(), &state), Some("opted out with `stashbase telemetry disable`"));
     }
 
     #[test]

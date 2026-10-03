@@ -73,4 +73,6 @@ Any one of these:
 
 `stashbase telemetry status` shows the current state and why,
 `stashbase telemetry enable` turns it back on, and `stashbase telemetry reset`
-generates a new install ID.
+generates a new install ID. The same commands are available as
+`stashbase config telemetry ...`, and `stashbase config print` shows the current state on
+its last line.

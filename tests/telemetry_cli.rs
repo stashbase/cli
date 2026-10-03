@@ -210,6 +210,48 @@ fn pull_and_push_each_report_one_event_when_they_fail() {
 }
 
 #[test]
+fn config_telemetry_is_an_alias_for_the_telemetry_command() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let off = sandbox.run(&["config", "telemetry", "disable"]);
+    assert!(off.status.success(), "{}", stderr(&off));
+    assert!(events(&off).is_empty(), "config telemetry must never report itself");
+    let after_off = sandbox.run(&["agent", "init", "a"]);
+    assert!(events(&after_off).is_empty());
+
+    let status = sandbox.run(&["config", "telemetry", "status"]);
+    let text = String::from_utf8_lossy(&status.stdout).into_owned();
+    assert!(text.contains("disabled"), "{text}");
+    assert!(events(&status).is_empty());
+
+    let on = sandbox.run(&["config", "telemetry", "enable"]);
+    assert!(on.status.success(), "{}", stderr(&on));
+    let after_on = sandbox.run(&["agent", "init", "b"]);
+    assert_eq!(events(&after_on).len(), 1);
+}
+
+#[test]
+fn config_print_shows_the_telemetry_state() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let enabled = sandbox.run(&["config", "print"]);
+    let text = String::from_utf8_lossy(&enabled.stdout).into_owned();
+    assert!(text.contains("# telemetry: enabled"), "{text}");
+    assert!(events(&enabled).is_empty());
+
+    sandbox.run(&["telemetry", "disable"]);
+    let disabled = sandbox.run(&["config", "print"]);
+    let text = String::from_utf8_lossy(&disabled.stdout).into_owned();
+    assert!(text.contains("# telemetry: disabled (opted out with"), "{text}");
+
+    let in_ci = sandbox.run_with(&["config", "print"], &[("CI", "true")]);
+    let text = String::from_utf8_lossy(&in_ci.stdout).into_owned();
+    assert!(text.contains("# telemetry: disabled (running in CI)"), "{text}");
+}
+
+#[test]
 fn run_and_secrets_schema_pull_report_by_their_own_labels() {
     let sandbox = Sandbox::new();
     sandbox.enable();

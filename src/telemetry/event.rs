@@ -357,6 +357,7 @@ mod tests {
             &[
                 "stashbase", "agent", "mcp", "configure", "--profile", "p", "--server", "s",
             ][..],
+            &["stashbase", "config", "telemetry", "status"][..],
             &["stashbase", "agent", "docker", "status"][..],
             &["stashbase", "agent", "docker", "doctor"][..],
             // Only `scan install` is tracked within `scan`; the checks run
