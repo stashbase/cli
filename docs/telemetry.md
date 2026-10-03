@@ -7,15 +7,16 @@ people get stuck.
 
 ## What is sent
 
-One event per run of these seven commands only, which show whether people get set up, use
-their secrets and reach a protected agent run: `setup`, `pull`, `push`, `run`,
-`secrets schema pull`, `agent init` and `agent run`. Every other command sends nothing,
-including the rest of `secrets`.
+One event per run of these nine commands only, which show whether people get set up, use
+their secrets, adopt the scanner or the Docker backend, and reach a protected agent run:
+`setup`, `pull`, `push`, `run`, `secrets schema pull`, `scan install`, `agent init`,
+`agent run` and `agent docker build`. Every other command sends nothing, including the rest
+of `secrets`, `scan` and `agent docker`.
 
 | Field | Meaning |
 |---|---|
 | `event` | always `cli_command` |
-| `command` | which command ran: `setup`, `pull`, `push`, `run`, `secrets schema pull`, `agent init` or `agent run` |
+| `command` | which command ran, one of the nine listed above |
 | `outcome` | `ok`, `error` or `aborted` |
 | `error_kind` | only on error: `auth`, `network`, `not_found`, `validation` or `other` |
 | `duration_ms` | how long the command took |
@@ -32,6 +33,7 @@ that fails earlier, for example on a missing profile, has none of them):
 | `profile_source` | `directory`, `global` or `file`; never the path or profile name |
 | `remote` | whether it ran as a remote session |
 | `sandbox_backend` | `native` or `docker`, the sandbox backend the run used |
+| `worktree` | whether the run used a git worktree (from `--worktree` or the profile) |
 | `policy_allow`, `policy_deny`, `policy_block` | how many policy decisions the proxy made (one HTTPS request can produce more than one allow, for the tunnel and for the forwarded request); only for local runs with the audit log on (the default); counts only, never hosts, paths or policy content |
 
 The event is sent once, when the command finishes, by a short-lived background copy of

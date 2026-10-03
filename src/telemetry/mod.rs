@@ -43,6 +43,7 @@ pub struct AgentRunStart {
     pub profile_source: ProfileSource,
     pub remote: bool,
     pub sandbox_backend: SandboxKind,
+    pub worktree: bool,
     /// Policy counts exist only for local runs with the audit log on: the
     /// counters are fed by the audit log, and remote runs enforce policy
     /// server-side. Otherwise they are omitted rather than reported as zero.
@@ -60,12 +61,14 @@ pub fn set_agent_run(
     profile_source: ProfileSource,
     remote: bool,
     sandbox_backend: SandboxKind,
+    worktree: bool,
     audit_log_enabled: bool,
 ) {
     *lock(&AGENT_RUN) = Some(AgentRunStart {
         profile_source,
         remote,
         sandbox_backend,
+        worktree,
         counts_available: !remote && audit_log_enabled,
     });
 }
@@ -104,6 +107,7 @@ pub fn agent_run_info(start: &AgentRunStart, allow: u32, deny: u32, block: u32) 
         profile_source: start.profile_source,
         remote: start.remote,
         sandbox_backend: start.sandbox_backend,
+        worktree: start.worktree,
         policy_allow: counts(allow),
         policy_deny: counts(deny),
         policy_block: counts(block),
@@ -386,6 +390,7 @@ mod tests {
             profile_source: event::ProfileSource::Directory,
             remote: false,
             sandbox_backend: event::SandboxKind::Docker,
+            worktree: true,
             counts_available: true,
         };
         let info = agent_run_info(&local, 4, 2, 1);
@@ -397,6 +402,7 @@ mod tests {
                 profile_source: event::ProfileSource::Global,
                 remote,
                 sandbox_backend: event::SandboxKind::Native,
+                worktree: false,
                 counts_available: !remote && audit_log,
             };
             let info = agent_run_info(&start, 4, 2, 1);

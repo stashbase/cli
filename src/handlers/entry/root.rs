@@ -1077,6 +1077,7 @@ pub async fn handle_cli(args: Cli) {
                                 crate::telemetry::event::SandboxKind::Native
                             }
                         },
+                        profile.workspace.worktree,
                         agent_run.audit_log,
                     );
                     let local_session_id = format!("ags_{}", ShortUuid::generate());

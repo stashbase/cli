@@ -247,6 +247,31 @@ fn scan_install_reports_but_the_scans_themselves_do_not() {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn agent_run_reports_whether_it_used_a_worktree() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    sandbox.write_profile("p", "egress_hosts = [\"example.com\"]\n");
+    let committed = Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"])
+        .current_dir(&sandbox.cwd)
+        .status()
+        .unwrap();
+    assert!(committed.success());
+
+    let with = sandbox.run(&["agent", "run", "--profile", "p", "--worktree", "--", "sh", "-c", "exit 0"]);
+    if stderr(&with).contains("Operation not permitted") {
+        eprintln!("skipping: the macOS sandbox cannot be applied from inside another sandbox");
+        return;
+    }
+    assert_eq!(events(&with).len(), 1, "{}", stderr(&with));
+    assert_eq!(events(&with)[0]["worktree"], true, "{}", stderr(&with));
+
+    let without = sandbox.run(&["agent", "run", "--profile", "p", "--", "sh", "-c", "exit 0"]);
+    assert_eq!(events(&without)[0]["worktree"], false, "{}", stderr(&without));
+}
+
 #[test]
 fn other_secrets_commands_report_nothing() {
     let sandbox = Sandbox::new();
@@ -384,7 +409,7 @@ fn an_agent_run_that_fails_to_start_is_not_reported_as_a_success() {
     // call it a failed start, and report no funnel fields.
     assert_eq!(events[0]["outcome"], "error", "{}", events[0]);
     assert_eq!(events[0]["error_kind"], "validation");
-    for key in ["profile_source", "remote", "sandbox_backend", "policy_allow"] {
+    for key in ["profile_source", "remote", "sandbox_backend", "worktree", "policy_allow"] {
         assert!(events[0].get(key).is_none(), "{key} present");
     }
 }
@@ -411,6 +436,7 @@ fn agent_run_passes_the_exit_code_through_and_reports_the_funnel_fields() {
     assert_eq!(event["profile_source"], "directory");
     assert_eq!(event["remote"], false);
     assert_eq!(event["sandbox_backend"], "native");
+    assert_eq!(event["worktree"], false);
     for key in ["policy_allow", "policy_deny", "policy_block"] {
         assert_eq!(event[key], 0, "{key}");
     }

@@ -126,6 +126,8 @@ pub struct AgentRunInfo {
     pub profile_source: ProfileSource,
     pub remote: bool,
     pub sandbox_backend: SandboxKind,
+    /// Whether the run used a git worktree (the flag or the profile asked).
+    pub worktree: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub policy_allow: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -457,6 +459,7 @@ mod tests {
                     profile_source: ProfileSource::Directory,
                     remote: false,
                     sandbox_backend: SandboxKind::Docker,
+                    worktree: true,
                     policy_allow: Some(7),
                     policy_deny: Some(2),
                     policy_block: Some(0),
@@ -469,6 +472,7 @@ mod tests {
         assert_eq!(value["profile_source"], "directory");
         assert_eq!(value["remote"], false);
         assert_eq!(value["sandbox_backend"], "docker");
+        assert_eq!(value["worktree"], true);
         assert_eq!(value["policy_allow"], 7);
         assert_eq!(value["policy_deny"], 2);
         assert_eq!(value["policy_block"], 0);
@@ -479,6 +483,7 @@ mod tests {
                     profile_source: ProfileSource::Global,
                     remote: true,
                     sandbox_backend: SandboxKind::Native,
+                    worktree: false,
                     policy_allow: None,
                     policy_deny: None,
                     policy_block: None,
@@ -490,6 +495,7 @@ mod tests {
         let value = serde_json::to_value(&remote).unwrap();
         assert_eq!(value["profile_source"], "global");
         assert_eq!(value["sandbox_backend"], "native");
+        assert_eq!(value["worktree"], false);
         assert!(value.get("policy_allow").is_none());
         assert!(value.get("policy_deny").is_none());
         assert!(value.get("policy_block").is_none());
@@ -500,7 +506,7 @@ mod tests {
             Uuid::new_v4(),
         ))
         .unwrap();
-        for key in ["profile_source", "remote", "sandbox_backend", "policy_allow"] {
+        for key in ["profile_source", "remote", "sandbox_backend", "worktree", "policy_allow"] {
             assert!(failed_early.get(key).is_none(), "{key}");
         }
     }
