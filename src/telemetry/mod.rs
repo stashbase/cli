@@ -132,6 +132,12 @@ pub fn record_error(error: &anyhow::Error) {
     *lock(&RECORDED_ERROR) = Some(classify_error(error));
 }
 
+/// Records an error category directly, for failures that print a message and
+/// exit without an error value to classify.
+pub fn record_error_kind(kind: ErrorKind) {
+    *lock(&RECORDED_ERROR) = Some(kind);
+}
+
 /// Drop-in replacement for `std::process::exit` that reports first.
 pub fn exit(exit_code: i32) -> ! {
     finish(exit_code);

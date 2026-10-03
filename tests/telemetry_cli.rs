@@ -210,6 +210,20 @@ fn pull_and_push_each_report_one_event_when_they_fail() {
 }
 
 #[test]
+fn a_missing_api_key_is_reported_as_an_auth_error() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let out = sandbox.run(&["pull"]); // no --api-key, no STASHBASE_API_KEY
+
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["outcome"], "error");
+    assert_eq!(events[0]["error_kind"], "auth", "{}", events[0]);
+}
+
+#[test]
 fn a_missing_config_file_is_reported_as_a_validation_error() {
     let sandbox = Sandbox::new(); // no stashbase.yaml
     sandbox.enable();

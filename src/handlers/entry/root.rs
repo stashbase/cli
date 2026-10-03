@@ -500,6 +500,8 @@ pub async fn handle_cli(args: Cli) {
                     eprintln!("{}", json_str);
                 }
             }
+            // The CLI itself calls this an authentication error.
+            crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Auth);
             crate::telemetry::exit(1);
         }
 
