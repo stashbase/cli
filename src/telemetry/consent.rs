@@ -105,10 +105,9 @@ pub fn decide(signals: &Signals, state: &State) -> Decision {
 pub fn write_notice(out: &mut impl Write) {
     let _ = writeln!(
         out,
-        "\nStashbase collects privacy-preserving telemetry to improve the product. It never\n\
-         collects commands or arguments, paths, secrets, hosts, or policy contents, and\n\
-         nothing is sent from sandboxes or CI. What is sent: docs/telemetry.md\n\
-         Disable: stashbase telemetry disable (or STASHBASE_TELEMETRY=0, DO_NOT_TRACK=1).\n"
+        "\nStashbase collects privacy-preserving telemetry: which command ran and whether it\n\
+         succeeded, never arguments, paths, secrets or hosts. Details: docs/telemetry.md\n\
+         Disable: stashbase telemetry disable (or STASHBASE_TELEMETRY=0, DO_NOT_TRACK=1)\n"
     );
 }
 
@@ -206,6 +205,21 @@ mod tests {
         assert!(text.contains("STASHBASE_TELEMETRY=0"));
         assert!(text.contains("DO_NOT_TRACK=1"));
         assert!(text.contains("never"));
+        assert!(text.contains("docs/telemetry.md"));
+    }
+
+    #[test]
+    fn notice_is_short_and_does_not_overclaim() {
+        let mut out = Vec::new();
+        write_notice(&mut out);
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert!(lines.len() <= 3, "{} lines:\n{text}", lines.len());
+        assert!(lines.iter().all(|l| l.len() <= 100), "{text}");
+        // The command that ran is reported (setup, pull, ...); only its
+        // arguments are not. Do not claim otherwise.
+        assert!(!text.contains("never collects commands"), "{text}");
+        assert!(text.contains("arguments"), "{text}");
     }
 
     #[test]
