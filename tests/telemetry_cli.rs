@@ -399,6 +399,10 @@ fn every_off_switch_suppresses_the_event() {
         ("DO_NOT_TRACK", "1"),
         ("CI", "true"),
         ("STASHBASE_SANDBOX", "1"),
+        // Any value of the marker counts: an agent cannot switch the
+        // suppression off by setting it to "0" or "false".
+        ("STASHBASE_SANDBOX", "0"),
+        ("STASHBASE_SANDBOX", "false"),
     ]
     .into_iter()
     .enumerate()

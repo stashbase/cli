@@ -49,7 +49,9 @@ impl Signals {
             telemetry_env: std::env::var("STASHBASE_TELEMETRY").ok(),
             do_not_track: std::env::var("DO_NOT_TRACK").ok(),
             ci: CI_VARS.iter().any(|name| env_flag(name)),
-            sandbox: env_flag("STASHBASE_SANDBOX"),
+            // Presence is enough: any value, including "0", counts, so setting
+            // it to a false-looking value does not switch suppression off.
+            sandbox: std::env::var_os("STASHBASE_SANDBOX").is_some(),
             interactive: std::io::stdin().is_terminal() && std::io::stderr().is_terminal(),
             debug: std::env::var("STASHBASE_TELEMETRY_DEBUG").is_ok_and(|v| v.trim() == "1"),
         }

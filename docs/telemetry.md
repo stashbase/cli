@@ -56,9 +56,13 @@ messages, environment variables, API keys, or IP addresses.
 
 ## When nothing is sent
 
-- Inside an agent session. `stashbase agent run` sets `STASHBASE_SANDBOX=1` for the agent and
-  everything it runs (native, Docker and remote sessions), so a Stashbase CLI run by an agent
-  never sends telemetry, even if the profile's egress policy would allow the API host.
+- Inside an agent session, on a best-effort basis. `stashbase agent run` sets
+  `STASHBASE_SANDBOX=1` for the agent and everything it runs (native, Docker and remote
+  sessions), and the CLI sends nothing when that variable is present with any value, even if
+  the profile's egress policy would allow the API host. The variable lives in the agent's own
+  environment, so a process that deliberately removes it is not stopped by this. What actually
+  controls whether anything can leave the sandbox is the profile's egress policy: if it does
+  not allow the Stashbase API host, no request can reach it.
 - In CI.
 - Before the first-run notice has been shown in an interactive terminal.
 - When you opt out.
