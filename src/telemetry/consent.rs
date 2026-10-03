@@ -12,12 +12,39 @@ const CI_VARS: &[&str] = &[
     "TF_BUILD",
 ];
 
+/// Variables the agent proxy points at its temporary CA for the child it
+/// launches, so intercepted HTTPS is trusted.
+const PROXY_CA_VARS: &[&str] = &[
+    "SSL_CERT_FILE",
+    "CURL_CA_BUNDLE",
+    "GIT_SSL_CAINFO",
+    "NODE_EXTRA_CA_CERTS",
+    "CODEX_CA_CERTIFICATE",
+];
+
+/// Whether `path` names a CA file written by the agent proxy:
+/// `stashbase-proxy-ca-<id>.pem` (local session) or `remote-proxy-<key>.pem`
+/// (remote session). Only the file name is looked at.
+pub fn is_stashbase_proxy_ca(path: &str) -> bool {
+    let name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    name.ends_with(".pem")
+        && (name.starts_with("stashbase-proxy-ca-") || name.starts_with("remote-proxy-"))
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Signals {
     pub telemetry_env: Option<String>,
     pub do_not_track: Option<String>,
     pub ci: bool,
     pub sandbox: bool,
+    /// The environment carries the agent proxy's CA files: an agent session
+    /// even if the `STASHBASE_SANDBOX` marker was scrubbed. A second signal,
+    /// independent of that variable, so a harness that strips unknown
+    /// variables does not switch the suppression off.
+    pub proxied_session: bool,
     pub interactive: bool,
     /// `STASHBASE_TELEMETRY_DEBUG=1`: print the event instead of sending it.
     pub debug: bool,
@@ -52,6 +79,9 @@ impl Signals {
             // Presence is enough: any value, including "0", counts, so setting
             // it to a false-looking value does not switch suppression off.
             sandbox: std::env::var_os("STASHBASE_SANDBOX").is_some(),
+            proxied_session: PROXY_CA_VARS
+                .iter()
+                .any(|name| std::env::var(name).is_ok_and(|path| is_stashbase_proxy_ca(&path))),
             interactive: std::io::stdin().is_terminal() && std::io::stderr().is_terminal(),
             debug: std::env::var("STASHBASE_TELEMETRY_DEBUG").is_ok_and(|v| v.trim() == "1"),
         }
@@ -63,6 +93,9 @@ impl Signals {
 pub fn off_reason(signals: &Signals, state: &State) -> Option<&'static str> {
     if signals.sandbox {
         return Some("running inside a sandbox");
+    }
+    if signals.proxied_session {
+        return Some("running inside an agent proxy session");
     }
     if signals.ci {
         return Some("running in CI");
@@ -256,5 +289,42 @@ mod tests {
             ..State::default()
         };
         assert_eq!(decide(&debug, &opted_out), Decision::Off);
+    }
+
+    #[test]
+    fn recognises_the_agent_proxy_ca_files_by_name() {
+        for yes in [
+            "/tmp/stashbase-proxy-ca-0c9d1f2e-7a1b-4c3d-8e9f-001122334455.pem",
+            "/var/folders/ab/cd/T/stashbase-proxy-ca-x.pem",
+            "/home/u/.cache/stashbase/remote-proxy-abc123.pem",
+        ] {
+            assert!(is_stashbase_proxy_ca(yes), "{yes}");
+        }
+        for no in [
+            "",
+            "/etc/ssl/cert.pem",
+            "/etc/ssl/certs/ca-certificates.crt",
+            "/tmp/stashbase-proxy-ca-x.txt",
+            "/tmp/my-stashbase-proxy-ca-x.pem",
+            "/tmp/remote-proxy.pem",
+        ] {
+            assert!(!is_stashbase_proxy_ca(no), "{no:?}");
+        }
+    }
+
+    #[test]
+    fn a_proxied_agent_session_is_an_off_switch_even_without_the_marker() {
+        let proxied = Signals {
+            proxied_session: true,
+            ..human()
+        };
+        assert_eq!(decide(&proxied, &seen()), Decision::Off);
+        assert_eq!(decide(&proxied, &State::default()), Decision::Off);
+        let debug = Signals { debug: true, ..proxied.clone() };
+        assert_eq!(decide(&debug, &seen()), Decision::Off);
+        assert_eq!(
+            off_reason(&proxied, &seen()),
+            Some("running inside an agent proxy session")
+        );
     }
 }

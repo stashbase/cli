@@ -56,14 +56,25 @@ messages, environment variables, API keys, or IP addresses.
 
 ## When nothing is sent
 
-- Inside an agent session. `stashbase agent run` sets `STASHBASE_SANDBOX=1` for the agent and
-  everything it runs (native, Docker and remote sessions), and the CLI sends nothing when that
-  variable is present with any value. A process inside the session can remove its own
-  environment variable, so the agent proxy also refuses the telemetry request itself: a 403 for
-  `POST /v1/telemetry` on the Stashbase API host, logged as `telemetry_blocked` in the audit
-  log, whatever the profile's egress policy allows. The one gap is remote sessions
-  (`agent run --remote`), whose traffic is intercepted by a server-side proxy; there the
-  variable is the only layer.
+- Inside an agent session, enforced in layers:
+  1. `stashbase agent run` sets `STASHBASE_SANDBOX=1` for the agent and everything it runs
+     (native, Docker and remote sessions), and the CLI sends nothing when that variable is
+     present with any value.
+  2. The CLI also stays silent when the standard CA variables (`SSL_CERT_FILE`,
+     `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `NODE_EXTRA_CA_CERTS`, `CODEX_CA_CERTIFICATE`) name one
+     of the agent proxy's temporary CA files (`stashbase-proxy-ca-*.pem` for local sessions,
+     `remote-proxy-*.pem` for remote ones). A harness that strips Stashbase's own variables but
+     keeps the normal proxy and CA setup therefore does not switch suppression off.
+  3. For local sessions, the agent proxy refuses the telemetry request itself: a 403 for
+     `POST /v1/telemetry` on the Stashbase API host, logged as `telemetry_blocked` in the audit
+     log, whatever the profile's egress policy allows. A process that removes the marker and
+     the CA variables on purpose is stopped here.
+
+  Remote sessions (`agent run --remote`) have only layers 1 and 2, because their traffic is
+  intercepted by a server-side proxy this CLI does not control. A process that deliberately
+  removes both the marker and the CA variables can still get an event out there, if the
+  profile's egress policy allows the Stashbase API host. Closing that needs the server-side
+  proxy to refuse `POST /v1/telemetry` on the API host, as the local proxy does.
 - In CI.
 - Before the first-run notice has been shown in an interactive terminal.
 - When you opt out.

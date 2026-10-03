@@ -403,6 +403,10 @@ fn every_off_switch_suppresses_the_event() {
         // suppression off by setting it to "0" or "false".
         ("STASHBASE_SANDBOX", "0"),
         ("STASHBASE_SANDBOX", "false"),
+        // The marker was scrubbed, but the agent proxy's CA variables remain
+        // (a local session, then a remote one).
+        ("SSL_CERT_FILE", "/tmp/stashbase-proxy-ca-0c9d1f2e.pem"),
+        ("NODE_EXTRA_CA_CERTS", "/home/u/.cache/stashbase/remote-proxy-abc123.pem"),
     ]
     .into_iter()
     .enumerate()
@@ -412,6 +416,16 @@ fn every_off_switch_suppresses_the_event() {
         assert!(out.status.success(), "{}", stderr(&out));
         assert!(events(&out).is_empty(), "{key}={value} still reported");
     }
+}
+
+#[test]
+fn an_ordinary_ca_bundle_does_not_suppress_the_event() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    // A developer's own CA setup must not be mistaken for an agent session.
+    let out = sandbox.run_with(&["agent", "init", "a"], &[("SSL_CERT_FILE", "/etc/ssl/cert.pem")]);
+    assert_eq!(events(&out).len(), 1, "{}", stderr(&out));
 }
 
 #[test]
@@ -653,66 +667,83 @@ fn the_detached_sender_delivers_the_event_to_the_endpoint() {
     assert_eq!(keys(&event), BASE_KEYS);
 }
 
-/// The `STASHBASE_SANDBOX` marker lives in the agent's own environment, so an
-/// agent can remove it. The proxy therefore refuses the telemetry POST itself:
-/// every request of a local session passes through it, whatever the profile's
-/// egress policy allows (here it allows the "API" host).
+/// What a tracked CLI run inside a real native `agent run` session reports,
+/// after `scrub` (an `env -u ...` prefix) has removed some of the session's
+/// environment. The profile allows the "API" host, so only Stashbase's own
+/// suppression can stop the event. Returns the commands the server received
+/// and the proxy's audit actions, or `None` if the OS refused the sandbox.
 #[cfg(target_os = "macos")]
-#[test]
-fn an_agent_cannot_get_telemetry_out_by_removing_the_sandbox_marker() {
+fn reports_from_inside_a_session(scrub: &str) -> Option<(Vec<String>, Vec<String>)> {
     let Some((listener, url)) = bind_loopback() else {
         eprintln!("skipping: loopback ports are not available");
-        return;
+        return None;
     };
     let received = capture_all_requests(listener);
     let sandbox = Sandbox::new();
     sandbox.enable();
     sandbox.write_profile("p", "egress_hosts = [\"127.0.0.1\"]\n");
 
-    // Inside the session: remove the marker, then run a tracked command, and
-    // keep the session open long enough for its sender to try.
-    let inside = format!("env -u STASHBASE_SANDBOX {BIN} pull >/dev/null 2>&1; sleep 2");
+    // Run a tracked command inside the session, and keep the session open
+    // long enough for its sender to try.
+    let inside = format!("{scrub} {BIN} pull >/dev/null 2>&1; sleep 2");
     let out = sandbox
         .command(&["agent", "run", "--profile", "p", "--", "sh", "-c", &inside], &url, false)
         .output()
         .unwrap();
     if stderr(&out).contains("Operation not permitted") {
         eprintln!("skipping: the macOS sandbox cannot be applied from inside another sandbox");
-        return;
+        return None;
     }
     assert!(out.status.success(), "{}", stderr(&out));
 
-    // The host's own `agent run` event does arrive; wait for it.
-    let deadline = Instant::now() + Duration::from_secs(8);
-    let commands = loop {
-        let commands: Vec<String> = received
+    let commands_now = || -> Vec<String> {
+        received
             .lock()
             .unwrap()
             .iter()
             .filter_map(|body| serde_json::from_str::<Value>(body).ok())
             .filter_map(|event| event["command"].as_str().map(str::to_owned))
-            .collect();
-        if commands.iter().any(|c| c == "agent run") || Instant::now() > deadline {
-            break commands;
-        }
-        thread::sleep(Duration::from_millis(100));
+            .collect()
     };
+    // The host's own `agent run` event does arrive; wait for it.
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while !commands_now().iter().any(|c| c == "agent run") && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(100));
+    }
     thread::sleep(Duration::from_millis(500)); // let any stray event land
+    Some((commands_now(), audit_actions(&sandbox.home)))
+}
 
-    let commands: Vec<String> = received
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|body| serde_json::from_str::<Value>(body).ok())
-        .filter_map(|event| event["command"].as_str().map(str::to_owned))
-        .chain(commands)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
+/// A harness that strips `STASHBASE_*` variables but keeps the proxy and CA
+/// variables: the CLI recognises the agent proxy's CA files and stays silent
+/// on its own, so the proxy never even sees a telemetry request.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_scrubbed_marker_alone_does_not_get_telemetry_out() {
+    let Some((commands, actions)) = reports_from_inside_a_session("env -u STASHBASE_SANDBOX") else {
+        return;
+    };
     assert_eq!(commands, vec!["agent run".to_owned()], "the inner pull must not report");
+    assert!(
+        !actions.iter().any(|a| a == "telemetry_blocked"),
+        "the CLI should not have tried at all: {actions:?}"
+    );
+}
 
+/// An agent that removes the marker and the CA variables on purpose still
+/// cannot get an event out: every request of a local session passes through
+/// the agent proxy, which refuses the telemetry POST whatever the profile's
+/// egress policy allows.
+#[cfg(target_os = "macos")]
+#[test]
+fn removing_the_marker_and_the_ca_variables_still_hits_the_proxy_block() {
+    let scrub = "env -u STASHBASE_SANDBOX -u SSL_CERT_FILE -u CURL_CA_BUNDLE -u GIT_SSL_CAINFO \
+                 -u NODE_EXTRA_CA_CERTS -u CODEX_CA_CERTIFICATE";
+    let Some((commands, actions)) = reports_from_inside_a_session(scrub) else {
+        return;
+    };
+    assert_eq!(commands, vec!["agent run".to_owned()], "the inner pull must not report");
     // Positive evidence that the inner CLI really tried, and the proxy stopped it.
-    let actions = audit_actions(&sandbox.home);
     assert!(
         actions.iter().any(|a| a == "telemetry_blocked"),
         "the proxy never logged the blocked telemetry POST: {actions:?}"
