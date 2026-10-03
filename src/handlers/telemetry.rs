@@ -60,16 +60,10 @@ pub fn run(
                 writeln!(out, "Telemetry disabled.")?;
             }
         }
+        // Just the answer; the reason is in the plain `status` output.
         TelemetrySubcommand::Status if json => {
-            let reason = off_reason(signals, &state);
-            write_json(
-                out,
-                &serde_json::json!({
-                    "enabled": reason.is_none(),
-                    "reason": reason,
-                    "notice_shown": state.notice_shown,
-                }),
-            )?;
+            let enabled = off_reason(signals, &state).is_none();
+            write_json(out, &serde_json::json!({ "enabled": enabled }))?;
         }
         TelemetrySubcommand::Status => print_status(&state, signals, out)?,
     }
@@ -253,29 +247,29 @@ mod tests {
             run_json(TelemetrySubcommand::Disable, &path, &signals),
             serde_json::json!({"enabled": false})
         );
-        let status = run_json(TelemetrySubcommand::Status, &path, &signals);
-        assert_eq!(status["enabled"], false);
-        assert!(status["reason"]
-            .as_str()
-            .unwrap()
-            .starts_with("opted out with"));
-        assert_eq!(status["notice_shown"], false);
+        // Status is only the answer, with no other properties.
+        assert_eq!(
+            run_json(TelemetrySubcommand::Status, &path, &signals),
+            serde_json::json!({"enabled": false})
+        );
 
         assert_eq!(
             run_json(TelemetrySubcommand::Enable, &path, &signals),
             serde_json::json!({"enabled": true})
         );
-        let status = run_json(TelemetrySubcommand::Status, &path, &signals);
-        assert_eq!(status["enabled"], true);
-        assert!(status["reason"].is_null());
-        assert_eq!(status["notice_shown"], true);
+        assert_eq!(
+            run_json(TelemetrySubcommand::Status, &path, &signals),
+            serde_json::json!({"enabled": true})
+        );
 
         let ci = Signals {
             ci: true,
             ..Signals::default()
         };
-        let status = run_json(TelemetrySubcommand::Status, &path, &ci);
-        assert_eq!(status["enabled"], false);
-        assert_eq!(status["reason"], "running in CI");
+        // Whatever the reason it is off (CI here), the answer is the same.
+        assert_eq!(
+            run_json(TelemetrySubcommand::Status, &path, &ci),
+            serde_json::json!({"enabled": false})
+        );
     }
 }

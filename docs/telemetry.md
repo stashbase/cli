@@ -102,11 +102,9 @@ commands:
 ```
 $ stashbase config telemetry status --json
 {
-  "enabled": false,
-  "reason": "running in CI",
-  "notice_shown": true
+  "enabled": false
 }
 ```
 
-`enable` and `disable` print `{"enabled": true}` and `{"enabled": false}`. `reason` is `null`
-when telemetry is enabled.
+`status`, `enable` and `disable` all print just `{"enabled": true}` or `{"enabled": false}`.
+The plain `status` output also explains why telemetry is off.

@@ -320,21 +320,12 @@ fn config_telemetry_supports_json_output() {
     sandbox.enable();
 
     let status = stdout_json(&sandbox.run(&["config", "telemetry", "status", "--json"]));
-    assert_eq!(status["enabled"], true, "{status}");
-    assert!(status["reason"].is_null(), "{status}");
-    assert_eq!(status["notice_shown"], true, "{status}");
+    assert_eq!(status, serde_json::json!({"enabled": true}));
 
     let off = stdout_json(&sandbox.run(&["config", "telemetry", "disable", "--json"]));
     assert_eq!(off, serde_json::json!({"enabled": false}));
     let status = stdout_json(&sandbox.run(&["config", "telemetry", "status", "--json"]));
-    assert_eq!(status["enabled"], false, "{status}");
-    assert!(
-        status["reason"]
-            .as_str()
-            .unwrap()
-            .starts_with("opted out with"),
-        "{status}"
-    );
+    assert_eq!(status, serde_json::json!({"enabled": false}));
 
     let on = stdout_json(&sandbox.run(&["config", "telemetry", "enable", "--json"]));
     assert_eq!(on, serde_json::json!({"enabled": true}));
