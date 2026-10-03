@@ -25,8 +25,42 @@ const MAX_PAYLOAD: u64 = 16 * 1024;
 /// session, so it is defined once, here.
 pub const ENDPOINT_PATH: &str = "/v1/telemetry";
 
+/// Setting this sends telemetry to that server instead of the API URL. It is
+/// the explicit opt-in to send anywhere other than Stashbase's own service
+/// (for example a local backend or staging while developing).
+pub const TELEMETRY_URL_ENV: &str = "STASHBASE_TELEMETRY_URL";
+
+/// The server events go to: the telemetry URL if given, else the API URL.
+pub fn destination_url_from(telemetry_url: Option<&str>, api_url: &str) -> String {
+    telemetry_url
+        .map(|url| url.trim().trim_end_matches('/'))
+        .filter(|url| !url.is_empty())
+        .unwrap_or(api_url)
+        .to_owned()
+}
+
+pub fn destination_url() -> String {
+    destination_url_from(
+        std::env::var(TELEMETRY_URL_ENV).ok().as_deref(),
+        &get_api_url(),
+    )
+}
+
+/// The host of a destination URL, lower-cased and without a trailing dot.
+pub fn destination_host_of(url: &str) -> Option<String> {
+    reqwest::Url::parse(url)
+        .ok()?
+        .host_str()
+        .map(|host| host.trim_end_matches('.').to_ascii_lowercase())
+}
+
+/// The host events are sent to. The agent proxy refuses telemetry POSTs to it.
+pub fn destination_host() -> Option<String> {
+    destination_host_of(&destination_url())
+}
+
 pub fn endpoint() -> String {
-    format!("{}{}", get_api_url(), ENDPOINT_PATH)
+    format!("{}{}", destination_url(), ENDPOINT_PATH)
 }
 
 /// Whether a request is the CLI's telemetry POST: `POST /v1/telemetry` on the
@@ -369,5 +403,25 @@ mod tests {
     #[test]
     fn the_endpoint_path_is_the_one_the_proxy_matches() {
         assert!(endpoint().ends_with(ENDPOINT_PATH));
+    }
+
+    #[test]
+    fn the_destination_is_the_api_url_unless_a_telemetry_url_is_given() {
+        let api = "https://api.stashbase.dev";
+        assert_eq!(destination_url_from(None, api), api);
+        assert_eq!(destination_url_from(Some("  "), api), api);
+        assert_eq!(
+            destination_url_from(Some("http://127.0.0.1:9/"), api),
+            "http://127.0.0.1:9"
+        );
+    }
+
+    #[test]
+    fn the_destination_host_ignores_scheme_port_and_case() {
+        assert_eq!(
+            destination_host_of("HTTPS://API.Stashbase.Dev:8443/"),
+            Some("api.stashbase.dev".to_owned())
+        );
+        assert_eq!(destination_host_of("not a url"), None);
     }
 }

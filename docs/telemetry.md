@@ -76,6 +76,10 @@ messages, environment variables, API keys, or IP addresses.
   profile's egress policy allows the Stashbase API host. Closing that needs the server-side
   proxy to refuse `POST /v1/telemetry` on the API host, as the local proxy does.
 - In CI.
+- When the API URL is not Stashbase's own service. If `STASHBASE_API_URL` (or the build)
+  points at a self-hosted or staging server, nothing is sent to it. Events only go to
+  Stashbase's own service; setting `STASHBASE_TELEMETRY_URL` is the explicit opt-in to send
+  somewhere else, for example a local backend while developing.
 - Before the first-run notice has been shown in an interactive terminal.
 - When you opt out.
 

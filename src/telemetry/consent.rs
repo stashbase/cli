@@ -45,6 +45,11 @@ pub struct Signals {
     /// independent of that variable, so a harness that strips unknown
     /// variables does not switch the suppression off.
     pub proxied_session: bool,
+    /// `STASHBASE_API_URL` (or the build) points somewhere other than
+    /// Stashbase's own service: self-hosted or staging.
+    pub custom_api_url: bool,
+    /// `STASHBASE_TELEMETRY_URL` is set: sending elsewhere is explicit.
+    pub telemetry_url: bool,
     pub interactive: bool,
     /// `STASHBASE_TELEMETRY_DEBUG=1`: print the event instead of sending it.
     pub debug: bool,
@@ -79,6 +84,9 @@ impl Signals {
             // Presence is enough: any value, including "0", counts, so setting
             // it to a false-looking value does not switch suppression off.
             sandbox: std::env::var_os("STASHBASE_SANDBOX").is_some(),
+            custom_api_url: !crate::api::client::is_default_api_url(),
+            telemetry_url: std::env::var(super::send::TELEMETRY_URL_ENV)
+                .is_ok_and(|value| !value.trim().is_empty()),
             proxied_session: PROXY_CA_VARS
                 .iter()
                 .any(|name| std::env::var(name).is_ok_and(|path| is_stashbase_proxy_ca(&path))),
@@ -96,6 +104,12 @@ pub fn off_reason(signals: &Signals, state: &State) -> Option<&'static str> {
     }
     if signals.proxied_session {
         return Some("running inside an agent proxy session");
+    }
+    // Events only go to Stashbase's own service, like `gh` skips GitHub
+    // Enterprise Server. Setting STASHBASE_TELEMETRY_URL is the explicit opt-in
+    // to send somewhere else.
+    if signals.custom_api_url && !signals.telemetry_url {
+        return Some("the API URL is not Stashbase's own service");
     }
     if signals.ci {
         return Some("running in CI");
@@ -326,5 +340,29 @@ mod tests {
             off_reason(&proxied, &seen()),
             Some("running inside an agent proxy session")
         );
+    }
+
+    #[test]
+    fn a_non_default_api_url_turns_telemetry_off_unless_the_destination_is_explicit() {
+        let custom = Signals {
+            custom_api_url: true,
+            ..human()
+        };
+        assert_eq!(decide(&custom, &seen()), Decision::Off);
+        assert_eq!(decide(&custom, &State::default()), Decision::Off);
+        assert_eq!(
+            off_reason(&custom, &seen()),
+            Some("the API URL is not Stashbase's own service")
+        );
+        // Debug mode does not override it: nothing would be sent anyway.
+        let debug = Signals { debug: true, ..custom.clone() };
+        assert_eq!(decide(&debug, &seen()), Decision::Off);
+
+        // An explicit telemetry URL is the opt-in to send somewhere else.
+        let explicit = Signals {
+            telemetry_url: true,
+            ..custom
+        };
+        assert_eq!(decide(&explicit, &seen()), Decision::Send);
     }
 }

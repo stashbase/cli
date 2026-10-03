@@ -92,6 +92,9 @@ impl Sandbox {
         command
             .env("HOME", &self.home)
             .env("STASHBASE_API_URL", api_url)
+            // The tests talk to local servers, which only an explicit telemetry
+            // destination allows (a non-default API URL alone turns it off).
+            .env("STASHBASE_TELEMETRY_URL", api_url)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -470,6 +473,29 @@ fn an_ordinary_ca_bundle_does_not_suppress_the_event() {
     // A developer's own CA setup must not be mistaken for an agent session.
     let out = sandbox.run_with(&["agent", "init", "a"], &[("SSL_CERT_FILE", "/etc/ssl/cert.pem")]);
     assert_eq!(events(&out).len(), 1, "{}", stderr(&out));
+}
+
+#[test]
+fn a_non_default_api_url_sends_nothing_unless_the_destination_is_explicit() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    let run = |api_url: &str, telemetry_url: Option<&str>| {
+        let mut command = sandbox.command(&["agent", "init", &Uuid::new_v4().to_string()], api_url, true);
+        command.env_remove("STASHBASE_TELEMETRY_URL");
+        if let Some(url) = telemetry_url {
+            command.env("STASHBASE_TELEMETRY_URL", url);
+        }
+        events(&command.output().unwrap()).len()
+    };
+
+    // Self-hosted or staging server: nothing is sent to it.
+    assert_eq!(run("https://stashbase.example.com", None), 0);
+    assert_eq!(run("http://127.0.0.1:1", None), 0);
+    // Stashbase's own service, however it is spelled, is fine.
+    assert_eq!(run("https://api.stashbase.dev", None), 1);
+    assert_eq!(run("https://API.stashbase.dev/", None), 1);
+    // An explicit telemetry URL is the opt-in to send somewhere else.
+    assert_eq!(run("https://stashbase.example.com", Some("http://127.0.0.1:1")), 1);
 }
 
 #[test]

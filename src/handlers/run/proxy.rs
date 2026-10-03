@@ -1747,7 +1747,7 @@ fn proxy_request(
         // request of a local session passes through this proxy, so refuse the
         // CLI's telemetry POST here, ahead of any egress policy.
         if crate::telemetry::send::is_telemetry_request(
-            crate::api::client::get_api_host().as_deref(),
+            crate::telemetry::send::destination_host().as_deref(),
             host.as_deref(),
             request.method().as_str(),
             request.uri().path(),
@@ -4246,7 +4246,7 @@ mod tests {
         // A permissive policy allows every host, so only the telemetry rule can
         // refuse this. It is the boundary an agent cannot switch off by
         // clearing STASHBASE_SANDBOX in its own environment.
-        let api_host = crate::api::client::get_api_host().expect("the API URL has a host");
+        let api_host = crate::telemetry::send::destination_host().expect("the destination has a host");
         let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
             .await
             .unwrap();
