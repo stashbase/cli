@@ -433,6 +433,9 @@ pub async fn handle_cli(args: Cli) {
         let profile_name = match config::resolve_profile_name(&config) {
             Ok(profile) => profile,
             Err(error) => {
+                // Printed and returned normally (exit 0): record it, or
+                // telemetry would report this failed command as a success.
+                crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Validation);
                 eprintln!("{}", error);
                 return;
             }
@@ -1491,6 +1494,9 @@ pub async fn handle_cli(args: Cli) {
             eprintln!("{}", "Request aborted".red_if_tty_stderr());
             return;
         }
+        // An unreadable or malformed config file: printed, then a normal
+        // return (exit 0). Record it so it is not reported as a success.
+        crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Validation);
         eprintln!("{:?}", err);
     }
 }

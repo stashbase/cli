@@ -121,6 +121,15 @@ impl Sandbox {
         assert!(out.status.success(), "{}", stderr(&out));
     }
 
+    /// Where the CLI keeps its config file for this isolated HOME.
+    fn config_file(&self) -> PathBuf {
+        if cfg!(target_os = "macos") {
+            self.home.join("Library/Application Support/stashbase/config.toml")
+        } else {
+            self.home.join(".config/stashbase/config.toml")
+        }
+    }
+
     fn write_profile(&self, name: &str, body: &str) {
         let dir = self.cwd.join(".stashbase/agents");
         std::fs::create_dir_all(&dir).unwrap();
@@ -340,6 +349,41 @@ fn a_missing_api_key_is_reported_as_an_auth_error() {
     assert_eq!(events.len(), 1, "{}", stderr(&out));
     assert_eq!(events[0]["outcome"], "error");
     assert_eq!(events[0]["error_kind"], "auth", "{}", events[0]);
+}
+
+/// `handle_cli` prints these two failures and returns normally (exit 0), so
+/// telemetry must record them itself or it would report a success.
+#[test]
+fn a_malformed_config_file_is_reported_as_an_error_not_a_success() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    std::fs::create_dir_all(sandbox.config_file().parent().unwrap()).unwrap();
+    std::fs::write(sandbox.config_file(), "this is = = not toml [[[\n").unwrap();
+
+    let out = sandbox.run(&["pull", "--api-key", "dummy-key"]);
+
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["command"], "pull");
+    assert_eq!(events[0]["outcome"], "error", "{}", events[0]);
+    assert_eq!(events[0]["error_kind"], "validation", "{}", events[0]);
+}
+
+#[test]
+fn an_unknown_profile_is_reported_as_an_error_not_a_success() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let out = sandbox.run_with(
+        &["pull", "--api-key", "dummy-key"],
+        &[("STASHBASE_PROFILE", "SENTINEL-no-such-profile")],
+    );
+
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["outcome"], "error", "{}", events[0]);
+    assert_eq!(events[0]["error_kind"], "validation", "{}", events[0]);
+    assert!(!events[0].to_string().contains("SENTINEL"), "{}", events[0]);
 }
 
 #[test]
