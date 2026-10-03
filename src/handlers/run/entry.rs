@@ -3,7 +3,6 @@ use std::path::Path;
 
 use anyhow::{bail, Context};
 use log::debug;
-use spinoff::{Spinner, Streams};
 use tabled::Tabled;
 
 use crate::{
@@ -26,6 +25,7 @@ use crate::{
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::read_secrets_from_file,
         separator,
+        spinner::{Spinner, Streams},
         tables::build::build_table,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
@@ -327,7 +327,7 @@ pub async fn handle_remote_agent_run(
     let sandbox_isolated_paths = policy.sandbox_isolated_paths.clone();
     let worktree_request = policy.worktree_request();
     let command_audit_log = audit_log.clone();
-    let mut setup_spinner: Option<spinoff::Spinner> = None;
+    let mut setup_spinner: Option<Spinner> = None;
     let run_worktree;
     let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
         // Resolved before the spinner starts: this can print its own
@@ -406,7 +406,7 @@ pub async fn handle_remote_agent_run(
             return Err(error);
         }
     };
-    // Stop the spinner before any plain `eprintln!` — spinoff redraws its
+    // Stop the spinner before any plain `eprintln!` — the spinner redraws its
     // line from a background thread, and interleaving that with ordinary
     // stderr writes garbles both. Re-created below to cover the remaining
     // netns-holder setup phase.
@@ -1028,9 +1028,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             msg.insert_str(0, "\n");
             msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
-            // `spinoff` spinners can only be stopped once. The confirmed run
-            // below will finish its own spinner, so discard this one after
-            // clearing the warning line.
+            // The confirmed run below starts its own spinner, so discard this
+            // one after clearing the warning line.
             if let Some(mut spinner) = spinner.take() {
                 spinner.stop_and_persist("", "");
             }
@@ -1579,7 +1578,7 @@ async fn handle_run(
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
-        let mut setup_spinner: Option<spinoff::Spinner> = None;
+        let mut setup_spinner: Option<Spinner> = None;
         let run_worktree;
         let (docker_network, agent_image) = if backend
             == crate::models::agent::SandboxBackend::Docker
@@ -1664,7 +1663,7 @@ async fn handle_run(
                 return Err(error);
             }
         };
-        // Stop the spinner before any plain `eprintln!` — spinoff redraws
+        // Stop the spinner before any plain `eprintln!` — the spinner redraws
         // its line from a background thread, and interleaving that with
         // ordinary stderr writes garbles both. Re-created below to cover
         // the remaining netns-holder setup phase.

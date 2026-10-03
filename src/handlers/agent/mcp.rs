@@ -13,7 +13,6 @@ use dialoguer::{
     Confirm, MultiSelect,
 };
 use serde_json::{json, Value};
-use spinoff::Spinner;
 
 use crate::{
     api::secrets,
@@ -40,8 +39,9 @@ use crate::{
         config::Config,
     },
     utils::{
-        output::get_formatted_json_string, secrets::read_secrets_from_file,
-        spinner::request_spinner,
+        output::get_formatted_json_string,
+        secrets::read_secrets_from_file,
+        spinner::{request_spinner, Spinner},
     },
 };
 
