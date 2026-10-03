@@ -8,16 +8,25 @@ use crate::{
         consent::{off_reason, Signals},
         state::{self, State},
     },
+    utils::output::get_formatted_json_string,
 };
 
-pub fn handle_telemetry_command(subcommand: TelemetrySubcommand) -> Result<()> {
+pub fn handle_telemetry_command(subcommand: TelemetrySubcommand, json: bool) -> Result<()> {
     let path = state::state_path().context("could not determine the config directory")?;
     run(
         subcommand,
         &path,
         &Signals::from_process(),
         &mut std::io::stdout(),
+        json,
     )
+}
+
+/// Pretty JSON like the other commands: colored when `--color` or the
+/// terminal asks for it, plain when piped.
+fn write_json(out: &mut impl Write, value: &serde_json::Value) -> Result<()> {
+    writeln!(out, "{}", get_formatted_json_string(value, true)?)?;
+    Ok(())
 }
 
 pub fn run(
@@ -25,6 +34,7 @@ pub fn run(
     path: &Path,
     signals: &Signals,
     out: &mut impl Write,
+    json: bool,
 ) -> Result<()> {
     let mut state = state::load(path);
     match subcommand {
@@ -32,15 +42,34 @@ pub fn run(
             state.enabled = Some(true);
             state.notice_shown = true;
             state::save(path, &state)?;
-            writeln!(
-                out,
-                "Telemetry enabled. See docs/telemetry.md for exactly what is sent."
-            )?;
+            if json {
+                write_json(out, &serde_json::json!({"enabled": true}))?;
+            } else {
+                writeln!(
+                    out,
+                    "Telemetry enabled. See docs/telemetry.md for exactly what is sent."
+                )?;
+            }
         }
         TelemetrySubcommand::Disable => {
             state.enabled = Some(false);
             state::save(path, &state)?;
-            writeln!(out, "Telemetry disabled.")?;
+            if json {
+                write_json(out, &serde_json::json!({"enabled": false}))?;
+            } else {
+                writeln!(out, "Telemetry disabled.")?;
+            }
+        }
+        TelemetrySubcommand::Status if json => {
+            let reason = off_reason(signals, &state);
+            write_json(
+                out,
+                &serde_json::json!({
+                    "enabled": reason.is_none(),
+                    "reason": reason,
+                    "notice_shown": state.notice_shown,
+                }),
+            )?;
         }
         TelemetrySubcommand::Status => print_status(&state, signals, out)?,
     }
@@ -100,7 +129,7 @@ mod tests {
         signals: &Signals,
     ) -> String {
         let mut out = Vec::new();
-        run(sub, path, signals, &mut out).unwrap();
+        run(sub, path, signals, &mut out, false).unwrap();
         String::from_utf8(out).unwrap()
     }
 
@@ -185,5 +214,68 @@ mod tests {
             text.contains("stashbase config telemetry disable"),
             "{text}"
         );
+    }
+
+    fn strip_ansi(text: &str) -> String {
+        let mut out = String::new();
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' && chars.peek() == Some(&'[') {
+                for next in chars.by_ref() {
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    fn run_json(
+        sub: TelemetrySubcommand,
+        path: &std::path::Path,
+        signals: &Signals,
+    ) -> serde_json::Value {
+        let mut out = Vec::new();
+        run(sub, path, signals, &mut out, true).unwrap();
+        // Color depends on the environment (FORCE_COLOR, ...): strip it.
+        serde_json::from_str(&strip_ansi(&String::from_utf8(out).unwrap())).unwrap()
+    }
+
+    #[test]
+    fn json_output_covers_every_subcommand() {
+        let path = temp_path();
+        let signals = Signals::default();
+
+        assert_eq!(
+            run_json(TelemetrySubcommand::Disable, &path, &signals),
+            serde_json::json!({"enabled": false})
+        );
+        let status = run_json(TelemetrySubcommand::Status, &path, &signals);
+        assert_eq!(status["enabled"], false);
+        assert!(status["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("opted out with"));
+        assert_eq!(status["notice_shown"], false);
+
+        assert_eq!(
+            run_json(TelemetrySubcommand::Enable, &path, &signals),
+            serde_json::json!({"enabled": true})
+        );
+        let status = run_json(TelemetrySubcommand::Status, &path, &signals);
+        assert_eq!(status["enabled"], true);
+        assert!(status["reason"].is_null());
+        assert_eq!(status["notice_shown"], true);
+
+        let ci = Signals {
+            ci: true,
+            ..Signals::default()
+        };
+        let status = run_json(TelemetrySubcommand::Status, &path, &ci);
+        assert_eq!(status["enabled"], false);
+        assert_eq!(status["reason"], "running in CI");
     }
 }

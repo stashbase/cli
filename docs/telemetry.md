@@ -95,3 +95,18 @@ Any one of these:
 `stashbase config telemetry enable` turns it back on, and `stashbase config print` also shows
 the current state on its last line. These commands work even if your `config.toml` is
 unreadable.
+
+All of them accept `--json` for machine-readable output, colored in a terminal like the other
+commands:
+
+```
+$ stashbase config telemetry status --json
+{
+  "enabled": false,
+  "reason": "running in CI",
+  "notice_shown": true
+}
+```
+
+`enable` and `disable` print `{"enabled": true}` and `{"enabled": false}`. `reason` is `null`
+when telemetry is enabled.

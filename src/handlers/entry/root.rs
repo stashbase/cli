@@ -396,7 +396,7 @@ pub async fn handle_cli(args: Cli) {
         subcommand: ConfigSubcommand::Telemetry(cmd),
     }) = args.entity_type
     {
-        if let Err(e) = handle_telemetry_command(cmd.subcommand) {
+        if let Err(e) = handle_telemetry_command(cmd.subcommand, args.raw) {
             eprintln!("{:?}", e);
         }
         return;

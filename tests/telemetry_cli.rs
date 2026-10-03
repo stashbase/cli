@@ -43,6 +43,11 @@ const SCRUBBED: &[&str] = &[
     "JENKINS_URL",
     "TF_BUILD",
     "XDG_CONFIG_HOME",
+    // Color is decided by --color and the terminal in these tests.
+    "FORCE_COLOR",
+    "CLICOLOR_FORCE",
+    "NO_COLOR",
+    "NOCOLOR",
 ];
 
 /// The fields every event carries. `agent run` adds more once it has launched;
@@ -281,6 +286,100 @@ fn config_telemetry_works_even_when_config_toml_is_broken() {
     let status = sandbox.run(&["config", "telemetry", "status"]);
     let text = String::from_utf8_lossy(&status.stdout).into_owned();
     assert!(text.contains("disabled"), "{text} / {}", stderr(&status));
+}
+
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            for next in chars.by_ref() {
+                if next.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn stdout_json(out: &Output) -> Value {
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "stdout is not JSON ({e}): {}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    })
+}
+
+#[test]
+fn config_telemetry_supports_json_output() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let status = stdout_json(&sandbox.run(&["config", "telemetry", "status", "--json"]));
+    assert_eq!(status["enabled"], true, "{status}");
+    assert!(status["reason"].is_null(), "{status}");
+    assert_eq!(status["notice_shown"], true, "{status}");
+
+    let off = stdout_json(&sandbox.run(&["config", "telemetry", "disable", "--json"]));
+    assert_eq!(off, serde_json::json!({"enabled": false}));
+    let status = stdout_json(&sandbox.run(&["config", "telemetry", "status", "--json"]));
+    assert_eq!(status["enabled"], false, "{status}");
+    assert!(
+        status["reason"]
+            .as_str()
+            .unwrap()
+            .starts_with("opted out with"),
+        "{status}"
+    );
+
+    let on = stdout_json(&sandbox.run(&["config", "telemetry", "enable", "--json"]));
+    assert_eq!(on, serde_json::json!({"enabled": true}));
+}
+
+/// Color comes from the shared JSON helper, so it behaves like the other
+/// commands: colored in a terminal, plain when piped. Here stdout is piped, so
+/// what we own is that every color mode yields the same valid JSON and that
+/// `--color never` never emits color codes.
+#[test]
+fn config_telemetry_json_follows_the_shared_color_rules() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let mut values = Vec::new();
+    for args in [
+        &["config", "telemetry", "status", "--json"][..],
+        &[
+            "--color",
+            "always",
+            "config",
+            "telemetry",
+            "status",
+            "--json",
+        ][..],
+        &[
+            "--color",
+            "never",
+            "config",
+            "telemetry",
+            "status",
+            "--json",
+        ][..],
+    ] {
+        let text = String::from_utf8_lossy(&sandbox.run(args).stdout).into_owned();
+        if args.contains(&"never") {
+            assert!(!text.contains('\u{1b}'), "{args:?}: {text}");
+        }
+        values.push(serde_json::from_str::<Value>(&strip_ansi(&text)).unwrap());
+    }
+    assert!(
+        values.windows(2).all(|pair| pair[0] == pair[1]),
+        "{values:?}"
+    );
+    assert_eq!(values[0]["enabled"], true);
 }
 
 #[test]

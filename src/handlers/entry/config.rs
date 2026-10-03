@@ -124,7 +124,7 @@ pub fn handle_config_commands(
             );
         }
         ConfigSubcommand::Telemetry(command) => {
-            crate::handlers::telemetry::handle_telemetry_command(command.subcommand)?;
+            crate::handlers::telemetry::handle_telemetry_command(command.subcommand, json_output)?;
         }
         ConfigSubcommand::Reset(r) => {
             reset_config(r.force)?;
