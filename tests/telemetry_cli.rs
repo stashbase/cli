@@ -1,0 +1,454 @@
+//! End-to-end tests of telemetry through the real binary.
+//!
+//! Every test runs with an isolated `HOME`, a scrubbed environment and an API
+//! URL nothing listens on, so nothing can reach a real server. Most tests use
+//! `STASHBASE_TELEMETRY_DEBUG=1`, which prints the exact event to stderr
+//! instead of sending it. The delivery tests start a local server instead.
+//!
+//! The delivery tests and the `agent run` test need loopback ports and, for
+//! `agent run`, the macOS sandbox, so they cannot run inside another sandbox
+//! (for example Claude Code's); they skip themselves when the OS refuses.
+#![cfg(unix)]
+
+use std::{
+    io::{Read, Write},
+    net::TcpListener,
+    path::PathBuf,
+    process::{Command, Output, Stdio},
+    sync::mpsc,
+    thread,
+    time::{Duration, Instant},
+};
+
+use serde_json::Value;
+use uuid::Uuid;
+
+const BIN: &str = env!("CARGO_BIN_EXE_stashbase");
+const DEBUG_PREFIX: &str = "telemetry (debug, not sent): ";
+
+/// Variables that would change telemetry behaviour if the developer running
+/// the tests happens to have them set.
+const SCRUBBED: &[&str] = &[
+    "STASHBASE_API_KEY",
+    "STASHBASE_TELEMETRY",
+    "DO_NOT_TRACK",
+    "STASHBASE_SANDBOX",
+    "STASHBASE_TELEMETRY_DEBUG",
+    "STASHBASE_TELEMETRY_WORKER",
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITLAB_CI",
+    "BUILDKITE",
+    "CIRCLECI",
+    "JENKINS_URL",
+    "TF_BUILD",
+    "XDG_CONFIG_HOME",
+];
+
+/// The fields every event carries. `agent run` adds more once it has launched;
+/// `error_kind` appears only on errors.
+const BASE_KEYS: &[&str] = &[
+    "arch",
+    "cli_version",
+    "command",
+    "duration_ms",
+    "event",
+    "event_id",
+    "install_id",
+    "is_tty",
+    "os",
+    "outcome",
+    "timestamp_ms",
+];
+
+struct Sandbox {
+    root: PathBuf,
+    home: PathBuf,
+    cwd: PathBuf,
+}
+
+impl Sandbox {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!("stashbase-it-{}", Uuid::new_v4()));
+        let home = root.join("home");
+        let cwd = root.join("project");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        let _ = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&cwd)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        Self { root, home, cwd }
+    }
+
+    fn command(&self, args: &[&str], api_url: &str, debug: bool) -> Command {
+        let mut command = Command::new(BIN);
+        command.args(args).current_dir(&self.cwd);
+        for name in SCRUBBED {
+            command.env_remove(name);
+        }
+        command
+            .env("HOME", &self.home)
+            .env("STASHBASE_API_URL", api_url)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if debug {
+            command.env("STASHBASE_TELEMETRY_DEBUG", "1");
+        }
+        command
+    }
+
+    /// Runs in debug mode against an API URL nothing listens on.
+    fn run(&self, args: &[&str]) -> Output {
+        self.run_with(args, &[])
+    }
+
+    fn run_with(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+        let mut command = self.command(args, "http://127.0.0.1:1", true);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        command.output().unwrap()
+    }
+
+    /// A human has agreed to telemetry (this also counts as having seen the
+    /// first-run notice, which cannot be shown without a terminal).
+    fn enable(&self) {
+        let out = self.run(&["telemetry", "enable"]);
+        assert!(out.status.success(), "{}", stderr(&out));
+    }
+
+    fn write_profile(&self, name: &str, body: &str) {
+        let dir = self.cwd.join(".stashbase/agents");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{name}.toml")), body).unwrap();
+    }
+}
+
+impl Drop for Sandbox {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+fn stderr(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+fn events(out: &Output) -> Vec<Value> {
+    stderr(out)
+        .lines()
+        .filter_map(|line| line.strip_prefix(DEBUG_PREFIX))
+        .map(|json| serde_json::from_str(json).expect("a debug line must be valid JSON"))
+        .collect()
+}
+
+fn keys(event: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = event.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    keys
+}
+
+#[test]
+fn agent_init_reports_exactly_one_event_with_the_expected_shape() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let out = sandbox.run(&["agent", "init", "p"]);
+
+    assert!(out.status.success(), "{}", stderr(&out));
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    let event = &events[0];
+    assert_eq!(keys(event), BASE_KEYS);
+    assert_eq!(event["event"], "cli_command");
+    assert_eq!(event["command"], "agent init");
+    assert_eq!(event["outcome"], "ok");
+    assert_eq!(event["is_tty"], false);
+    Uuid::parse_str(event["install_id"].as_str().unwrap()).unwrap();
+    Uuid::parse_str(event["event_id"].as_str().unwrap()).unwrap();
+    assert!(event["timestamp_ms"].as_i64().unwrap() > 1_600_000_000_000);
+}
+
+#[test]
+fn a_failed_agent_init_reports_an_error_with_a_category() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    sandbox.run(&["agent", "init", "dup"]);
+
+    let out = sandbox.run(&["agent", "init", "dup"]); // refuses to overwrite
+
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["outcome"], "error");
+    assert!(
+        ["auth", "network", "not_found", "validation", "other"]
+            .contains(&events[0]["error_kind"].as_str().unwrap()),
+        "{}",
+        events[0]
+    );
+}
+
+#[test]
+fn the_event_never_contains_what_the_user_typed() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let out = sandbox.run(&["agent", "init", "SENTINEL_PROFILE_NAME"]);
+
+    let all = stderr(&out);
+    let event_lines: Vec<&str> = all.lines().filter(|l| l.starts_with(DEBUG_PREFIX)).collect();
+    assert_eq!(event_lines.len(), 1);
+    assert!(!event_lines[0].contains("SENTINEL"), "{}", event_lines[0]);
+    assert!(
+        !event_lines[0].contains(sandbox.cwd.to_str().unwrap()),
+        "{}",
+        event_lines[0]
+    );
+}
+
+#[test]
+fn commands_outside_the_funnel_report_nothing() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    for args in [
+        &["doctor"][..],
+        &["generate", "uuid"][..],
+        &["telemetry", "status"][..],
+        &["agent", "profiles", "list"][..],
+        &["agent", "logs", "list"][..],
+    ] {
+        let out = sandbox.run(args);
+        assert!(events(&out).is_empty(), "{args:?} reported: {}", stderr(&out));
+    }
+}
+
+#[test]
+fn every_off_switch_suppresses_the_event() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    for (index, (key, value)) in [
+        ("STASHBASE_TELEMETRY", "0"),
+        ("DO_NOT_TRACK", "1"),
+        ("CI", "true"),
+        ("STASHBASE_SANDBOX", "1"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let name = format!("off{index}");
+        let out = sandbox.run_with(&["agent", "init", &name], &[(key, value)]);
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert!(events(&out).is_empty(), "{key}={value} still reported");
+    }
+}
+
+#[test]
+fn disable_and_enable_switch_telemetry() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    sandbox.run(&["telemetry", "disable"]);
+    let off = sandbox.run(&["agent", "init", "a"]);
+    assert!(events(&off).is_empty());
+
+    sandbox.run(&["telemetry", "enable"]);
+    let on = sandbox.run(&["agent", "init", "b"]);
+    assert_eq!(events(&on).len(), 1);
+}
+
+#[test]
+fn debug_mode_works_before_the_notice_and_saves_no_install_id() {
+    let sandbox = Sandbox::new(); // telemetry never enabled, notice never shown
+
+    let first = events(&sandbox.run(&["agent", "init", "a"]));
+    let second = events(&sandbox.run(&["agent", "init", "b"]));
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(second.len(), 1);
+    // The ID is a throwaway: debug mode must not create any telemetry state.
+    assert_ne!(first[0]["install_id"], second[0]["install_id"]);
+}
+
+#[test]
+fn an_agent_run_that_fails_to_start_is_not_reported_as_a_success() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    let out = sandbox.run(&["agent", "run", "--profile", "does-not-exist", "--", "true"]);
+
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["command"], "agent run");
+    // The CLI prints "profile not found" and exits 0; telemetry must still
+    // call it a failed start, and report no funnel fields.
+    assert_eq!(events[0]["outcome"], "error", "{}", events[0]);
+    assert_eq!(events[0]["error_kind"], "validation");
+    for key in ["profile_source", "remote", "sandbox_backend", "policy_allow"] {
+        assert!(events[0].get(key).is_none(), "{key} present");
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn agent_run_passes_the_exit_code_through_and_reports_the_funnel_fields() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    sandbox.write_profile("p", "egress_hosts = [\"example.com\"]\n");
+
+    let failing = sandbox.run(&["agent", "run", "--profile", "p", "--", "sh", "-c", "exit 3"]);
+    if stderr(&failing).contains("Operation not permitted") {
+        eprintln!("skipping: the macOS sandbox cannot be applied from inside another sandbox");
+        return;
+    }
+
+    assert_eq!(failing.status.code(), Some(3), "{}", stderr(&failing));
+    let events_failing = events(&failing);
+    assert_eq!(events_failing.len(), 1, "{}", stderr(&failing));
+    let event = &events_failing[0];
+    assert_eq!(event["command"], "agent run");
+    assert_eq!(event["outcome"], "error");
+    assert_eq!(event["profile_source"], "directory");
+    assert_eq!(event["remote"], false);
+    assert_eq!(event["sandbox_backend"], "native");
+    for key in ["policy_allow", "policy_deny", "policy_block"] {
+        assert_eq!(event[key], 0, "{key}");
+    }
+
+    let passing = sandbox.run(&["agent", "run", "--profile", "p", "--", "sh", "-c", "exit 0"]);
+    assert_eq!(passing.status.code(), Some(0), "{}", stderr(&passing));
+    assert_eq!(events(&passing)[0]["outcome"], "ok");
+}
+
+/// Accepts one connection, reads the whole request and answers 204. Returns
+/// the request text through the channel.
+fn capture_one_request(listener: TcpListener) -> mpsc::Receiver<String> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        let mut buf = vec![0u8; 16 * 1024];
+        let mut total = 0;
+        loop {
+            let Ok(n) = stream.read(&mut buf[total..]) else {
+                return;
+            };
+            if n == 0 {
+                break;
+            }
+            total += n;
+            let text = String::from_utf8_lossy(&buf[..total]).to_ascii_lowercase();
+            if let Some(head_end) = text.find("\r\n\r\n") {
+                let length = text
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse::<usize>().ok())
+                    .unwrap_or(0);
+                if total >= head_end + 4 + length {
+                    break;
+                }
+            }
+        }
+        let _ = stream.write_all(b"HTTP/1.1 204 No Content\r\ncontent-length: 0\r\n\r\n");
+        let _ = sender.send(String::from_utf8_lossy(&buf[..total]).into_owned());
+    });
+    receiver
+}
+
+fn bind_loopback() -> Option<(TcpListener, String)> {
+    let listener = TcpListener::bind("127.0.0.1:0").ok()?;
+    let url = format!("http://{}", listener.local_addr().ok()?);
+    Some((listener, url))
+}
+
+#[test]
+fn the_detached_sender_delivers_the_event_to_the_endpoint() {
+    let Some((listener, url)) = bind_loopback() else {
+        eprintln!("skipping: loopback ports are not available");
+        return;
+    };
+    let received = capture_one_request(listener);
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    // Not in debug mode: this really sends, through the detached sender.
+    let out = sandbox
+        .command(&["agent", "init", "p"], &url, false)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let request = received
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the detached sender never delivered the event");
+    assert!(request.starts_with("POST /v1/telemetry"), "{request}");
+    assert!(request.to_ascii_lowercase().contains("content-type: application/json"));
+    let body = request.split("\r\n\r\n").nth(1).unwrap();
+    let event: Value = serde_json::from_str(body).unwrap();
+    assert_eq!(event["command"], "agent init");
+    assert_eq!(keys(&event), BASE_KEYS);
+}
+
+fn fastest_of(runs: usize, mut run: impl FnMut() -> Output) -> Duration {
+    (0..runs)
+        .map(|_| {
+            let started = Instant::now();
+            let out = run();
+            let elapsed = started.elapsed();
+            assert!(out.status.success(), "{}", stderr(&out));
+            elapsed
+        })
+        .min()
+        .unwrap()
+}
+
+#[test]
+fn a_hanging_endpoint_does_not_delay_the_command() {
+    let Some((listener, url)) = bind_loopback() else {
+        eprintln!("skipping: loopback ports are not available");
+        return;
+    };
+    // Accepts connections and never answers.
+    thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            held.push(stream);
+        }
+    });
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    let counter = std::cell::Cell::new(0);
+    let name = || {
+        counter.set(counter.get() + 1);
+        format!("p{}", counter.get())
+    };
+
+    let baseline = fastest_of(3, || {
+        sandbox
+            .command(&["agent", "init", &name()], &url, false)
+            .env("STASHBASE_TELEMETRY", "0")
+            .output()
+            .unwrap()
+    });
+    let with_telemetry = fastest_of(3, || {
+        sandbox
+            .command(&["agent", "init", &name()], &url, false)
+            .output()
+            .unwrap()
+    });
+
+    // Waiting on the hung request would add its whole timeout (500 ms or more).
+    assert!(
+        with_telemetry < baseline + Duration::from_millis(300),
+        "telemetry added {:?} (baseline {:?}, with telemetry {:?})",
+        with_telemetry.saturating_sub(baseline),
+        baseline,
+        with_telemetry
+    );
+}
