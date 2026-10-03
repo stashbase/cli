@@ -210,6 +210,40 @@ fn pull_and_push_each_report_one_event_when_they_fail() {
 }
 
 #[test]
+fn run_and_secrets_schema_pull_report_by_their_own_labels() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    for (args, label) in [
+        (&["run", "--", "true"][..], "run"),
+        (
+            &["secrets", "schema", "pull", "-p", "p", "-e", "e"][..],
+            "secrets schema pull",
+        ),
+    ] {
+        let out = sandbox.run(args); // no API key: fails fast, offline
+        let events = events(&out);
+        assert_eq!(events.len(), 1, "{label}: {}", stderr(&out));
+        assert_eq!(events[0]["command"], label);
+        assert_eq!(events[0]["error_kind"], "auth", "{label}: {}", events[0]);
+    }
+}
+
+#[test]
+fn other_secrets_commands_report_nothing() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+
+    for args in [
+        &["secrets", "list", "-p", "p", "-e", "e"][..],
+        &["secrets", "get", "-p", "p", "-e", "e", "NAME"][..],
+    ] {
+        let out = sandbox.run(args);
+        assert!(events(&out).is_empty(), "{args:?} reported: {}", stderr(&out));
+    }
+}
+
+#[test]
 fn a_missing_api_key_is_reported_as_an_auth_error() {
     let sandbox = Sandbox::new();
     sandbox.enable();

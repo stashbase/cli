@@ -5,6 +5,7 @@ use crate::{
     cmd::{
         agent::{AgentCommand, AgentSubcommand},
         root::EntityType,
+        secrets::{SchemaSecretSubcommand, SecretSubcommand},
     },
     models::{api_client::OutputError, validation::InputValidationError},
 };
@@ -14,19 +15,31 @@ pub enum TrackedCommand {
     Setup,
     Pull,
     Push,
+    Run,
+    SecretsSchemaPull,
     AgentInit,
     AgentRun,
 }
 
 impl TrackedCommand {
     /// The command is chosen from the parsed clap enum, never from argv text.
-    /// Tracked: setup, pull, push, agent init and agent run. Everything else
-    /// sends nothing.
+    /// Tracked: setup, pull, push, run, secrets schema pull, agent init and
+    /// agent run. Everything else sends nothing.
     pub fn from_entity(entity: &EntityType) -> Option<Self> {
         match entity {
             EntityType::Setup(_) => Some(Self::Setup),
             EntityType::Pull(_) => Some(Self::Pull),
             EntityType::Push(_) => Some(Self::Push),
+            EntityType::Run(_) => Some(Self::Run),
+            // Only `secrets schema pull` (the redacted schema for coding
+            // agents) is tracked within `secrets`; the rest is visible through
+            // the REST API.
+            EntityType::Secret(secrets) => match &secrets.subcommand {
+                SecretSubcommand::Schema(schema) => match &schema.subcommand {
+                    SchemaSecretSubcommand::Pull(_) => Some(Self::SecretsSchemaPull),
+                },
+                _ => None,
+            },
             // Exhaustive on purpose: a new `agent` subcommand must be
             // classified here as tracked or not before the crate compiles.
             EntityType::Agent(AgentCommand { subcommand }) => match subcommand {
@@ -55,6 +68,8 @@ impl TrackedCommand {
             Self::Setup => "setup",
             Self::Pull => "pull",
             Self::Push => "push",
+            Self::Run => "run",
+            Self::SecretsSchemaPull => "secrets schema pull",
             Self::AgentInit => "agent init",
             Self::AgentRun => "agent run",
         }
@@ -255,6 +270,14 @@ mod tests {
             (&["stashbase", "setup"], "setup"),
             (&["stashbase", "pull"], "pull"),
             (&["stashbase", "push"], "push"),
+            (&["stashbase", "run", "--", "echo", "hi"], "run"),
+            (
+                &[
+                    "stashbase", "secrets", "schema", "pull", "--project", "p", "--environment",
+                    "e",
+                ],
+                "secrets schema pull",
+            ),
             (&["stashbase", "agent", "init", "p"], "agent init"),
             (
                 &["stashbase", "agent", "run", "--profile", "p", "--", "echo"],
@@ -296,8 +319,10 @@ mod tests {
         // `agent hooks` with no subcommand is the entry point agent tools
         // call automatically; a request there would add latency to every call.
         for args in [
-            &["stashbase", "run", "--", "echo", "hi"][..],
             &["stashbase", "doctor"][..],
+            // Only `secrets schema pull` is tracked within `secrets`.
+            &["stashbase", "secrets", "list", "-p", "p", "-e", "e"][..],
+            &["stashbase", "secrets", "get", "-p", "p", "-e", "e", "NAME"][..],
             &["stashbase", "agent", "doctor", "curl"][..],
             &["stashbase", "agent", "validate", "--profile", "p"][..],
             &[
