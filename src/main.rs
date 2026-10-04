@@ -13,6 +13,7 @@ use crate::{cmd::root::ColorChoice, handlers::entry::root::handle_cli};
 mod api;
 mod cmd;
 mod config;
+mod exit;
 mod handlers;
 mod logging;
 mod models;
@@ -42,13 +43,7 @@ fn main() {
 
     telemetry::begin(&args.entity_type);
 
-    handle_cli(args);
-
-    telemetry::finish(0);
-
-    if REQUEST_ABORTED.load(Ordering::SeqCst) {
-        std::process::exit(130);
-    }
+    handle_cli(args).terminate()
 }
 
 #[cfg(windows)]

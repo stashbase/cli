@@ -23,6 +23,7 @@ use crate::{
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
+    exit::{Exit, IntoExit},
     handlers::{
         agent::{
             doctor::handle_agent_doctor_command,
@@ -55,12 +56,12 @@ use crate::{
                 read_local_proxy_audit_logs, ProfileAuditProvenance, ProxyAuditLog,
                 ProxyAuditLogEvent, ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
             },
-            subprocess::CommandFailed,
         },
         setup::setup,
         telemetry::handle_telemetry_command,
     },
     models::{config::Config, validation::InputValidationError},
+    telemetry::event::{classify_error, ErrorKind},
     utils::{
         env::get_stashbase_api_key,
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -89,7 +90,7 @@ fn install_remote_agent_shutdown_handler() {
             _ = interrupt.recv() => 130,
         };
         crate::api::remote_proxy::end_registered_agent_run().await;
-        crate::telemetry::exit(exit_code);
+        Exit::code(exit_code).terminate();
     });
 }
 
@@ -100,7 +101,7 @@ fn install_remote_agent_shutdown_handler() {
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
             crate::api::remote_proxy::end_registered_agent_run().await;
-            crate::telemetry::exit(130);
+            Exit::code(130).terminate();
         }
     });
 }
@@ -382,12 +383,9 @@ fn remote_source_env_names(bindings: &[crate::api::remote_proxy::RemoteBinding])
 }
 
 #[tokio::main()]
-pub async fn handle_cli(args: Cli) {
+pub async fn handle_cli(args: Cli) -> Exit {
     if let EntityType::Generate(cmd) = args.entity_type {
-        if let Err(e) = handle_generate_command(cmd, args.raw) {
-            eprintln!("{:?}", e);
-        }
-        return;
+        return print_error(handle_generate_command(cmd, args.raw));
     }
 
     // `config telemetry ...` is handled before the config file is read, so
@@ -396,53 +394,32 @@ pub async fn handle_cli(args: Cli) {
         subcommand: ConfigSubcommand::Telemetry(cmd),
     }) = args.entity_type
     {
-        if let Err(e) = handle_telemetry_command(cmd.subcommand, args.raw) {
-            eprintln!("{:?}", e);
-        }
-        return;
+        return print_error(handle_telemetry_command(cmd.subcommand, args.raw));
     }
 
     if let EntityType::Doctor(cmd) = args.entity_type {
-        match handle_doctor_command(cmd, args.raw, args.api_key).await {
-            Ok(has_failures) => {
-                if has_failures {
-                    crate::telemetry::exit(1);
-                }
-            }
+        return match handle_doctor_command(cmd, args.raw, args.api_key).await {
+            Ok(has_failures) => check_exit(has_failures),
             Err(e) => {
-                crate::telemetry::record_error(&e);
                 eprintln!("{:?}", e);
-                crate::telemetry::exit(1);
+                Exit::failed_with(classify_error(&e), 1)
             }
-        }
-        return;
+        };
     }
 
     let config = config::get_config();
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            if let Err(err) = handle_config_commands(cmd, &config, args.raw) {
-                eprintln!("{:?}", err);
-            }
-
-            return;
+            return print_error(handle_config_commands(cmd, &config, args.raw));
         } else if let EntityType::Setup(_) = args.entity_type {
-            if let Err(err) = setup(config) {
-                crate::telemetry::record_error(&err);
-                eprintln!("{:?}", err);
-            }
-
-            return;
+            return print_error(setup(config));
         }
 
         let profile_name = match config::resolve_profile_name(&config) {
             Ok(profile) => profile,
             Err(error) => {
-                // Printed and returned normally (exit 0): record it, or
-                // telemetry would report this failed command as a success.
-                crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Validation);
                 eprintln!("{}", error);
-                return;
+                return Exit::failed(ErrorKind::Validation);
             }
         };
         let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
@@ -509,14 +486,13 @@ pub async fn handle_cli(args: Cli) {
                 }
             }
             // The CLI itself calls this an authentication error.
-            crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Auth);
-            crate::telemetry::exit(1);
+            return Exit::failed_with(ErrorKind::Auth, 1);
         }
 
         // Local commands such as `agent logs` do not need Stashbase authentication.
         let api_key = api_key.unwrap_or_default();
 
-        let result = match args.entity_type {
+        let result: anyhow::Result<Exit> = match args.entity_type {
             EntityType::Whoami(WhoamiCommand { format }) => {
                 let format = match format {
                     Some(format) => match format {
@@ -540,7 +516,7 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                 };
 
-                handle_whoami_command(args).await
+                handle_whoami_command(args).await.into_exit()
             }
             EntityType::Project(cmd) => {
                 let default_output_format = match config.ouput_format {
@@ -549,6 +525,7 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_project_commands(cmd, api_key, raw_output, silent, default_output_format)
                     .await
+                    .into_exit()
             }
             EntityType::Environment(cmd) => {
                 let default_output_format = match config.ouput_format {
@@ -557,6 +534,7 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_environment_commands(cmd, api_key, raw_output, silent, default_output_format)
                     .await
+                    .into_exit()
             }
             EntityType::Config(_) => {
                 unreachable!()
@@ -591,6 +569,7 @@ pub async fn handle_cli(args: Cli) {
                     default_secrets_output_format,
                 )
                 .await
+                .into_exit()
             }
             EntityType::Webhooks(cmd) => {
                 let default_output_format = match config.ouput_format {
@@ -599,13 +578,14 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
                     .await
+                    .into_exit()
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
                 AgentSubcommand::Hooks(command) => {
-                    handle_agent_hooks_commands(command, api_key).await
+                    handle_agent_hooks_commands(command, api_key).await.into_exit()
                 }
                 AgentSubcommand::Init(agent_init) => {
-                    handle_agent_init_command(agent_init, silent, raw_output)
+                    handle_agent_init_command(agent_init, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Sessions {
                     command: crate::cmd::agent::AgentSessionsSubcommand::List(command),
@@ -614,6 +594,7 @@ pub async fn handle_cli(args: Cli) {
                         command, &api_key, raw_output, silent,
                     )
                     .await
+                    .into_exit()
                 }
                 AgentSubcommand::Sessions {
                     command: crate::cmd::agent::AgentSessionsSubcommand::Revoke(command),
@@ -622,8 +603,9 @@ pub async fn handle_cli(args: Cli) {
                         command, &api_key, raw_output, silent,
                     )
                     .await
+                    .into_exit()
                 }
-                AgentSubcommand::Worktrees { command } => match command {
+                AgentSubcommand::Worktrees { command } => (match command {
                     crate::cmd::agent::AgentWorktreesSubcommand::List(_) => {
                         crate::handlers::agent::worktrees::handle_worktrees_list(raw_output)
                     }
@@ -642,25 +624,29 @@ pub async fn handle_cli(args: Cli) {
                             command, raw_output, silent,
                         )
                     }
-                },
+                })
+                .into_exit(),
                 AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
                     crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
                         crate::handlers::agent::docker::handle_docker_cleanup_command(
                             command, raw_output, silent,
                         )
                         .await
+                        .into_exit()
                     }
                     crate::cmd::agent::AgentDockerSubcommand::Status(command) => {
                         crate::handlers::agent::docker::handle_docker_status_command(
                             command, raw_output,
                         )
                         .await
+                        .into_exit()
                     }
                     crate::cmd::agent::AgentDockerSubcommand::Build(command) => {
                         crate::handlers::agent::docker::handle_docker_build_command(
                             command, &config, raw_output, silent,
                         )
                         .await
+                        .into_exit()
                     }
                     crate::cmd::agent::AgentDockerSubcommand::Doctor(command) => {
                         match crate::handlers::agent::docker::handle_docker_doctor_command(
@@ -668,8 +654,7 @@ pub async fn handle_cli(args: Cli) {
                         )
                         .await
                         {
-                            Ok(true) => crate::telemetry::exit(1),
-                            Ok(false) => Ok(()),
+                            Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
                     }
@@ -678,7 +663,7 @@ pub async fn handle_cli(args: Cli) {
                             .await
                     }
                 },
-                AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
+                AgentSubcommand::Logs(mut agent_logs) => (match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
                         handle_agent_logs(list.into(), raw_output).await
                     }
@@ -686,20 +671,20 @@ pub async fn handle_cli(args: Cli) {
                         handle_agent_logs_summary(summary, silent, raw_output)
                     }
                     None => handle_agent_logs(agent_logs, raw_output).await,
-                },
+                })
+                .into_exit(),
                 AgentSubcommand::Doctor(agent_doctor) => {
                     match handle_agent_doctor_command(agent_doctor, raw_output).await {
-                        Ok(true) => crate::telemetry::exit(1),
-                        Ok(false) => Ok(()),
+                        Ok(failed) => Ok(check_exit(failed)),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Mcp(agent_mcp) => match agent_mcp.subcommand {
                     crate::cmd::agent::AgentMcpSubcommand::Tools(command) => {
-                        handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await
+                        handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await.into_exit()
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Configure(command) => {
-                        handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await
+                        handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await.into_exit()
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
                         match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
@@ -707,8 +692,7 @@ pub async fn handle_cli(args: Cli) {
                             &config,
                             raw_output,
                         ) {
-                            Ok(true) => crate::telemetry::exit(1),
-                            Ok(false) => Ok(()),
+                            Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
                     }
@@ -722,14 +706,13 @@ pub async fn handle_cli(args: Cli) {
                         )
                         .await
                         {
-                            Ok(true) => crate::telemetry::exit(1),
-                            Ok(false) => Ok(()),
+                            Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
                     }
                 },
                 AgentSubcommand::McpTools(agent_mcp) => {
-                    handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await
+                    handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await.into_exit()
                 }
                 AgentSubcommand::McpCheck(agent_mcp) => {
                     match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
@@ -737,20 +720,18 @@ pub async fn handle_cli(args: Cli) {
                         &config,
                         raw_output,
                     ) {
-                        Ok(true) => crate::telemetry::exit(1),
-                        Ok(false) => Ok(()),
+                        Ok(failed) => Ok(check_exit(failed)),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Validate(agent_validate) => {
                     match handle_agent_validate_command(agent_validate, &config, raw_output).await {
-                        Ok(true) => crate::telemetry::exit(1),
-                        Ok(false) => Ok(()),
+                        Ok(failed) => Ok(check_exit(failed)),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Explain(agent_explain) => {
-                    handle_agent_explain_command(agent_explain, &config, silent, raw_output)
+                    handle_agent_explain_command(agent_explain, &config, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Policy(agent_policy) => match agent_policy.subcommand {
                     crate::cmd::agent::AgentPolicySubcommand::Test(agent_policy_test) => {
@@ -760,14 +741,13 @@ pub async fn handle_cli(args: Cli) {
                             silent,
                             raw_output,
                         ) {
-                            Ok(true) => crate::telemetry::exit(1),
-                            Ok(false) => Ok(()),
+                            Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
                     }
                 },
                 AgentSubcommand::Profiles(agent_profiles) => {
-                    handle_agent_profiles_command(agent_profiles, &config, silent, raw_output)
+                    handle_agent_profiles_command(agent_profiles, &config, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Run(agent_run) => async {
                     let explicit_profile = agent_run
@@ -822,7 +802,7 @@ pub async fn handle_cli(args: Cli) {
                             "Agent profile '{}' was not found in the {source} config.",
                             agent_run.profile,
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     };
 
                     profile.sandbox.backend =
@@ -937,14 +917,14 @@ pub async fn handle_cli(args: Cli) {
                             "Egress-only agent profile '{}' must not define 'file' or a [secrets] source.",
                             agent_run.profile
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     }
                     if !egress_only && !valid_source {
                         eprintln!(
                             "Agent profile '{}' has an invalid secret source configuration.",
                             agent_run.profile
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     }
                     if egress_only && !silent {
                         eprintln!(
@@ -963,7 +943,7 @@ pub async fn handle_cli(args: Cli) {
                                 .format_error_output(raw_output)
                                 .unwrap_or_else(|_| "Error formatting validation error".to_owned())
                         );
-                        crate::telemetry::exit(1);
+                        return Ok(Exit::failed_with(ErrorKind::Other, 1));
                     }
                     let secret_bindings = profile
                         .secrets
@@ -979,7 +959,7 @@ pub async fn handle_cli(args: Cli) {
                             "Agent profile '{}' maps more than one binding to the same source secret.",
                             agent_run.profile
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     }
 
                     let policy = ProxyPolicy {
@@ -1300,7 +1280,7 @@ pub async fn handle_cli(args: Cli) {
                             .unwrap_or(token);
                         crate::api::remote_proxy::end_agent_run(api_key, &current_token).await;
                         crate::api::remote_proxy::clear_agent_run_cleanup();
-                        return result;
+                        return result.into_exit();
                     }
                     let print_local_session_id = audit_log.is_none();
                     let local_session = if agent_run.remote {
@@ -1341,7 +1321,7 @@ pub async fn handle_cli(args: Cli) {
                     if !silent && !agent_run.remote && print_local_session_id {
                         eprintln!("Agent session: {local_session_id}");
                     }
-                    handle_load_env_run(args).await
+                    handle_load_env_run(args).await.into_exit()
                 }
                 .await,
             },
@@ -1355,11 +1335,11 @@ pub async fn handle_cli(args: Cli) {
                             }
 
                             eprintln!("{}", formatted_err);
-                            return;
+                            return Exit::failed(ErrorKind::Validation);
                         }
                         Err(format_err) => {
                             eprintln!("Error formatting validation error: {:?}", format_err);
-                            return;
+                            return Exit::failed(ErrorKind::Other);
                         }
                     }
                 }
@@ -1393,7 +1373,7 @@ pub async fn handle_cli(args: Cli) {
                     local_session: None,
                 };
 
-                handle_load_env_run(args).await
+                handle_load_env_run(args).await.into_exit()
             }
             EntityType::Pull(pull_cmd) => {
                 // Validate scope conflicts
@@ -1407,7 +1387,7 @@ pub async fn handle_cli(args: Cli) {
                         e.format_error_output(raw_output)
                             .unwrap_or_else(|_| "Error formatting validation error".to_string())
                     );
-                    return;
+                    return Exit::failed(ErrorKind::Validation);
                 }
 
                 let args = HandlePullArgs {
@@ -1429,7 +1409,7 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                 };
 
-                handle_pull(args).await
+                handle_pull(args).await.into_exit()
             }
 
             EntityType::Push(push_cmd) => {
@@ -1444,7 +1424,7 @@ pub async fn handle_cli(args: Cli) {
                         e.format_error_output(raw_output)
                             .unwrap_or_else(|_| "Error formatting validation error".to_string())
                     );
-                    return;
+                    return Exit::failed(ErrorKind::Validation);
                 }
 
                 let args = HandlePushArgs {
@@ -1463,45 +1443,65 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                 };
 
-                handle_push(args).await
+                handle_push(args).await.into_exit()
             }
-            EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent).await,
-            EntityType::Open => handle_open_dashboard(api_key, silent).await,
+            EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent)
+                .await
+                .into_exit(),
+            EntityType::Open => handle_open_dashboard(api_key, silent).await.into_exit(),
             EntityType::Generate(_) => unreachable!(),
             EntityType::Doctor(_) => unreachable!(),
         };
 
-        if let Err(err) = result {
-            if REQUEST_ABORTED.load(Ordering::SeqCst) {
-                eprintln!("{}", "Request aborted".red_if_tty_stderr());
-                return;
-            }
-            eprintln!("{:?}", err);
-            crate::telemetry::record_error(&err);
-            if let Some(command_failed) = err.downcast_ref::<CommandFailed>() {
-                crate::telemetry::exit(command_failed.exit_code());
+        match result {
+            Ok(exit) => exit,
+            Err(err) => {
+                if REQUEST_ABORTED.load(Ordering::SeqCst) {
+                    eprintln!("{}", "Request aborted".red_if_tty_stderr());
+                    return Exit::code(130);
+                }
+                eprintln!("{:?}", err);
+                Exit::from(err)
             }
         }
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
-                if let Err(e) = handle_config_commands(cmd, &Config::new(), args.raw) {
-                    eprintln!("{:?}", e);
-                }
-
-                return;
+                return print_error(handle_config_commands(cmd, &Config::new(), args.raw));
             }
         }
 
         let err = config.unwrap_err();
         if REQUEST_ABORTED.load(Ordering::SeqCst) {
             eprintln!("{}", "Request aborted".red_if_tty_stderr());
-            return;
+            return Exit::code(130);
         }
-        // An unreadable or malformed config file: printed, then a normal
-        // return (exit 0). Record it so it is not reported as a success.
-        crate::telemetry::record_error_kind(crate::telemetry::event::ErrorKind::Validation);
+        // An unreadable or malformed config file: printed, and the command
+        // still exits 0.
         eprintln!("{:?}", err);
+        Exit::failed(ErrorKind::Validation)
+    }
+}
+
+/// Prints an error the way every handler does, and exits 0 as they always
+/// have. A failure that is only printed is still a failed command.
+fn print_error(result: anyhow::Result<()>) -> Exit {
+    match result {
+        Ok(()) => Exit::ok(),
+        Err(error) => {
+            eprintln!("{:?}", error);
+            Exit::from(error)
+        }
+    }
+}
+
+/// For checks (`doctor`, `validate`, ...) whose `Ok(true)` means a check
+/// failed: they exit 1 without an error value to classify.
+fn check_exit(failed: bool) -> Exit {
+    if failed {
+        Exit::failed_with(ErrorKind::Other, 1)
+    } else {
+        Exit::ok()
     }
 }
 

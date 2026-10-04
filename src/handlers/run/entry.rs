@@ -547,6 +547,10 @@ pub struct HandleRunArgs {
     pub local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 }
 
+/// Several paths below print an error and return `Ok(())` (missing secrets,
+/// API errors, a declined prompt). `handle_cli` sees that as success, so
+/// telemetry reports `run` as `ok` there; for `agent run`,
+/// `telemetry::never_launched_error` still catches a run that never launched.
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
