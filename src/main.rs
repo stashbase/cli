@@ -43,13 +43,7 @@ fn main() {
 
     telemetry::begin(&args.entity_type);
 
-    handle_cli(args);
-
-    telemetry::finish(0, None);
-
-    if REQUEST_ABORTED.load(Ordering::SeqCst) {
-        std::process::exit(130);
-    }
+    handle_cli(args).terminate()
 }
 
 #[cfg(windows)]

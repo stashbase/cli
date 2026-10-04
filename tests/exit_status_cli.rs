@@ -674,3 +674,34 @@ fn ctrl_c_during_a_request_exits_130_and_reports_aborted() {
         Reported::Event("aborted", None),
     );
 }
+
+/// The same failures as `conflicting_scope_flags_print_the_error_and_exit_0`,
+/// seen from telemetry: the exit code stays 0, but they are failed commands.
+#[test]
+fn conflicting_scope_flags_are_reported_as_validation_failures() {
+    let project = Project::new();
+
+    for args in [
+        &["pull", "--scope", "environment", "--api-key", "k"][..],
+        &["push", "--scope", "environment", "--api-key", "k"][..],
+        &[
+            "run",
+            "--scope",
+            "environment",
+            "--project",
+            "p",
+            "--api-key",
+            "k",
+            "--",
+            "true",
+        ][..],
+    ] {
+        let out = project.run(args);
+        let all = text(&out.stderr);
+        assert_eq!(out.status.code(), Some(0), "{}: {all}", args[0]);
+        let events = events(&out);
+        assert_eq!(events.len(), 1, "{}: {all}", args[0]);
+        assert_eq!(events[0]["outcome"], "error", "{}: {}", args[0], events[0]);
+        assert_eq!(events[0]["error_kind"], "validation", "{}", args[0]);
+    }
+}

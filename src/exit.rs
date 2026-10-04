@@ -5,9 +5,6 @@
 //! `handle_cli` returns an [`Exit`], and `main` ends the process with
 //! [`Exit::terminate`], the only place that reports to telemetry and exits.
 
-// Nothing returns an `Exit` yet; the next commits migrate `handle_cli` to it.
-#![allow(dead_code)]
-
 use std::sync::atomic::Ordering;
 
 use crate::{
@@ -71,6 +68,18 @@ impl From<anyhow::Error> for Exit {
             .downcast_ref::<CommandFailed>()
             .map_or(0, CommandFailed::exit_code);
         Self::failed_with(classify_error(&error), code)
+    }
+}
+
+/// Lets the `Result<()>` most handlers return stand in for a command's
+/// outcome: success is `Exit::ok()`, an error is left for the caller to print.
+pub trait IntoExit {
+    fn into_exit(self) -> anyhow::Result<Exit>;
+}
+
+impl IntoExit for anyhow::Result<()> {
+    fn into_exit(self) -> anyhow::Result<Exit> {
+        self.map(|()| Exit::ok())
     }
 }
 

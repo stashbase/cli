@@ -541,7 +541,9 @@ pub async fn handle_docker_doctor_command(
     Ok(!all_ok)
 }
 
-pub async fn handle_docker_shell_command(command: AgentDockerShellCommand) -> Result<()> {
+pub async fn handle_docker_shell_command(
+    command: AgentDockerShellCommand,
+) -> Result<crate::exit::Exit> {
     use std::io::IsTerminal;
 
     use crate::handlers::run::docker_sandbox::{
@@ -585,9 +587,9 @@ pub async fn handle_docker_shell_command(command: AgentDockerShellCommand) -> Re
     // Mirror the shell's own exit code (e.g. `exit 3`, or 130 after Ctrl-C)
     // rather than turning it into an error message.
     if !status.success() {
-        crate::telemetry::exit(status.code().unwrap_or(1));
+        return Ok(crate::exit::Exit::code(status.code().unwrap_or(1)));
     }
-    Ok(())
+    Ok(crate::exit::Exit::ok())
 }
 
 #[cfg(test)]
