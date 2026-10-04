@@ -13,8 +13,8 @@ use crate::{
             configured_host_matches, evaluate_secret_authorization, matching_rule_indices,
             normalize_request_path, SecretAuthorizationDecision, SecretHttpPolicy,
         },
-        agent::validate::ensure_profile_is_valid_for_run,
-        run::subprocess::filesystem_backend_for_policy,
+        agent::validate::{ensure_profile_is_valid_for_run, uses_live_pattern_matching},
+        run::{fs_rules::is_pattern_entry, subprocess::filesystem_backend_for_policy},
     },
     models::config::Config,
     utils::output::get_formatted_json_string,
@@ -100,6 +100,7 @@ pub fn handle_agent_explain_command(
             &profile.filesystem.deny_read,
             &profile.filesystem.deny_write,
         ),
+        filesystem_patterns: filesystem_patterns(&profile),
     };
     if profile.deny_hosts.as_deref().is_some_and(|hosts| {
         hosts
@@ -190,8 +191,45 @@ struct ExplainReport {
     connection: ConnectionDecision,
     credentials: Vec<ExplainCredential>,
     filesystem_backend: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    filesystem_patterns: Vec<ExplainFilesystemPattern>,
     #[serde(skip_serializing_if = "Option::is_none")]
     verbose: Option<ExplainVerboseRequest>,
+}
+
+#[derive(Serialize)]
+struct ExplainFilesystemPattern {
+    pattern: String,
+    operation: &'static str,
+    /// `live` when the backend matches on every access, `launch_snapshot`
+    /// when matches are expanded to concrete paths as the run starts.
+    matching: &'static str,
+}
+
+fn filesystem_patterns(
+    profile: &crate::models::agent::AgentProfile,
+) -> Vec<ExplainFilesystemPattern> {
+    let matching = if uses_live_pattern_matching(profile) {
+        "live"
+    } else {
+        "launch_snapshot"
+    };
+    [
+        ("read", &profile.filesystem.deny_read),
+        ("write", &profile.filesystem.deny_write),
+    ]
+    .into_iter()
+    .flat_map(|(operation, entries)| {
+        entries
+            .iter()
+            .filter(|entry| is_pattern_entry(entry))
+            .map(move |entry| ExplainFilesystemPattern {
+                pattern: entry.trim().to_owned(),
+                operation,
+                matching,
+            })
+    })
+    .collect()
 }
 
 #[derive(Serialize)]
@@ -255,6 +293,17 @@ fn print_human_report(report: &ExplainReport) {
     println!("Agent policy explanation: `{}`", report.profile);
     println!("Profile source: {}", report.source);
     println!("Filesystem enforcement: {}", report.filesystem_backend);
+    for pattern in &report.filesystem_patterns {
+        println!(
+            "  deny {} pattern `{}`: {}",
+            pattern.operation,
+            pattern.pattern,
+            match pattern.matching {
+                "live" => "matched on every access",
+                _ => "expanded when the run starts (files created later are not covered)",
+            }
+        );
+    }
     println!(
         "Request: {} https://{}{}",
         report.request.method, report.request.host, report.request.path

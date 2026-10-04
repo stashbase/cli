@@ -228,7 +228,13 @@ fn prepare_native_run_worktree(
         let paths = worktree.native_protected_paths().map_err(|error| {
             anyhow::anyhow!("failed to protect the checkout for the agent worktree: {error}")
         })?;
-        denied_write_paths.extend(paths);
+        // Generated absolute paths: keep them literal even if the checkout's
+        // path happens to contain glob characters.
+        denied_write_paths.extend(
+            paths
+                .iter()
+                .map(|path| super::fs_rules::literal_entry(path)),
+        );
     }
     Ok(guard)
 }
