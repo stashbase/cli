@@ -1259,8 +1259,13 @@ fn append_filesystem_mounts(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
 ) -> Result<(), String> {
-    let read_paths = super::subprocess::resolve_policy_paths(denied_read_paths, Path::new(cwd));
-    let write_paths = super::subprocess::resolve_policy_paths(denied_write_paths, Path::new(cwd));
+    // Only the cwd is visible in the container, so pattern expansion never
+    // needs to look outside it.
+    let scope = Some(Path::new(cwd));
+    let read_paths =
+        super::fs_rules::expand_policy_entries(denied_read_paths, Path::new(cwd), scope)?;
+    let write_paths =
+        super::fs_rules::expand_policy_entries(denied_write_paths, Path::new(cwd), scope)?;
 
     let cwd_is_denied_write = write_paths.iter().any(|path| path == cwd);
     if cwd_is_denied_write {
@@ -2040,6 +2045,48 @@ mod tests {
         assert!(args.contains(&"--tmpfs".to_owned()));
         let tmpfs_index = args.iter().position(|arg| arg == "--tmpfs").unwrap();
         assert_eq!(args[tmpfs_index + 1], nested);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn docker_run_command_shadow_mounts_each_glob_match_in_the_cwd() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let cwd = std::env::temp_dir().join(format!(
+            "stashbase-docker-glob-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(cwd.join("certs")).unwrap();
+        std::fs::write(cwd.join("a.pem"), b"").unwrap();
+        std::fs::write(cwd.join("certs/b.pem"), b"").unwrap();
+        std::fs::write(cwd.join("notes.txt"), b"").unwrap();
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &cwd,
+            None,
+            &["**/*.pem".to_owned()],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        let shadow = blocked_shadow_file_path().unwrap();
+        for file in ["a.pem", "certs/b.pem"] {
+            let target = cwd.join(file).to_string_lossy().into_owned();
+            assert!(
+                args.contains(&format!("{shadow}:{target}:ro")),
+                "missing shadow mount for {target}"
+            );
+        }
+        assert!(!args.iter().any(|arg| arg.contains("notes.txt")));
+        let _ = std::fs::remove_dir_all(cwd);
     }
 
     #[cfg(unix)]

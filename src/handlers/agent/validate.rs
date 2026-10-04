@@ -647,10 +647,12 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             if !valid_filesystem_path(path) {
                 checks.push(fail(
                     format!("Denied filesystem {kind}"),
-                    format!(
-                        "'{path}' must be a non-empty path without newlines or glob characters."
-                    ),
+                    format!("'{path}' must be a non-empty path without newlines."),
                 ));
+            } else if let Err(error) =
+                crate::handlers::run::fs_rules::parse_fs_rule(path, Path::new("/"))
+            {
+                checks.push(fail(format!("Denied filesystem {kind}"), error));
             } else if !seen_paths.insert(path.trim().to_owned()) {
                 checks.push(warn(
                     format!("Denied filesystem {kind}"),
@@ -658,6 +660,20 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
                 ));
             }
         }
+    }
+
+    if !uses_live_pattern_matching(profile)
+        && profile
+            .filesystem
+            .deny_read
+            .iter()
+            .chain(&profile.filesystem.deny_write)
+            .any(|path| crate::handlers::run::fs_rules::is_pattern_entry(path))
+    {
+        checks.push(warn(
+            "Filesystem patterns",
+            "Glob/regex entries are expanded when the run starts on this backend; files created during the run are not covered.".to_owned(),
+        ));
     }
 
     if !checks.iter().any(|check| check.status == Status::Fail) {
@@ -704,10 +720,14 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
 }
 
 fn valid_filesystem_path(path: &str) -> bool {
-    !path.is_empty()
-        && path == path.trim()
-        && !path.contains(['\r', '\n'])
-        && !path.contains(['*', '?'])
+    !path.is_empty() && path == path.trim() && !path.contains(['\r', '\n'])
+}
+
+/// Only the native macOS backend (Seatbelt) matches filesystem patterns as
+/// files are accessed; every other backend expands them once at launch.
+pub(crate) fn uses_live_pattern_matching(profile: &AgentProfile) -> bool {
+    cfg!(target_os = "macos")
+        && profile.sandbox.backend == crate::models::agent::SandboxBackend::Native
 }
 
 fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: &mut Vec<Check>) {
@@ -1582,5 +1602,64 @@ mod tests {
         assert!(error
             .to_string()
             .contains("declared in both [secrets] and [personal_credentials]"));
+    }
+
+    fn filesystem_test_profile(deny_read: &[&str]) -> AgentProfile {
+        let mut profile = worktree_test_profile(crate::models::agent::SandboxBackend::Native);
+        profile.workspace.worktree = false;
+        profile.filesystem.deny_read = deny_read.iter().map(|path| (*path).to_owned()).collect();
+        profile
+    }
+
+    fn filesystem_checks(profile: &AgentProfile) -> Vec<Check> {
+        validate_profile(profile)
+            .into_iter()
+            .filter(|check| {
+                check.name.starts_with("Denied filesystem") || check.name == "Filesystem patterns"
+            })
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn accepts_glob_and_regex_filesystem_entries() {
+        let profile = filesystem_test_profile(&["**/.env*", "re:^~/.*\\.pem$", "~/notes/[old]"]);
+        assert!(!filesystem_checks(&profile)
+            .iter()
+            .any(|check| check.status == Status::Fail));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_invalid_filesystem_patterns() {
+        for (entry, message) in [
+            ("re:.*\\.pem$", "must start with"),
+            ("re:^/a/\\d+", "Seatbelt"),
+            ("../*.env", "'..'"),
+        ] {
+            let checks = filesystem_checks(&filesystem_test_profile(&[entry]));
+            assert!(
+                checks
+                    .iter()
+                    .any(|check| check.status == Status::Fail && check.message.contains(message)),
+                "{entry}: {:?}",
+                checks
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn warns_that_patterns_are_a_launch_snapshot_outside_seatbelt() {
+        let mut profile = filesystem_test_profile(&["**/.env*"]);
+        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+        assert!(filesystem_checks(&profile)
+            .iter()
+            .any(|check| check.name == "Filesystem patterns" && check.status == Status::Warn));
+
+        let plain = filesystem_test_profile(&["~/.ssh"]);
+        assert!(!filesystem_checks(&plain)
+            .iter()
+            .any(|check| check.name == "Filesystem patterns"));
     }
 }

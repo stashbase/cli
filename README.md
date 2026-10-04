@@ -231,6 +231,8 @@ deny_read = [".env", "~/.ssh", "~/.aws"]
 deny_write = [".git", "~/.ssh", "~/.aws"]
 ```
 
+Entries can also be globs (`"**/.env*"`, `"~/.config/*/token"`) or regexes prefixed `re:` (`"re:^~/.*\\.pem$"`). On macOS, patterns are checked on every access. On Linux and with the Docker backend, they're expanded when the run starts, so files created during the run aren't covered. See [Agent Profiles](docs/agent-profiles.md#filesystem-network-restrictions-and-sandbox-backends) for the full syntax.
+
 On macOS, Stashbase wraps the agent in Seatbelt, which enforces filesystem rules. On Linux and WSL2, it uses `systemd-run --user` with cgroup IP rules, or falls back to `bubblewrap` for namespace isolation. Windows native is not implemented; use WSL2 instead.
 
 Denied reads see empty content (a genuine empty regular file, not `/dev/null` — that's a character device, which confuses tooling that expects a normal file at that path); denied writes go to an empty overlay. Existing file descriptors and data already in memory are not affected. These are policy-only; these profiles do not require secrets.
