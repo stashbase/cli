@@ -89,7 +89,7 @@ fn install_remote_agent_shutdown_handler() {
             _ = interrupt.recv() => 130,
         };
         crate::api::remote_proxy::end_registered_agent_run().await;
-        crate::telemetry::exit(exit_code);
+        crate::exit::Exit::code(exit_code).terminate();
     });
 }
 
@@ -100,7 +100,7 @@ fn install_remote_agent_shutdown_handler() {
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
             crate::api::remote_proxy::end_registered_agent_run().await;
-            crate::telemetry::exit(130);
+            crate::exit::Exit::code(130).terminate();
         }
     });
 }
