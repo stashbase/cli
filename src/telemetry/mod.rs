@@ -19,8 +19,7 @@ use uuid::Uuid;
 use crate::cmd::root::EntityType;
 use consent::{Decision, Signals};
 use event::{
-    classify_error, AgentRunInfo, ErrorKind, Event, Invocation, ProfileSource, SandboxKind,
-    TrackedCommand,
+    AgentRunInfo, ErrorKind, Event, Invocation, ProfileSource, SandboxKind, TrackedCommand,
 };
 use state::State;
 
@@ -30,7 +29,6 @@ struct Pending {
 }
 
 static PENDING: Lazy<Mutex<Option<Pending>>> = Lazy::new(|| Mutex::new(None));
-static RECORDED_ERROR: Lazy<Mutex<Option<ErrorKind>>> = Lazy::new(|| Mutex::new(None));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PolicyDecision {
@@ -155,25 +153,6 @@ pub fn begin(entity: &EntityType) {
     }
 }
 
-/// Records an error category for the invocation. Handlers often print an
-/// error and return normally (exit code 0), so the exit code alone is not
-/// enough to know the command failed.
-pub fn record_error(error: &anyhow::Error) {
-    *lock(&RECORDED_ERROR) = Some(classify_error(error));
-}
-
-/// Records an error category directly, for failures that print a message and
-/// exit without an error value to classify.
-pub fn record_error_kind(kind: ErrorKind) {
-    *lock(&RECORDED_ERROR) = Some(kind);
-}
-
-/// Drop-in replacement for `std::process::exit` that reports first.
-pub fn exit(exit_code: i32) -> ! {
-    finish(exit_code, None);
-    std::process::exit(exit_code)
-}
-
 /// Shows the first-run notice on `out` and remembers that it was shown.
 /// Returns false, writing nothing, if it cannot be remembered, so the user
 /// is never nagged on every run.
@@ -186,14 +165,14 @@ pub fn show_notice_once(path: &Path, state: &mut State, out: &mut impl Write) ->
     true
 }
 
-/// Reports the finished invocation, at most once per process. Never fails
-/// and never changes the exit code. `failure` is the category of a failure
-/// that did not change the exit code.
+/// Reports the finished invocation, at most once per process (the first call
+/// wins). Never fails and never changes the exit code. Only `Exit::terminate`
+/// calls it; `failure` is the category of a failed command, including one that
+/// exits 0.
 pub fn finish(exit_code: i32, failure: Option<ErrorKind>) {
     let Some(pending) = lock(&PENDING).take() else {
         return;
     };
-    let recorded_error = failure.or(lock(&RECORDED_ERROR).take());
 
     let Some(path) = state::state_path() else {
         return;
@@ -211,11 +190,7 @@ pub fn finish(exit_code: i32, failure: Option<ErrorKind>) {
             // stored ID, show a throwaway one rather than creating state.
             let install_id = state.install_id.unwrap_or_else(Uuid::new_v4);
             send::print_debug(&make_event(
-                pending,
-                recorded_error,
-                exit_code,
-                &signals,
-                install_id,
+                pending, failure, exit_code, &signals, install_id,
             ));
         }
         Decision::Send => {
@@ -223,7 +198,7 @@ pub fn finish(exit_code: i32, failure: Option<ErrorKind>) {
             if created && state::save(&path, &state).is_err() {
                 return; // an ID that cannot be remembered would inflate install counts
             }
-            let event = make_event(pending, recorded_error, exit_code, &signals, install_id);
+            let event = make_event(pending, failure, exit_code, &signals, install_id);
             send::dispatch(&event);
         }
     }
@@ -231,7 +206,7 @@ pub fn finish(exit_code: i32, failure: Option<ErrorKind>) {
 
 fn make_event(
     pending: Pending,
-    recorded_error: Option<ErrorKind>,
+    failure: Option<ErrorKind>,
     exit_code: i32,
     signals: &Signals,
     install_id: Uuid,
@@ -250,7 +225,7 @@ fn make_event(
         agent_run.is_some(),
         exit_code,
         aborted,
-        recorded_error,
+        failure,
     );
     Event::new(
         Invocation {
@@ -266,12 +241,13 @@ fn make_event(
     )
 }
 
-/// Several `agent run` validation failures (profile not found, invalid
-/// secret source, ...) print a message and return normally, so the process
-/// exits 0. An `agent run` that never reached its launch point (where
-/// `set_agent_run` is called) is a failed start, not a successful run; report
-/// it as a validation error so it cannot inflate the funnel. Anything already
-/// recorded, aborted or exiting non-zero is left as it is.
+/// `handle_cli` states its own failures through `Exit`, but the run handlers
+/// it calls (`handle_load_env_run` and what it calls) print many errors, such
+/// as missing secrets or a declined prompt, and return `Ok(())`, which
+/// `handle_cli` can only see as success. An `agent run` that never reached its
+/// launch point (`mark_agent_run_launched`) is a failed start, not a successful
+/// run; report it as a validation error so it cannot inflate the funnel.
+/// Anything already failed, aborted or exiting non-zero is left as it is.
 fn never_launched_error(
     command: TrackedCommand,
     launched: bool,
@@ -336,12 +312,12 @@ mod tests {
     #[test]
     fn no_raw_process_exit_outside_the_allowlist() {
         // Every exit reachable from a tracked command must go through
-        // telemetry::exit so its outcome is reported. Allowed: telemetry's own
-        // helper, main.rs (runs after the event was sent, or on a forced
-        // double Ctrl-C), and the untracked `scans` commands.
+        // `Exit::terminate` so its outcome is reported. Allowed: `terminate`
+        // itself, this file (the check below names the string), main.rs (a
+        // forced exit on a second Ctrl-C) and the untracked `scans` commands.
         const ALLOWED: &[&str] = &[
-            "src/telemetry/mod.rs",
             "src/exit.rs",
+            "src/telemetry/mod.rs",
             "src/main.rs",
             "src/handlers/scans/",
         ];
@@ -378,7 +354,7 @@ mod tests {
         visit(&root.join("src"), root, &mut offenders);
         assert!(
             offenders.is_empty(),
-            "use crate::telemetry::exit instead of std::process::exit in: {offenders:?}"
+            "return an Exit (or call Exit::terminate) instead of std::process::exit in: {offenders:?}"
         );
     }
 
@@ -477,7 +453,7 @@ mod tests {
         // Launched: a clean exit really is a success.
         assert_eq!(never_launched_error(AgentRun, true, 0, false, None), None);
         // Ctrl-C before launch stays "aborted", a non-zero exit stays an error,
-        // and an error that was already recorded keeps its category.
+        // and an error that was already reported keeps its category.
         assert_eq!(never_launched_error(AgentRun, false, 0, true, None), None);
         assert_eq!(never_launched_error(AgentRun, false, 1, false, None), None);
         assert_eq!(
