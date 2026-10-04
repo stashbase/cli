@@ -170,7 +170,7 @@ pub fn record_error_kind(kind: ErrorKind) {
 
 /// Drop-in replacement for `std::process::exit` that reports first.
 pub fn exit(exit_code: i32) -> ! {
-    finish(exit_code);
+    finish(exit_code, None);
     std::process::exit(exit_code)
 }
 
@@ -187,12 +187,13 @@ pub fn show_notice_once(path: &Path, state: &mut State, out: &mut impl Write) ->
 }
 
 /// Reports the finished invocation, at most once per process. Never fails
-/// and never changes the exit code.
-pub fn finish(exit_code: i32) {
+/// and never changes the exit code. `failure` is the category of a failure
+/// that did not change the exit code.
+pub fn finish(exit_code: i32, failure: Option<ErrorKind>) {
     let Some(pending) = lock(&PENDING).take() else {
         return;
     };
-    let recorded_error = lock(&RECORDED_ERROR).take();
+    let recorded_error = failure.or(lock(&RECORDED_ERROR).take());
 
     let Some(path) = state::state_path() else {
         return;
@@ -338,7 +339,12 @@ mod tests {
         // telemetry::exit so its outcome is reported. Allowed: telemetry's own
         // helper, main.rs (runs after the event was sent, or on a forced
         // double Ctrl-C), and the untracked `scans` commands.
-        const ALLOWED: &[&str] = &["src/telemetry/mod.rs", "src/main.rs", "src/handlers/scans/"];
+        const ALLOWED: &[&str] = &[
+            "src/telemetry/mod.rs",
+            "src/exit.rs",
+            "src/main.rs",
+            "src/handlers/scans/",
+        ];
 
         fn visit(dir: &Path, root: &Path, offenders: &mut Vec<String>) {
             for entry in std::fs::read_dir(dir).unwrap() {
@@ -380,8 +386,8 @@ mod tests {
     fn finish_without_begin_is_a_no_op() {
         // No pending command is registered in this test process; this must
         // return immediately without touching the filesystem or network.
-        finish(0);
-        finish(1);
+        finish(0, None);
+        finish(1, Some(ErrorKind::Other));
     }
 
     #[test]
