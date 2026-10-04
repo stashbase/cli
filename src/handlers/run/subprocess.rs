@@ -1668,7 +1668,7 @@ mod tests {
 
         assert!(args[1]
             .contains("(deny file-read* (regex \"^/work/repo(/.*)?/\\\\.env[^/]*(/.*)?$\"))"));
-        assert!(args[1].contains("(deny file-write* (regex \"^/srv/[a-z]+/locked$\"))"));
+        assert!(args[1].contains("(deny file-write* (regex \"^(/srv/[a-z]+/locked)(/.*)?$\"))"));
     }
 
     #[cfg(target_os = "macos")]

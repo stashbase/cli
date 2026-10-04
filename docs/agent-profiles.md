@@ -79,7 +79,7 @@ deny_read = [
 - An entry containing `*` or `?` is a glob. `**` matches any number of directories, and `[a-z]`/`[!.]` character classes work inside globs. Brackets on their own don't make an entry a glob, so a plain path like `~/notes/[old]` keeps its literal meaning.
 - An entry prefixed `re:` is a regular expression. It must start with `^/` or `^~/`, and it may only use POSIX constructs: write `[0-9]` instead of `\d`, and group alternatives (`^/(a|b)/...`) instead of using a top-level `|`.
 - `path:` forces a literal path, e.g. `path:/data/what?`.
-- Like a plain path, a pattern that matches a directory denies everything under it.
+- Like a plain path, a pattern that matches a directory denies everything under it. This holds for regexes ending in `$` too: `re:^/srv/secrets$` also denies `/srv/secrets/key`.
 - On macOS, the native backend matches patterns every time a file is accessed, so files the agent creates during the run are covered. Linux and the Docker backend expand patterns once, when the run starts; files created later aren't covered. `stashbase agent validate` warns about this, and `stashbase agent explain` lists each pattern with how it's matched.
 - Patterns aren't supported on Windows; validation fails.
 

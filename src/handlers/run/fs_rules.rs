@@ -333,7 +333,30 @@ fn parse_regex(entry: &str, body: &str, home: Option<&Path>) -> Result<FsRule, S
         }
     }
     let root = regex_root(entry, &body)?;
-    compile(entry, body, root)
+    compile(entry, cover_descendants(&body), root)
+}
+
+/// Rewrites an end-anchored regex so a matched directory also covers its
+/// contents, as it does for plain paths and globs: `^/a$` becomes
+/// `^(/a)(/.*)?$`. Without a trailing `$` the regex already matches every
+/// path it is a prefix of. Grouping is safe because `regex_root` rejects
+/// top-level alternation.
+fn cover_descendants(body: &str) -> String {
+    let inner = &body[1..];
+    match inner.strip_suffix('$') {
+        Some(inner)
+            if inner
+                .chars()
+                .rev()
+                .take_while(|character| *character == '\\')
+                .count()
+                % 2
+                == 0 =>
+        {
+            format!("^({inner})(/.*)?$")
+        }
+        _ => body.to_owned(),
+    }
 }
 
 /// The literal directory prefix of an anchored regex. Rejects top-level
@@ -520,6 +543,23 @@ mod tests {
         assert!(error("re:^/a|^/b").contains("top-level '|'"));
         assert!(error("re:^/a/(").contains("not a valid pattern"));
         assert!(matches("re:^/(a|b)/x", "/b/x"));
+    }
+
+    #[test]
+    fn end_anchored_regexes_still_cover_directory_contents() {
+        assert!(matches("re:^/tmp/secrets$", "/tmp/secrets"));
+        assert!(matches("re:^/tmp/secrets$", "/tmp/secrets/key"));
+        assert!(matches("re:^/tmp/secrets$", "/tmp/secrets/deep/key"));
+        assert!(!matches("re:^/tmp/secrets$", "/tmp/secretsX"));
+        assert!(matches("re:^~/.*\\.pem$", "/home/u/certs/a.pem"));
+        assert!(!matches("re:^~/.*\\.pem$", "/home/u/certs/a.pemX"));
+        // An escaped `$` is a literal character, not an end anchor.
+        assert!(matches("re:^/a/b\\$", "/a/b$"));
+        assert!(!matches("re:^/a/b\\$", "/a/b"));
+        match rule("re:^/tmp/secrets$") {
+            FsRule::Pattern { regex, .. } => assert_eq!(regex, "^(/tmp/secrets)(/.*)?$"),
+            FsRule::Path(_) => panic!("parsed as a plain path"),
+        }
     }
 
     #[test]
