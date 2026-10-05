@@ -2142,15 +2142,22 @@ fn routing_summary(
 ) -> String {
     use crate::handlers::run::routing::RemoteMode;
     match routing.mode {
-        RemoteMode::Credential => format!(
-            "Routing: credential ({} host{} use the Agent Proxy; other traffic goes direct)",
-            routing.routes.len(),
-            if routing.routes.len() == 1 { "" } else { "s" }
-        ),
-        RemoteMode::Full if requested == Some(RemoteMode::Credential) && !sent_route_hosts => {
-            "Routing: full (this Agent Proxy does not support credential routing yet)".to_owned()
+        RemoteMode::Credential => {
+            let count = routing.routes.len();
+            let (noun, verb) = if count == 1 {
+                ("host", "uses")
+            } else {
+                ("hosts", "use")
+            };
+            format!(
+                "Routing: credential ({count} {noun} {verb} the Remote Agent Proxy; other traffic goes direct)"
+            )
         }
-        RemoteMode::Full => "Routing: full (all traffic uses the Agent Proxy)".to_owned(),
+        RemoteMode::Full if requested == Some(RemoteMode::Credential) && !sent_route_hosts => {
+            "Routing: full (this Remote Agent Proxy does not support credential routing yet)"
+                .to_owned()
+        }
+        RemoteMode::Full => "Routing: full (all traffic uses the Remote Agent Proxy)".to_owned(),
     }
 }
 
@@ -2880,6 +2887,39 @@ mod tests {
         assert_eq!(classify("opencode"), "opencode");
         assert_eq!(classify("my-wrapper"), "custom");
         assert_eq!(infer_remote_agent_type(&[]), "custom");
+    }
+
+    #[test]
+    fn routing_summary_names_the_remote_agent_proxy_and_counts_hosts() {
+        use crate::handlers::run::routing::{RemoteMode, RemoteRouting};
+        let credential = |hosts: &[&str]| {
+            let hosts = hosts
+                .iter()
+                .map(|host| (*host).to_owned())
+                .collect::<Vec<_>>();
+            RemoteRouting::resolve(Some(RemoteMode::Credential), Some(&hosts), [], true).unwrap()
+        };
+
+        assert_eq!(
+            super::routing_summary(&credential(&["a.com"]), Some(RemoteMode::Credential), true),
+            "Routing: credential (1 host uses the Remote Agent Proxy; other traffic goes direct)"
+        );
+        assert_eq!(
+            super::routing_summary(
+                &credential(&["a.com", "b.com"]),
+                Some(RemoteMode::Credential),
+                true
+            ),
+            "Routing: credential (2 hosts use the Remote Agent Proxy; other traffic goes direct)"
+        );
+        assert_eq!(
+            super::routing_summary(&RemoteRouting::full(), Some(RemoteMode::Full), true),
+            "Routing: full (all traffic uses the Remote Agent Proxy)"
+        );
+        assert_eq!(
+            super::routing_summary(&RemoteRouting::full(), Some(RemoteMode::Credential), false),
+            "Routing: full (this Remote Agent Proxy does not support credential routing yet)"
+        );
     }
 
     #[test]
