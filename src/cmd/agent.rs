@@ -312,6 +312,12 @@ pub struct AgentRunCommand {
     #[arg(long)]
     pub remote: bool,
 
+    /// Which traffic uses the remote proxy: `credential` (default) sends only
+    /// requests that need a Stashbase credential; `full` sends everything.
+    /// Your plan or workspace policy decides which modes are allowed.
+    #[arg(long, value_enum, requires = "remote")]
+    pub remote_mode: Option<crate::handlers::run::routing::RemoteMode>,
+
     /// Override the profile's `[sandbox] backend` for this run only: `true`
     /// forces the Docker backend, `false` forces the native backend.
     /// Omit to use whatever the profile declares.
@@ -691,6 +697,8 @@ pub enum AgentAuditGroupBy {
     /// Group by configured credential binding name
     #[value(alias = "secret")]
     Binding,
+    /// Group by how a remote session carried the destination (remote or direct)
+    Route,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -708,6 +716,14 @@ mod tests {
     use clap::ValueEnum;
 
     use super::AgentAuditGroupBy;
+
+    #[test]
+    fn audit_route_group_is_selectable() {
+        assert_eq!(
+            AgentAuditGroupBy::from_str("route", true),
+            Ok(AgentAuditGroupBy::Route)
+        );
+    }
 
     #[test]
     fn audit_binding_group_accepts_the_legacy_secret_alias() {
@@ -776,6 +792,24 @@ mod tests {
         let resume = parse(&["--resume", "amber-river-storm", "claude"]);
         assert_eq!(resume.resume.as_deref(), Some("amber-river-storm"));
         assert_eq!(resume.command, vec!["claude".to_owned()]);
+    }
+
+    #[test]
+    fn remote_mode_needs_remote_and_accepts_only_known_modes() {
+        use crate::cmd::root::Cli;
+        use clap::Parser;
+
+        let run = |args: &[&str]| {
+            let mut full = vec!["stashbase", "agent", "run", "--profile", "p"];
+            full.extend_from_slice(args);
+            full.extend_from_slice(&["--", "true"]);
+            Cli::try_parse_from(full)
+        };
+        assert!(run(&["--remote", "--remote-mode", "credential"]).is_ok());
+        assert!(run(&["--remote", "--remote-mode", "full"]).is_ok());
+        assert!(run(&["--remote"]).is_ok());
+        assert!(run(&["--remote-mode", "full"]).is_err());
+        assert!(run(&["--remote", "--remote-mode", "everything"]).is_err());
     }
 
     #[test]

@@ -125,6 +125,9 @@ pub enum SandboxKind {
 pub struct AgentRunInfo {
     pub profile_source: ProfileSource,
     pub remote: bool,
+    /// `credential` or `full`, for remote runs once the session exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_mode: Option<crate::handlers::run::routing::RemoteMode>,
     pub sandbox_backend: SandboxKind,
     /// Whether the run used a git worktree (the flag or the profile asked).
     pub worktree: bool,
@@ -487,6 +490,7 @@ mod tests {
                 agent_run: Some(AgentRunInfo {
                     profile_source: ProfileSource::Directory,
                     remote: false,
+                    remote_mode: None,
                     sandbox_backend: SandboxKind::Docker,
                     worktree: true,
                     policy_allow: Some(7),
@@ -511,6 +515,7 @@ mod tests {
                 agent_run: Some(AgentRunInfo {
                     profile_source: ProfileSource::Global,
                     remote: true,
+                    remote_mode: Some(crate::handlers::run::routing::RemoteMode::Credential),
                     sandbox_backend: SandboxKind::Native,
                     worktree: false,
                     policy_allow: None,
@@ -523,6 +528,7 @@ mod tests {
         );
         let value = serde_json::to_value(&remote).unwrap();
         assert_eq!(value["profile_source"], "global");
+        assert_eq!(value["remote_mode"], "credential");
         assert_eq!(value["sandbox_backend"], "native");
         assert_eq!(value["worktree"], false);
         assert!(value.get("policy_allow").is_none());

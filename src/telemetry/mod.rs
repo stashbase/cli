@@ -17,6 +17,7 @@ use once_cell::sync::Lazy;
 use uuid::Uuid;
 
 use crate::cmd::root::EntityType;
+use crate::handlers::run::routing::RemoteMode;
 use consent::{Decision, Signals};
 use event::{
     AgentRunInfo, ErrorKind, Event, Invocation, ProfileSource, SandboxKind, TrackedCommand,
@@ -46,6 +47,9 @@ pub struct AgentRunStart {
     /// counters are fed by the audit log, and remote runs enforce policy
     /// server-side. Otherwise they are omitted rather than reported as zero.
     pub counts_available: bool,
+    /// The routing mode the control plane chose, known only once a remote
+    /// session exists. Absent for local runs.
+    pub remote_mode: Option<RemoteMode>,
 }
 
 static AGENT_RUN: Lazy<Mutex<Option<AgentRunStart>>> = Lazy::new(|| Mutex::new(None));
@@ -71,7 +75,16 @@ pub fn prepare_agent_run(
         sandbox_backend,
         worktree,
         counts_available: !remote && audit_log_enabled,
+        remote_mode: None,
     });
+}
+
+/// Records which routing mode a remote session ended up with. A no-op unless
+/// an agent run was prepared. Only the mode name is kept, never any host.
+pub fn set_agent_run_remote_mode(mode: RemoteMode) {
+    if let Some(start) = lock(&AGENT_RUN).as_mut() {
+        start.remote_mode = Some(mode);
+    }
 }
 
 /// Called at the point the agent process is about to start, after the proxy
@@ -128,6 +141,7 @@ pub fn agent_run_info(start: &AgentRunStart, allow: u32, deny: u32, block: u32) 
     AgentRunInfo {
         profile_source: start.profile_source,
         remote: start.remote,
+        remote_mode: start.remote_mode,
         sandbox_backend: start.sandbox_backend,
         worktree: start.worktree,
         policy_allow: counts(allow),
@@ -403,6 +417,7 @@ mod tests {
             sandbox_backend: event::SandboxKind::Docker,
             worktree: true,
             counts_available: true,
+            remote_mode: None,
         };
         let info = agent_run_info(&local, 4, 2, 1);
         assert_eq!(
@@ -418,6 +433,7 @@ mod tests {
                 sandbox_backend: event::SandboxKind::Native,
                 worktree: false,
                 counts_available: !remote && audit_log,
+                remote_mode: None,
             };
             let info = agent_run_info(&start, 4, 2, 1);
             assert_eq!(
@@ -473,6 +489,7 @@ mod tests {
             sandbox_backend: event::SandboxKind::Native,
             worktree: false,
             counts_available: true,
+            remote_mode: None,
         };
         // Prepared and launched: reported.
         assert!(launched_agent_run(Some(&start()), true, 1, 2, 3).is_some());
