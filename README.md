@@ -302,6 +302,16 @@ stashbase agent run --remote --profile coding -- codex
 
 The child receives only placeholders and connects through a temporary localhost relay. Session tokens and resolved credential values stay out of the child environment and never reach your machine. Personal credentials remain private to your account. The session is managed from Stashbase, where you can monitor and revoke it remotely before the child exits.
 
+#### Routing modes
+
+By default a remote run uses **credential routing**: only requests that need a Stashbase credential (hosts covered by your credential policies and personal credentials) go through the remote Agent Proxy. Everything else, including model API traffic, is forwarded directly by the local relay, which still enforces `egress_hosts` and `deny_hosts` and writes the local audit log. Stashbase decides which hosts are routed for each session; neither the agent nor your local config can change that list.
+
+```bash
+stashbase agent run --remote --remote-mode full --profile coding -- codex
+```
+
+`--remote-mode full` sends all agent traffic through the remote proxy, so the remote side sees and enforces policy on everything. Which modes you can use depends on your plan (Free: local only, Pro: credential routing, Scale: credential routing or full) and on workspace policy, which can enforce a mode. If a mode is not allowed, the CLI says which one is. In credential mode, requests to a host that is not routed cannot carry a credential placeholder; the relay refuses them (`proxy.credential_host_not_routed`) instead of sending the placeholder upstream. The audit log records the session's routing mode and, for each event, whether it went `remote` or `direct`. If Stashbase does not return a host list (an older service), the CLI falls back to `full` and says so.
+
 Remote Agent Proxy is not a general network sandbox; it relays supported HTTP traffic for supported coding-agent workflows. SSH, raw TCP, and arbitrary third-party integrations are unsupported.
 
 ### MCP Tools Authorization

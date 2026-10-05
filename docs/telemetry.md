@@ -32,6 +32,7 @@ that fails earlier, for example on a missing profile, has none of them):
 |---|---|
 | `profile_source` | `directory`, `global` or `file`; never the path or profile name |
 | `remote` | whether it ran as a remote session |
+| `remote_mode` | for remote sessions, `credential` (only requests that need a Stashbase credential use the remote proxy) or `full` (all traffic does); never any host |
 | `sandbox_backend` | `native` or `docker`, the sandbox backend the run used |
 | `worktree` | whether the run used a git worktree (from `--worktree` or the profile) |
 | `policy_allow`, `policy_deny`, `policy_block` | how many policy decisions the proxy made (one HTTPS request can produce more than one allow, for the tunnel and for the forwarded request); only for local runs with the audit log on (the default); counts only, never hosts, paths or policy content |
