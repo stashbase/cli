@@ -1866,6 +1866,7 @@ fn audit_group_by_name(group_by: AgentAuditGroupBy) -> &'static str {
         AgentAuditGroupBy::Host => "host",
         AgentAuditGroupBy::Action => "action",
         AgentAuditGroupBy::Binding => "binding",
+        AgentAuditGroupBy::Route => "route",
     }
 }
 
@@ -1879,6 +1880,7 @@ fn summarize_audit_groups(
             AgentAuditGroupBy::Host => event.destination_host.as_deref(),
             AgentAuditGroupBy::Action => Some(event.action.as_str()),
             AgentAuditGroupBy::Binding => event.binding_name.as_deref(),
+            AgentAuditGroupBy::Route => event.route.as_deref(),
         }
         .unwrap_or("-")
         .to_owned();
@@ -2032,9 +2034,11 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  session_id={} event_id={} profile={} profile_source={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        "{}  session_id={} event_id={} profile={} profile_source={} routing_mode={} action={} host={} route={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
         event.timestamp, event.session_id, event.event_id, event.profile,
-        event.profile_source.as_deref().unwrap_or("-"), event.action, host,
+        event.profile_source.as_deref().unwrap_or("-"),
+        event.routing_mode.as_deref().unwrap_or("-"), event.action, host,
+        event.route.as_deref().unwrap_or("-"),
         event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
         event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
@@ -2759,7 +2763,7 @@ mod tests {
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
                 routing_mode: None,
-                route: None,
+                route: Some("remote".to_owned()),
                 action: "injected".to_owned(),
                 destination_host: Some("api.github.com".to_owned()),
                 path: None,
@@ -2783,7 +2787,7 @@ mod tests {
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
                 routing_mode: None,
-                route: None,
+                route: Some("direct".to_owned()),
                 action: "forwarded".to_owned(),
                 destination_host: Some("registry.npmjs.org".to_owned()),
                 path: None,
@@ -2813,6 +2817,12 @@ mod tests {
             super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Binding);
         assert_eq!(by_binding[0].value, "-");
         assert_eq!(by_binding[1].value, "GITHUB_TOKEN");
+
+        let by_route =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Route);
+        let route = |value: &str| by_route.iter().find(|group| group.value == value).unwrap();
+        assert_eq!(route("remote").request_bytes, 10);
+        assert_eq!(route("direct").response_bytes, 200);
     }
 
     #[test]

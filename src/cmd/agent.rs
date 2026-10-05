@@ -697,6 +697,8 @@ pub enum AgentAuditGroupBy {
     /// Group by configured credential binding name
     #[value(alias = "secret")]
     Binding,
+    /// Group by how a remote session carried the destination (remote or direct)
+    Route,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -714,6 +716,14 @@ mod tests {
     use clap::ValueEnum;
 
     use super::AgentAuditGroupBy;
+
+    #[test]
+    fn audit_route_group_is_selectable() {
+        assert_eq!(
+            AgentAuditGroupBy::from_str("route", true),
+            Ok(AgentAuditGroupBy::Route)
+        );
+    }
 
     #[test]
     fn audit_binding_group_accepts_the_legacy_secret_alias() {
