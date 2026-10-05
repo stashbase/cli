@@ -1164,7 +1164,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             }
                         };
                         if !silent {
-                            eprintln!("{}", routing_summary(&routing, session_request.routing_mode, session.route_hosts.is_some()));
+                            eprintln!("{}", routing_summary(&routing, session_request.routing_mode, session.routing_mode.is_some()));
                         }
                         crate::telemetry::set_agent_run_remote_mode(routing.mode);
                         let routing = Arc::new(RwLock::new(routing));
@@ -2138,7 +2138,7 @@ fn ensure_replacement_session_is_compatible(
 fn routing_summary(
     routing: &crate::handlers::run::routing::RemoteRouting,
     requested: Option<crate::handlers::run::routing::RemoteMode>,
-    sent_route_hosts: bool,
+    backend_sent_mode: bool,
 ) -> String {
     use crate::handlers::run::routing::RemoteMode;
     match routing.mode {
@@ -2153,7 +2153,7 @@ fn routing_summary(
                 "Routing: credential ({count} {noun} {verb} the Remote Agent Proxy; other traffic goes direct)"
             )
         }
-        RemoteMode::Full if requested == Some(RemoteMode::Credential) && !sent_route_hosts => {
+        RemoteMode::Full if requested == Some(RemoteMode::Credential) && !backend_sent_mode => {
             "Routing: full (this Remote Agent Proxy does not support credential routing yet)"
                 .to_owned()
         }
@@ -2914,6 +2914,12 @@ mod tests {
         );
         assert_eq!(
             super::routing_summary(&RemoteRouting::full(), Some(RemoteMode::Full), true),
+            "Routing: full (all traffic uses the Remote Agent Proxy)"
+        );
+        // The service chose `full` itself (for example a binding that covers every
+        // host), so it does support credential routing.
+        assert_eq!(
+            super::routing_summary(&RemoteRouting::full(), Some(RemoteMode::Credential), true),
             "Routing: full (all traffic uses the Remote Agent Proxy)"
         );
         assert_eq!(
