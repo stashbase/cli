@@ -4,11 +4,14 @@ use anyhow::{bail, Context, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
+use crate::handlers::run::routing::RemoteMode;
 use crate::{
     api::{auth::get_current_auth_details, client},
     models::{
         agent::AgentHttpRule,
-        api_client::{ApiErrorResponse, GenericOutputError, GetRequestApiResponse, OutputError},
+        api_client::{
+            ApiError, ApiErrorResponse, GenericOutputError, GetRequestApiResponse, OutputError,
+        },
         auth::CurrentAuthResponse,
     },
 };
@@ -118,6 +121,9 @@ pub struct RemoteProxySessionRequest {
     pub session_purpose: Option<String>,
     /// Present only while rotating an existing logical agent session.
     pub previous_session_token: Option<String>,
+    /// The routing mode this run asks for. The control plane is authoritative:
+    /// it may refuse the mode (plan or admin policy) or enforce another one.
+    pub routing_mode: Option<RemoteMode>,
 }
 
 impl RemoteProxySessionRequest {
@@ -138,6 +144,14 @@ pub struct RemoteProxySession {
     pub proxy_url: String,
     pub protocol: String,
     pub proxy_ca: Option<RemoteProxyCa>,
+    /// The effective mode. Absent from control planes that predate credential
+    /// routing, which always proxy everything.
+    #[serde(default)]
+    pub routing_mode: Option<RemoteMode>,
+    /// Hosts that need a Stashbase credential, derived by the control plane
+    /// from this session's credential policies. Meaningful in credential mode.
+    #[serde(default)]
+    pub route_hosts: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,6 +190,8 @@ struct CreateSession<'a> {
     agent_type: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     session_purpose: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    routing_mode: Option<RemoteMode>,
 }
 
 fn is_empty<T>(values: &[T]) -> bool {
@@ -389,6 +405,9 @@ fn format_session_error(
         return Ok("Enable Personal credential access in Workspace → Agents before starting this Remote Agent session.".to_owned());
     }
     let error = match response {
+        Some(response) if response.error.code == ROUTING_MODE_NOT_ALLOWED => {
+            routing_mode_not_allowed(response.error)
+        }
         Some(response) => OutputError::from(response.error),
         None => OutputError::Generic(GenericOutputError {
             code: None,
@@ -400,6 +419,60 @@ fn format_session_error(
     }
     .with_status(Some(status.as_u16()));
     Ok(error.format_error_output(json_format)?)
+}
+
+const ROUTING_MODE_NOT_ALLOWED: &str = "routing_mode_not_allowed";
+
+/// The control plane refused the requested routing mode. It enforces plan
+/// gating and admin policy; the CLI only explains the outcome. Detail fields
+/// are optional so older or newer servers still produce a usable message.
+fn routing_mode_not_allowed(error: ApiError) -> OutputError {
+    let details = error.details.as_ref();
+    let text = |key: &str| details.and_then(|d| d.get(key)).and_then(|v| v.as_str());
+    let requested = text("requested");
+    let allowed: Vec<&str> = details
+        .and_then(|d| d.get("allowed"))
+        .and_then(|v| v.as_array())
+        .map(|modes| modes.iter().filter_map(|mode| mode.as_str()).collect())
+        .unwrap_or_default();
+    let enforced = text("enforced_mode");
+
+    let message = match requested {
+        Some(requested) => format!("Remote routing mode `{requested}` is not available."),
+        None => "The requested remote routing mode is not available.".to_owned(),
+    };
+    let reason = match text("reason") {
+        Some("admin_policy") => Some("Your workspace admin enforces the routing mode."),
+        Some("plan") => Some("Your plan does not include this routing mode."),
+        _ => None,
+    };
+    let choice = match (enforced, allowed.as_slice()) {
+        (Some(mode), _) => Some(format!(
+            "Run with `--remote-mode {mode}` (or omit the flag)."
+        )),
+        (None, []) => None,
+        (None, [mode]) => Some(format!(
+            "Run with `--remote-mode {mode}` (or omit the flag)."
+        )),
+        (None, modes) => Some(format!("Allowed modes: {}.", modes.join(", "))),
+    };
+    let hint = [reason.map(str::to_owned), choice]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    OutputError::Generic(GenericOutputError {
+        code: Some(error.code),
+        message: error.message.unwrap_or(message),
+        status: None,
+        hint: if hint.is_empty() {
+            error.hint
+        } else {
+            Some(hint)
+        },
+        details: error.details,
+    })
 }
 
 fn credential_access_is_disabled(response: &ApiErrorResponse) -> bool {
@@ -431,6 +504,7 @@ fn create_session_http_request(
             mcp_rules: &request.mcp_rules,
             agent_type: request.agent_type.as_deref(),
             session_purpose: request.session_purpose.as_deref(),
+            routing_mode: request.routing_mode,
         });
     if let Some(previous_session_token) = &request.previous_session_token {
         session_request =
@@ -519,7 +593,117 @@ mod tests {
             agent_type: Some("custom".to_owned()),
             session_purpose: None,
             previous_session_token: previous_session_token.map(str::to_owned),
+            routing_mode: None,
         }
+    }
+
+    fn api_error(details: serde_json::Value) -> ApiErrorResponse {
+        serde_json::from_value(serde_json::json!({
+            "error": {
+                "code": "routing_mode_not_allowed",
+                "message": "Routing mode not allowed",
+                "details": details,
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn session_request_carries_the_requested_routing_mode() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        session.routing_mode = Some(RemoteMode::Credential);
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+        assert_eq!(body["routing_mode"], "credential");
+
+        let request = create_session_http_request(&client, &session_request(None))
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+        assert!(body.get("routing_mode").is_none());
+    }
+
+    #[test]
+    fn replacement_session_keeps_the_requested_routing_mode() {
+        let mut session = session_request(None);
+        session.routing_mode = Some(RemoteMode::Full);
+        assert_eq!(
+            session.replacement("old".to_owned()).routing_mode,
+            Some(RemoteMode::Full)
+        );
+    }
+
+    #[test]
+    fn session_response_without_routing_fields_still_parses() {
+        let session: RemoteProxySession = serde_json::from_value(serde_json::json!({
+            "session_id": "s", "session_token": "t", "expires_at": "2026-01-01T00:00:00Z",
+            "proxy_url": "/proxy", "protocol": "http/1.1-custom"
+        }))
+        .unwrap();
+        assert!(session.routing_mode.is_none());
+        assert!(session.route_hosts.is_none());
+    }
+
+    #[test]
+    fn session_response_carries_routing_mode_and_hosts() {
+        let session: RemoteProxySession = serde_json::from_value(serde_json::json!({
+            "session_id": "s", "session_token": "t", "expires_at": "2026-01-01T00:00:00Z",
+            "proxy_url": "/proxy", "protocol": "http/1.1-custom",
+            "routing_mode": "credential",
+            "route_hosts": ["api.github.com", "*.example.com"]
+        }))
+        .unwrap();
+        assert_eq!(session.routing_mode, Some(RemoteMode::Credential));
+        assert_eq!(session.route_hosts.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn plan_gated_routing_mode_error_names_the_allowed_mode() {
+        let message = format_session_error(
+            reqwest::StatusCode::FORBIDDEN,
+            Some(api_error(serde_json::json!({
+                "requested": "full", "allowed": ["credential"], "reason": "plan"
+            }))),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(message.contains("Your plan does not include"), "{message}");
+        assert!(message.contains("--remote-mode credential"), "{message}");
+    }
+
+    #[test]
+    fn admin_enforced_routing_mode_error_names_the_enforced_mode() {
+        let message = format_session_error(
+            reqwest::StatusCode::FORBIDDEN,
+            Some(api_error(serde_json::json!({
+                "requested": "credential", "enforced_mode": "full", "reason": "admin_policy"
+            }))),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(message.contains("workspace admin"), "{message}");
+        assert!(message.contains("--remote-mode full"), "{message}");
+    }
+
+    #[test]
+    fn routing_mode_error_without_details_is_still_readable() {
+        let message = format_session_error(
+            reqwest::StatusCode::FORBIDDEN,
+            Some(api_error(serde_json::json!(null))),
+            false,
+            false,
+        )
+        .unwrap();
+        assert!(message.contains("routing_mode_not_allowed"), "{message}");
     }
 
     #[test]

@@ -69,6 +69,7 @@ use crate::{
     REQUEST_TIMEOUT_SECS,
 };
 
+use super::routing::{RemoteMode, RemoteRouting};
 #[cfg(test)]
 use crate::models::agent::AgentHttpRule;
 
@@ -104,6 +105,12 @@ pub struct ProxyAuditLogEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_file_sha256: Option<String>,
     pub action: String,
+    /// Present only on `session_started` for remote sessions: `credential` or `full`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_mode: Option<String>,
+    /// How a remote session carried this destination: `remote` or `direct`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
     pub destination_host: Option<String>,
     /// Present only for filesystem-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,6 +182,7 @@ pub struct ProxyAuditLog {
     policy_fingerprint: String,
     profile_provenance: Option<ProfileAuditProvenance>,
     binding_sources: Arc<HashMap<String, String>>,
+    routing: Option<Arc<RwLock<RemoteRouting>>>,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
@@ -241,6 +249,7 @@ impl ProxyAuditLog {
             policy_fingerprint,
             profile_provenance: None,
             binding_sources: Arc::new(HashMap::new()),
+            routing: None,
             path: Arc::new(path),
             file: Arc::new(Mutex::new(file)),
         })
@@ -285,6 +294,13 @@ impl ProxyAuditLog {
     /// Adds non-sensitive binding origin metadata for remote audit events.
     pub fn with_binding_sources(mut self, binding_sources: HashMap<String, String>) -> Self {
         self.binding_sources = Arc::new(binding_sources);
+        self
+    }
+
+    /// Records the routing of a remote session: its mode on `session_started`
+    /// and, for each event with a destination, whether it went remote or direct.
+    pub fn with_routing(mut self, routing: Arc<RwLock<RemoteRouting>>) -> Self {
+        self.routing = Some(routing);
         self
     }
 
@@ -363,6 +379,28 @@ impl ProxyAuditLog {
                 })
                 .flatten(),
             action: action.to_owned(),
+            routing_mode: (action == "session_started")
+                .then(|| {
+                    self.routing
+                        .as_ref()
+                        .and_then(|routing| routing.read().ok())
+                        .map(|routing| routing.mode.as_str().to_owned())
+                })
+                .flatten(),
+            route: (action != "filesystem_denied")
+                .then(|| {
+                    let host = host?;
+                    let routing = self.routing.as_ref()?.read().ok()?;
+                    Some(
+                        if routing.is_remote(host) {
+                            "remote"
+                        } else {
+                            "direct"
+                        }
+                        .to_owned(),
+                    )
+                })
+                .flatten(),
             destination_host: (action != "filesystem_denied")
                 .then(|| host)
                 .flatten()
@@ -715,6 +753,9 @@ pub struct RemoteProxyConfig {
     /// Key-ID-specific public CA cached from the session response. It is pinned
     /// for this child run so a later CA rotation cannot overwrite its trust file.
     pub ca_file: Option<PathBuf>,
+    /// Which hosts use the remote proxy. Replaced atomically on session
+    /// rotation; the child cannot influence it.
+    pub routing: Arc<RwLock<RemoteRouting>>,
 }
 
 /// The currently usable remote session. The rotation task replaces this atomically
@@ -738,6 +779,24 @@ impl std::fmt::Debug for RemoteProxySessionState {
 }
 
 impl RemoteProxyConfig {
+    /// Whether traffic to `host` goes through the remote proxy. A missing host
+    /// or an unreadable table fails toward the remote proxy, never toward a
+    /// direct connection.
+    fn routes_remotely(&self, host: Option<&str>) -> bool {
+        match (self.routing.read(), host) {
+            (Ok(routing), Some(host)) => routing.is_remote(host),
+            (Ok(routing), None) => routing.mode == RemoteMode::Full,
+            (Err(_), _) => true,
+        }
+    }
+
+    pub fn routing_mode(&self) -> RemoteMode {
+        self.routing
+            .read()
+            .map(|routing| routing.mode)
+            .unwrap_or(RemoteMode::Full)
+    }
+
     /// Never call this for an already-open stream: session rotation only applies
     /// to new HTTP requests and CONNECT handshakes.
     fn token_for_new_connection(&self) -> Result<String> {
@@ -767,6 +826,7 @@ impl std::fmt::Debug for RemoteProxyConfig {
             .field("child_env", &self.child_env)
             .field("protocol", &self.protocol)
             .field("ca_file", &self.ca_file)
+            .field("routing_mode", &self.routing_mode())
             .finish()
     }
 }
@@ -957,6 +1017,17 @@ struct ProxyState {
     dependency_hook_token: Option<String>,
     dependency_hook_client: Option<reqwest::Client>,
     revocation_path: Arc<RwLock<Option<PathBuf>>>,
+}
+
+impl ProxyState {
+    /// The remote proxy config when this destination must go remote; `None`
+    /// for a local session or a host that credential routing sends direct.
+    fn remote_for(&self, host: Option<&str>) -> Option<RemoteProxyConfig> {
+        self.remote
+            .as_ref()
+            .filter(|remote| remote.routes_remotely(host))
+            .cloned()
+    }
 }
 
 /// Tracks every accepted proxy and TLS-upgrade task so proxy shutdown closes
@@ -1159,6 +1230,7 @@ impl Proxy {
         }
         let (certificate_authority, mut ca_file) = create_certificate_authority()?;
         let mut remove_ca_file = true;
+        let mut remote_ca_file = None;
         if remote
             .as_ref()
             .is_some_and(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
@@ -1167,10 +1239,27 @@ impl Proxy {
                 .as_ref()
                 .and_then(|remote| remote.ca_file.clone())
                 .context("remote forward-proxy session did not provide a cached CA file")?;
-            // The remote listener, not this local relay, presents certificates in
-            // forward-proxy mode. Pass its public CA to the child.
-            ca_file = remote_ca;
-            remove_ca_file = false;
+            if remote
+                .as_ref()
+                .is_some_and(|remote| remote.routing_mode() == RemoteMode::Credential)
+            {
+                // Remote-routed hosts are intercepted by the remote proxy, but
+                // direct hosts are still intercepted by this relay. The child
+                // must trust both CAs, so extend our temporary CA file (which
+                // is removed on shutdown) with the remote proxy's public CA.
+                let mut bundle = fs::read(&ca_file)?;
+                bundle.push(b'\n');
+                bundle.extend(fs::read(&remote_ca)?);
+                fs::write(&ca_file, bundle).context("failed to write the proxy CA bundle")?;
+            } else {
+                // The remote listener, not this local relay, presents
+                // certificates in full forward-proxy mode. Pass its public CA
+                // to the child.
+                let _ = fs::remove_file(&ca_file);
+                ca_file = remote_ca.clone();
+                remove_ca_file = false;
+            }
+            remote_ca_file = Some(remote_ca);
         }
         let bind_address = format!("{bind_host}:{}", proxy_port.unwrap_or(0));
         let listener = TcpListener::bind(&bind_address)
@@ -1225,11 +1314,8 @@ impl Proxy {
                 REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
             ))
             .redirect(reqwest::redirect::Policy::none());
-        let remote_ca = if remote
-            .as_ref()
-            .is_some_and(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
-        {
-            let remote_ca = reqwest::Certificate::from_pem(&fs::read(&ca_file)?)?;
+        let remote_ca = if let Some(remote_ca_file) = &remote_ca_file {
+            let remote_ca = reqwest::Certificate::from_pem(&fs::read(remote_ca_file)?)?;
             client_builder = client_builder.add_root_certificate(remote_ca.clone());
             Some(remote_ca)
         } else {
@@ -1645,7 +1731,8 @@ fn proxy_request(
                     "Agent Proxy policy denied destination",
                 ));
             }
-            if let Some(remote) = &state.remote {
+            let connect_remote = state.remote_for(Some(host_from_authority(&authority)));
+            if let Some(remote) = &connect_remote {
                 if let Err(error) = remote.token_for_new_connection() {
                     state.record_audit(
                         "session_expired",
@@ -1665,31 +1752,31 @@ fn proxy_request(
             // Establish the remote CONNECT before acknowledging the child's CONNECT.
             // Otherwise a rejected or stalled remote proxy produces a misleading local
             // 200 response followed by an unexplained dead tunnel.
-            let remote_tunnel =
-                match state.remote.clone().filter(|remote| {
-                    remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept
-                }) {
-                    Some(remote) => match establish_remote_connect(&authority, &remote).await {
-                        Ok(upstream) => Some(upstream),
-                        Err(error) => {
-                            debug!("remote proxy CONNECT setup failed: {error:#}");
-                            state.record_audit(
-                                "remote_connect_failed",
-                                Some(host_from_authority(&authority)),
-                                Some(&Method::CONNECT),
-                                None,
-                                Some(StatusCode::BAD_GATEWAY),
-                                Some(started.elapsed()),
-                            );
-                            return Ok(proxy_error_response(
-                                StatusCode::BAD_GATEWAY,
-                                "proxy.remote_connect_failed",
-                                "Unable to establish Agent Proxy tunnel",
-                            ));
-                        }
-                    },
-                    None => None,
-                };
+            let remote_tunnel = match connect_remote
+                .clone()
+                .filter(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
+            {
+                Some(remote) => match establish_remote_connect(&authority, &remote).await {
+                    Ok(upstream) => Some(upstream),
+                    Err(error) => {
+                        debug!("remote proxy CONNECT setup failed: {error:#}");
+                        state.record_audit(
+                            "remote_connect_failed",
+                            Some(host_from_authority(&authority)),
+                            Some(&Method::CONNECT),
+                            None,
+                            Some(StatusCode::BAD_GATEWAY),
+                            Some(started.elapsed()),
+                        );
+                        return Ok(proxy_error_response(
+                            StatusCode::BAD_GATEWAY,
+                            "proxy.remote_connect_failed",
+                            "Unable to establish Agent Proxy tunnel",
+                        ));
+                    }
+                },
+                None => None,
+            };
             state.record_audit(
                 "connect_allowed",
                 Some(host_from_authority(&authority)),
@@ -1871,7 +1958,28 @@ fn proxy_request(
                 Some(&request_id),
             ));
         }
-        if let Some(remote) = &state.remote {
+        let remote = state.remote_for(host.as_deref());
+        // Credential routing sends this host direct, so the remote proxy never
+        // sees the request and cannot resolve the placeholder. Refuse instead of
+        // forwarding a placeholder (or a personal credential reference) upstream.
+        if secret_name.is_some() && state.remote.is_some() && remote.is_none() {
+            state.record_audit_with_request(
+                &request_id,
+                "credential_host_not_routed",
+                host.as_deref(),
+                Some(request.method()),
+                secret_name.as_deref(),
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response_with_id(
+                StatusCode::FORBIDDEN,
+                "proxy.credential_host_not_routed",
+                "This destination is not routed through the Agent Proxy, so the credential cannot be applied.",
+                Some(&request_id),
+            ));
+        }
+        if let Some(remote) = &remote {
             if let Err(error) = remote.token_for_new_connection() {
                 state.record_audit_with_request(
                     &request_id,
@@ -1894,7 +2002,7 @@ fn proxy_request(
         // such as Codex use a WSS connection for streaming, so tunnel an upgraded
         // connection after applying the same destination and placeholder checks.
         if is_upgrade_request(&request) {
-            if let Some(remote) = state.remote.clone() {
+            if let Some(remote) = remote.clone() {
                 return forward_remote_upgrade(
                     request,
                     state,
@@ -2018,8 +2126,7 @@ fn proxy_request(
             }))
         };
 
-        let destination_url = if let Some(remote) = state
-            .remote
+        let destination_url = if let Some(remote) = remote
             .as_ref()
             .filter(|remote| remote.protocol == RemoteProxyProtocol::Custom)
         {
@@ -2082,8 +2189,7 @@ fn proxy_request(
         } else {
             url.to_string()
         };
-        let client = match state
-            .remote
+        let client = match remote
             .as_ref()
             .filter(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
         {
@@ -3818,6 +3924,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::ForwardProxyTlsIntercept,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
 
         assert!(!format!("{config:?}").contains("do-not-log"));
@@ -3938,6 +4045,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
         let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
             .await
@@ -3973,6 +4081,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
         let policy = ProxyPolicy {
             secret_policies: HashMap::from([(
@@ -4110,6 +4219,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         }
     }
 
@@ -4189,6 +4299,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::ForwardProxyTlsIntercept,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
 
         let error = match establish_remote_connect("api.example.com:443", &remote).await {
@@ -4196,6 +4307,160 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("rejected CONNECT"));
+    }
+
+    fn credential_routing(hosts: &[&str]) -> Arc<RwLock<RemoteRouting>> {
+        let hosts = hosts
+            .iter()
+            .map(|host| (*host).to_owned())
+            .collect::<Vec<_>>();
+        Arc::new(RwLock::new(
+            RemoteRouting::resolve(Some(RemoteMode::Credential), Some(&hosts), [], true).unwrap(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn credential_routing_sends_a_listed_host_through_the_remote_proxy() {
+        let (remote_address, target) =
+            start_backend_capturing(HeaderName::from_static("x-stashbase-target")).await;
+        let mut remote = remote_test_config(remote_address);
+        remote.routing = credential_routing(&["original.example"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get("http://original.example/path")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            target.await.unwrap().as_deref(),
+            Some("http://original.example/path")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn credential_routing_sends_an_unlisted_host_direct() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (destination, _) = start_backend().await;
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.routing = credential_routing(&["original.example"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{destination}/"))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err(),
+            "a direct request must not reach the remote proxy"
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_credential_placeholder_is_refused_on_a_direct_host() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.routing = credential_routing(&["api.github.com"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{}/", destination.local_addr().unwrap()))
+            .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(response
+            .text()
+            .await
+            .unwrap()
+            .contains("proxy.credential_host_not_routed"));
+        assert!(
+            timeout(Duration::from_millis(100), destination.accept())
+                .await
+                .is_err(),
+            "the placeholder must never be forwarded to a direct destination"
+        );
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err()
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn credential_routing_opens_a_direct_connect_tunnel_without_the_remote_proxy() {
+        // A forward-proxy session must not CONNECT through the remote proxy for
+        // a host that credential routing sends direct.
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.protocol = RemoteProxyProtocol::ForwardProxyTlsIntercept;
+        let (_, ca_path) = create_certificate_authority().unwrap();
+        remote.ca_file = Some(ca_path);
+        remote.routing = credential_routing(&["api.github.com"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+        let address = proxy.child_env()["HTTP_PROXY"]
+            .trim_start_matches("http://")
+            .to_owned();
+
+        let mut stream = tokio::net::TcpStream::connect(&address).await.unwrap();
+        stream
+            .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = [0; 64];
+        let read = timeout(Duration::from_secs(2), stream.read(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(String::from_utf8_lossy(&response[..read]).starts_with("HTTP/1.1 200"));
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err(),
+            "a direct host must not open a CONNECT to the remote proxy"
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn credential_routing_trusts_both_the_local_and_remote_ca_in_forward_proxy_mode() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.protocol = RemoteProxyProtocol::ForwardProxyTlsIntercept;
+        let (_, remote_ca_path) = create_certificate_authority().unwrap();
+        remote.ca_file = Some(remote_ca_path.clone());
+        remote.routing = credential_routing(&["api.github.com"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let bundle = fs::read_to_string(&proxy.child_env()["SSL_CERT_FILE"]).unwrap();
+        assert_eq!(bundle.matches("BEGIN CERTIFICATE").count(), 2);
+        assert!(bundle.contains(fs::read_to_string(&remote_ca_path).unwrap().trim()));
+        proxy.stop().await;
+        let _ = fs::remove_file(remote_ca_path);
     }
 
     #[test]
@@ -4224,6 +4489,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
         let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
             .await
@@ -4435,6 +4701,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            routing: None,
             binding_sources: Arc::new(HashMap::from([(
                 "EXAMPLE_API_KEY".to_owned(),
                 "personal_credential".to_owned(),
@@ -4486,6 +4753,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            routing: None,
             binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
@@ -4536,6 +4804,53 @@ mod tests {
     }
 
     #[test]
+    fn audit_log_records_the_routing_mode_and_each_events_route() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = ProxyAuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
+            routing: Some(credential_routing(&["api.github.com"])),
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+
+        audit_log.record("session_started", None, None, None, None, None, None);
+        for host in ["api.github.com", "example.com"] {
+            audit_log.record(
+                "forwarded",
+                Some(host),
+                Some(&Method::GET),
+                None,
+                None,
+                None,
+                None,
+            );
+        }
+
+        let events = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(events[0].routing_mode.as_deref(), Some("credential"));
+        assert_eq!(events[0].route, None);
+        assert_eq!(events[1].routing_mode, None);
+        assert_eq!(events[1].route.as_deref(), Some("remote"));
+        assert_eq!(events[2].route.as_deref(), Some("direct"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn audit_log_records_profile_provenance_only_at_session_start() {
         let path =
             std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
@@ -4549,6 +4864,7 @@ mod tests {
                 sha256: "profile-file-sha256".to_owned(),
             }),
             binding_sources: Arc::new(HashMap::new()),
+            routing: None,
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -4624,6 +4940,8 @@ mod tests {
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
+            routing_mode: None,
+            route: None,
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             path: None,
@@ -5598,6 +5916,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            routing: None,
             binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(

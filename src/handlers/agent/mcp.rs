@@ -752,8 +752,16 @@ async fn remote_proxied_client(
         agent_type: None,
         session_purpose: Some("mcp_inspection".to_owned()),
         previous_session_token: None,
+        routing_mode: None,
     };
     let session = crate::api::remote_proxy::create_session(&request, json_format).await?;
+    // Inspection talks to the MCP server with its credential, so that host
+    // always goes through the Agent Proxy whatever mode the control plane picks.
+    let routing = crate::handlers::run::routing::resolve_session_routing(
+        &session,
+        &bindings,
+        std::slice::from_ref(&host),
+    )?;
     let protocol = match session.protocol.as_str() {
         "http/1.1-custom" => RemoteProxyProtocol::Custom,
         "http/1.1-forward-proxy-tls-intercept" => RemoteProxyProtocol::ForwardProxyTlsIntercept,
@@ -849,6 +857,7 @@ async fn remote_proxied_client(
             child_env,
             protocol,
             ca_file,
+            routing: Arc::new(RwLock::new(routing)),
         },
         policy,
         None,

@@ -1139,6 +1139,11 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
                             session_purpose: None,
                             previous_session_token: None,
+                            routing_mode: Some(
+                                agent_run
+                                    .remote_mode
+                                    .unwrap_or(crate::handlers::run::routing::RemoteMode::Credential),
+                            ),
                         };
                         let session = crate::api::remote_proxy::create_session(&session_request, raw_output)
                             .await
@@ -1147,6 +1152,22 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             // output spacing for every other CLI command.
                             .map_err(|error| anyhow::anyhow!("\n{error}"))?;
                         let token = session.session_token.clone();
+                        let routing = match crate::handlers::run::routing::resolve_session_routing(
+                            &session,
+                            &bindings,
+                            &[],
+                        ) {
+                            Ok(routing) => routing,
+                            Err(error) => {
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
+                                return Err(error);
+                            }
+                        };
+                        if !silent {
+                            eprintln!("{}", routing_summary(&routing, session_request.routing_mode, session.route_hosts.is_some()));
+                        }
+                        crate::telemetry::set_agent_run_remote_mode(routing.mode);
+                        let routing = Arc::new(RwLock::new(routing));
                         let remote_audit_log = match agent_run
                             .audit_log
                             .then(|| {
@@ -1160,6 +1181,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                                     audit_log
                                         .with_profile_provenance(profile_provenance.clone())
                                         .with_binding_sources(binding_sources)
+                                        .with_routing(routing.clone())
                                 })
                             })
                             .transpose()
@@ -1258,13 +1280,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             session,
                             remote_session.clone(),
                             remote_transport_identity,
+                            routing.clone(),
                         );
                         let result = handle_remote_agent_run(
                             api_key.clone(),
                             dependency_hooks,
                             command,
                             policy,
-                            crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
+                            crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file, routing },
                             agent_run.proxy_port,
                             network_sandbox,
                             agent_run.trust_proxy_ca,
@@ -2108,6 +2131,25 @@ fn ensure_replacement_session_is_compatible(
     Ok(())
 }
 
+fn routing_summary(
+    routing: &crate::handlers::run::routing::RemoteRouting,
+    requested: Option<crate::handlers::run::routing::RemoteMode>,
+    sent_route_hosts: bool,
+) -> String {
+    use crate::handlers::run::routing::RemoteMode;
+    match routing.mode {
+        RemoteMode::Credential => format!(
+            "Routing: credential ({} host{} use the Agent Proxy; other traffic goes direct)",
+            routing.routes.len(),
+            if routing.routes.len() == 1 { "" } else { "s" }
+        ),
+        RemoteMode::Full if requested == Some(RemoteMode::Credential) && !sent_route_hosts => {
+            "Routing: full (this Agent Proxy does not support credential routing yet)".to_owned()
+        }
+        RemoteMode::Full => "Routing: full (all traffic uses the Agent Proxy)".to_owned(),
+    }
+}
+
 fn remote_session_rotation_delay(expires_at: DateTime<Utc>) -> Duration {
     let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
     remote_session_rotation_delay_for(remaining)
@@ -2132,6 +2174,7 @@ fn spawn_remote_session_rotation(
     initial_session: crate::api::remote_proxy::RemoteProxySession,
     state: Arc<RwLock<crate::handlers::run::proxy::RemoteProxySessionState>>,
     initial_transport: (String, Option<(String, String)>),
+    routing: Arc<RwLock<crate::handlers::run::routing::RemoteRouting>>,
 ) -> (watch::Sender<bool>, JoinHandle<()>) {
     let (stop, mut stop_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
@@ -2170,9 +2213,28 @@ fn spawn_remote_session_rotation(
                         &next_session,
                     )
                     .and_then(|_| provision_remote_session_ca(&next_session))
-                    .and_then(|_| remote_session_state(&next_session))
+                    .and_then(|_| {
+                        // Child TLS trust and the relay's routing are fixed at
+                        // startup, so a replacement may refresh the host list
+                        // but not switch modes.
+                        let next_routing = crate::handlers::run::routing::resolve_session_routing(
+                            &next_session,
+                            &request.bindings,
+                            &[],
+                        )?;
+                        let current_mode = routing.read().map(|routing| routing.mode).ok();
+                        if current_mode.is_some_and(|mode| mode != next_routing.mode) {
+                            anyhow::bail!(
+                                "Agent Proxy changed its routing mode while rotating a session; restart the agent run"
+                            );
+                        }
+                        Ok(next_routing)
+                    })
+                    .and_then(|next_routing| {
+                        remote_session_state(&next_session).map(|state| (state, next_routing))
+                    })
                     {
-                        Ok(next_state) => next_state,
+                        Ok(next) => next,
                         Err(error) => {
                             crate::api::remote_proxy::revoke_session(
                                 request.api_key.clone(),
@@ -2198,6 +2260,10 @@ fn spawn_remote_session_rotation(
                             continue;
                         }
                     };
+                    let (next_state, next_routing) = next_state;
+                    if let Ok(mut current) = routing.write() {
+                        *current = next_routing;
+                    }
                     let old_token = {
                         let mut current = match state.write() {
                             Ok(current) => current,
@@ -2640,6 +2706,8 @@ mod tests {
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
+            routing_mode: None,
+            route: None,
             action: action.to_owned(),
             destination_host: Some(host.to_owned()),
             path: None,
@@ -2690,6 +2758,8 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                routing_mode: None,
+                route: None,
                 action: "injected".to_owned(),
                 destination_host: Some("api.github.com".to_owned()),
                 path: None,
@@ -2712,6 +2782,8 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                routing_mode: None,
+                route: None,
                 action: "forwarded".to_owned(),
                 destination_host: Some("registry.npmjs.org".to_owned()),
                 path: None,
@@ -2813,6 +2885,8 @@ mod tests {
                 sha256: "first".to_owned(),
                 pem: "unused".to_owned(),
             }),
+            routing_mode: None,
+            route_hosts: None,
         };
         let replacement = crate::api::remote_proxy::RemoteProxySession {
             session_id: "session-2".to_owned(),
@@ -2825,6 +2899,8 @@ mod tests {
                 sha256: "second".to_owned(),
                 pem: "unused".to_owned(),
             }),
+            routing_mode: None,
+            route_hosts: None,
         };
 
         let identity = remote_session_transport_identity(&initial).unwrap();
