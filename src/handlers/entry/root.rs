@@ -2350,8 +2350,8 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_failures_exit_1, audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
-        dependency_hooks_enabled, directory_profile_git_warning,
+        agent_failures_exit_1, audit_binding_sources, codex_mcp_binding_header_overrides,
+        configured_host_matches, dependency_hooks_enabled, directory_profile_git_warning,
         ensure_replacement_session_is_compatible, infer_remote_agent_type, remote_bindings,
         remote_codex_command_with_mcp_binding_headers, remote_session_rotation_delay_for,
         remote_session_transport_identity, remote_source_env_names, secret_child_name,
@@ -2434,12 +2434,27 @@ mod tests {
     fn agent_failures_exit_1_except_the_bare_hook_invocation() {
         let parse = |args: &[&str]| Cli::try_parse_from(args).unwrap().entity_type;
 
-        assert!(!agent_failures_exit_1(&parse(&["stashbase", "agent", "hooks"])));
-        assert!(agent_failures_exit_1(&parse(&[
-            "stashbase", "agent", "hooks", "deps", "install", "codex"
+        assert!(!agent_failures_exit_1(&parse(&[
+            "stashbase",
+            "agent",
+            "hooks"
         ])));
         assert!(agent_failures_exit_1(&parse(&[
-            "stashbase", "agent", "run", "--profile", "p", "--", "true"
+            "stashbase",
+            "agent",
+            "hooks",
+            "deps",
+            "install",
+            "codex"
+        ])));
+        assert!(agent_failures_exit_1(&parse(&[
+            "stashbase",
+            "agent",
+            "run",
+            "--profile",
+            "p",
+            "--",
+            "true"
         ])));
         assert!(!agent_failures_exit_1(&parse(&["stashbase", "pull"])));
     }
