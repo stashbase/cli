@@ -6,6 +6,8 @@
 //! They pin today's behaviour, including paths that print an error and still
 //! exit 0. Changing one of those exit codes is a product decision, so a test
 //! here must not change as a side effect of refactoring how the CLI exits.
+//! `agent` commands are the exception: every failure exits non-zero, so a
+//! profile that fails closed is not reported to scripts as a success.
 //!
 //! The tests that apply the macOS sandbox or bind a loopback port skip
 //! themselves when the OS refuses (for example inside another sandbox).
@@ -185,7 +187,7 @@ fn check(label: &str, out: &Output, code: i32, needle: &str, reported: Reported)
 // ---- config and profile resolution --------------------------------------
 
 #[test]
-fn a_malformed_config_toml_fails_every_command_that_reads_it_with_exit_0() {
+fn a_malformed_config_toml_fails_every_command_that_reads_it() {
     let project = Project::new();
     project.break_config();
 
@@ -219,7 +221,7 @@ fn a_malformed_config_toml_fails_every_command_that_reads_it_with_exit_0() {
     check(
         "agent init",
         &project.run(&["agent", "init", "p"]),
-        0,
+        1,
         message,
         Reported::Event("error", Some("validation")),
     );
@@ -434,7 +436,7 @@ fn generate_prints_its_error_and_exits_0() {
 // ---- agent init -----------------------------------------------------------
 
 #[test]
-fn agent_init_refuses_to_overwrite_and_exits_0() {
+fn agent_init_refuses_to_overwrite_and_exits_1() {
     let project = Project::new();
     check(
         "first",
@@ -449,7 +451,7 @@ fn agent_init_refuses_to_overwrite_and_exits_0() {
     check(
         "second",
         &out,
-        0,
+        1,
         "Refusing to overwrite",
         Reported::Event("error", Some("other")),
     );
@@ -458,7 +460,7 @@ fn agent_init_refuses_to_overwrite_and_exits_0() {
 // ---- agent run: failures before launch -------------------------------------
 
 #[test]
-fn agent_run_failures_before_launch_print_the_error_and_exit_0() {
+fn agent_run_failures_before_launch_print_the_error_and_exit_1() {
     let project = Project::new();
     project.write_profile("p", "egress_hosts = [\"example.com\"]\n");
     project.write_profile("broken", "workspace = 1\n");
@@ -524,7 +526,7 @@ fn agent_run_failures_before_launch_print_the_error_and_exit_0() {
         check(
             label,
             &project.run(args),
-            0,
+            1,
             message,
             Reported::Event("error", Some(kind)),
         );
@@ -597,7 +599,7 @@ fn validation_commands_exit_1_when_a_check_fails() {
 }
 
 #[test]
-fn agent_policy_test_on_a_missing_profile_prints_the_error_and_exits_0() {
+fn agent_policy_test_on_a_missing_profile_prints_the_error_and_exits_1() {
     let project = Project::new();
 
     let out = project.run(&["agent", "policy", "test", "--profile", "nope"]);
@@ -605,7 +607,7 @@ fn agent_policy_test_on_a_missing_profile_prints_the_error_and_exits_0() {
     check(
         "agent policy test",
         &out,
-        0,
+        1,
         "was not found in the global or directory config",
         Reported::Nothing,
     );

@@ -51,6 +51,16 @@ impl Exit {
         }
     }
 
+    /// Gives a failure that would exit 0 exit code 1 instead. `agent`
+    /// commands use this so a profile that fails closed is not reported to
+    /// scripts as a success. Successes and explicit codes are left alone.
+    pub fn nonzero_on_failure(self) -> Self {
+        match self.failure {
+            Some(_) if self.code == 0 => Self { code: 1, ..self },
+            _ => self,
+        }
+    }
+
     /// Reports the outcome to telemetry, then exits the process. Telemetry
     /// never changes the exit code.
     pub fn terminate(self) -> ! {
@@ -183,6 +193,25 @@ mod tests {
             status: std::process::ExitStatus::from_raw(9),
         };
         assert_eq!(Exit::from(anyhow::Error::from(killed)).code, 1);
+    }
+
+    #[test]
+    fn nonzero_on_failure_only_replaces_a_failure_that_exits_0() {
+        assert_eq!(
+            Exit::failed(ErrorKind::Validation).nonzero_on_failure(),
+            Exit {
+                code: 1,
+                failure: Some(ErrorKind::Validation)
+            }
+        );
+        assert_eq!(Exit::ok().nonzero_on_failure(), Exit::ok());
+        assert_eq!(Exit::code(3).nonzero_on_failure(), Exit::code(3));
+        assert_eq!(
+            Exit::failed_with(ErrorKind::Other, 7)
+                .nonzero_on_failure()
+                .code,
+            7
+        );
     }
 
     #[test]

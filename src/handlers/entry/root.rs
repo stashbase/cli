@@ -491,6 +491,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
 
         // Local commands such as `agent logs` do not need Stashbase authentication.
         let api_key = api_key.unwrap_or_default();
+        let is_agent_command = matches!(args.entity_type, EntityType::Agent(_));
 
         let result: anyhow::Result<Exit> = match args.entity_type {
             EntityType::Whoami(WhoamiCommand { format }) => {
@@ -1476,7 +1477,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
             EntityType::Doctor(_) => unreachable!(),
         };
 
-        match result {
+        let exit = match result {
             Ok(exit) => exit,
             Err(err) => {
                 if REQUEST_ABORTED.load(Ordering::SeqCst) {
@@ -1486,8 +1487,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 eprintln!("{:?}", err);
                 Exit::from(err)
             }
+        };
+        if is_agent_command {
+            exit.nonzero_on_failure()
+        } else {
+            exit
         }
     } else {
+        let is_agent_command = matches!(args.entity_type, EntityType::Agent(_));
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
                 return print_error(handle_config_commands(cmd, &Config::new(), args.raw));
@@ -1502,7 +1509,12 @@ pub async fn handle_cli(args: Cli) -> Exit {
         // An unreadable or malformed config file: printed, and the command
         // still exits 0.
         eprintln!("{:?}", err);
-        Exit::failed(ErrorKind::Validation)
+        let exit = Exit::failed(ErrorKind::Validation);
+        if is_agent_command {
+            exit.nonzero_on_failure()
+        } else {
+            exit
+        }
     }
 }
 
