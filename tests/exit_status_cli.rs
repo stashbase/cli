@@ -3,11 +3,11 @@
 //! reports. They run the real binary with an isolated `HOME`, a scrubbed
 //! environment and an API URL nothing listens on.
 //!
-//! They pin today's behaviour, including paths that print an error and still
-//! exit 0. Changing one of those exit codes is a product decision, so a test
-//! here must not change as a side effect of refactoring how the CLI exits.
-//! `agent` commands are the exception: every failure exits non-zero, so a
-//! profile that fails closed is not reported to scripts as a success.
+//! A command that reports an error exits non-zero, so scripts and CI see the
+//! failure. The one exception is the bare `agent hooks` invocation, which
+//! coding agents run before tool calls and whose exit code they read: its
+//! failures still exit 0. Changing an exit code is a product decision, so a
+//! test here must not change as a side effect of refactoring how the CLI exits.
 //!
 //! The tests that apply the macOS sandbox or bind a loopback port skip
 //! themselves when the OS refuses (for example inside another sandbox).
@@ -197,7 +197,7 @@ fn a_malformed_config_toml_fails_every_command_that_reads_it() {
         check(
             &args.join(" "),
             &project.run(args),
-            0,
+            1,
             message,
             Reported::Nothing,
         );
@@ -207,14 +207,14 @@ fn a_malformed_config_toml_fails_every_command_that_reads_it() {
     check(
         "pull",
         &project.run(&["pull", "--api-key", "k"]),
-        0,
+        1,
         message,
         failed,
     );
     check(
         "setup",
         &project.run(&["setup"]),
-        0,
+        1,
         message,
         Reported::Event("error", Some("validation")),
     );
@@ -240,7 +240,7 @@ fn config_reset_still_works_when_the_config_is_malformed() {
 }
 
 #[test]
-fn an_unknown_profile_environment_variable_fails_with_exit_0() {
+fn an_unknown_profile_environment_variable_fails_with_exit_1() {
     let project = Project::new();
 
     let out = project.run_with(
@@ -251,19 +251,34 @@ fn an_unknown_profile_environment_variable_fails_with_exit_0() {
     check(
         "unknown profile",
         &out,
-        0,
+        1,
         "no-such-profile",
         Reported::Event("error", Some("validation")),
     );
 }
 
 #[test]
-fn a_config_command_on_an_unknown_profile_prints_the_error_and_exits_0() {
+fn a_config_command_on_an_unknown_profile_prints_the_error_and_exits_1() {
     let project = Project::new();
 
     let out = project.run(&["config", "profile", "use", "nosuch"]);
 
-    check("config", &out, 0, "was not found", Reported::Nothing);
+    check("config", &out, 1, "was not found", Reported::Nothing);
+}
+
+#[test]
+fn a_config_setter_that_fails_exits_1() {
+    let project = Project::new();
+
+    let out = project.run(&["config", "profile", "add", "default"]);
+
+    check(
+        "config profile add default",
+        &out,
+        1,
+        "'default' is the implicit profile",
+        Reported::Nothing,
+    );
 }
 
 // ---- API key and project file --------------------------------------------
@@ -320,7 +335,7 @@ fn a_missing_api_key_in_json_mode_prints_a_json_error_and_exits_1() {
 }
 
 #[test]
-fn a_missing_stashbase_yaml_prints_the_error_and_exits_0() {
+fn a_missing_stashbase_yaml_prints_the_error_and_exits_1() {
     let project = Project::new();
     let failed = || Reported::Event("error", Some("validation"));
 
@@ -328,18 +343,15 @@ fn a_missing_stashbase_yaml_prints_the_error_and_exits_0() {
         check(
             command,
             &project.run(&[command, "--api-key", "k"]),
-            0,
+            1,
             "No 'stashbase.yaml' file found",
             failed(),
         );
     }
 }
 
-/// Today these print the error and return normally, and telemetry reports the
-/// command as a success: a tracked failure that goes unreported. Only the exit
-/// code and the message are pinned.
 #[test]
-fn conflicting_scope_flags_print_the_error_and_exit_0() {
+fn conflicting_scope_flags_print_the_error_and_exit_1() {
     let project = Project::new();
 
     for (args, message) in [
@@ -369,17 +381,68 @@ fn conflicting_scope_flags_print_the_error_and_exit_0() {
         check(
             args[0],
             &project.run(args),
-            0,
+            1,
             message,
             Reported::NotAsserted,
         );
     }
 }
 
+#[test]
+fn an_api_request_that_fails_exits_1() {
+    let project = Project::new();
+
+    let out = project.run(&[
+        "secrets",
+        "list",
+        "-p",
+        "myproj",
+        "-e",
+        "dev",
+        "--api-key",
+        "k",
+    ]);
+
+    check(
+        "secrets list",
+        &out,
+        1,
+        "Could not connect to the API",
+        Reported::Nothing,
+    );
+}
+
+#[test]
+fn run_without_any_secrets_does_not_start_the_command_and_exits_1() {
+    let project = Project::new();
+    std::fs::write(project.cwd.join("empty.env"), "").unwrap();
+
+    let out = project.run(&[
+        "run",
+        "--file",
+        "empty.env",
+        "--api-key",
+        "k",
+        "--",
+        "sh",
+        "-c",
+        "echo child-ran",
+    ]);
+
+    check(
+        "run",
+        &out,
+        1,
+        "No secrets found",
+        Reported::Event("error", Some("not_found")),
+    );
+    assert!(!text(&out.stdout).contains("child-ran"));
+}
+
 // ---- setup, doctor, generate ---------------------------------------------
 
 #[test]
-fn setup_without_a_terminal_prints_the_error_and_exits_0() {
+fn setup_without_a_terminal_prints_the_error_and_exits_1() {
     let project = Project::new();
 
     let out = project.run(&["setup"]);
@@ -387,7 +450,7 @@ fn setup_without_a_terminal_prints_the_error_and_exits_0() {
     check(
         "setup",
         &out,
-        0,
+        1,
         "not a terminal",
         Reported::Event("error", Some("other")),
     );
@@ -418,7 +481,7 @@ fn doctor_exits_1_when_a_check_fails_and_0_otherwise() {
 }
 
 #[test]
-fn generate_prints_its_error_and_exits_0() {
+fn generate_prints_its_error_and_exits_1() {
     let project = Project::new();
 
     // ssh-keygen is not on PATH, so key generation fails inside the handler.
@@ -427,7 +490,7 @@ fn generate_prints_its_error_and_exits_0() {
     check(
         "generate",
         &out,
-        0,
+        1,
         "Failed to execute ssh-keygen",
         Reported::Nothing,
     );
@@ -454,6 +517,30 @@ fn agent_init_refuses_to_overwrite_and_exits_1() {
         1,
         "Refusing to overwrite",
         Reported::Event("error", Some("other")),
+    );
+}
+
+/// Coding agents run the bare `agent hooks` before tool calls and read its
+/// exit code, so its failures keep exiting 0.
+#[test]
+fn the_bare_agent_hook_still_exits_0_when_it_fails() {
+    use std::io::Write;
+
+    let project = Project::new();
+    let mut child = project
+        .command(&["agent", "hooks", "--api-key", "k"], DEAD_API)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"not json").unwrap();
+    let out = child.wait_with_output().unwrap();
+
+    check(
+        "agent hooks",
+        &out,
+        0,
+        "Agent hook input was not valid JSON",
+        Reported::NotAsserted,
     );
 }
 
@@ -677,8 +764,8 @@ fn ctrl_c_during_a_request_exits_130_and_reports_aborted() {
     );
 }
 
-/// The same failures as `conflicting_scope_flags_print_the_error_and_exit_0`,
-/// seen from telemetry: the exit code stays 0, but they are failed commands.
+/// The same failures as `conflicting_scope_flags_print_the_error_and_exit_1`,
+/// seen from telemetry: they are reported as validation failures.
 #[test]
 fn conflicting_scope_flags_are_reported_as_validation_failures() {
     let project = Project::new();
@@ -700,7 +787,7 @@ fn conflicting_scope_flags_are_reported_as_validation_failures() {
     ] {
         let out = project.run(args);
         let all = text(&out.stderr);
-        assert_eq!(out.status.code(), Some(0), "{}: {all}", args[0]);
+        assert_eq!(out.status.code(), Some(1), "{}: {all}", args[0]);
         let events = events(&out);
         assert_eq!(events.len(), 1, "{}: {all}", args[0]);
         assert_eq!(events[0]["outcome"], "error", "{}: {}", args[0], events[0]);

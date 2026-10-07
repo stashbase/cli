@@ -30,7 +30,7 @@ pub fn handle_config_commands(
         ConfigSubcommand::ApiKey(k) => match k.subcommand {
             ApiKeySubcommand::Set(s) => {
                 let profile = crate::config::config::resolve_profile_name(config)?;
-                api_key::set_api_key(s.stdin, &profile);
+                api_key::set_api_key(s.stdin, &profile)?;
             }
             ApiKeySubcommand::Print(_) => {
                 let profile = crate::config::config::resolve_profile_name(config)?;
@@ -49,11 +49,11 @@ pub fn handle_config_commands(
             }
         },
         ConfigSubcommand::Profile(command) => {
-            handle_profile_command(command.subcommand, config, json_output)
+            handle_profile_command(command.subcommand, config, json_output)?
         }
         ConfigSubcommand::Output(o) => match o.subcommand {
             OutputSubcommand::Set(s) => {
-                set_default_output_format(s.format);
+                set_default_output_format(s.format)?;
             }
             OutputSubcommand::Print => {
                 if let Some(config) = &config.ouput_format {
@@ -69,7 +69,7 @@ pub fn handle_config_commands(
         },
         ConfigSubcommand::OutputSecrets(s) => match s.subcommand {
             SecretsOutputSubcommand::Set(s) => {
-                set_default_secrets_output_format(s.format);
+                set_default_secrets_output_format(s.format)?;
             }
             SecretsOutputSubcommand::Print => {
                 if let Some(config) = &config.ouput_format {
@@ -131,7 +131,7 @@ pub fn handle_config_commands(
         }
         ConfigSubcommand::ExpandRefs(r) => match r.subcommand {
             ExpandRefsSubcommand::Set(args) => {
-                set_expand_refs_config(args.enabled);
+                set_expand_refs_config(args.enabled)?;
             }
             ExpandRefsSubcommand::Print => print_expand_refs_config(&config.expand_refs),
         },

@@ -8,6 +8,7 @@ use tabled::Tabled;
 use crate::{
     api::secrets,
     cmd::secrets::SecretsFileFormat,
+    exit::ReportedFailure,
     handlers::run::subprocess,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
@@ -19,6 +20,7 @@ use crate::{
             SecretsInputValidationError,
         },
     },
+    telemetry::event::{classify_output_error, ErrorKind},
     utils::{
         env,
         interaction::{self},
@@ -1024,7 +1026,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 );
             }
 
-            return Ok(());
+            return Err(ReportedFailure::new(ErrorKind::NotFound));
         }
 
         if only_len > 0 && secrets.len() < only_len {
@@ -1055,7 +1057,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             };
 
             if confirmation != Some(true) {
-                return Ok(());
+                return Err(ReportedFailure::new(ErrorKind::NotFound));
             }
         }
 
@@ -1143,7 +1145,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         } else if !silent {
             eprintln!("{formatted_err}");
         }
-        return Ok(());
+        return Err(ReportedFailure::new(ErrorKind::Validation));
     }
 
     let res = secrets::pull(
@@ -1159,6 +1161,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
+        let kind = classify_output_error(&err);
         let formatted_err = err.format_error_output(json_format)?;
 
         if let Some(mut spinner) = spinner {
@@ -1167,7 +1170,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             eprintln!("{}", formatted_err);
         }
 
-        return Ok(());
+        return Err(ReportedFailure::new(kind));
     }
 
     match res {
@@ -1214,7 +1217,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         }
                     }
 
-                    return Ok(());
+                    return Err(ReportedFailure::new(ErrorKind::NotFound));
                 }
 
                 if only_len > 0 && secrets.len() < only_len {
@@ -1287,7 +1290,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         )
                         .await?;
                     } else {
-                        return Ok(());
+                        return Err(ReportedFailure::new(ErrorKind::NotFound));
                     }
                 } else {
                     if !setted_secrets.is_empty() {

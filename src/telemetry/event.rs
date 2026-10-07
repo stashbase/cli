@@ -183,13 +183,17 @@ pub fn classify_error(error: &anyhow::Error) -> ErrorKind {
         return ErrorKind::Validation;
     }
     if let Some(output) = error.downcast_ref::<OutputError>() {
-        return match output.get_status() {
-            Some(401) | Some(403) => ErrorKind::Auth,
-            Some(404) => ErrorKind::NotFound,
-            _ => ErrorKind::Other,
-        };
+        return classify_output_error(output);
     }
     ErrorKind::Other
+}
+
+pub fn classify_output_error(error: &OutputError) -> ErrorKind {
+    match error.get_status() {
+        Some(401) | Some(403) => ErrorKind::Auth,
+        Some(404) => ErrorKind::NotFound,
+        _ => ErrorKind::Other,
+    }
 }
 
 pub struct Invocation {
