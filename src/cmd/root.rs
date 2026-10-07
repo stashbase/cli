@@ -142,6 +142,10 @@ impl EntityType {
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Policy(_),
             }) => false,
+            // Reads local profile files and the local config only.
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Profiles(_),
+            }) => false,
             // File-only agent profiles require no Stashbase authentication.
             // Remote fallback is validated after the profile and local overrides
             // have been resolved.
@@ -206,6 +210,17 @@ mod tests {
                 ["stashbase", "agent", "hooks", "deps", action, "claude",]
             )
             .is_ok());
+        }
+    }
+
+    #[test]
+    fn agent_profiles_commands_do_not_require_an_api_key() {
+        for args in [
+            vec!["stashbase", "agent", "profiles", "list"],
+            vec!["stashbase", "agent", "profiles", "show", "demo"],
+        ] {
+            let cli = Cli::try_parse_from(&args).unwrap();
+            assert!(!cli.entity_type.requires_api_key(), "{args:?}");
         }
     }
 }
