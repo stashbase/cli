@@ -491,6 +491,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
 
         // Local commands such as `agent logs` do not need Stashbase authentication.
         let api_key = api_key.unwrap_or_default();
+        let agent_failures_exit_1 = agent_failures_exit_1(&args.entity_type);
 
         let result: anyhow::Result<Exit> = match args.entity_type {
             EntityType::Whoami(WhoamiCommand { format }) => {
@@ -1476,7 +1477,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
             EntityType::Doctor(_) => unreachable!(),
         };
 
-        match result {
+        let exit = match result {
             Ok(exit) => exit,
             Err(err) => {
                 if REQUEST_ABORTED.load(Ordering::SeqCst) {
@@ -1486,8 +1487,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 eprintln!("{:?}", err);
                 Exit::from(err)
             }
+        };
+        if agent_failures_exit_1 {
+            exit.nonzero_on_failure()
+        } else {
+            exit
         }
     } else {
+        let agent_failures_exit_1 = agent_failures_exit_1(&args.entity_type);
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
                 return print_error(handle_config_commands(cmd, &Config::new(), args.raw));
@@ -1502,7 +1509,12 @@ pub async fn handle_cli(args: Cli) -> Exit {
         // An unreadable or malformed config file: printed, and the command
         // still exits 0.
         eprintln!("{:?}", err);
-        Exit::failed(ErrorKind::Validation)
+        let exit = Exit::failed(ErrorKind::Validation);
+        if agent_failures_exit_1 {
+            exit.nonzero_on_failure()
+        } else {
+            exit
+        }
     }
 }
 
@@ -1525,6 +1537,19 @@ fn check_exit(failed: bool) -> Exit {
         Exit::failed_with(ErrorKind::Other, 1)
     } else {
         Exit::ok()
+    }
+}
+
+/// `agent` commands exit 1 when they fail, except the bare `agent hooks`
+/// invocation: Claude Code, Codex and Cursor run it before tool calls and
+/// read its exit code, so its codes stay as they were.
+fn agent_failures_exit_1(entity_type: &EntityType) -> bool {
+    match entity_type {
+        EntityType::Agent(crate::cmd::agent::AgentCommand {
+            subcommand: AgentSubcommand::Hooks(command),
+        }) => command.subcommand.is_some(),
+        EntityType::Agent(_) => true,
+        _ => false,
     }
 }
 
@@ -2325,8 +2350,8 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
-        dependency_hooks_enabled, directory_profile_git_warning,
+        agent_failures_exit_1, audit_binding_sources, codex_mcp_binding_header_overrides,
+        configured_host_matches, dependency_hooks_enabled, directory_profile_git_warning,
         ensure_replacement_session_is_compatible, infer_remote_agent_type, remote_bindings,
         remote_codex_command_with_mcp_binding_headers, remote_session_rotation_delay_for,
         remote_session_transport_identity, remote_source_env_names, secret_child_name,
@@ -2403,6 +2428,35 @@ mod tests {
             &install,
             Some("broker")
         ));
+    }
+
+    #[test]
+    fn agent_failures_exit_1_except_the_bare_hook_invocation() {
+        let parse = |args: &[&str]| Cli::try_parse_from(args).unwrap().entity_type;
+
+        assert!(!agent_failures_exit_1(&parse(&[
+            "stashbase",
+            "agent",
+            "hooks"
+        ])));
+        assert!(agent_failures_exit_1(&parse(&[
+            "stashbase",
+            "agent",
+            "hooks",
+            "deps",
+            "install",
+            "codex"
+        ])));
+        assert!(agent_failures_exit_1(&parse(&[
+            "stashbase",
+            "agent",
+            "run",
+            "--profile",
+            "p",
+            "--",
+            "true"
+        ])));
+        assert!(!agent_failures_exit_1(&parse(&["stashbase", "pull"])));
     }
 
     #[test]
