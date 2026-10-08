@@ -181,6 +181,14 @@ pub async fn run_command_with_filesystem_policy_and_network(
             sandbox_isolated_paths,
         )
         .map_err(|error| anyhow::anyhow!("failed to build Docker sandbox invocation: {error}"))?;
+        // Added only after `docker_run_command` has built its `-e` args, so
+        // the hint lands on the host-side `docker` process (the pane's
+        // foreground process, which Herdr inspects) and never reaches the
+        // container.
+        let mut env_vars = env_vars;
+        if let Some(agent) = herdr_agent_hint(command, &env_vars, |key| env::var(key).ok()) {
+            env_vars.insert("HERDR_AGENT".to_owned(), agent);
+        }
         return run_built_command(
             program,
             launcher_args,
@@ -529,6 +537,36 @@ fn codex_boundary_for_mode(mode: &str) -> CodexSandboxBoundary {
         "danger-full-access" => CodexSandboxBoundary::FullAccess,
         _ => CodexSandboxBoundary::WorkspaceWrite,
     }
+}
+
+/// The `HERDR_AGENT` value for a Docker-sandboxed agent run inside a Herdr
+/// pane, or `None` when there is nothing to add.
+///
+/// Herdr identifies an agent by the pane's foreground process. For the
+/// Docker backend that is the host's `docker` CLI — the agent itself runs
+/// inside the Docker VM, invisible to the host process tree — so Herdr
+/// can't tell an agent is there and shows no idle/working/blocked state.
+/// Herdr's documented fix for wrappers is `HERDR_AGENT=<agent>` set on the
+/// host-side wrapper process, which selects that agent's screen-detection
+/// rules for the pane. An explicit `HERDR_AGENT` always wins: one in
+/// `env_vars` (a profile env var or binding) is already applied to the
+/// `docker` process, and one the user exported is inherited by it.
+fn herdr_agent_hint(
+    command: &str,
+    env_vars: &HashMap<String, String>,
+    host_env: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    if host_env("HERDR_ENV").as_deref() != Some("1")
+        || env_vars.contains_key("HERDR_AGENT")
+        || host_env("HERDR_AGENT").is_some()
+    {
+        return None;
+    }
+    let agent = PathBuf::from(command)
+        .file_stem()?
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    (!agent.is_empty()).then_some(agent)
 }
 
 /// Rewrites Codex's own `--sandbox <mode>` argument to `danger-full-access`
@@ -1202,7 +1240,8 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 mod tests {
     use super::{
         codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
-        run_command, run_marking_launch, sandbox_command, should_inherit_terminal_streams,
+        herdr_agent_hint, run_command, run_marking_launch, sandbox_command,
+        should_inherit_terminal_streams,
     };
     #[cfg(target_os = "macos")]
     use super::{
@@ -1216,6 +1255,37 @@ mod tests {
     fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn herdr_agent_hint_names_the_agent_inside_a_herdr_pane() {
+        let host_env = |key: &str| (key == "HERDR_ENV").then(|| "1".to_owned());
+        assert_eq!(
+            herdr_agent_hint("/usr/local/bin/Claude", &HashMap::new(), host_env),
+            Some("claude".to_owned())
+        );
+    }
+
+    #[test]
+    fn herdr_agent_hint_is_none_outside_herdr() {
+        assert_eq!(herdr_agent_hint("claude", &HashMap::new(), |_| None), None);
+    }
+
+    #[test]
+    fn herdr_agent_hint_keeps_a_user_exported_value() {
+        let host_env = |key: &str| match key {
+            "HERDR_ENV" => Some("1".to_owned()),
+            "HERDR_AGENT" => Some("codex".to_owned()),
+            _ => None,
+        };
+        assert_eq!(herdr_agent_hint("claude", &HashMap::new(), host_env), None);
+    }
+
+    #[test]
+    fn herdr_agent_hint_keeps_an_explicit_profile_value() {
+        let host_env = |key: &str| (key == "HERDR_ENV").then(|| "1".to_owned());
+        let env_vars = HashMap::from([("HERDR_AGENT".to_owned(), "codex".to_owned())]);
+        assert_eq!(herdr_agent_hint("claude", &env_vars, host_env), None);
     }
 
     #[test]

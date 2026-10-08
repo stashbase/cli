@@ -264,7 +264,9 @@ Or override the profile's choice for one invocation without editing the file: `-
 
 Claude Code and Codex are pre-installed in the default sandbox image; a profile can also run its own image or Dockerfile instead (`[sandbox] image`/`dockerfile`) to add other tools, without loosening any of the sandbox constraints themselves.
 
-See **[docs/sandboxing.md](docs/sandboxing.md)** for the full picture: how the network firewall is enforced, custom images, git identity forwarding, login persistence across images, Codex/Claude Code OAuth quirks, and current limitations.
+Agent notifications keep working inside the sandbox, with no setup: [cmux](https://cmux.com), [herdr](https://herdr.dev), Ghostty, iTerm2, kitty, tmux and other terminals get Claude Code's and Codex's "turn finished" and "needs input" notifications as usual, and herdr also shows the sandboxed agent's idle/working/blocked state.
+
+See **[docs/sandboxing.md](docs/sandboxing.md)** for the full picture: how the network firewall is enforced, custom images, git identity forwarding, [notifications and herdr/cmux](docs/sandboxing.md#notifications-herdr-and-cmux), login persistence across images, Codex/Claude Code OAuth quirks, and current limitations.
 
 ### Parallel Agents in Git Worktrees
 

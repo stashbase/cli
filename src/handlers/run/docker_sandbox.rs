@@ -938,19 +938,9 @@ pub(crate) fn docker_run_command(
         super::subprocess::force_color_level()
     ));
 
-    // TERM/COLORTERM drive terminal-capability detection (truecolor
-    // support, theme selection) in TUIs like Codex's — FORCE_COLOR alone
-    // only covers basic on/off color, not that. Forwarded from the host
-    // since the container has no controlling terminal of its own to
-    // detect these from; caller-provided env vars still win.
-    for key in ["TERM", "COLORTERM"] {
-        if !env_vars.contains_key(key) {
-            if let Ok(value) = std::env::var(key) {
-                args.push("-e".to_owned());
-                args.push(format!("{key}={value}"));
-            }
-        }
-    }
+    args.extend(terminal_identity_env_args(env_vars, |key| {
+        std::env::var(key).ok()
+    }));
 
     args.push(agent_image.to_owned());
     args.push(command.to_owned());
@@ -1435,6 +1425,45 @@ fn host_git_config(key: &str) -> Option<String> {
 /// committing. Returns an empty map if the host has neither configured —
 /// this is a convenience, not a requirement, and the container works
 /// fine without it (git commands that don't need an identity still run).
+/// Host env vars that tell a TUI which terminal it is running in.
+///
+/// `TERM`/`COLORTERM` drive capability detection (truecolor support, theme
+/// selection) in TUIs like Codex's — FORCE_COLOR alone only covers basic
+/// on/off color, not that. `TERM_PROGRAM`, `TERM_PROGRAM_VERSION` and
+/// `LC_TERMINAL` are how agents like Claude Code and Codex pick a desktop
+/// notification method (OSC 9/777/99 or the bell) when a turn finishes or
+/// they need input. Those escape sequences pass through `docker run -t`
+/// untouched, so any terminal or multiplexer wrapping the pane (Ghostty,
+/// iTerm2, kitty, herdr, tmux, ...) receives them just as it would outside
+/// the sandbox — but only if the agent knows which terminal it is in.
+const FORWARDED_TERMINAL_ENV_VARS: [&str; 5] = [
+    "TERM",
+    "COLORTERM",
+    "TERM_PROGRAM",
+    "TERM_PROGRAM_VERSION",
+    "LC_TERMINAL",
+];
+
+/// `-e` args forwarding [`FORWARDED_TERMINAL_ENV_VARS`] from the host,
+/// since the container has no controlling terminal of its own to detect
+/// these from. Caller-provided env vars still win.
+fn terminal_identity_env_args(
+    env_vars: &std::collections::HashMap<String, String>,
+    host_env: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let mut args = Vec::new();
+    for key in FORWARDED_TERMINAL_ENV_VARS {
+        if env_vars.contains_key(key) {
+            continue;
+        }
+        if let Some(value) = host_env(key) {
+            args.push("-e".to_owned());
+            args.push(format!("{key}={value}"));
+        }
+    }
+    args
+}
+
 fn host_git_identity_env_vars() -> std::collections::HashMap<String, String> {
     let mut vars = std::collections::HashMap::new();
     if let Some(name) = host_git_config("user.name") {
@@ -2486,6 +2515,40 @@ mod tests {
         .unwrap();
         assert!(args.contains(&"-i".to_owned()));
         assert!(!args.contains(&"-t".to_owned()));
+    }
+
+    #[test]
+    fn terminal_identity_env_args_forwards_terminal_vars_set_on_host() {
+        let host_env = |key: &str| match key {
+            "TERM" => Some("xterm-256color".to_owned()),
+            "TERM_PROGRAM" => Some("ghostty".to_owned()),
+            "LC_TERMINAL" => Some("iTerm2".to_owned()),
+            _ => None,
+        };
+        let args = terminal_identity_env_args(&std::collections::HashMap::new(), host_env);
+        assert_eq!(
+            args,
+            vec![
+                "-e",
+                "TERM=xterm-256color",
+                "-e",
+                "TERM_PROGRAM=ghostty",
+                "-e",
+                "LC_TERMINAL=iTerm2",
+            ]
+        );
+    }
+
+    #[test]
+    fn terminal_identity_env_args_lets_caller_env_vars_win() {
+        let host_env = |_: &str| Some("host-value".to_owned());
+        let env_vars = std::collections::HashMap::from([(
+            "TERM_PROGRAM".to_owned(),
+            "profile-value".to_owned(),
+        )]);
+        let args = terminal_identity_env_args(&env_vars, host_env);
+        assert!(!args.iter().any(|arg| arg.starts_with("TERM_PROGRAM=")));
+        assert!(args.contains(&"TERM_PROGRAM_VERSION=host-value".to_owned()));
     }
 
     #[test]
