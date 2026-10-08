@@ -549,10 +549,11 @@ pub struct HandleRunArgs {
     pub local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 }
 
-/// Several paths below print an error and return `Ok(())` (missing secrets,
-/// API errors, a declined prompt). `handle_cli` sees that as success, so
-/// telemetry reports `run` as `ok` there; for `agent run`,
-/// `telemetry::never_launched_error` still catches a run that never launched.
+/// Errors this prints itself (missing secrets, API errors, a declined prompt)
+/// return `ReportedFailure`, so the command exits 1 without printing them twice.
+/// The one early `Ok(())` is cancelling the `stashbase.yaml` config selection,
+/// which exits 0; for `agent run`, `telemetry::never_launched_error` still
+/// catches a run that never launched.
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
@@ -1145,7 +1146,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         } else if !silent {
             eprintln!("{formatted_err}");
         }
-        return Err(ReportedFailure::new(ErrorKind::Validation));
+        // Matches the root API-key guard: the CLI calls this an authentication error.
+        return Err(ReportedFailure::new(ErrorKind::Auth));
     }
 
     let res = secrets::pull(
