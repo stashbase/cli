@@ -186,7 +186,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
         // foreground process, which Herdr inspects) and never reaches the
         // container.
         let mut env_vars = env_vars;
-        if let Some(agent) = herdr_agent_hint(command, |key| env::var(key).ok()) {
+        if let Some(agent) = herdr_agent_hint(command, &env_vars, |key| env::var(key).ok()) {
             env_vars.insert("HERDR_AGENT".to_owned(), agent);
         }
         return run_built_command(
@@ -539,6 +539,36 @@ fn codex_boundary_for_mode(mode: &str) -> CodexSandboxBoundary {
     }
 }
 
+/// The `HERDR_AGENT` value for a Docker-sandboxed agent run inside a Herdr
+/// pane, or `None` when there is nothing to add.
+///
+/// Herdr identifies an agent by the pane's foreground process. For the
+/// Docker backend that is the host's `docker` CLI — the agent itself runs
+/// inside the Docker VM, invisible to the host process tree — so Herdr
+/// can't tell an agent is there and shows no idle/working/blocked state.
+/// Herdr's documented fix for wrappers is `HERDR_AGENT=<agent>` set on the
+/// host-side wrapper process, which selects that agent's screen-detection
+/// rules for the pane. An explicit `HERDR_AGENT` always wins: one in
+/// `env_vars` (a profile env var or binding) is already applied to the
+/// `docker` process, and one the user exported is inherited by it.
+fn herdr_agent_hint(
+    command: &str,
+    env_vars: &HashMap<String, String>,
+    host_env: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    if host_env("HERDR_ENV").as_deref() != Some("1")
+        || env_vars.contains_key("HERDR_AGENT")
+        || host_env("HERDR_AGENT").is_some()
+    {
+        return None;
+    }
+    let agent = PathBuf::from(command)
+        .file_stem()?
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    (!agent.is_empty()).then_some(agent)
+}
+
 /// Rewrites Codex's own `--sandbox <mode>` argument to `danger-full-access`
 /// (or injects it if absent), the same way `codex_args_with_outer_sandbox`
 /// does for the native macOS backend when an outer Seatbelt profile is
@@ -552,28 +582,6 @@ fn codex_boundary_for_mode(mode: &str) -> CodexSandboxBoundary {
 /// new user/mount namespace, which `--cap-drop ALL` blocks outright).
 /// Codex's approval policy is left untouched; only its own filesystem
 /// sandboxing is disabled.
-/// The `HERDR_AGENT` value for a Docker-sandboxed agent run inside a Herdr
-/// pane, or `None` when there is nothing to add.
-///
-/// Herdr identifies an agent by the pane's foreground process. For the
-/// Docker backend that is the host's `docker` CLI — the agent itself runs
-/// inside the Docker VM, invisible to the host process tree — so Herdr
-/// can't tell an agent is there and shows no idle/working/blocked state.
-/// Herdr's documented fix for wrappers is `HERDR_AGENT=<agent>` set on the
-/// host-side wrapper process, which selects that agent's screen-detection
-/// rules for the pane. A `HERDR_AGENT` the user already exported is
-/// inherited by `docker` as-is, so it is left alone.
-fn herdr_agent_hint(command: &str, host_env: impl Fn(&str) -> Option<String>) -> Option<String> {
-    if host_env("HERDR_ENV").as_deref() != Some("1") || host_env("HERDR_AGENT").is_some() {
-        return None;
-    }
-    let agent = PathBuf::from(command)
-        .file_stem()?
-        .to_string_lossy()
-        .to_ascii_lowercase();
-    (!agent.is_empty()).then_some(agent)
-}
-
 fn codex_args_forcing_full_access(command: &str, mut args: Vec<String>) -> Vec<String> {
     let is_codex = PathBuf::from(command)
         .file_stem()
@@ -1253,14 +1261,14 @@ mod tests {
     fn herdr_agent_hint_names_the_agent_inside_a_herdr_pane() {
         let host_env = |key: &str| (key == "HERDR_ENV").then(|| "1".to_owned());
         assert_eq!(
-            herdr_agent_hint("/usr/local/bin/Claude", host_env),
+            herdr_agent_hint("/usr/local/bin/Claude", &HashMap::new(), host_env),
             Some("claude".to_owned())
         );
     }
 
     #[test]
     fn herdr_agent_hint_is_none_outside_herdr() {
-        assert_eq!(herdr_agent_hint("claude", |_| None), None);
+        assert_eq!(herdr_agent_hint("claude", &HashMap::new(), |_| None), None);
     }
 
     #[test]
@@ -1270,7 +1278,14 @@ mod tests {
             "HERDR_AGENT" => Some("codex".to_owned()),
             _ => None,
         };
-        assert_eq!(herdr_agent_hint("claude", host_env), None);
+        assert_eq!(herdr_agent_hint("claude", &HashMap::new(), host_env), None);
+    }
+
+    #[test]
+    fn herdr_agent_hint_keeps_an_explicit_profile_value() {
+        let host_env = |key: &str| (key == "HERDR_ENV").then(|| "1".to_owned());
+        let env_vars = HashMap::from([("HERDR_AGENT".to_owned(), "codex".to_owned())]);
+        assert_eq!(herdr_agent_hint("claude", &env_vars, host_env), None);
     }
 
     #[test]
