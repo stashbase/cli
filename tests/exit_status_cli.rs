@@ -412,6 +412,62 @@ fn an_api_request_that_fails_exits_1() {
     );
 }
 
+/// Without `--only`, `run` fetches every secret of the environment. Against
+/// an API nothing listens on, that fetch fails and the command never starts.
+#[test]
+fn run_without_only_fetches_secrets_before_starting_the_command() {
+    let project = Project::new();
+
+    let out = project.run(&[
+        "run",
+        "-p",
+        "myproj",
+        "-e",
+        "dev",
+        "--api-key",
+        "k",
+        "--",
+        "sh",
+        "-c",
+        "echo child-ran",
+    ]);
+
+    check(
+        "run",
+        &out,
+        1,
+        "Could not connect to the API",
+        Reported::NotAsserted,
+    );
+    assert!(!text(&out.stdout).contains("child-ran"));
+}
+
+/// A `--json` error replaces the loading spinner instead of being appended to
+/// its line, so the error is the only thing left to parse.
+#[test]
+fn run_json_error_clears_the_loading_spinner() {
+    let project = Project::new();
+    std::fs::write(project.cwd.join("secrets.env"), "OTHER=1\n").unwrap();
+
+    let out = project.run(&[
+        "run",
+        "--file",
+        "secrets.env",
+        "--only",
+        "MISSING",
+        "--api-key",
+        "k",
+        "--json",
+        "--",
+        "true",
+    ]);
+
+    let stderr = text(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("no secrets found"), "{stderr}");
+    assert!(!stderr.contains("Loading environment...{"), "{stderr}");
+}
+
 #[test]
 fn run_without_any_secrets_does_not_start_the_command_and_exits_1() {
     let project = Project::new();

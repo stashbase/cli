@@ -1010,7 +1010,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 });
 
                 let json_str = get_formatted_json_string(&message, false).unwrap();
-                eprintln!("{}", json_str);
+                if let Some(ref mut spinner) = spinner {
+                    spinner.stop_with_message(&json_str);
+                } else {
+                    eprintln!("{}", json_str);
+                }
             } else if let Some(ref mut spinner) = spinner {
                 spinner.stop_with_message(&format!(
                     "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
@@ -1110,7 +1114,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         })
         .unwrap_or_else(|| only.clone());
 
-    if remote_only.is_empty() {
+    if !needs_remote_fetch(&only, &remote_only, proxy_policy.is_some()) {
         let mut secrets = local_overrides.unwrap_or_default();
         for secret in &mut secrets {
             secret.value = format_env_variable_value(secret.value.to_string());
@@ -1203,7 +1207,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         });
 
                         let json_str = get_formatted_json_string(&message, false).unwrap();
-                        eprintln!("{}", json_str);
+                        if let Some(ref mut spinner) = spinner {
+                            spinner.stop_with_message(&json_str);
+                        } else {
+                            eprintln!("{}", json_str);
+                        }
                     } else {
                         let msg = format!(
                             "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
@@ -1447,19 +1455,9 @@ async fn handle_run(
 
     if !silent {
         let mut success_msg = format!(
-            "{} {} ({} {})",
+            "{} {}",
             "✓".green_if_tty_stderr(),
-            if secrets.is_empty() {
-                "Egress-only profile"
-            } else {
-                "Environment loaded"
-            },
-            secrets.len(),
-            if secrets.len() == 1 {
-                "secret"
-            } else {
-                "secrets"
-            }
+            loaded_message(secrets.len(), proxy_policy.is_some())
         );
 
         if print_secrets.is_some() && !is_from_file {
@@ -1830,6 +1828,36 @@ fn apply_secret_bindings(
 
 /// Combines the remote fallback with local overrides. Names outside the
 /// profile's requested source set are discarded before a child can receive them.
+/// The line `run` prints once the secrets are loaded. "Egress-only profile"
+/// describes an agent profile, so plain `stashbase run` never says it.
+fn loaded_message(secret_count: usize, agent_run: bool) -> String {
+    let label = if agent_run && secret_count == 0 {
+        "Egress-only profile"
+    } else {
+        "Environment loaded"
+    };
+    let noun = if secret_count == 1 {
+        "secret"
+    } else {
+        "secrets"
+    };
+    format!("{label} ({secret_count} {noun})")
+}
+
+/// Whether `run` has to fetch secrets from Stashbase. `remote_only` is
+/// `only` minus the secrets a local profile file already provides.
+///
+/// An empty `only` means "every secret" for `stashbase run`, so it always
+/// fetches. An agent run (`agent_run`) only ever receives the secrets its
+/// profile binds, so an empty `only` there means none.
+fn needs_remote_fetch(only: &[String], remote_only: &[String], agent_run: bool) -> bool {
+    if only.is_empty() {
+        !agent_run
+    } else {
+        !remote_only.is_empty()
+    }
+}
+
 fn merge_remote_and_local_secrets(
     remote: Vec<SecretWithoutComment>,
     local: Vec<SecretWithoutComment>,
@@ -1870,8 +1898,9 @@ fn missing_secret_labels(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_secret_bindings, load_run_secrets_from_file, merge_remote_and_local_secrets,
-        missing_secret_labels, prepare_local_run_secrets,
+        apply_secret_bindings, load_run_secrets_from_file, loaded_message,
+        merge_remote_and_local_secrets, missing_secret_labels, needs_remote_fetch,
+        prepare_local_run_secrets,
     };
     use crate::models::secrets::SecretWithoutComment;
     use std::{
@@ -2129,6 +2158,33 @@ mod tests {
         );
 
         assert_eq!(missing, ["GH_TOKEN (from GITHUB_TOKEN)"]);
+    }
+
+    #[test]
+    fn only_an_agent_run_without_secrets_is_called_egress_only() {
+        assert_eq!(loaded_message(0, true), "Egress-only profile (0 secrets)");
+        assert_eq!(loaded_message(1, true), "Environment loaded (1 secret)");
+        assert_eq!(loaded_message(0, false), "Environment loaded (0 secrets)");
+        assert_eq!(loaded_message(10, false), "Environment loaded (10 secrets)");
+    }
+
+    #[test]
+    fn run_without_only_fetches_every_secret() {
+        assert!(needs_remote_fetch(&[], &[], false));
+    }
+
+    #[test]
+    fn an_agent_run_never_fetches_secrets_it_does_not_bind() {
+        assert!(!needs_remote_fetch(&[], &[], true));
+    }
+
+    #[test]
+    fn requested_secrets_are_fetched_unless_a_local_file_provides_them_all() {
+        let only = ["GITHUB_TOKEN".to_owned()];
+        for agent_run in [false, true] {
+            assert!(needs_remote_fetch(&only, &only, agent_run));
+            assert!(!needs_remote_fetch(&only, &[], agent_run));
+        }
     }
 
     #[test]
