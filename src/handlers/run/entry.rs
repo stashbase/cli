@@ -1010,7 +1010,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 });
 
                 let json_str = get_formatted_json_string(&message, false).unwrap();
-                eprintln!("{}", json_str);
+                if let Some(ref mut spinner) = spinner {
+                    spinner.stop_with_message(&json_str);
+                } else {
+                    eprintln!("{}", json_str);
+                }
             } else if let Some(ref mut spinner) = spinner {
                 spinner.stop_with_message(&format!(
                     "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
@@ -1203,7 +1207,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         });
 
                         let json_str = get_formatted_json_string(&message, false).unwrap();
-                        eprintln!("{}", json_str);
+                        if let Some(ref mut spinner) = spinner {
+                            spinner.stop_with_message(&json_str);
+                        } else {
+                            eprintln!("{}", json_str);
+                        }
                     } else {
                         let msg = format!(
                             "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
