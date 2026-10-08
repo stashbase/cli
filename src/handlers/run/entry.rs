@@ -8,6 +8,7 @@ use tabled::Tabled;
 use crate::{
     api::secrets,
     cmd::secrets::SecretsFileFormat,
+    exit::ReportedFailure,
     handlers::run::subprocess,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
@@ -19,6 +20,7 @@ use crate::{
             SecretsInputValidationError,
         },
     },
+    telemetry::event::{classify_output_error, ErrorKind},
     utils::{
         env,
         interaction::{self},
@@ -547,10 +549,11 @@ pub struct HandleRunArgs {
     pub local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 }
 
-/// Several paths below print an error and return `Ok(())` (missing secrets,
-/// API errors, a declined prompt). `handle_cli` sees that as success, so
-/// telemetry reports `run` as `ok` there; for `agent run`,
-/// `telemetry::never_launched_error` still catches a run that never launched.
+/// Errors this prints itself (missing secrets, API errors, a declined prompt)
+/// return `ReportedFailure`, so the command exits 1 without printing them twice.
+/// The one early `Ok(())` is cancelling the `stashbase.yaml` config selection,
+/// which exits 0; for `agent run`, `telemetry::never_launched_error` still
+/// catches a run that never launched.
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
@@ -1024,7 +1027,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 );
             }
 
-            return Ok(());
+            return Err(ReportedFailure::new(ErrorKind::NotFound));
         }
 
         if only_len > 0 && secrets.len() < only_len {
@@ -1055,7 +1058,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             };
 
             if confirmation != Some(true) {
-                return Ok(());
+                return Err(ReportedFailure::new(ErrorKind::NotFound));
             }
         }
 
@@ -1143,7 +1146,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         } else if !silent {
             eprintln!("{formatted_err}");
         }
-        return Ok(());
+        // Matches the root API-key guard: the CLI calls this an authentication error.
+        return Err(ReportedFailure::new(ErrorKind::Auth));
     }
 
     let res = secrets::pull(
@@ -1159,6 +1163,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
+        let kind = classify_output_error(&err);
         let formatted_err = err.format_error_output(json_format)?;
 
         if let Some(mut spinner) = spinner {
@@ -1167,7 +1172,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             eprintln!("{}", formatted_err);
         }
 
-        return Ok(());
+        return Err(ReportedFailure::new(kind));
     }
 
     match res {
@@ -1214,7 +1219,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         }
                     }
 
-                    return Ok(());
+                    return Err(ReportedFailure::new(ErrorKind::NotFound));
                 }
 
                 if only_len > 0 && secrets.len() < only_len {
@@ -1287,7 +1292,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         )
                         .await?;
                     } else {
-                        return Ok(());
+                        return Err(ReportedFailure::new(ErrorKind::NotFound));
                     }
                 } else {
                     if !setted_secrets.is_empty() {

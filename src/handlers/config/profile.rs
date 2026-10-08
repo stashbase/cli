@@ -1,29 +1,42 @@
+use anyhow::Result;
+
 use crate::{
     cmd::config::{AddProfile, ProfileSubcommand},
     config::{config, secure_store},
+    exit::ReportedFailure,
     handlers::config::api_key,
     models::config::Config,
+    telemetry::event::ErrorKind,
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
 use serde::Serialize;
 
-pub fn handle_profile_command(command: ProfileSubcommand, config_data: &Config, json_output: bool) {
+pub fn handle_profile_command(
+    command: ProfileSubcommand,
+    config_data: &Config,
+    json_output: bool,
+) -> Result<()> {
     match command {
         ProfileSubcommand::Add(args) => add_profile(args, config_data),
         ProfileSubcommand::List => list_profiles(config_data, json_output),
         ProfileSubcommand::Current => match config::resolve_profile_name(config_data) {
             Ok(profile) if json_output => print_json(&CurrentProfileOutput { profile }),
-            Ok(profile) => println!("{}", profile.blue_bold_if_tty()),
-            Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),
+            Ok(profile) => {
+                println!("{}", profile.blue_bold_if_tty());
+                Ok(())
+            }
+            Err(error) => report_error(error),
         },
         ProfileSubcommand::Use(args) => match config::set_default_profile(&args.name) {
-            Ok(()) => println!("Default profile set to '{}'.", args.name),
-            Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),
+            Ok(()) => {
+                println!("Default profile set to '{}'.", args.name);
+                Ok(())
+            }
+            Err(error) => report_error(error),
         },
         ProfileSubcommand::Remove(args) => {
             if let Err(error) = ensure_profile_can_be_removed(config_data, &args.name) {
-                eprintln!("{} {}", "Error:".red_if_tty_stderr(), error);
-                return;
+                return report_error(error);
             }
             if let Err(error) = secure_store::delete_api_key_for_profile(&args.name) {
                 eprintln!(
@@ -32,18 +45,30 @@ pub fn handle_profile_command(command: ProfileSubcommand, config_data: &Config, 
                     args.name,
                     error
                 );
-                return;
+                return Err(ReportedFailure::new(ErrorKind::Other));
             }
             match config::remove_profile(&args.name) {
-                Ok(()) => println!("Profile '{}' removed.", args.name),
-                Err(error) => eprintln!(
-                    "{} The secure-store key was removed, but profile metadata could not be removed: {}",
-                    "Warning:".yellow_if_tty_stderr(),
-                    error
-                ),
+                Ok(()) => {
+                    println!("Profile '{}' removed.", args.name);
+                    Ok(())
+                }
+                Err(error) => {
+                    eprintln!(
+                        "{} The secure-store key was removed, but profile metadata could not be removed: {}",
+                        "Warning:".yellow_if_tty_stderr(),
+                        error
+                    );
+                    Err(ReportedFailure::new(ErrorKind::Other))
+                }
             }
         }
     }
+}
+
+/// Prints `error` the way every profile command does and fails the command.
+fn report_error(error: impl std::fmt::Display) -> Result<()> {
+    eprintln!("{} {}", "Error:".red_if_tty_stderr(), error);
+    Err(ReportedFailure::new(ErrorKind::Validation))
 }
 
 fn ensure_profile_can_be_removed(config_data: &Config, name: &str) -> anyhow::Result<()> {
@@ -63,23 +88,20 @@ fn ensure_profile_can_be_removed(config_data: &Config, name: &str) -> anyhow::Re
     Ok(())
 }
 
-fn add_profile(args: AddProfile, config_data: &Config) {
+fn add_profile(args: AddProfile, config_data: &Config) -> Result<()> {
     if let Err(error) = config::validate_profile_name(&args.name) {
-        eprintln!("{} {}", "Error:".red_if_tty_stderr(), error);
-        return;
+        return report_error(error);
     }
     if args.name == config::DEFAULT_PROFILE {
-        eprintln!(
-            "{} 'default' is the implicit profile; use 'config api-key set' to manage its key.",
-            "Error:".red_if_tty_stderr()
+        return report_error(
+            "'default' is the implicit profile; use 'config api-key set' to manage its key.",
         );
-        return;
     }
     let api_key = match api_key::read_api_key(args.stdin) {
         Ok(key) => key,
         Err(error) => {
             eprintln!("{}", error.red_if_tty_stderr());
-            return;
+            return Err(ReportedFailure::new(ErrorKind::Validation));
         }
     };
     if let Err(error) = secure_store::set_api_key_for_profile(&args.name, &api_key) {
@@ -88,24 +110,28 @@ fn add_profile(args: AddProfile, config_data: &Config) {
             "Error:".red_if_tty_stderr(),
             error
         );
-        return;
+        return Err(ReportedFailure::new(ErrorKind::Other));
     }
     let profile_already_exists = config_data
         .profiles
         .as_ref()
         .is_some_and(|profiles| profiles.contains_key(&args.name));
     match config::add_profile(&args.name, args.workspace) {
-        Ok(()) => println!("Profile '{}' saved.", args.name),
+        Ok(()) => {
+            println!("Profile '{}' saved.", args.name);
+            Ok(())
+        }
         Err(error) => {
             if !profile_already_exists {
                 let _ = secure_store::delete_api_key_for_profile(&args.name);
             }
             eprintln!("{} {}", "Error:".red_if_tty_stderr(), error);
+            Err(ReportedFailure::new(ErrorKind::Other))
         }
     }
 }
 
-fn list_profiles(config_data: &Config, json_output: bool) {
+fn list_profiles(config_data: &Config, json_output: bool) -> Result<()> {
     let default = config_data
         .default_profile
         .as_deref()
@@ -128,8 +154,7 @@ fn list_profiles(config_data: &Config, json_output: bool) {
                     }),
             );
         }
-        print_json(&ProfileListOutput { profiles });
-        return;
+        return print_json(&ProfileListOutput { profiles });
     }
     print_profile_row(
         config::DEFAULT_PROFILE,
@@ -144,6 +169,7 @@ fn list_profiles(config_data: &Config, json_output: bool) {
             print_profile_row(name, profile.workspace.as_deref(), name == default);
         }
     }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -164,10 +190,16 @@ struct ProfileListItem {
     is_default: bool,
 }
 
-fn print_json<T: Serialize>(value: &T) {
+fn print_json<T: Serialize>(value: &T) -> Result<()> {
     match get_formatted_json_string(value, true) {
-        Ok(json) => println!("{json}"),
-        Err(error) => eprintln!("{} {}", "Error:".red_if_tty_stderr(), error),
+        Ok(json) => {
+            println!("{json}");
+            Ok(())
+        }
+        Err(error) => {
+            eprintln!("{} {}", "Error:".red_if_tty_stderr(), error);
+            Err(ReportedFailure::new(ErrorKind::Other))
+        }
     }
 }
 

@@ -23,7 +23,7 @@ use crate::{
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
-    exit::{Exit, IntoExit},
+    exit::{needs_printing, Exit, IntoExit},
     handlers::{
         agent::{
             doctor::handle_agent_doctor_command,
@@ -407,6 +407,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
         };
     }
 
+    let bare_agent_hook = is_bare_agent_hook(&args.entity_type);
     let config = config::get_config();
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
@@ -419,7 +420,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
             Ok(profile) => profile,
             Err(error) => {
                 eprintln!("{}", error);
-                return Exit::failed(ErrorKind::Validation);
+                return exit_for(Exit::failed(ErrorKind::Validation), bare_agent_hook);
             }
         };
         let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
@@ -491,7 +492,6 @@ pub async fn handle_cli(args: Cli) -> Exit {
 
         // Local commands such as `agent logs` do not need Stashbase authentication.
         let api_key = api_key.unwrap_or_default();
-        let agent_failures_exit_1 = agent_failures_exit_1(&args.entity_type);
 
         let result: anyhow::Result<Exit> = match args.entity_type {
             EntityType::Whoami(WhoamiCommand { format }) => {
@@ -1484,17 +1484,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     eprintln!("{}", "Request aborted".red_if_tty_stderr());
                     return Exit::code(130);
                 }
-                eprintln!("{:?}", err);
+                if needs_printing(&err) {
+                    eprintln!("{:?}", err);
+                }
                 Exit::from(err)
             }
         };
-        if agent_failures_exit_1 {
-            exit.nonzero_on_failure()
-        } else {
-            exit
-        }
+        exit_for(exit, bare_agent_hook)
     } else {
-        let agent_failures_exit_1 = agent_failures_exit_1(&args.entity_type);
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
                 return print_error(handle_config_commands(cmd, &Config::new(), args.raw));
@@ -1506,25 +1503,21 @@ pub async fn handle_cli(args: Cli) -> Exit {
             eprintln!("{}", "Request aborted".red_if_tty_stderr());
             return Exit::code(130);
         }
-        // An unreadable or malformed config file: printed, and the command
-        // still exits 0.
+        // An unreadable or malformed config file.
         eprintln!("{:?}", err);
-        let exit = Exit::failed(ErrorKind::Validation);
-        if agent_failures_exit_1 {
-            exit.nonzero_on_failure()
-        } else {
-            exit
-        }
+        exit_for(Exit::failed(ErrorKind::Validation), bare_agent_hook)
     }
 }
 
-/// Prints an error the way every handler does, and exits 0 as they always
-/// have. A failure that is only printed is still a failed command.
+/// Prints an error the way every handler does, unless the handler already
+/// printed it, and fails the command.
 fn print_error(result: anyhow::Result<()>) -> Exit {
     match result {
         Ok(()) => Exit::ok(),
         Err(error) => {
-            eprintln!("{:?}", error);
+            if needs_printing(&error) {
+                eprintln!("{:?}", error);
+            }
             Exit::from(error)
         }
     }
@@ -1540,16 +1533,22 @@ fn check_exit(failed: bool) -> Exit {
     }
 }
 
-/// `agent` commands exit 1 when they fail, except the bare `agent hooks`
-/// invocation: Claude Code, Codex and Cursor run it before tool calls and
-/// read its exit code, so its codes stay as they were.
-fn agent_failures_exit_1(entity_type: &EntityType) -> bool {
-    match entity_type {
+/// The bare `agent hooks` invocation: Claude Code, Codex and Cursor run it
+/// before tool calls and read its exit code, so its failures keep exiting 0.
+fn is_bare_agent_hook(entity_type: &EntityType) -> bool {
+    matches!(
+        entity_type,
         EntityType::Agent(crate::cmd::agent::AgentCommand {
             subcommand: AgentSubcommand::Hooks(command),
-        }) => command.subcommand.is_some(),
-        EntityType::Agent(_) => true,
-        _ => false,
+        }) if command.subcommand.is_none()
+    )
+}
+
+fn exit_for(exit: Exit, bare_agent_hook: bool) -> Exit {
+    if bare_agent_hook {
+        exit.zero_on_failure()
+    } else {
+        exit
     }
 }
 
@@ -2350,17 +2349,20 @@ fn spawn_remote_session_rotation(
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_failures_exit_1, audit_binding_sources, codex_mcp_binding_header_overrides,
-        configured_host_matches, dependency_hooks_enabled, directory_profile_git_warning,
-        ensure_replacement_session_is_compatible, infer_remote_agent_type, remote_bindings,
-        remote_codex_command_with_mcp_binding_headers, remote_session_rotation_delay_for,
-        remote_session_transport_identity, remote_source_env_names, secret_child_name,
-        summarize_audit_events, uses_local_dependency_hook_broker_mode,
+        audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
+        dependency_hooks_enabled, directory_profile_git_warning,
+        ensure_replacement_session_is_compatible, exit_for, infer_remote_agent_type,
+        is_bare_agent_hook, remote_bindings, remote_codex_command_with_mcp_binding_headers,
+        remote_session_rotation_delay_for, remote_session_transport_identity,
+        remote_source_env_names, secret_child_name, summarize_audit_events,
+        uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::cmd::root::Cli;
+    use crate::exit::Exit;
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
     use crate::models::agent::{AgentBindingProfile, AgentProfile, AgentSecretsProfile};
+    use crate::telemetry::event::ErrorKind;
     use clap::Parser;
     use std::{
         collections::HashMap,
@@ -2431,32 +2433,21 @@ mod tests {
     }
 
     #[test]
-    fn agent_failures_exit_1_except_the_bare_hook_invocation() {
+    fn only_the_bare_hook_invocation_keeps_exit_0_on_failure() {
         let parse = |args: &[&str]| Cli::try_parse_from(args).unwrap().entity_type;
 
-        assert!(!agent_failures_exit_1(&parse(&[
-            "stashbase",
-            "agent",
-            "hooks"
-        ])));
-        assert!(agent_failures_exit_1(&parse(&[
-            "stashbase",
-            "agent",
-            "hooks",
-            "deps",
-            "install",
-            "codex"
-        ])));
-        assert!(agent_failures_exit_1(&parse(&[
-            "stashbase",
-            "agent",
-            "run",
-            "--profile",
-            "p",
-            "--",
-            "true"
-        ])));
-        assert!(!agent_failures_exit_1(&parse(&["stashbase", "pull"])));
+        assert!(is_bare_agent_hook(&parse(&["stashbase", "agent", "hooks"])));
+        for args in [
+            &["stashbase", "agent", "hooks", "deps", "install", "codex"][..],
+            &["stashbase", "agent", "run", "--profile", "p", "--", "true"],
+            &["stashbase", "pull"],
+        ] {
+            assert!(!is_bare_agent_hook(&parse(args)), "{args:?}");
+        }
+
+        let failed = Exit::failed(ErrorKind::Validation);
+        assert_eq!(exit_for(failed, true).code, 0);
+        assert_eq!(exit_for(failed, false).code, 1);
     }
 
     #[test]

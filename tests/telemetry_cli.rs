@@ -536,6 +536,34 @@ fn a_missing_api_key_is_reported_as_an_auth_error() {
     assert_eq!(events[0]["error_kind"], "auth", "{}", events[0]);
 }
 
+/// `agent run` skips the root API-key guard so file-only profiles can run, and
+/// meets the missing key later, when it fetches the remote secrets.
+#[test]
+fn a_missing_api_key_in_agent_run_is_reported_as_an_auth_error() {
+    let sandbox = Sandbox::new();
+    sandbox.enable();
+    sandbox.write_profile(
+        "p",
+        "[secrets]\nproject = \"project\"\nenvironment = \"environment\"\n\n\
+         [secrets.GH_TOKEN]\n\n\
+         [[secrets.GH_TOKEN.rules]]\neffect = \"allow\"\nhosts = [\"api.github.com\"]\n\
+         methods = [\"GET\"]\npaths = [\"*\"]\n",
+    );
+
+    let out = sandbox.run(&["agent", "run", "--profile", "p", "--", "sh", "-c", "exit 0"]);
+    // The proxy binds a loopback port before the key is needed.
+    if stderr(&out).contains("Operation not permitted") {
+        eprintln!("skipping: loopback ports are refused inside another sandbox");
+        return;
+    }
+
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let events = events(&out);
+    assert_eq!(events.len(), 1, "{}", stderr(&out));
+    assert_eq!(events[0]["outcome"], "error");
+    assert_eq!(events[0]["error_kind"], "auth", "{}", events[0]);
+}
+
 /// `handle_cli` prints these two failures and returns normally (exit 0), so
 /// telemetry must record them itself or it would report a success.
 #[test]

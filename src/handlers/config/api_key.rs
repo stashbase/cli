@@ -1,9 +1,9 @@
-// use anyhow::Result;
-
 use std::io::{self, Read};
 
 use crate::{
     config::{config, secure_store},
+    exit::ReportedFailure,
+    telemetry::event::ErrorKind,
     utils::{interaction::input_password, output::ColorizeIfColoredOutput},
 };
 
@@ -21,12 +21,12 @@ pub fn read_api_key(read_from_stdin: bool) -> Result<String, &'static str> {
     }
 }
 
-pub fn set_api_key(read_from_stdin: bool, profile: &str) {
+pub fn set_api_key(read_from_stdin: bool, profile: &str) -> anyhow::Result<()> {
     let api_key_value = match read_api_key(read_from_stdin) {
         Ok(value) => value,
         Err(message) => {
             eprintln!("{}", message.red_if_tty_stderr());
-            return;
+            return Err(ReportedFailure::new(ErrorKind::Validation));
         }
     };
 
@@ -39,7 +39,7 @@ pub fn set_api_key(read_from_stdin: bool, profile: &str) {
                 "Error:".red_if_tty_stderr(),
                 store_err
             );
-            return;
+            return Err(ReportedFailure::new(ErrorKind::Other));
         }
         let fallback_res = config::update_config(crate::models::config::UpdateConfig {
             api_key: Some(api_key_value),
@@ -49,7 +49,7 @@ pub fn set_api_key(read_from_stdin: bool, profile: &str) {
 
         if let Err(fallback_err) = fallback_res {
             eprintln!("{} {}", "Error:".red_if_tty_stderr(), fallback_err);
-            return;
+            return Err(ReportedFailure::new(ErrorKind::Other));
         }
 
         eprintln!(
@@ -65,6 +65,7 @@ pub fn set_api_key(read_from_stdin: bool, profile: &str) {
         }
         println!("API key set.");
     }
+    Ok(())
 }
 
 fn read_api_key_from_stdin() -> Result<String, &'static str> {

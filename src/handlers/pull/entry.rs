@@ -11,6 +11,7 @@ use log::debug;
 use crate::{
     api::secrets,
     cmd::{config::SecretsOutputFormat, pull::PullFormat},
+    exit::ReportedFailure,
     handlers::run::entry::{
         get_set_name_comment_pairs, get_set_name_value_pairs, validate_no_duplicate_set_names,
     },
@@ -24,6 +25,7 @@ use crate::{
             PushPullInputValidationError, YamlEnvConfigError,
         },
     },
+    telemetry::event::ErrorKind,
     utils::{
         interaction::{self, select},
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -525,7 +527,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                             eprintln!("{}", msg);
                         }
 
-                        return Ok(());
+                        return Err(ReportedFailure::new(ErrorKind::NotFound));
                     }
 
                     if only_len > 0 && secrets.len() < only_len {
@@ -653,7 +655,7 @@ pub async fn handle_pull(args: HandlePullArgs) -> Result<()> {
                                 }
                             }
                         } else {
-                            return Ok(());
+                            return Err(ReportedFailure::new(ErrorKind::NotFound));
                         }
                     } else {
                         if !setted_secrets.is_empty() {
