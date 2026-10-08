@@ -51,20 +51,26 @@ use super::format::format_env_variable_value;
 ///
 /// In an interactive session, asks before building (an implicit multi-
 /// minute `docker build` on first use would otherwise be a surprising side
-/// effect of `agent run`). In `--silent` mode there is no one to ask, so
-/// this fails closed with instructions rather than silently building or
-/// silently running unsandboxed.
+/// effect of `agent run`). In `--silent` mode, or without a terminal to
+/// prompt on (stdin piped, CI, a script over SSH), there is no one to ask,
+/// so this fails closed with the command that builds it rather than
+/// silently building or silently running unsandboxed.
 fn ensure_docker_sandbox_image_available(
     source: &super::docker_sandbox::AgentImageSource,
     silent: bool,
 ) -> anyhow::Result<String> {
+    use std::io::IsTerminal;
+
     let tag = source.image_tag();
     if super::docker_sandbox::sandbox_image_exists(source) {
         return Ok(tag);
     }
-    if silent {
+    let can_prompt = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+    if silent || !can_prompt {
         anyhow::bail!(
-            "the Docker sandbox image ({tag}) is not built yet; build it once with `docker build -t {tag} <Dockerfile>` or re-run without --silent to be prompted",
+            "the Docker sandbox image ({tag}) is not built yet; build it once with `{}`, or re-run in an interactive terminal{} to be asked",
+            missing_image_build_command(source, &tag),
+            if silent { " without --silent" } else { "" },
         );
     }
     eprintln!();
@@ -86,6 +92,24 @@ fn ensure_docker_sandbox_image_available(
         .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
     eprintln!("Docker sandbox image built.");
     Ok(tag)
+}
+
+/// The command that builds a missing sandbox image. The default image's
+/// Dockerfile is embedded in the binary, so only `agent docker build` can
+/// build it. A custom Dockerfile is built from stdin with no context, the
+/// same way `build_sandbox_image` builds it (a context holding only the
+/// Dockerfile), which also covers a per-run `--docker-dockerfile` that no
+/// profile names.
+fn missing_image_build_command(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+) -> String {
+    match source {
+        super::docker_sandbox::AgentImageSource::Dockerfile(path) => {
+            format!("docker build -t {tag} - < {}", path.display())
+        }
+        _ => "stashbase agent docker build".to_owned(),
+    }
 }
 
 /// Ensures every image a Docker-backend run will actually need is
@@ -1906,8 +1930,8 @@ fn missing_secret_labels(
 mod tests {
     use super::{
         apply_secret_bindings, load_run_secrets_from_file, loaded_message, loading_message,
-        merge_remote_and_local_secrets, missing_secret_labels, needs_remote_fetch,
-        prepare_local_run_secrets,
+        merge_remote_and_local_secrets, missing_image_build_command, missing_secret_labels,
+        needs_remote_fetch, prepare_local_run_secrets,
     };
     use crate::models::secrets::SecretWithoutComment;
     use std::{
@@ -1916,6 +1940,26 @@ mod tests {
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn missing_default_image_points_to_agent_docker_build() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        assert_eq!(
+            missing_image_build_command(&source, "stashbase/agent-sandbox:latest"),
+            "stashbase agent docker build"
+        );
+    }
+
+    #[test]
+    fn missing_custom_image_builds_the_dockerfile_from_stdin() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Dockerfile(
+            PathBuf::from("/repo/sandbox.Dockerfile"),
+        );
+        assert_eq!(
+            missing_image_build_command(&source, "stashbase/agent-sandbox-custom:abc"),
+            "docker build -t stashbase/agent-sandbox-custom:abc - < /repo/sandbox.Dockerfile"
+        );
+    }
 
     /// `finish_run_worktree` must repair the pointer file before any host
     /// git runs in the worktree, then reset foreign refs, then remove the
