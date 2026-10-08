@@ -181,6 +181,14 @@ pub async fn run_command_with_filesystem_policy_and_network(
             sandbox_isolated_paths,
         )
         .map_err(|error| anyhow::anyhow!("failed to build Docker sandbox invocation: {error}"))?;
+        // Added only after `docker_run_command` has built its `-e` args, so
+        // the hint lands on the host-side `docker` process (the pane's
+        // foreground process, which Herdr inspects) and never reaches the
+        // container.
+        let mut env_vars = env_vars;
+        if let Some(agent) = herdr_agent_hint(command, |key| env::var(key).ok()) {
+            env_vars.insert("HERDR_AGENT".to_owned(), agent);
+        }
         return run_built_command(
             program,
             launcher_args,
@@ -544,6 +552,28 @@ fn codex_boundary_for_mode(mode: &str) -> CodexSandboxBoundary {
 /// new user/mount namespace, which `--cap-drop ALL` blocks outright).
 /// Codex's approval policy is left untouched; only its own filesystem
 /// sandboxing is disabled.
+/// The `HERDR_AGENT` value for a Docker-sandboxed agent run inside a Herdr
+/// pane, or `None` when there is nothing to add.
+///
+/// Herdr identifies an agent by the pane's foreground process. For the
+/// Docker backend that is the host's `docker` CLI — the agent itself runs
+/// inside the Docker VM, invisible to the host process tree — so Herdr
+/// can't tell an agent is there and shows no idle/working/blocked state.
+/// Herdr's documented fix for wrappers is `HERDR_AGENT=<agent>` set on the
+/// host-side wrapper process, which selects that agent's screen-detection
+/// rules for the pane. A `HERDR_AGENT` the user already exported is
+/// inherited by `docker` as-is, so it is left alone.
+fn herdr_agent_hint(command: &str, host_env: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if host_env("HERDR_ENV").as_deref() != Some("1") || host_env("HERDR_AGENT").is_some() {
+        return None;
+    }
+    let agent = PathBuf::from(command)
+        .file_stem()?
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    (!agent.is_empty()).then_some(agent)
+}
+
 fn codex_args_forcing_full_access(command: &str, mut args: Vec<String>) -> Vec<String> {
     let is_codex = PathBuf::from(command)
         .file_stem()
@@ -1202,7 +1232,8 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 mod tests {
     use super::{
         codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
-        run_command, run_marking_launch, sandbox_command, should_inherit_terminal_streams,
+        herdr_agent_hint, run_command, run_marking_launch, sandbox_command,
+        should_inherit_terminal_streams,
     };
     #[cfg(target_os = "macos")]
     use super::{
@@ -1216,6 +1247,30 @@ mod tests {
     fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn herdr_agent_hint_names_the_agent_inside_a_herdr_pane() {
+        let host_env = |key: &str| (key == "HERDR_ENV").then(|| "1".to_owned());
+        assert_eq!(
+            herdr_agent_hint("/usr/local/bin/Claude", host_env),
+            Some("claude".to_owned())
+        );
+    }
+
+    #[test]
+    fn herdr_agent_hint_is_none_outside_herdr() {
+        assert_eq!(herdr_agent_hint("claude", |_| None), None);
+    }
+
+    #[test]
+    fn herdr_agent_hint_keeps_a_user_exported_value() {
+        let host_env = |key: &str| match key {
+            "HERDR_ENV" => Some("1".to_owned()),
+            "HERDR_AGENT" => Some("codex".to_owned()),
+            _ => None,
+        };
+        assert_eq!(herdr_agent_hint("claude", host_env), None);
     }
 
     #[test]
