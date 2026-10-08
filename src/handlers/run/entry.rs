@@ -965,7 +965,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     let mut spinner = if !silent {
         Some(crate::utils::spinner::new_spinner(
-            "Loading environment...",
+            loading_message(proxy_policy.is_some()),
             Streams::Stderr,
         ))
     } else {
@@ -1826,20 +1826,25 @@ fn apply_secret_bindings(
     }
 }
 
-/// Combines the remote fallback with local overrides. Names outside the
-/// profile's requested source set are discarded before a child can receive them.
+/// The spinner `run` shows while loading. An agent run loads only its
+/// profile's bindings, so it names those rather than a whole environment.
+fn loading_message(agent_run: bool) -> &'static str {
+    if agent_run {
+        "Loading bindings..."
+    } else {
+        "Loading environment..."
+    }
+}
+
 /// The line `run` prints once the secrets are loaded. "Egress-only profile"
 /// describes an agent profile, so plain `stashbase run` never says it.
 fn loaded_message(secret_count: usize, agent_run: bool) -> String {
-    let label = if agent_run && secret_count == 0 {
-        "Egress-only profile"
-    } else {
-        "Environment loaded"
-    };
-    let noun = if secret_count == 1 {
-        "secret"
-    } else {
-        "secrets"
+    let (label, noun) = match (agent_run, secret_count) {
+        (true, 0) => ("Egress-only profile", "secrets"),
+        (true, 1) => ("Bindings loaded", "binding"),
+        (true, _) => ("Bindings loaded", "bindings"),
+        (false, 1) => ("Environment loaded", "secret"),
+        (false, _) => ("Environment loaded", "secrets"),
     };
     format!("{label} ({secret_count} {noun})")
 }
@@ -1858,6 +1863,8 @@ fn needs_remote_fetch(only: &[String], remote_only: &[String], agent_run: bool) 
     }
 }
 
+/// Combines the remote fallback with local overrides. Names outside the
+/// profile's requested source set are discarded before a child can receive them.
 fn merge_remote_and_local_secrets(
     remote: Vec<SecretWithoutComment>,
     local: Vec<SecretWithoutComment>,
@@ -1898,7 +1905,7 @@ fn missing_secret_labels(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_secret_bindings, load_run_secrets_from_file, loaded_message,
+        apply_secret_bindings, load_run_secrets_from_file, loaded_message, loading_message,
         merge_remote_and_local_secrets, missing_secret_labels, needs_remote_fetch,
         prepare_local_run_secrets,
     };
@@ -2161,9 +2168,17 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_run_loads_bindings_rather_than_an_environment() {
+        assert_eq!(loading_message(true), "Loading bindings...");
+        assert_eq!(loading_message(false), "Loading environment...");
+    }
+
+    #[test]
     fn only_an_agent_run_without_secrets_is_called_egress_only() {
         assert_eq!(loaded_message(0, true), "Egress-only profile (0 secrets)");
-        assert_eq!(loaded_message(1, true), "Environment loaded (1 secret)");
+        assert_eq!(loaded_message(1, true), "Bindings loaded (1 binding)");
+        assert_eq!(loaded_message(3, true), "Bindings loaded (3 bindings)");
+        assert_eq!(loaded_message(1, false), "Environment loaded (1 secret)");
         assert_eq!(loaded_message(0, false), "Environment loaded (0 secrets)");
         assert_eq!(loaded_message(10, false), "Environment loaded (10 secrets)");
     }

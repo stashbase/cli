@@ -373,6 +373,17 @@ fn audit_binding_sources(
         .collect()
 }
 
+/// The line an `agent run --remote` prints once the control plane has opened
+/// its session. The binding values stay remote, so it counts bindings, not secrets.
+fn remote_session_started_message(binding_count: usize) -> String {
+    let noun = if binding_count == 1 {
+        "binding"
+    } else {
+        "bindings"
+    };
+    format!("Remote agent session started ({binding_count} {noun})")
+}
+
 /// Returns the canonical source variables that must be removed from the child
 /// environment before binding placeholders are installed.
 fn remote_source_env_names(bindings: &[crate::api::remote_proxy::RemoteBinding]) -> Vec<String> {
@@ -1146,12 +1157,30 @@ pub async fn handle_cli(args: Cli) -> Exit {
                                     .unwrap_or(crate::handlers::run::routing::RemoteMode::Credential),
                             ),
                         };
-                        let session = crate::api::remote_proxy::create_session(&session_request, raw_output)
-                            .await
+                        let mut session_spinner = (!silent).then(|| {
+                            crate::utils::spinner::new_spinner(
+                                "Starting remote agent session...",
+                                crate::utils::spinner::Streams::Stderr,
+                            )
+                        });
+                        let session_result =
+                            crate::api::remote_proxy::create_session(&session_request, raw_output)
+                                .await;
+                        if let Some(mut spinner) = session_spinner.take() {
+                            spinner.clear();
+                        }
+                        let session = session_result
                             // The Agent Proxy setup follows startup warnings. Keep its
                             // formatted API error visually distinct without changing
                             // output spacing for every other CLI command.
                             .map_err(|error| anyhow::anyhow!("\n{error}"))?;
+                        if !silent {
+                            eprintln!(
+                                "{} {}",
+                                "✓".green_if_tty_stderr(),
+                                remote_session_started_message(bindings.len())
+                            );
+                        }
                         let token = session.session_token.clone();
                         let routing = match crate::handlers::run::routing::resolve_session_routing(
                             &session,
@@ -2353,9 +2382,9 @@ mod tests {
         dependency_hooks_enabled, directory_profile_git_warning,
         ensure_replacement_session_is_compatible, exit_for, infer_remote_agent_type,
         is_bare_agent_hook, remote_bindings, remote_codex_command_with_mcp_binding_headers,
-        remote_session_rotation_delay_for, remote_session_transport_identity,
-        remote_source_env_names, secret_child_name, summarize_audit_events,
-        uses_local_dependency_hook_broker_mode,
+        remote_session_rotation_delay_for, remote_session_started_message,
+        remote_session_transport_identity, remote_source_env_names, secret_child_name,
+        summarize_audit_events, uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::cmd::root::Cli;
@@ -2578,6 +2607,18 @@ mod tests {
             Some(value) => std::env::set_var("CODEX_HOME", value),
             None => std::env::remove_var("CODEX_HOME"),
         }
+    }
+
+    #[test]
+    fn remote_session_started_message_counts_bindings() {
+        assert_eq!(
+            remote_session_started_message(1),
+            "Remote agent session started (1 binding)"
+        );
+        assert_eq!(
+            remote_session_started_message(3),
+            "Remote agent session started (3 bindings)"
+        );
     }
 
     #[test]
