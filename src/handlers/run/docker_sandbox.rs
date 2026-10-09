@@ -1996,11 +1996,14 @@ mod tests {
             eprintln!("skipping: Docker not available in this environment");
             return;
         }
-        // Don't assert on the starting state — a prior test run or the
-        // developer's own machine may already have the image built.
-        // Just prove building it results in it existing.
-        build_sandbox_image(&AgentImageSource::Default, false)
-            .expect("building the embedded Dockerfile should succeed");
+        // Only build when missing (always the case on a fresh CI runner): a
+        // cached rebuild over a developer's existing image re-tags `:latest`
+        // to whatever install layer Docker cached first, silently undoing a
+        // `agent docker build --force` that pulled newer agent CLIs.
+        if !sandbox_image_exists(&AgentImageSource::Default) {
+            build_sandbox_image(&AgentImageSource::Default, false)
+                .expect("building the embedded Dockerfile should succeed");
+        }
         assert!(sandbox_image_exists(&AgentImageSource::Default));
     }
 
