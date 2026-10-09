@@ -111,6 +111,10 @@ stashbase agent run --profile coding --docker-image node:22-alpine -- claude
 
 Your global `git config user.name` and `user.email` (if configured on the host) are forwarded into the container as `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL`. This is the one piece of host configuration deliberately forwarded despite the filesystem allow-list, since it's authorship metadata, not a credential — without it, `git commit` inside the sandbox fails with no identity configured. It does not grant push access: `git push` (or any other authenticated git operation) still needs a real credential, wired through `[secrets]` like `GITHUB_TOKEN`, or run from outside the sandbox. Raw SSH keys are never forwarded. A profile that explicitly sets one of these four env vars itself takes precedence over the forwarded host value.
 
+### Secret scan hooks
+
+Git hooks installed with `stashbase scan install` work in the sandbox when the profile sets `allow_hooks = ["secret_scan"]`. The sandbox has neither the Stashbase CLI nor your API key, so the hook asks the Agent Proxy to run the scan on the host against the same working directory, with `curl` and a per-run token. Findings come back to the agent, and the commit or push is blocked, exactly as outside the sandbox. Like any git hook, it is skipped by `git commit --no-verify` — a safety net, not an enforcement boundary. See [Agent Profiles](agent-profiles.md#api-hooks).
+
 ### Notifications, herdr and cmux
 
 Agent notifications work in the sandbox with no setup. Your terminal's identity (`TERM`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`, `LC_TERMINAL`) is forwarded into the container, so Claude Code and Codex send the same notifications they would outside it (OSC 9/777/99 or the bell) when a turn finishes or they need input. Ghostty, iTerm2, kitty, [cmux](https://cmux.com), [herdr](https://herdr.dev), tmux and other terminals and multiplexers pick them up as usual. Only the terminal's name and version are forwarded; nothing else about your terminal or session reaches the container.

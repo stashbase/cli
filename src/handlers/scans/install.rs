@@ -39,6 +39,38 @@ impl HookType {
     }
 }
 
+/// Inside an agent sandbox the hook asks the Agent Proxy to run the scan on
+/// the host, since the sandbox has neither the CLI nor an API key.
+fn hook_block(hook_type: HookType) -> String {
+    format!(
+        r#"{start}
+if [ -n "$STASHBASE_SCAN_BROKER_URL" ]; then
+  command -v curl >/dev/null 2>&1 || {{
+    echo "curl not found in the agent sandbox. Cannot run the Stashbase scan."
+    exit 1
+  }}
+  curl -sS --fail-with-body --noproxy '*' -X POST \
+    -H "Authorization: Bearer $STASHBASE_HOOK_BROKER_TOKEN" \
+    "$STASHBASE_SCAN_BROKER_URL/{mode}" || exit 1
+elif [ "$STASHBASE_SANDBOX" = "1" ]; then
+  echo "Stashbase scan hook is not enabled for this agent run. Add allow_hooks = [\"secret_scan\"] to the agent profile."
+  exit 1
+else
+  command -v stashbase >/dev/null 2>&1 || {{
+    echo "stashbase CLI not found. Skipping scan."
+    exit 1
+  }}
+
+  stashbase scan {mode} --silent --json || exit 1
+fi
+{end}
+"#,
+        start = STASHBASE_SCAN_START_MARKER,
+        mode = hook_type.scan_mode(),
+        end = STASHBASE_SCAN_END_MARKER,
+    )
+}
+
 pub fn install_scan_hook(
     hook_type: HookType,
     file_path: Option<&str>,
@@ -61,12 +93,7 @@ pub fn install_scan_hook(
         )
     })?;
 
-    let hook_block = format!(
-        "{start}\ncommand -v stashbase >/dev/null 2>&1 || {{\n  echo \"stashbase CLI not found. Skipping scan.\"\n  exit 1\n}}\n\nstashbase scan {mode} --silent --json || exit 1\n{end}\n",
-        start = STASHBASE_SCAN_START_MARKER,
-        mode = hook_type.scan_mode(),
-        end = STASHBASE_SCAN_END_MARKER,
-    );
+    let hook_block = hook_block(hook_type);
 
     let mut was_already_installed = false;
 
@@ -289,7 +316,7 @@ fn normalize_after_uninstall(content: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{install_scan_hook, uninstall_scan_hook, HookType};
+    use super::{hook_block, install_scan_hook, uninstall_scan_hook, HookType};
     use once_cell::sync::Lazy;
     use std::{
         env, fs,
@@ -339,6 +366,95 @@ mod tests {
             .status()
             .expect("failed to execute git init");
         assert!(status.success(), "git init failed");
+    }
+
+    #[cfg(unix)]
+    fn run_block(hook_type: HookType, env: &[(&str, &str)], with_curl: bool) -> (i32, String) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let bin = temp_dir().join("bin");
+        fs::create_dir_all(&bin).expect("failed to create bin dir");
+        let stub = |name: &str, body: &str| {
+            let path = bin.join(name);
+            fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("stub write failed");
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod failed");
+        };
+        if with_curl {
+            stub("curl", "echo \"curl $*\"; exit ${FAKE_CURL_EXIT:-0}");
+        }
+        stub("stashbase", "echo \"cli $*\"");
+
+        // PATH holds only the stubs, so a real curl can never stand in for a
+        // missing one; everything else the block uses is a shell builtin.
+        let output = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(hook_block(hook_type))
+            .env_clear()
+            .env("PATH", &bin)
+            .envs(env.iter().copied())
+            .output()
+            .expect("failed to run hook block");
+        let text = String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr);
+        (output.status.code().expect("hook was killed"), text)
+    }
+
+    #[cfg(unix)]
+    const BROKER_ENV: [(&str, &str); 3] = [
+        ("STASHBASE_SANDBOX", "1"),
+        ("STASHBASE_SCAN_BROKER_URL", "http://h:1/__stashbase/scan"),
+        ("STASHBASE_HOOK_BROKER_TOKEN", "t"),
+    ];
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_uses_the_broker_inside_the_sandbox() {
+        let (code, out) = run_block(HookType::PrePush, &BROKER_ENV, true);
+
+        assert_eq!(code, 0, "{out}");
+        assert!(out.contains("http://h:1/__stashbase/scan/unpushed"), "{out}");
+        assert!(out.contains("Authorization: Bearer t"), "{out}");
+        assert!(!out.contains("cli "), "{out}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_fails_when_the_broker_reports_findings() {
+        let mut env = BROKER_ENV.to_vec();
+        env.push(("FAKE_CURL_EXIT", "22"));
+
+        let (code, out) = run_block(HookType::PreCommit, &env, true);
+
+        assert_eq!(code, 1, "{out}");
+        assert!(out.contains("http://h:1/__stashbase/scan/staged"), "{out}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_in_sandbox_without_broker_names_the_profile_fix() {
+        let (code, out) = run_block(HookType::PreCommit, &[("STASHBASE_SANDBOX", "1")], true);
+
+        assert_eq!(code, 1, "{out}");
+        assert!(out.contains("allow_hooks = [\"secret_scan\"]"), "{out}");
+        assert!(!out.contains("stashbase CLI not found"), "{out}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_in_sandbox_without_curl_says_so() {
+        let (code, out) = run_block(HookType::PreCommit, &BROKER_ENV, false);
+
+        assert_eq!(code, 1, "{out}");
+        assert!(out.contains("curl not found"), "{out}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_outside_sandbox_runs_the_cli_as_before() {
+        let (code, out) = run_block(HookType::PreCommit, &[], true);
+
+        assert_eq!(code, 0, "{out}");
+        assert!(out.contains("cli scan staged --silent --json"), "{out}");
     }
 
     #[test]

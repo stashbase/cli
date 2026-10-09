@@ -165,15 +165,17 @@ allow_tools = ["search_issues", "get_issue"]
 
 The HTTP rule controls credential injection at the endpoint. The MCP rule controls which tools the agent may call. Omit `allow_tools` or leave it empty to deny all tools by default. Use `allow_tools = ["*"]` to allow all tools (a matching `deny_tools` still takes precedence).
 
-## Dependency Hooks
+## API Hooks
 
-If your profile enables authenticated hooks (e.g., dependency checking), grant capability explicitly:
+Hooks that call the Stashbase API (dependency checking, secret scanning) must be granted explicitly:
 
 ```toml
-allow_hooks = ["dependency_check"]
+allow_hooks = ["dependency_check", "secret_scan"]
 ```
 
-The child receives only a scoped local broker token. Hooks are disabled by default.
+The child receives only a scoped local broker token, never your API key. Hooks are disabled by default.
+
+`secret_scan` lets the git hooks from `stashbase scan install` run inside the sandbox. The hook sends only a token to the Agent Proxy, which runs `stashbase scan staged` (or `unpushed`) on the host, in the run's working directory, with your key. Because the agent can edit the repo's scan config, these scans ignore its `match` and `output-dir` settings; `excluded-files` and `ignored-secrets` still apply. The hook needs `curl` in the sandbox (the default Docker image has it). Hooks installed before this existed need `stashbase scan install` once more to pick up the sandbox-aware block. Without `secret_scan`, a scan hook inside the sandbox fails with a message pointing here.
 
 ## Audit Logs and Session Revocation
 
