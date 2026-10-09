@@ -442,13 +442,18 @@ pub async fn handle_remote_agent_run(
         )?;
         (None, String::new())
     };
+    let remote_hooks = hooks_enabled.then(|| super::proxy::HookBrokerConfig {
+        api_key,
+        dependency_check: true,
+        secret_scan: None,
+    });
     let proxy_start_result = if let Some(network) = &docker_network {
         super::proxy::Proxy::start_remote_with_hook_and_bind_host(
             remote,
             policy,
             audit_log,
             proxy_port,
-            hooks_enabled.then_some(api_key),
+            remote_hooks,
             &super::docker_sandbox::proxy_bind_host(network),
         )
         .await
@@ -458,7 +463,7 @@ pub async fn handle_remote_agent_run(
             policy,
             audit_log,
             proxy_port,
-            hooks_enabled.then_some(api_key),
+            remote_hooks,
         )
         .await
     };
@@ -1701,13 +1706,21 @@ async fn handle_run(
             )?;
             (None, String::new())
         };
+        let local_hooks = dependency_hooks
+            .then_some(hook_api_key)
+            .flatten()
+            .map(|api_key| super::proxy::HookBrokerConfig {
+                api_key,
+                dependency_check: true,
+                secret_scan: None,
+            });
         let proxy_start_result = if let Some(network) = &docker_network {
             super::proxy::Proxy::start_with_hook_and_bind_host(
                 secrets_hash_map,
                 proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
                 audit_log,
                 proxy_port,
-                dependency_hooks.then_some(hook_api_key).flatten(),
+                local_hooks,
                 &super::docker_sandbox::proxy_bind_host(network),
             )
             .await
@@ -1717,7 +1730,7 @@ async fn handle_run(
                 proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
                 audit_log,
                 proxy_port,
-                dependency_hooks.then_some(hook_api_key).flatten(),
+                local_hooks,
             )
             .await
         };

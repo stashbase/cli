@@ -84,6 +84,49 @@ const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const AUDIT_LOG_MAX_FILES: usize = 1_000;
 const MCP_INSPECTION_HEADER: &str = "x-stashbase-mcp-inspection";
 const DEPENDENCY_HOOK_PATH: &str = "/__stashbase/dependency-check";
+const SECRET_SCAN_HOOK_PATH: &str = "/__stashbase/scan";
+/// Where a sandboxed git hook asks the proxy to run `stashbase scan` on the host.
+pub const SCAN_BROKER_URL_ENV: &str = "STASHBASE_SCAN_BROKER_URL";
+const SECRET_SCAN_BODY_LIMIT: usize = 1024 * 1024;
+
+/// Authenticated hooks the proxy serves on the parent's behalf, so the child
+/// never holds the Stashbase API key.
+pub struct HookBrokerConfig {
+    pub api_key: String,
+    pub dependency_check: bool,
+    /// Enables the secret-scan route.
+    pub secret_scan: Option<SecretScanConfig>,
+}
+
+pub struct SecretScanConfig {
+    /// The run's working directory, scanned on the host.
+    pub workdir: PathBuf,
+    /// Run as `<exe> scan <mode> --json --silent`.
+    pub exe: PathBuf,
+    pub timeout: Duration,
+}
+
+struct HookBroker {
+    token: String,
+    client: reqwest::Client,
+    api_key: String,
+    dependency_check: bool,
+    secret_scan: Option<SecretScanConfig>,
+    // One scan at a time: concurrent hooks would race on the same index.
+    scan_lock: tokio::sync::Mutex<()>,
+}
+
+impl HookBroker {
+    fn authorized(&self, request: &Request<Incoming>) -> bool {
+        request.method() == Method::POST
+            && request.uri().query().is_none()
+            && request
+                .headers()
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value == format!("Bearer {}", self.token))
+    }
+}
 
 /// One metadata-only event emitted by the local proxy audit log.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -1014,8 +1057,7 @@ struct ProxyState {
     connections: Arc<ActiveConnections>,
     remote: Option<RemoteProxyConfig>,
     mcp_inspection_token: String,
-    dependency_hook_token: Option<String>,
-    dependency_hook_client: Option<reqwest::Client>,
+    hook_broker: Option<Arc<HookBroker>>,
     revocation_path: Arc<RwLock<Option<PathBuf>>>,
 }
 
@@ -1117,7 +1159,7 @@ impl Proxy {
         policy: ProxyPolicy,
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
-        api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
     ) -> Result<Self> {
         Self::start_inner(
             secrets,
@@ -1125,7 +1167,7 @@ impl Proxy {
             audit_log,
             proxy_port,
             None,
-            api_key,
+            hooks,
             true,
             "127.0.0.1",
         )
@@ -1141,11 +1183,11 @@ impl Proxy {
         policy: ProxyPolicy,
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
-        api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
         bind_host: &str,
     ) -> Result<Self> {
         Self::start_inner(
-            secrets, policy, audit_log, proxy_port, None, api_key, true, bind_host,
+            secrets, policy, audit_log, proxy_port, None, hooks, true, bind_host,
         )
         .await
     }
@@ -1175,7 +1217,7 @@ impl Proxy {
         policy: ProxyPolicy,
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
-        api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
     ) -> Result<Self> {
         let placeholders = remote.placeholders.clone();
         Self::start_inner(
@@ -1184,7 +1226,7 @@ impl Proxy {
             audit_log,
             proxy_port,
             Some(remote),
-            api_key,
+            hooks,
             true,
             "127.0.0.1",
         )
@@ -1198,7 +1240,7 @@ impl Proxy {
         policy: ProxyPolicy,
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
-        api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
         bind_host: &str,
     ) -> Result<Self> {
         let placeholders = remote.placeholders.clone();
@@ -1208,7 +1250,7 @@ impl Proxy {
             audit_log,
             proxy_port,
             Some(remote),
-            api_key,
+            hooks,
             true,
             bind_host,
         )
@@ -1221,7 +1263,7 @@ impl Proxy {
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
         remote: Option<RemoteProxyConfig>,
-        hook_api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
         hook_mode_set: bool,
         bind_host: &str,
     ) -> Result<Self> {
@@ -1333,16 +1375,22 @@ impl Proxy {
             connections: connections.clone(),
             remote,
             mcp_inspection_token: Uuid::new_v4().to_string(),
-            dependency_hook_token: hook_api_key.as_ref().map(|_| Uuid::new_v4().to_string()),
-            dependency_hook_client: hook_api_key.as_ref().map(|api_key| {
-                reqwest::Client::builder()
-                    .no_proxy()
-                    .default_headers(reqwest::header::HeaderMap::from_iter([(
-                        reqwest::header::AUTHORIZATION,
-                        format!("Bearer {api_key}").parse().unwrap(),
-                    )]))
-                    .build()
-                    .expect("dependency hook client must build")
+            hook_broker: hooks.map(|hooks| {
+                Arc::new(HookBroker {
+                    token: Uuid::new_v4().to_string(),
+                    client: reqwest::Client::builder()
+                        .no_proxy()
+                        .default_headers(reqwest::header::HeaderMap::from_iter([(
+                            reqwest::header::AUTHORIZATION,
+                            format!("Bearer {}", hooks.api_key).parse().unwrap(),
+                        )]))
+                        .build()
+                        .expect("hook broker client must build"),
+                    api_key: hooks.api_key,
+                    dependency_check: hooks.dependency_check,
+                    secret_scan: hooks.secret_scan,
+                    scan_lock: tokio::sync::Mutex::new(()),
+                })
             }),
             revocation_path: revocation_path.clone(),
         };
@@ -1386,21 +1434,29 @@ impl Proxy {
         if hook_mode_set {
             child_env.insert(
                 crate::api::dependencies::HOOK_MODE_ENV.to_owned(),
-                if hook_api_key.is_some() {
+                if state.hook_broker.is_some() {
                     "broker"
                 } else {
                     "disabled"
                 }
                 .to_owned(),
             );
-            if let (Some(token), Some(_)) = (&state.dependency_hook_token, &hook_api_key) {
-                child_env.insert(
-                    crate::api::dependencies::HOOK_BROKER_URL_ENV.to_owned(),
-                    format!("http://{address}{DEPENDENCY_HOOK_PATH}"),
-                );
+            if let Some(broker) = &state.hook_broker {
+                if broker.dependency_check {
+                    child_env.insert(
+                        crate::api::dependencies::HOOK_BROKER_URL_ENV.to_owned(),
+                        format!("http://{address}{DEPENDENCY_HOOK_PATH}"),
+                    );
+                }
+                if broker.secret_scan.is_some() {
+                    child_env.insert(
+                        SCAN_BROKER_URL_ENV.to_owned(),
+                        format!("http://{address}{SECRET_SCAN_HOOK_PATH}"),
+                    );
+                }
                 child_env.insert(
                     crate::api::dependencies::HOOK_BROKER_TOKEN_ENV.to_owned(),
-                    token.clone(),
+                    broker.token.clone(),
                 );
             }
         }
@@ -1825,6 +1881,14 @@ fn proxy_request(
 
         if request.uri().path() == DEPENDENCY_HOOK_PATH {
             return Ok(handle_dependency_hook(request, &state).await);
+        }
+        if let Some(mode) = request
+            .uri()
+            .path()
+            .strip_prefix(SECRET_SCAN_HOOK_PATH)
+            .map(str::to_owned)
+        {
+            return Ok(handle_secret_scan_hook(request, &mode, &state, started).await);
         }
 
         let request_id = new_local_request_id();
@@ -2350,29 +2414,18 @@ async fn handle_dependency_hook(
     request: Request<Incoming>,
     state: &ProxyState,
 ) -> Response<ProxyBody> {
-    let authorized = request.method() == Method::POST
-        && request.uri().query().is_none()
-        && state.dependency_hook_token.as_ref().is_some_and(|token| {
-            request
-                .headers()
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .is_some_and(|value| value == format!("Bearer {token}"))
-        });
-    if !authorized {
-        return proxy_error_response(
-            StatusCode::FORBIDDEN,
-            "proxy.dependency_hook_not_allowed",
-            "Dependency hook route is not enabled for this run",
-        );
-    }
-    let Some(client) = &state.dependency_hook_client else {
+    let Some(broker) = state
+        .hook_broker
+        .as_ref()
+        .filter(|broker| broker.dependency_check && broker.authorized(&request))
+    else {
         return proxy_error_response(
             StatusCode::FORBIDDEN,
             "proxy.dependency_hook_not_allowed",
             "Dependency hook route is not enabled for this run",
         );
     };
+    let client = &broker.client;
     let body = match request.into_body().collect().await {
         Ok(body) => body.to_bytes(),
         Err(_) => {
@@ -2419,6 +2472,95 @@ async fn handle_dependency_hook(
         builder = builder.header("content-type", content_type);
     }
     builder.body(full_body(body)).unwrap()
+}
+
+/// Runs the host's own `stashbase scan` for a sandboxed git hook. The hook
+/// sends only the mode; what gets scanned, with which key and which config
+/// options, is decided here.
+async fn handle_secret_scan_hook(
+    request: Request<Incoming>,
+    mode: &str,
+    state: &ProxyState,
+    started: Instant,
+) -> Response<ProxyBody> {
+    let request_id = new_local_request_id();
+    let Some((broker, scan)) = state
+        .hook_broker
+        .as_ref()
+        .filter(|broker| broker.authorized(&request))
+        .and_then(|broker| broker.secret_scan.as_ref().map(|scan| (broker, scan)))
+    else {
+        return proxy_error_response(
+            StatusCode::FORBIDDEN,
+            "proxy.secret_scan_not_allowed",
+            "Secret scan hook is not enabled for this run; add \"secret_scan\" to allow_hooks",
+        );
+    };
+    let mode = match mode {
+        "/staged" => "staged",
+        "/unpushed" => "unpushed",
+        _ => {
+            return proxy_error_response(
+                StatusCode::NOT_FOUND,
+                "proxy.secret_scan_unknown_mode",
+                "Unknown scan mode; expected staged or unpushed",
+            )
+        }
+    };
+
+    let _guard = broker.scan_lock.lock().await;
+    let mut command = tokio::process::Command::new(&scan.exe);
+    command
+        .args(["scan", mode, "--json", "--silent"])
+        .current_dir(&scan.workdir)
+        .env("STASHBASE_API_KEY", &broker.api_key)
+        .env(crate::models::scans::SCAN_RESTRICTED_ENV, "1")
+        // Keeps the scan's telemetry off, like everything else in the session.
+        .env("STASHBASE_SANDBOX", "1")
+        .env_remove(crate::api::dependencies::HOOK_MODE_ENV)
+        .env_remove(crate::api::dependencies::HOOK_BROKER_URL_ENV)
+        .env_remove(crate::api::dependencies::HOOK_BROKER_TOKEN_ENV)
+        .env_remove(SCAN_BROKER_URL_ENV)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+
+    let response = match tokio::time::timeout(scan.timeout, command.output()).await {
+        Err(_) => proxy_error_response(
+            StatusCode::GATEWAY_TIMEOUT,
+            "proxy.secret_scan_timeout",
+            "Secret scan did not finish in time",
+        ),
+        Ok(Err(_)) => proxy_error_response(
+            StatusCode::BAD_GATEWAY,
+            "proxy.secret_scan_failed",
+            "Secret scan could not be started",
+        ),
+        Ok(Ok(output)) => {
+            let status = match output.status.code() {
+                Some(0) => StatusCode::OK,
+                Some(1) => StatusCode::UNPROCESSABLE_ENTITY,
+                _ => StatusCode::BAD_GATEWAY,
+            };
+            let mut body = output.stdout;
+            body.extend_from_slice(&output.stderr);
+            body.truncate(SECRET_SCAN_BODY_LIMIT);
+            Response::builder()
+                .status(status)
+                .header("content-type", "text/plain; charset=utf-8")
+                .body(full_body(Bytes::from(body)))
+                .unwrap()
+        }
+    };
+    state.record_audit_with_request(
+        &request_id,
+        "secret_scan_hook",
+        None,
+        Some(&Method::POST),
+        None,
+        Some(response.status()),
+        Some(started.elapsed()),
+    );
+    response
 }
 
 /// Standard remote-proxy requests are built per request so a new connection
@@ -5270,7 +5412,11 @@ mod tests {
             ProxyPolicy::permissive(),
             None,
             None,
-            Some("parent-api-key".to_owned()),
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check: true,
+                secret_scan: None,
+            }),
         )
         .await
         .unwrap();
@@ -5298,6 +5444,231 @@ mod tests {
             .child_env()
             .contains_key(crate::api::dependencies::HOOK_BROKER_URL_ENV));
         disabled.stop().await;
+    }
+
+    #[cfg(unix)]
+    fn scan_test_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("stashbase-scan-hook-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    #[cfg(unix)]
+    fn fake_scan_exe(dir: &std::path::Path, exit_code: i32, sleep_secs: u32) -> PathBuf {
+        let path = dir.join("fake-stashbase");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nsleep {sleep_secs}\n\
+                 echo \"args=$*\"\necho \"cwd=$(pwd -P)\"\n\
+                 echo \"key=$STASHBASE_API_KEY\"\necho \"restricted=$STASHBASE_SCAN_RESTRICTED\"\n\
+                 echo \"hook_token=${{STASHBASE_HOOK_BROKER_TOKEN:-unset}}\"\n\
+                 echo 'finding on stderr' >&2\nexit {exit_code}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    async fn start_scan_proxy(exe: PathBuf, workdir: PathBuf, timeout: Duration) -> Proxy {
+        Proxy::start_with_hook(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check: false,
+                secret_scan: Some(SecretScanConfig {
+                    workdir,
+                    exe,
+                    timeout,
+                }),
+            }),
+        )
+        .await
+        .unwrap()
+    }
+
+    fn hook_token(proxy: &Proxy) -> String {
+        proxy.child_env()[crate::api::dependencies::HOOK_BROKER_TOKEN_ENV].clone()
+    }
+
+    async fn post_to(url: String, token: Option<&str>) -> (u16, String) {
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut request = client.post(url);
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().await.unwrap();
+        (response.status().as_u16(), response.text().await.unwrap())
+    }
+
+    #[cfg(unix)]
+    async fn post_scan(proxy: &Proxy, mode: &str, token: Option<&str>) -> (u16, String) {
+        let url = format!("{}/{mode}", proxy.child_env()[SCAN_BROKER_URL_ENV]);
+        post_to(url, token).await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_runs_host_scan_in_workdir_with_parent_key_restricted() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+
+        let (status, body) = post_scan(&proxy, "staged", Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("args=scan staged --json --silent"), "{body}");
+        assert!(body.contains(&format!("cwd={}", dir.display())), "{body}");
+        assert!(body.contains("key=parent-api-key"), "{body}");
+        assert!(body.contains("restricted=1"), "{body}");
+        assert!(body.contains("hook_token=unset"), "{body}");
+        assert!(body.contains("finding on stderr"), "{body}");
+        assert!(!proxy.child_env().contains_key("STASHBASE_API_KEY"));
+        assert!(!proxy
+            .child_env()
+            .contains_key(crate::api::dependencies::HOOK_BROKER_URL_ENV));
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_maps_findings_to_422_and_supports_unpushed() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 1, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+
+        let (status, body) = post_scan(&proxy, "unpushed", Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 422, "{body}");
+        assert!(body.contains("args=scan unpushed --json --silent"), "{body}");
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_rejects_bad_token_and_unknown_mode() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+        let token = hook_token(&proxy);
+
+        assert_eq!(post_scan(&proxy, "staged", None).await.0, 403);
+        assert_eq!(post_scan(&proxy, "staged", Some("wrong")).await.0, 403);
+        assert_eq!(post_scan(&proxy, "changes", Some(&token)).await.0, 404);
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn secret_scan_route_is_not_served_when_only_dependency_check_is_allowed() {
+        let proxy = Proxy::start_with_hook(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check: true,
+                secret_scan: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(!proxy.child_env().contains_key(SCAN_BROKER_URL_ENV));
+        let url = proxy.child_env()[crate::api::dependencies::HOOK_BROKER_URL_ENV].replace(
+            DEPENDENCY_HOOK_PATH,
+            &format!("{SECRET_SCAN_HOOK_PATH}/staged"),
+        );
+
+        let (status, _) = post_to(url, Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 403);
+        proxy.stop().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dependency_route_is_not_served_when_only_secret_scan_is_allowed() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+        let url = proxy.child_env()[SCAN_BROKER_URL_ENV]
+            .replace(SECRET_SCAN_HOOK_PATH, DEPENDENCY_HOOK_PATH);
+
+        let (status, _) = post_to(url, Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 403);
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_times_out_with_504() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 5),
+            dir.clone(),
+            Duration::from_millis(300),
+        )
+        .await;
+
+        let (status, body) = post_scan(&proxy, "staged", Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 504, "{body}");
+        assert!(body.contains("proxy.secret_scan_timeout"), "{body}");
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hooks_are_serialized() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 1),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+        let token = hook_token(&proxy);
+
+        let started = std::time::Instant::now();
+        let (a, b) = tokio::join!(
+            post_scan(&proxy, "staged", Some(&token)),
+            post_scan(&proxy, "staged", Some(&token)),
+        );
+
+        assert_eq!((a.0, b.0), (200, 200));
+        assert!(
+            started.elapsed() >= Duration::from_secs(2),
+            "scans ran concurrently"
+        );
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -5500,8 +5871,7 @@ mod tests {
             connections: Arc::new(ActiveConnections::default()),
             remote: None,
             mcp_inspection_token: "inspection-token".to_owned(),
-            dependency_hook_token: None,
-            dependency_hook_client: None,
+            hook_broker: None,
             revocation_path: Arc::new(RwLock::new(None)),
         };
 
