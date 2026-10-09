@@ -728,7 +728,10 @@ mod restricted_budget_tests {
         (dir, repo)
     }
 
-    fn diff_adding(repo: &git2::Repository, files: &[(&str, usize)]) -> git2::Diff<'_> {
+    fn diff_adding<'repo>(
+        repo: &'repo git2::Repository,
+        files: &[(&str, usize)],
+    ) -> git2::Diff<'repo> {
         let mut builder = repo.treebuilder(None).unwrap();
         for (name, size) in files {
             let blob = repo.blob(&vec![b'a'; *size]).unwrap();
@@ -743,7 +746,9 @@ mod restricted_budget_tests {
         let (dir, repo) = temp_repo();
         let diff = diff_adding(&repo, &[("a.txt", 10), ("b.txt", 1024)]);
 
-        assert!(RestrictedScanBudget::new().charge_diff(&repo, &diff).is_ok());
+        assert!(RestrictedScanBudget::new()
+            .charge_diff(&repo, &diff)
+            .is_ok());
         let _ = fs::remove_dir_all(dir);
     }
 

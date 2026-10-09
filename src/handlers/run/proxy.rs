@@ -101,8 +101,6 @@ pub struct HookBrokerConfig {
 pub struct SecretScanConfig {
     /// The run's working directory, scanned on the host.
     pub workdir: PathBuf,
-    /// Run as `<exe> scan <mode> --json --silent`.
-    pub exe: PathBuf,
     pub timeout: Duration,
     pub isolation: ScanIsolation,
 }
@@ -113,7 +111,7 @@ pub enum ScanIsolation {
     Confined(super::scan_sandbox::ScanConfinement),
     /// Runs `exe` directly, for tests of the route itself.
     #[cfg(test)]
-    Unconfined,
+    Unconfined { exe: PathBuf },
 }
 
 /// An empty home for one scan, so it reads none of the user's dotfiles
@@ -2569,8 +2567,8 @@ async fn handle_secret_scan_hook(
             Err(_) => return scan_failed(),
         },
         #[cfg(test)]
-        ScanIsolation::Unconfined => (
-            scan.exe.to_string_lossy().into_owned(),
+        ScanIsolation::Unconfined { exe } => (
+            exe.to_string_lossy().into_owned(),
             scan_args.iter().map(|arg| (*arg).to_owned()).collect(),
         ),
     };
@@ -5567,9 +5565,8 @@ mod tests {
                 dependency_check: false,
                 secret_scan: Some(SecretScanConfig {
                     workdir,
-                    exe,
                     timeout,
-                    isolation: ScanIsolation::Unconfined,
+                    isolation: ScanIsolation::Unconfined { exe },
                 }),
             }),
         )

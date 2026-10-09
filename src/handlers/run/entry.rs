@@ -400,14 +400,14 @@ fn hook_broker_config(
         if let Some(reason) = super::scan_sandbox::unavailable_reason() {
             anyhow::bail!(reason);
         }
-        let exe = std::env::current_exe()
-            .map_err(|error| anyhow::anyhow!("secret_scan cannot locate the stashbase binary: {error}"))?;
+        let exe = std::env::current_exe().map_err(|error| {
+            anyhow::anyhow!("secret_scan cannot locate the stashbase binary: {error}")
+        })?;
         Some(super::proxy::SecretScanConfig {
             workdir: workdir.to_owned(),
             isolation: super::proxy::ScanIsolation::Confined(
                 super::scan_sandbox::ScanConfinement::for_run(workdir, &exe, denied_read),
             ),
-            exe,
             timeout: std::time::Duration::from_secs(120),
         })
     } else {
@@ -499,8 +499,7 @@ pub async fn handle_remote_agent_run(
         Some(workdir) => workdir.to_owned(),
         None => std::env::current_dir()?,
     };
-    let remote_hooks =
-        hook_broker_config(hooks, Some(api_key), &scan_workdir, &denied_read_paths)?;
+    let remote_hooks = hook_broker_config(hooks, Some(api_key), &scan_workdir, &denied_read_paths)?;
     let proxy_start_result = if let Some(network) = &docker_network {
         super::proxy::Proxy::start_remote_with_hook_and_bind_host(
             remote,
@@ -2073,14 +2072,16 @@ mod tests {
 
         if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
             // Refused up front rather than run unconfined.
-            assert_eq!(result.unwrap_err().to_string(), reason);
+            let Err(error) = result else {
+                panic!("secret_scan ran without confinement");
+            };
+            assert_eq!(error.to_string(), reason);
             return;
         }
         let config = result.unwrap().unwrap();
         assert!(!config.dependency_check);
         let scan = config.secret_scan.unwrap();
         assert_eq!(scan.workdir, workdir);
-        assert_eq!(scan.exe, std::env::current_exe().unwrap());
         assert_eq!(scan.timeout, std::time::Duration::from_secs(120));
         assert!(matches!(
             scan.isolation,

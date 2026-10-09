@@ -176,8 +176,7 @@ pub fn resolve_scan_config_path(config_file_path: Option<String>) -> Option<Stri
 
     let repo = Repository::discover(".").ok()?;
     let restricted = std::env::var(crate::models::scans::SCAN_RESTRICTED_ENV).as_deref() == Ok("1");
-    default_config_in(repo.workdir()?, restricted)
-        .map(|path| path.to_string_lossy().to_string())
+    default_config_in(repo.workdir()?, restricted).map(|path| path.to_string_lossy().to_string())
 }
 
 /// A restricted scan runs on the host for a sandboxed agent, which could make

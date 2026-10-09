@@ -75,7 +75,10 @@ fn hidden_roots(candidates: &[&str]) -> Vec<PathBuf> {
     roots.dedup();
     // A root inside another root adds nothing.
     let all = roots.clone();
-    roots.retain(|root| !all.iter().any(|other| other != root && root.starts_with(other)));
+    roots.retain(|root| {
+        !all.iter()
+            .any(|other| other != root && root.starts_with(other))
+    });
     roots
 }
 
@@ -221,11 +224,9 @@ mod platform {
             let mode = if path == home { "--bind" } else { "--ro-bind" };
             args.extend([mode.to_owned(), text(&path), text(&path)]);
         }
-        for path in fs_rules::expand_policy_entries(
-            &confinement.denied_read,
-            &confinement.workdir,
-            None,
-        )? {
+        for path in
+            fs_rules::expand_policy_entries(&confinement.denied_read, &confinement.workdir, None)?
+        {
             if PathBuf::from(&path).is_dir() {
                 args.extend(["--tmpfs".to_owned(), path]);
             } else {
@@ -268,9 +269,13 @@ mod tests {
     /// directory under the real home so the hidden roots cover it.
     fn layout() -> Option<Layout> {
         let base = std::env::var_os("HOME").map(PathBuf::from)?;
-        let root = base.join(format!(".stashbase-scan-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let root = base.join(format!(
+            ".stashbase-scan-sandbox-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         let workdir = root.join("repo");
-        let home = std::env::temp_dir().join(format!("stashbase-scan-home-{}", uuid::Uuid::new_v4()));
+        let home =
+            std::env::temp_dir().join(format!("stashbase-scan-home-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&workdir).ok()?;
         fs::create_dir_all(&home).ok()?;
         git2::Repository::init(&workdir).ok()?;
@@ -287,9 +292,7 @@ mod tests {
     }
 
     fn run_cat(confinement: &ScanConfinement, home: &Path, file: &Path) -> std::process::Output {
-        let (program, args) = confinement
-            .wrap(&[&file.to_string_lossy()], home)
-            .unwrap();
+        let (program, args) = confinement.wrap(&[&file.to_string_lossy()], home).unwrap();
         std::process::Command::new(program)
             .args(args)
             .current_dir(&confinement.workdir)
@@ -312,13 +315,23 @@ mod tests {
         let cat = canonical(Path::new("/bin/cat"));
         let confinement = ScanConfinement::for_run(&layout.workdir, &cat, &[]);
 
-        let inside = run_cat(&confinement, &layout.home, &layout.workdir.join("inside.txt"));
+        let inside = run_cat(
+            &confinement,
+            &layout.home,
+            &layout.workdir.join("inside.txt"),
+        );
         let via_link = run_cat(&confinement, &layout.home, &layout.workdir.join("link.txt"));
         let direct = run_cat(&confinement, &layout.home, &layout.outside);
 
         assert_eq!(String::from_utf8_lossy(&inside.stdout), "inside");
-        assert!(!via_link.status.success(), "followed a symlink out of the worktree");
-        assert!(!direct.status.success(), "read a host file outside the worktree");
+        assert!(
+            !via_link.status.success(),
+            "followed a symlink out of the worktree"
+        );
+        assert!(
+            !direct.status.success(),
+            "read a host file outside the worktree"
+        );
         let _ = fs::remove_dir_all(&layout.root);
         let _ = fs::remove_dir_all(&layout.home);
     }
