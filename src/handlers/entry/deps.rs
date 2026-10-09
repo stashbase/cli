@@ -913,7 +913,11 @@ mod tests {
         assert!(root.join(".codex/hooks.json").exists());
         assert!(root.join(".cursor/hooks.json").exists());
         assert_eq!(
-            shown(&root.join(".claude/settings.json"), &root, HookScope::Docker),
+            shown(
+                &root.join(".claude/settings.json"),
+                &root,
+                HookScope::Docker
+            ),
             "/home/agent/.claude/settings.json"
         );
 
