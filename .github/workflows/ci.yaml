@@ -29,7 +29,10 @@ jobs:
       # The secret-scan confinement tests skip without a working bubblewrap.
       - name: Install bubblewrap
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap apparmor-profiles
+          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
 
       - name: Run tests
         run: cargo test --locked
