@@ -5624,10 +5624,7 @@ mod tests {
         assert!(body.contains(&format!("cwd={}", dir.display())), "{body}");
         assert!(body.contains("key=parent-api-key"), "{body}");
         assert!(
-            body.contains(&format!(
-                "api_url={}",
-                crate::api::client::get_api_url()
-            )),
+            body.contains(&format!("api_url={}", crate::api::client::get_api_url())),
             "{body}"
         );
         assert!(body.contains("restricted=1"), "{body}");

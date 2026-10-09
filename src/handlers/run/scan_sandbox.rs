@@ -48,10 +48,7 @@ impl ScanConfinement {
         platform::wrap(self, args, home)
     }
 
-    #[cfg_attr(
-        not(any(target_os = "macos", target_os = "linux")),
-        allow(dead_code)
-    )]
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
     fn readable(&self, home: &Path) -> Vec<PathBuf> {
         let mut paths = vec![self.workdir.clone(), self.exe.clone(), canonical(home)];
         paths.extend(self.git_dirs.iter().cloned());
@@ -252,18 +249,20 @@ mod platform {
             }
         }
         for file in SYSTEM_FILES {
-            args.extend(["--ro-bind-try".to_owned(), (*file).to_owned(), (*file).to_owned()]);
+            args.extend([
+                "--ro-bind-try".to_owned(),
+                (*file).to_owned(),
+                (*file).to_owned(),
+            ]);
         }
         let home = super::canonical(home);
         for path in confinement.readable(&home) {
             let mode = if path == home { "--bind" } else { "--ro-bind" };
             args.extend([mode.to_owned(), text(&path), text(&path)]);
         }
-        for path in fs_rules::expand_policy_entries(
-            &confinement.denied_read,
-            &confinement.workdir,
-            None,
-        )? {
+        for path in
+            fs_rules::expand_policy_entries(&confinement.denied_read, &confinement.workdir, None)?
+        {
             if PathBuf::from(&path).is_dir() {
                 args.extend(["--tmpfs".to_owned(), path]);
             } else {
@@ -312,7 +311,10 @@ mod tests {
     /// A repo under `base`, with a secret next to it (outside the worktree)
     /// and a symlink from the worktree to that secret.
     fn layout(base: &Path) -> Option<Layout> {
-        let root = base.join(format!(".stashbase-scan-sandbox-test-{}", uuid::Uuid::new_v4()));
+        let root = base.join(format!(
+            ".stashbase-scan-sandbox-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         let workdir = root.join("repo");
         let home =
             std::env::temp_dir().join(format!("stashbase-scan-home-{}", uuid::Uuid::new_v4()));
@@ -332,9 +334,7 @@ mod tests {
     }
 
     fn run_cat(confinement: &ScanConfinement, home: &Path, file: &Path) -> std::process::Output {
-        let (program, args) = confinement
-            .wrap(&[&file.to_string_lossy()], home)
-            .unwrap();
+        let (program, args) = confinement.wrap(&[&file.to_string_lossy()], home).unwrap();
         std::process::Command::new(program)
             .args(args)
             .current_dir(&confinement.workdir)
@@ -361,13 +361,20 @@ mod tests {
     /// files the process can read, not what it does with them.
     fn assert_reads_only_the_worktree(base: &Path) {
         let Some(layout) = layout(base) else {
-            eprintln!("skipping: cannot create a test layout under {}", base.display());
+            eprintln!(
+                "skipping: cannot create a test layout under {}",
+                base.display()
+            );
             return;
         };
         let cat = canonical(Path::new("/bin/cat"));
         let confinement = ScanConfinement::for_run(&layout.workdir, &cat, &[]);
 
-        let inside = run_cat(&confinement, &layout.home, &layout.workdir.join("inside.txt"));
+        let inside = run_cat(
+            &confinement,
+            &layout.home,
+            &layout.workdir.join("inside.txt"),
+        );
         let via_link = run_cat(&confinement, &layout.home, &layout.workdir.join("link.txt"));
         let direct = run_cat(&confinement, &layout.home, &layout.outside);
 
