@@ -696,7 +696,7 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
     let unsupported = profile
         .allow_hooks
         .iter()
-        .filter(|hook| hook.as_str() != "dependency_check")
+        .filter(|hook| !matches!(hook.as_str(), "dependency_check" | "secret_scan"))
         .collect::<Vec<_>>();
     if !unsupported.is_empty() {
         return unsupported
@@ -708,6 +708,11 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
                 )
             })
             .collect();
+    }
+    if profile.allow_hooks.iter().any(|hook| hook == "secret_scan") {
+        if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
+            return vec![fail("Hook capability", format!("{reason}."))];
+        }
     }
     vec![ok(
         "Hook capabilities",
@@ -1130,6 +1135,32 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Unsupported hook capability 'anything_else'"));
+    }
+
+    #[test]
+    fn secret_scan_is_a_known_hook() {
+        let profile = AgentProfile {
+            file: None,
+            egress_hosts: None,
+            allow_network_listeners: false,
+            deny_hosts: None,
+            filesystem: Default::default(),
+            sandbox: Default::default(),
+            workspace: Default::default(),
+            mcp_servers: HashMap::new(),
+            secrets: HashMap::new().into(),
+            personal_credentials: HashMap::new(),
+            policy_tests: Vec::new(),
+            allow_hooks: vec!["dependency_check".to_owned(), "secret_scan".to_owned()],
+        };
+
+        let checks = validate_hook_capabilities(&profile);
+
+        let confinable = crate::handlers::run::scan_sandbox::unavailable_reason().is_none();
+        assert_eq!(
+            checks.iter().all(|check| check.status != Status::Fail),
+            confinable
+        );
     }
 
     #[test]

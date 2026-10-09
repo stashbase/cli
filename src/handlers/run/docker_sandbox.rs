@@ -512,6 +512,7 @@ const PROXY_URL_ENV_KEYS: &[&str] = &[
     "http_proxy",
     "https_proxy",
     crate::api::dependencies::HOOK_BROKER_URL_ENV,
+    crate::handlers::run::proxy::SCAN_BROKER_URL_ENV,
 ];
 
 /// Rewrites the proxy's child-process env vars so the container reaches the
@@ -1692,6 +1693,23 @@ mod tests {
         // A placeholder that happens to contain the bind host as a
         // substring must not be rewritten — only known proxy-URL keys are.
         assert_eq!(rewritten["STASHBASE_GH_TOKEN"], "127.0.0.1");
+    }
+
+    #[test]
+    fn rewrite_proxy_urls_rewrites_the_scan_broker_url() {
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert(
+            crate::handlers::run::proxy::SCAN_BROKER_URL_ENV.to_owned(),
+            "http://127.0.0.1:9999/__stashbase/scan".to_owned(),
+        );
+
+        let rewritten =
+            rewrite_proxy_urls_for_container(&env_vars, "127.0.0.1", "host.docker.internal");
+
+        assert_eq!(
+            rewritten[crate::handlers::run::proxy::SCAN_BROKER_URL_ENV],
+            "http://host.docker.internal:9999/__stashbase/scan"
+        );
     }
 
     #[test]

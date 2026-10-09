@@ -4,6 +4,7 @@ pub mod format;
 pub mod fs_rules;
 pub mod proxy;
 pub mod routing;
+pub mod scan_sandbox;
 pub mod subprocess;
 pub mod trust;
 pub mod worktree;

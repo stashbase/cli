@@ -11,7 +11,7 @@ use crate::{
         scans::{
             CommitChanges, CommitsScanResponse, DiffHunk, DiffProcessingState, FileHunks,
             IgnoredSecretsPayload, MatchConfigPayload, ProjectContextConfigPayload,
-            ScanCommitChangesPayload, ScanConfig, ScanOutputJson,
+            ScanCommitChangesPayload, ScanConfig, ScanOutputJson, SCAN_RESTRICTED_ENV,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -21,7 +21,8 @@ use crate::{
             default_scan_exclude_patterns, file_content_equals, filter_new_findings,
             get_file_matches, get_latest_scan_file, is_binary_file, is_valid_sha256_hash,
             load_baseline_results, process_diff_line, save_scan_results, should_exclude_file,
-            update_findings_with_file_matches, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
+            update_findings_with_file_matches, RestrictedScanBudget, SCAN_CONTEXT_LINES,
+            SCAN_IGNORE_LINE_COMMENT,
         },
         spinner::new_spinner,
         validation::validate_project_identifier,
@@ -83,6 +84,11 @@ pub async fn handle_scan_unpushed_commit_hunks(
             }
         },
         None => ScanConfig::default(),
+    };
+    let config = if std::env::var(SCAN_RESTRICTED_ENV).as_deref() == Ok("1") {
+        config.restricted_for_broker()
+    } else {
+        config
     };
 
     let exclude = default_scan_exclude_patterns()
@@ -782,6 +788,7 @@ pub fn get_unpushed_commit_hunks(
 
     let mut all_commit_changes = Vec::new();
     let mut current = local_commit;
+    let mut budget = RestrictedScanBudget::for_current_scan();
 
     // Check all commits that would be pushed (new commits since merge base)
     loop {
@@ -806,6 +813,10 @@ pub fn get_unpushed_commit_hunks(
             let mut diff_opts = git2::DiffOptions::new();
             diff_opts.context_lines(context_lines as u32);
             diff_opts.show_binary(false);
+            if let Some(budget) = budget.as_mut() {
+                budget.charge_commit()?;
+                RestrictedScanBudget::limit_diff_options(&mut diff_opts);
+            }
 
             let diff = repo
                 .diff_tree_to_tree(
@@ -816,6 +827,9 @@ pub fn get_unpushed_commit_hunks(
                 .map_err(|e| ScanInputValidationError::GitDiffGeneration {
                     message: e.message().to_string(),
                 })?;
+            if let Some(budget) = budget.as_mut() {
+                budget.charge_diff(&repo, &diff)?;
+            }
 
             let state = Rc::new(RefCell::new(DiffProcessingState::new()));
             let ignore_line_comment = ignore_line_comment.to_string();
