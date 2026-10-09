@@ -513,6 +513,7 @@ const PROXY_URL_ENV_KEYS: &[&str] = &[
     "https_proxy",
     crate::api::dependencies::HOOK_BROKER_URL_ENV,
     crate::handlers::run::proxy::SCAN_BROKER_URL_ENV,
+    crate::handlers::run::proxy::AGENT_HOOK_URL_ENV,
 ];
 
 /// Rewrites the proxy's child-process env vars so the container reaches the
@@ -891,6 +892,7 @@ pub(crate) fn docker_run_command(
         append_git_mounts(&mut args, git_mounts)?;
     }
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
+    append_agent_hook_shim_mount(&mut args, env_vars)?;
 
     // A named Docker volume, not a bind mount of the real host home
     // directory, persists login/config state (e.g. Claude Code's
@@ -1520,6 +1522,129 @@ fn append_ca_bundle_mount(
     Ok(())
 }
 
+/// Copies `files` (relative to the sandbox home) out of the persistent home
+/// volume into a host staging directory, runs `edit` on it, and, when
+/// `write_back`, copies them back. Runs the default image as the same user
+/// agent runs use, with no network, so the files keep the owner the agent
+/// expects.
+pub(crate) fn with_persistent_home_files(
+    files: &[&str],
+    write_back: bool,
+    edit: impl FnOnce(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let image_exists = std::process::Command::new("docker")
+        .args(["image", "inspect", DEFAULT_SANDBOX_IMAGE])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|error| anyhow::anyhow!("Docker is not available: {error}"))?
+        .success();
+    if !image_exists {
+        anyhow::bail!(
+            "the Docker sandbox image {DEFAULT_SANDBOX_IMAGE} is missing; build it with `stashbase agent docker build`"
+        );
+    }
+    let staging =
+        std::env::temp_dir().join(format!("stashbase-docker-home-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&staging)?;
+    let staging_text = staging.to_string_lossy().into_owned();
+    let copy = |mount: String, script: &str| -> anyhow::Result<()> {
+        let mut args = vec![
+            "run".to_owned(),
+            "--rm".to_owned(),
+            "--network".to_owned(),
+            "none".to_owned(),
+        ];
+        args.extend(docker_run_user_flag_args());
+        args.extend([
+            "-v".to_owned(),
+            format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
+            "-v".to_owned(),
+            mount,
+            "--entrypoint".to_owned(),
+            "/bin/sh".to_owned(),
+            DEFAULT_SANDBOX_IMAGE.to_owned(),
+            "-c".to_owned(),
+            script.to_owned(),
+            "sh".to_owned(),
+        ]);
+        args.extend(files.iter().map(|file| (*file).to_owned()));
+        let output = std::process::Command::new("docker").args(&args).output()?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "failed to access the Docker sandbox home: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    };
+    let result = (|| {
+        copy(
+            format!("{staging_text}:/stashbase-staging"),
+            r#"for f in "$@"; do if [ -f "/home/agent/$f" ]; then mkdir -p "/stashbase-staging/$(dirname "$f")" && cp "/home/agent/$f" "/stashbase-staging/$f" || exit 1; fi; done"#,
+        )?;
+        edit(&staging)?;
+        if write_back {
+            copy(
+                format!("{staging_text}:/stashbase-staging:ro"),
+                r#"for f in "$@"; do if [ -f "/stashbase-staging/$f" ]; then mkdir -p "/home/agent/$(dirname "$f")" && cp "/stashbase-staging/$f" "/home/agent/$f" || exit 1; fi; done"#,
+            )?;
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+/// Stands in for the Stashbase CLI, which the sandbox image doesn't have, so
+/// agent hooks configured as `stashbase agent hooks` run on the host through
+/// the Agent Proxy. Exit 2 blocks the tool call in Claude Code and Codex, so
+/// an unreachable broker never lets an install through unchecked.
+pub(crate) const AGENT_HOOK_SHIM: &str = r#"#!/bin/sh
+# Stashbase agent hook stand-in, mounted by `stashbase agent run`.
+if [ "$#" -eq 2 ] && [ "$1" = agent ] && [ "$2" = hooks ]; then
+  if [ -z "${STASHBASE_AGENT_HOOK_URL:-}" ] || ! command -v curl >/dev/null 2>&1; then
+    echo "Stashbase dependency check is unavailable in this sandbox." >&2
+    exit 2
+  fi
+  curl -sS --fail-with-body --noproxy '*' -X POST \
+    -H "Authorization: Bearer ${STASHBASE_HOOK_BROKER_TOKEN:-}" \
+    --data-binary @- "$STASHBASE_AGENT_HOOK_URL" || {
+    echo "Stashbase dependency check failed; blocking this command." >&2
+    exit 2
+  }
+  exit 0
+fi
+echo "stashbase: only 'stashbase agent hooks' is available inside the agent sandbox." >&2
+exit 1
+"#;
+
+/// Mounts `AGENT_HOOK_SHIM` as `stashbase` on the container's PATH when the
+/// run serves the agent hook route.
+fn append_agent_hook_shim_mount(
+    args: &mut Vec<String>,
+    env_vars: &std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    if !env_vars.contains_key(crate::handlers::run::proxy::AGENT_HOOK_URL_ENV) {
+        return Ok(());
+    }
+    let path = std::env::temp_dir().join("stashbase-agent-hook-shim-v1");
+    std::fs::write(&path, AGENT_HOOK_SHIM)
+        .map_err(|error| format!("failed to write the agent hook stand-in: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(
+            |error| format!("failed to make the agent hook stand-in executable: {error}"),
+        )?;
+    }
+    args.extend([
+        "-v".to_owned(),
+        format!("{}:/usr/local/bin/stashbase:ro", path.to_string_lossy()),
+    ]);
+    Ok(())
+}
+
 fn is_nested_under(path: &str, ancestor: &str) -> bool {
     PathBuf::from(path) != PathBuf::from(ancestor)
         && PathBuf::from(path).starts_with(PathBuf::from(ancestor))
@@ -1693,6 +1818,99 @@ mod tests {
         // A placeholder that happens to contain the bind host as a
         // substring must not be rewritten — only known proxy-URL keys are.
         assert_eq!(rewritten["STASHBASE_GH_TOKEN"], "127.0.0.1");
+    }
+
+    #[test]
+    fn agent_hook_shim_is_mounted_only_when_the_route_is_served() {
+        let mut without = Vec::new();
+        append_agent_hook_shim_mount(&mut without, &std::collections::HashMap::new()).unwrap();
+        assert!(without.is_empty());
+
+        let env_vars = std::collections::HashMap::from([(
+            crate::handlers::run::proxy::AGENT_HOOK_URL_ENV.to_owned(),
+            "http://host.docker.internal:1/__stashbase/agent-hook".to_owned(),
+        )]);
+        let mut with = Vec::new();
+        append_agent_hook_shim_mount(&mut with, &env_vars).unwrap();
+
+        assert_eq!(with[0], "-v");
+        assert!(
+            with[1].ends_with(":/usr/local/bin/stashbase:ro"),
+            "{}",
+            with[1]
+        );
+        let source = with[1].trim_end_matches(":/usr/local/bin/stashbase:ro");
+        assert_eq!(std::fs::read_to_string(source).unwrap(), AGENT_HOOK_SHIM);
+    }
+
+    #[cfg(unix)]
+    fn run_shim(args: &[&str], env: &[(&str, &str)], with_curl: bool) -> (i32, String) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let bin =
+            std::env::temp_dir().join(format!("stashbase-shim-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&bin).unwrap();
+        if with_curl {
+            let curl = bin.join("curl");
+            std::fs::write(
+                &curl,
+                "#!/bin/sh\necho \"curl $*\"\nexit ${FAKE_CURL_EXIT:-0}\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let output = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(AGENT_HOOK_SHIM)
+            .arg("stashbase")
+            .args(args)
+            .env_clear()
+            .env("PATH", &bin)
+            .envs(env.iter().copied())
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&bin);
+        let text = String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr);
+        (output.status.code().unwrap(), text)
+    }
+
+    #[cfg(unix)]
+    const SHIM_ENV: [(&str, &str); 2] = [
+        (
+            "STASHBASE_AGENT_HOOK_URL",
+            "http://h:1/__stashbase/agent-hook",
+        ),
+        ("STASHBASE_HOOK_BROKER_TOKEN", "t"),
+    ];
+
+    #[cfg(unix)]
+    #[test]
+    fn agent_hook_shim_forwards_to_the_broker() {
+        let (code, out) = run_shim(&["agent", "hooks"], &SHIM_ENV, true);
+
+        assert_eq!(code, 0, "{out}");
+        assert!(out.contains("http://h:1/__stashbase/agent-hook"), "{out}");
+        assert!(out.contains("Authorization: Bearer t"), "{out}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agent_hook_shim_blocks_when_the_broker_fails_or_is_missing() {
+        let mut failing = SHIM_ENV.to_vec();
+        failing.push(("FAKE_CURL_EXIT", "22"));
+        assert_eq!(run_shim(&["agent", "hooks"], &failing, true).0, 2);
+        assert_eq!(run_shim(&["agent", "hooks"], &[], true).0, 2);
+        assert_eq!(run_shim(&["agent", "hooks"], &SHIM_ENV, false).0, 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn agent_hook_shim_refuses_other_commands() {
+        let (code, out) = run_shim(&["scan", "staged"], &SHIM_ENV, true);
+
+        assert_eq!(code, 1, "{out}");
+        assert!(!out.contains("curl"), "{out}");
     }
 
     #[test]

@@ -88,6 +88,11 @@ const SECRET_SCAN_HOOK_PATH: &str = "/__stashbase/scan";
 /// Where a sandboxed git hook asks the proxy to run `stashbase scan` on the host.
 pub const SCAN_BROKER_URL_ENV: &str = "STASHBASE_SCAN_BROKER_URL";
 const SECRET_SCAN_BODY_LIMIT: usize = 1024 * 1024;
+const AGENT_HOOK_PATH: &str = "/__stashbase/agent-hook";
+/// Where the `stashbase` stand-in in the Docker sandbox sends agent hook
+/// payloads, so `stashbase agent hooks` runs on the host.
+pub const AGENT_HOOK_URL_ENV: &str = "STASHBASE_AGENT_HOOK_URL";
+const AGENT_HOOK_BODY_LIMIT: usize = 1024 * 1024;
 
 /// Authenticated hooks the proxy serves on the parent's behalf, so the child
 /// never holds the Stashbase API key.
@@ -96,6 +101,9 @@ pub struct HookBrokerConfig {
     pub dependency_check: bool,
     /// Enables the secret-scan route.
     pub secret_scan: Option<SecretScanConfig>,
+    /// Enables the route that runs `stashbase agent hooks` on the host, for
+    /// a sandbox without the CLI. Only served with `dependency_check`.
+    pub agent_hook: Option<SecretScanConfig>,
 }
 
 pub struct SecretScanConfig {
@@ -138,6 +146,7 @@ struct HookBroker {
     api_key: String,
     dependency_check: bool,
     secret_scan: Option<SecretScanConfig>,
+    agent_hook: Option<SecretScanConfig>,
     // One scan at a time: concurrent hooks would race on the same index.
     scan_lock: tokio::sync::Mutex<()>,
 }
@@ -1415,6 +1424,7 @@ impl Proxy {
                     api_key: hooks.api_key,
                     dependency_check: hooks.dependency_check,
                     secret_scan: hooks.secret_scan,
+                    agent_hook: hooks.agent_hook,
                     scan_lock: tokio::sync::Mutex::new(()),
                 })
             }),
@@ -1472,6 +1482,12 @@ impl Proxy {
                     child_env.insert(
                         crate::api::dependencies::HOOK_BROKER_URL_ENV.to_owned(),
                         format!("http://{address}{DEPENDENCY_HOOK_PATH}"),
+                    );
+                }
+                if broker.dependency_check && broker.agent_hook.is_some() {
+                    child_env.insert(
+                        AGENT_HOOK_URL_ENV.to_owned(),
+                        format!("http://{address}{AGENT_HOOK_PATH}"),
                     );
                 }
                 if broker.secret_scan.is_some() {
@@ -1907,6 +1923,9 @@ fn proxy_request(
 
         if request.uri().path() == DEPENDENCY_HOOK_PATH {
             return Ok(handle_dependency_hook(request, &state).await);
+        }
+        if request.uri().path() == AGENT_HOOK_PATH {
+            return Ok(handle_agent_hook(request, &state, started).await);
         }
         if let Some(mode) = request
             .uri()
@@ -2515,6 +2534,119 @@ async fn read_capped(mut reader: impl tokio::io::AsyncRead + Unpin, limit: usize
     kept
 }
 
+enum HostCommandError {
+    CouldNotStart,
+    TimedOut,
+}
+
+/// Runs the host's own CLI with `args` for a hook in the sandbox: confined,
+/// with the parent's API key and the run's API URL, a scratch home, and
+/// nothing from the broker's own environment. Commands are serialized, and
+/// both output streams are capped.
+async fn run_host_command(
+    broker: &HookBroker,
+    config: &SecretScanConfig,
+    args: &[&str],
+    stdin: Option<Bytes>,
+    restricted_scan: bool,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), HostCommandError> {
+    let _guard = broker.scan_lock.lock().await;
+    let home = ScratchHome::create().map_err(|_| HostCommandError::CouldNotStart)?;
+    let (program, command_args) = match &config.isolation {
+        ScanIsolation::Confined(confinement) => confinement
+            .wrap(args, &home.0)
+            .map_err(|_| HostCommandError::CouldNotStart)?,
+        #[cfg(test)]
+        ScanIsolation::Unconfined { exe } => (
+            exe.to_string_lossy().into_owned(),
+            args.iter().map(|arg| (*arg).to_owned()).collect(),
+        ),
+    };
+    let mut command = tokio::process::Command::new(program);
+    command
+        .args(command_args)
+        .current_dir(&config.workdir)
+        .env("HOME", &home.0)
+        // The API this run uses, whether it came from the environment or was
+        // built in, so the command never falls back to a different default.
+        .env(
+            crate::api::client::API_URL_ENV_VAR,
+            crate::api::client::get_api_url(),
+        )
+        .env("TMPDIR", &home.0)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_CACHE_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .env_remove("XDG_STATE_HOME")
+        .env("STASHBASE_API_KEY", &broker.api_key)
+        // Keeps the command's telemetry off, like everything else in the session.
+        .env("STASHBASE_SANDBOX", "1")
+        // Calls the API directly instead of looping back into this broker.
+        .env_remove(crate::api::dependencies::HOOK_MODE_ENV)
+        .env_remove(crate::api::dependencies::HOOK_BROKER_URL_ENV)
+        .env_remove(crate::api::dependencies::HOOK_BROKER_TOKEN_ENV)
+        .env_remove(SCAN_BROKER_URL_ENV)
+        .env_remove(AGENT_HOOK_URL_ENV)
+        .stdin(if stdin.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    if restricted_scan {
+        command.env(crate::models::scans::SCAN_RESTRICTED_ENV, "1");
+    }
+
+    let run = async move {
+        use tokio::io::AsyncWriteExt;
+
+        let mut child = command.spawn()?;
+        if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
+            // A command that exits without reading its input is not an error.
+            let _ = pipe.write_all(&input).await;
+        }
+        let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        let (stdout, stderr, status) = tokio::join!(
+            read_capped(stdout, SECRET_SCAN_BODY_LIMIT),
+            read_capped(stderr, SECRET_SCAN_BODY_LIMIT),
+            child.wait(),
+        );
+        status.map(|status| (status, stdout, stderr))
+    };
+    // On timeout `run` is dropped with the child, which `kill_on_drop` ends.
+    match tokio::time::timeout(config.timeout, run).await {
+        Err(_) => Err(HostCommandError::TimedOut),
+        Ok(Err(_)) => Err(HostCommandError::CouldNotStart),
+        Ok(Ok(output)) => Ok(output),
+    }
+}
+
+fn text_response(status: StatusCode, body: Vec<u8>) -> Response<ProxyBody> {
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/plain; charset=utf-8")
+        .body(full_body(Bytes::from(body)))
+        .unwrap()
+}
+
+/// A command killed before printing anything (e.g. by the confinement)
+/// would otherwise leave an empty body.
+fn failure_body(
+    name: &str,
+    exit: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+) -> Vec<u8> {
+    let mut body = stdout;
+    body.extend_from_slice(&stderr);
+    body.extend_from_slice(format!("\n{name} exited with {exit}\n").as_bytes());
+    body.truncate(SECRET_SCAN_BODY_LIMIT);
+    body
+}
+
 /// Runs the host's own `stashbase scan` for a sandboxed git hook. The hook
 /// sends only the mode; what gets scanned, with which key and which config
 /// options, is decided here.
@@ -2549,105 +2681,105 @@ async fn handle_secret_scan_hook(
         }
     };
 
-    let _guard = broker.scan_lock.lock().await;
-    let scan_failed = || {
-        proxy_error_response(
-            StatusCode::BAD_GATEWAY,
-            "proxy.secret_scan_failed",
-            "Secret scan could not be started",
-        )
-    };
-    let Ok(home) = ScratchHome::create() else {
-        return scan_failed();
-    };
-    let scan_args = ["scan", mode, "--json", "--silent"];
-    let (program, args) = match &scan.isolation {
-        ScanIsolation::Confined(confinement) => match confinement.wrap(&scan_args, &home.0) {
-            Ok(command) => command,
-            Err(_) => return scan_failed(),
-        },
-        #[cfg(test)]
-        ScanIsolation::Unconfined { exe } => (
-            exe.to_string_lossy().into_owned(),
-            scan_args.iter().map(|arg| (*arg).to_owned()).collect(),
-        ),
-    };
-    let mut command = tokio::process::Command::new(program);
-    command
-        .args(args)
-        .current_dir(&scan.workdir)
-        .env("HOME", &home.0)
-        // The API this run uses, whether it came from the environment or was
-        // built in, so the scan never falls back to a different default.
-        .env(
-            crate::api::client::API_URL_ENV_VAR,
-            crate::api::client::get_api_url(),
-        )
-        .env("TMPDIR", &home.0)
-        .env_remove("XDG_CONFIG_HOME")
-        .env_remove("XDG_CACHE_HOME")
-        .env_remove("XDG_DATA_HOME")
-        .env_remove("XDG_STATE_HOME")
-        .env("STASHBASE_API_KEY", &broker.api_key)
-        .env(crate::models::scans::SCAN_RESTRICTED_ENV, "1")
-        // Keeps the scan's telemetry off, like everything else in the session.
-        .env("STASHBASE_SANDBOX", "1")
-        .env_remove(crate::api::dependencies::HOOK_MODE_ENV)
-        .env_remove(crate::api::dependencies::HOOK_BROKER_URL_ENV)
-        .env_remove(crate::api::dependencies::HOOK_BROKER_TOKEN_ENV)
-        .env_remove(SCAN_BROKER_URL_ENV)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-
-    let run = async move {
-        let mut child = command.spawn()?;
-        let stdout = child.stdout.take().expect("stdout is piped");
-        let stderr = child.stderr.take().expect("stderr is piped");
-        let (stdout, stderr, status) = tokio::join!(
-            read_capped(stdout, SECRET_SCAN_BODY_LIMIT),
-            read_capped(stderr, SECRET_SCAN_BODY_LIMIT),
-            child.wait(),
-        );
-        status.map(|status| (status, stdout, stderr))
-    };
-    // On timeout `run` is dropped with the child, which `kill_on_drop` ends.
-    let response = match tokio::time::timeout(scan.timeout, run).await {
-        Err(_) => proxy_error_response(
+    let args = ["scan", mode, "--json", "--silent"];
+    let response = match run_host_command(broker, scan, &args, None, true).await {
+        Err(HostCommandError::TimedOut) => proxy_error_response(
             StatusCode::GATEWAY_TIMEOUT,
             "proxy.secret_scan_timeout",
             "Secret scan did not finish in time",
         ),
-        Ok(Err(_)) => proxy_error_response(
+        Err(HostCommandError::CouldNotStart) => proxy_error_response(
             StatusCode::BAD_GATEWAY,
             "proxy.secret_scan_failed",
             "Secret scan could not be started",
         ),
-        Ok(Ok((exit, stdout, stderr))) => {
-            let status = match exit.code() {
-                Some(0) => StatusCode::OK,
-                Some(1) => StatusCode::UNPROCESSABLE_ENTITY,
-                _ => StatusCode::BAD_GATEWAY,
-            };
-            let mut body = stdout;
-            body.extend_from_slice(&stderr);
-            if status == StatusCode::BAD_GATEWAY {
-                // A scan killed before printing anything (e.g. by the
-                // confinement) would otherwise leave an empty body.
-                body.extend_from_slice(format!("\nstashbase scan exited with {exit}\n").as_bytes());
+        Ok((exit, stdout, stderr)) => match exit.code() {
+            Some(code @ (0 | 1)) => {
+                let mut body = stdout;
+                body.extend_from_slice(&stderr);
+                body.truncate(SECRET_SCAN_BODY_LIMIT);
+                let status = if code == 0 {
+                    StatusCode::OK
+                } else {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                };
+                text_response(status, body)
             }
-            body.truncate(SECRET_SCAN_BODY_LIMIT);
-            Response::builder()
-                .status(status)
-                .header("content-type", "text/plain; charset=utf-8")
-                .body(full_body(Bytes::from(body)))
-                .unwrap()
-        }
+            _ => text_response(
+                StatusCode::BAD_GATEWAY,
+                failure_body("stashbase scan", exit, stdout, stderr),
+            ),
+        },
     };
     state.record_audit_with_request(
         &request_id,
         "secret_scan_hook",
+        None,
+        Some(&Method::POST),
+        None,
+        Some(response.status()),
+        Some(started.elapsed()),
+    );
+    response
+}
+
+/// Runs the host's own `stashbase agent hooks` for an agent hook in the
+/// Docker sandbox, which has no Stashbase CLI. The body is the agent's hook
+/// payload, passed through as the command's stdin; its stdout is the
+/// agent's hook response.
+async fn handle_agent_hook(
+    request: Request<Incoming>,
+    state: &ProxyState,
+    started: Instant,
+) -> Response<ProxyBody> {
+    let request_id = new_local_request_id();
+    let Some((broker, hook)) = state
+        .hook_broker
+        .as_ref()
+        .filter(|broker| broker.dependency_check && broker.authorized(&request))
+        .and_then(|broker| broker.agent_hook.as_ref().map(|hook| (broker, hook)))
+    else {
+        return proxy_error_response(
+            StatusCode::FORBIDDEN,
+            "proxy.agent_hook_not_allowed",
+            "Agent hook is not enabled for this run; add \"dependency_check\" to allow_hooks",
+        );
+    };
+    let payload = match http_body_util::Limited::new(request.into_body(), AGENT_HOOK_BODY_LIMIT)
+        .collect()
+        .await
+    {
+        Ok(body) => body.to_bytes(),
+        Err(_) => {
+            return proxy_error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "proxy.agent_hook_payload_too_large",
+                "Agent hook payload is too large",
+            )
+        }
+    };
+
+    let args = ["agent", "hooks"];
+    let response = match run_host_command(broker, hook, &args, Some(payload), false).await {
+        Err(HostCommandError::TimedOut) => proxy_error_response(
+            StatusCode::GATEWAY_TIMEOUT,
+            "proxy.agent_hook_timeout",
+            "Dependency check did not finish in time",
+        ),
+        Err(HostCommandError::CouldNotStart) => proxy_error_response(
+            StatusCode::BAD_GATEWAY,
+            "proxy.agent_hook_failed",
+            "Dependency check could not be started",
+        ),
+        Ok((exit, stdout, _)) if exit.success() => text_response(StatusCode::OK, stdout),
+        Ok((exit, stdout, stderr)) => text_response(
+            StatusCode::BAD_GATEWAY,
+            failure_body("stashbase agent hooks", exit, stdout, stderr),
+        ),
+    };
+    state.record_audit_with_request(
+        &request_id,
+        "dependency_agent_hook",
         None,
         Some(&Method::POST),
         None,
@@ -5510,6 +5642,7 @@ mod tests {
                 api_key: "parent-api-key".to_owned(),
                 dependency_check: true,
                 secret_scan: None,
+                agent_hook: None,
             }),
         )
         .await
@@ -5580,6 +5713,7 @@ mod tests {
                     timeout,
                     isolation: ScanIsolation::Unconfined { exe },
                 }),
+                agent_hook: None,
             }),
         )
         .await
@@ -5690,6 +5824,7 @@ mod tests {
                 api_key: "parent-api-key".to_owned(),
                 dependency_check: true,
                 secret_scan: None,
+                agent_hook: None,
             }),
         )
         .await
@@ -5791,6 +5926,135 @@ mod tests {
             started.elapsed() >= Duration::from_secs(2),
             "scans ran concurrently"
         );
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    fn fake_hook_exe(dir: &std::path::Path, exit_code: i32) -> PathBuf {
+        let path = dir.join("fake-stashbase-hooks");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"args=$*\"\necho \"stdin=$(cat)\"\n\
+                 echo \"key=$STASHBASE_API_KEY\"\n\
+                 echo \"hook_mode=${{STASHBASE_HOOK_MODE:-unset}}\"\nexit {exit_code}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    async fn start_agent_hook_proxy(
+        exe: PathBuf,
+        workdir: PathBuf,
+        dependency_check: bool,
+    ) -> Proxy {
+        Proxy::start_with_hook(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check,
+                secret_scan: None,
+                agent_hook: Some(SecretScanConfig {
+                    workdir,
+                    timeout: Duration::from_secs(10),
+                    isolation: ScanIsolation::Unconfined { exe },
+                }),
+            }),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    async fn post_agent_hook(proxy: &Proxy, body: Vec<u8>) -> (u16, String) {
+        let url = proxy.child_env()[AGENT_HOOK_URL_ENV].clone();
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .post(url)
+            .bearer_auth(hook_token(proxy))
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        (response.status().as_u16(), response.text().await.unwrap())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_runs_the_host_cli_with_the_payload_as_stdin() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 0), dir.clone(), true).await;
+
+        let (status, body) = post_agent_hook(
+            &proxy,
+            br#"{"tool_input":{"command":"npm i left-pad"}}"#.to_vec(),
+        )
+        .await;
+
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("args=agent hooks"), "{body}");
+        assert!(
+            body.contains(r#"stdin={"tool_input":{"command":"npm i left-pad"}}"#),
+            "{body}"
+        );
+        assert!(body.contains("key=parent-api-key"), "{body}");
+        // Calls the API directly rather than looping back into the broker.
+        assert!(body.contains("hook_mode=unset"), "{body}");
+        assert!(!proxy.child_env().contains_key("STASHBASE_API_KEY"));
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_reports_how_a_failed_hook_exited() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 3), dir.clone(), true).await;
+
+        let (status, body) = post_agent_hook(&proxy, b"{}".to_vec()).await;
+
+        assert_eq!(status, 502, "{body}");
+        assert!(body.contains("stashbase agent hooks exited with"), "{body}");
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_rejects_an_oversized_payload() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 0), dir.clone(), true).await;
+
+        let (status, _) = post_agent_hook(&proxy, vec![b'a'; AGENT_HOOK_BODY_LIMIT + 1]).await;
+
+        assert_eq!(status, 413);
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_is_not_served_without_dependency_check() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 0), dir.clone(), false).await;
+        assert!(!proxy.child_env().contains_key(AGENT_HOOK_URL_ENV));
+        let url = format!(
+            "{}{AGENT_HOOK_PATH}",
+            proxy.child_env()["HTTP_PROXY"].trim_end_matches('/')
+        );
+
+        let (status, _) = post_to(url, Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 403);
         proxy.stop().await;
         let _ = std::fs::remove_dir_all(dir);
     }

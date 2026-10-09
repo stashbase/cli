@@ -3,33 +3,127 @@ use std::{collections::BTreeSet, fs, io::Read, path::Path};
 
 use crate::{
     api::dependencies::check_batch,
-    cmd::deps::{AgentDepsSubcommand, AgentHooksCommand, AgentHooksSubcommand, HookAgent},
+    cmd::deps::{
+        AgentDepsSubcommand, AgentHookTarget, AgentHooksCommand, AgentHooksSubcommand, HookAgent,
+    },
     models::dependencies::{DependencyCheckRequest, DependencyDecision},
 };
 
 pub async fn handle_agent_hooks_commands(cmd: AgentHooksCommand, api_key: String) -> Result<()> {
     match cmd.subcommand {
         Some(AgentHooksSubcommand::Deps(args)) => match args.subcommand {
-            AgentDepsSubcommand::Install(args) => install_hook(args.agent, args.global),
-            AgentDepsSubcommand::Check(args) => check_hook(args.agent, args.global),
-            AgentDepsSubcommand::Uninstall(args) => uninstall_hook(args.agent, args.global),
+            AgentDepsSubcommand::Install(args) => in_scope(&args, HookAction::Install),
+            AgentDepsSubcommand::Check(args) => in_scope(&args, HookAction::Check),
+            AgentDepsSubcommand::Uninstall(args) => in_scope(&args, HookAction::Uninstall),
         },
         None => return handle_hook(api_key).await,
     }
 }
 
-fn check_hook(agent: HookAgent, global: bool) -> Result<()> {
-    let root = if global {
-        directories::BaseDirs::new()
+/// Which agent configuration a hook command reads or changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HookScope {
+    /// This repository's config, which a Docker run also sees.
+    Project,
+    /// This machine's home directory config.
+    Global,
+    /// The Docker sandbox's home volume, shared by every Docker-backend run.
+    /// The config files are staged in a host directory while they change.
+    Docker,
+}
+
+impl HookScope {
+    fn label(self) -> &'static str {
+        match self {
+            HookScope::Project => "project",
+            HookScope::Global => "global",
+            HookScope::Docker => "Docker sandbox",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum HookAction {
+    Install,
+    Check,
+    Uninstall,
+}
+
+/// Agent config files kept in the Docker sandbox's home, relative to it.
+const DOCKER_HOOK_FILES: &[&str] = &[
+    ".claude/settings.json",
+    ".codex/hooks.json",
+    ".codex/config.toml",
+    ".cursor/hooks.json",
+];
+
+fn in_scope(target: &AgentHookTarget, action: HookAction) -> Result<()> {
+    if target.docker {
+        let write_back = !matches!(action, HookAction::Check);
+        return crate::handlers::run::docker_sandbox::with_persistent_home_files(
+            DOCKER_HOOK_FILES,
+            write_back,
+            |root| apply(target.agent, action, root, HookScope::Docker),
+        );
+    }
+    let (scope, root) = if target.global {
+        let home = directories::BaseDirs::new()
             .map(|dirs| dirs.home_dir().to_path_buf())
-            .context("Could not determine the home directory for global hooks.")?
+            .context("Could not determine the home directory for global hooks.")?;
+        (HookScope::Global, home)
     } else {
-        git2::Repository::discover(".")
-            .context("Hook check must run inside a git repository.")?
+        let root = git2::Repository::discover(".")
+            .context(
+                "Hook commands without --global or --docker must run inside a git repository.",
+            )?
             .workdir()
             .map(Path::to_path_buf)
-            .context("Git repository has no working directory.")?
+            .context("Git repository has no working directory.")?;
+        (HookScope::Project, root)
     };
+    apply(target.agent, action, &root, scope)
+}
+
+fn apply(agent: HookAgent, action: HookAction, root: &Path, scope: HookScope) -> Result<()> {
+    match (action, agent) {
+        (HookAction::Install, HookAgent::Claude) => install_claude_hook(root, scope),
+        (HookAction::Install, HookAgent::Codex) => install_codex_hook(root, scope),
+        (HookAction::Install, HookAgent::Cursor) => install_cursor_hook(root, scope),
+        (HookAction::Uninstall, HookAgent::Claude) => uninstall_claude_hook(root, scope),
+        (HookAction::Uninstall, HookAgent::Codex) => uninstall_codex_hook(root, scope),
+        (HookAction::Uninstall, HookAgent::Cursor) => uninstall_cursor_hook(root, scope),
+        (HookAction::Check, agent) => check_hook(agent, root, scope),
+    }
+}
+
+/// Codex keeps its global config in `CODEX_HOME` when that is set. Inside
+/// the Docker sandbox it is not, so the volume's `.codex` is used.
+fn codex_directory(root: &Path, scope: HookScope) -> std::path::PathBuf {
+    if scope == HookScope::Global {
+        if let Some(home) = std::env::var_os("CODEX_HOME") {
+            return std::path::PathBuf::from(home);
+        }
+    }
+    root.join(".codex")
+}
+
+/// `path` as the agent sees it: for the Docker scope, inside the sandbox's
+/// home rather than the host staging directory.
+fn shown(path: &Path, root: &Path, scope: HookScope) -> String {
+    match (scope, path.strip_prefix(root)) {
+        // A Linux path whatever the host is, so `/` rather than `Path::join`.
+        (HookScope::Docker, Ok(relative)) => {
+            let parts = relative
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            format!("/home/agent/{}", parts.join("/"))
+        }
+        _ => path.display().to_string(),
+    }
+}
+
+fn check_hook(agent: HookAgent, root: &Path, scope: HookScope) -> Result<()> {
     let (path, installed) = match agent {
         HookAgent::Claude => {
             let path = root.join(".claude/settings.json");
@@ -37,14 +131,7 @@ fn check_hook(agent: HookAgent, global: bool) -> Result<()> {
             (path, installed)
         }
         HookAgent::Codex => {
-            let directory = if global {
-                std::env::var_os("CODEX_HOME")
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| root.join(".codex"))
-            } else {
-                root.join(".codex")
-            };
-            let path = directory.join("hooks.json");
+            let path = codex_directory(root, scope).join("hooks.json");
             let installed = has_dependency_hook(&path)?;
             (path, installed)
         }
@@ -55,10 +142,10 @@ fn check_hook(agent: HookAgent, global: bool) -> Result<()> {
         }
     };
     if installed {
-        println!("Dependency hook installed in {}", path.display());
+        println!("Dependency hook installed in {}", shown(&path, root, scope));
         Ok(())
     } else {
-        bail!("No dependency hook found in {}", path.display());
+        bail!("No dependency hook found in {}", shown(&path, root, scope));
     }
 }
 
@@ -341,107 +428,77 @@ fn parse_package_spec(spec: &str) -> Result<DependencyCheckRequest> {
     }
 }
 
-fn install_hook(agent: HookAgent, global: bool) -> Result<()> {
-    let root = if global {
-        directories::BaseDirs::new()
-            .map(|dirs| dirs.home_dir().to_path_buf())
-            .context("Could not determine the home directory for global hooks.")?
-    } else {
-        git2::Repository::discover(".")
-            .context("Hook installation must run inside a git repository.")?
-            .workdir()
-            .map(Path::to_path_buf)
-            .context("Git repository has no working directory.")?
-    };
-    match agent {
-        HookAgent::Claude => install_claude_hook(&root, global),
-        HookAgent::Codex => install_codex_hook(&root, global),
-        HookAgent::Cursor => install_cursor_hook(&root, global),
-    }
-}
-
-fn uninstall_hook(agent: HookAgent, global: bool) -> Result<()> {
-    let root = if global {
-        directories::BaseDirs::new()
-            .map(|dirs| dirs.home_dir().to_path_buf())
-            .context("Could not determine the home directory for global hooks.")?
-    } else {
-        git2::Repository::discover(".")
-            .context("Hook removal must run inside a git repository.")?
-            .workdir()
-            .map(Path::to_path_buf)
-            .context("Git repository has no working directory.")?
-    };
-    match agent {
-        HookAgent::Claude => uninstall_claude_hook(&root, global),
-        HookAgent::Codex => uninstall_codex_hook(&root, global),
-        HookAgent::Cursor => uninstall_cursor_hook(&root, global),
-    }
-}
-
-fn uninstall_claude_hook(root: &Path, global: bool) -> Result<()> {
+fn uninstall_claude_hook(root: &Path, scope: HookScope) -> Result<()> {
     let path = root.join(".claude/settings.json");
     if !path.exists() {
-        println!("No Claude dependency hook found in {}", path.display());
+        println!(
+            "No Claude dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     let mut settings = read_json(&path).context("Failed to read .claude/settings.json.")?;
     if !remove_tool_hook(&mut settings) {
-        println!("No Claude dependency hook found in {}", path.display());
+        println!(
+            "No Claude dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     write_json(&path, &settings)?;
     println!(
         "Removed {} Claude dependency hook from {}",
-        if global { "global" } else { "project" },
-        path.display()
+        scope.label(),
+        shown(&path, root, scope)
     );
     Ok(())
 }
 
-fn uninstall_codex_hook(root: &Path, global: bool) -> Result<()> {
-    let directory = if global {
-        std::env::var_os("CODEX_HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| root.join(".codex"))
-    } else {
-        root.join(".codex")
-    };
+fn uninstall_codex_hook(root: &Path, scope: HookScope) -> Result<()> {
+    let directory = codex_directory(root, scope);
     let path = directory.join("hooks.json");
     if !path.exists() {
-        println!("No Codex dependency hook found in {}", path.display());
+        println!(
+            "No Codex dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     let mut hooks = read_json(&path).context("Failed to read .codex/hooks.json.")?;
     if !remove_tool_hook(&mut hooks) {
-        println!("No Codex dependency hook found in {}", path.display());
+        println!(
+            "No Codex dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     write_json(&path, &hooks)?;
     println!(
         "Removed {} Codex dependency hook from {}",
-        if global { "global" } else { "project" },
-        path.display()
+        scope.label(),
+        shown(&path, root, scope)
     );
     Ok(())
 }
 
-fn install_cursor_hook(root: &Path, global: bool) -> Result<()> {
+fn install_cursor_hook(root: &Path, scope: HookScope) -> Result<()> {
     let directory = root.join(".cursor");
-    let other_path = if global {
-        git2::Repository::discover(".")
+    let other_path = match scope {
+        HookScope::Global => git2::Repository::discover(".")
             .ok()
             .and_then(|repo| repo.workdir().map(Path::to_path_buf))
-            .map(|root| root.join(".cursor/hooks.json"))
-    } else {
-        directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".cursor/hooks.json"))
+            .map(|root| root.join(".cursor/hooks.json")),
+        HookScope::Project => {
+            directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".cursor/hooks.json"))
+        }
+        HookScope::Docker => None,
     };
     let path = directory.join("hooks.json");
     if let Some(other_path) = other_path.as_deref().filter(|other| *other != path) {
         if has_cursor_dependency_hook(other_path)? {
             println!(
                 "Dependency hook already exists in the other Cursor configuration scope; remove it before installing in {}.",
-                path.display()
+                shown(&path, root, scope)
             );
             return Ok(());
         }
@@ -476,28 +533,34 @@ fn install_cursor_hook(root: &Path, global: bool) -> Result<()> {
     write_json(&path, &config)?;
     println!(
         "Installed {} Cursor dependency hook in {}",
-        if global { "global" } else { "project" },
-        path.display()
+        scope.label(),
+        shown(&path, root, scope)
     );
     Ok(())
 }
 
-fn uninstall_cursor_hook(root: &Path, global: bool) -> Result<()> {
+fn uninstall_cursor_hook(root: &Path, scope: HookScope) -> Result<()> {
     let path = root.join(".cursor/hooks.json");
     if !path.exists() {
-        println!("No Cursor dependency hook found in {}", path.display());
+        println!(
+            "No Cursor dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     let mut config = read_json(&path).context("Failed to read .cursor/hooks.json.")?;
     if !remove_cursor_hook(&mut config) {
-        println!("No Cursor dependency hook found in {}", path.display());
+        println!(
+            "No Cursor dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     write_json(&path, &config)?;
     println!(
         "Removed {} Cursor dependency hook from {}",
-        if global { "global" } else { "project" },
-        path.display()
+        scope.label(),
+        shown(&path, root, scope)
     );
     Ok(())
 }
@@ -532,15 +595,17 @@ fn remove_cursor_hook(config: &mut serde_json::Value) -> bool {
     before != entries.len()
 }
 
-fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
+fn install_claude_hook(root: &Path, scope: HookScope) -> Result<()> {
     let path = root.join(".claude/settings.json");
-    let other_path = if global {
-        git2::Repository::discover(".")
+    let other_path = match scope {
+        HookScope::Global => git2::Repository::discover(".")
             .ok()
             .and_then(|repo| repo.workdir().map(Path::to_path_buf))
-            .map(|root| root.join(".claude/settings.json"))
-    } else {
-        directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".claude/settings.json"))
+            .map(|root| root.join(".claude/settings.json")),
+        HookScope::Project => {
+            directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".claude/settings.json"))
+        }
+        HookScope::Docker => None,
     };
     if let Some(other_path) = other_path
         .as_deref()
@@ -549,7 +614,7 @@ fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
         if has_dependency_hook(other_path)? {
             println!(
                 "Dependency hook already exists in the other Claude configuration scope; remove it before installing in {}.",
-                path.display()
+                shown(&path, root, scope)
             );
             return Ok(());
         }
@@ -630,31 +695,22 @@ fn install_claude_hook(root: &Path, global: bool) -> Result<()> {
     write_json(&path, &settings)?;
     println!(
         "Installed {} Claude dependency hook in {}",
-        if global { "global" } else { "project" },
-        path.display()
+        scope.label(),
+        shown(&path, root, scope)
     );
     Ok(())
 }
 
-fn install_codex_hook(root: &Path, global: bool) -> Result<()> {
-    let directory = if global {
-        std::env::var_os("CODEX_HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| root.join(".codex"))
-    } else {
-        root.join(".codex")
-    };
-    let other_directory = if global {
-        git2::Repository::discover(".")
+fn install_codex_hook(root: &Path, scope: HookScope) -> Result<()> {
+    let directory = codex_directory(root, scope);
+    let other_directory = match scope {
+        HookScope::Global => git2::Repository::discover(".")
             .ok()
             .and_then(|repo| repo.workdir().map(Path::to_path_buf))
-            .map(|root| root.join(".codex"))
-    } else {
-        directories::BaseDirs::new().map(|dirs| {
-            std::env::var_os("CODEX_HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| dirs.home_dir().join(".codex"))
-        })
+            .map(|root| root.join(".codex")),
+        HookScope::Project => directories::BaseDirs::new()
+            .map(|dirs| codex_directory(dirs.home_dir(), HookScope::Global)),
+        HookScope::Docker => None,
     };
     if let Some(other_directory) = other_directory
         .as_deref()
@@ -663,7 +719,7 @@ fn install_codex_hook(root: &Path, global: bool) -> Result<()> {
         if has_dependency_hook(&other_directory.join("hooks.json"))? {
             println!(
                 "Dependency hook already exists in the other Codex configuration scope; remove it before installing in {}.",
-                directory.display()
+                shown(&directory, root, scope)
             );
             return Ok(());
         }
@@ -690,8 +746,8 @@ fn install_codex_hook(root: &Path, global: bool) -> Result<()> {
     enable_codex_hooks(&directory.join("config.toml"))?;
     println!(
         "Installed {} Codex dependency hook in {}",
-        if global { "global" } else { "project" },
-        path.display()
+        scope.label(),
+        shown(&path, root, scope)
     );
     Ok(())
 }
@@ -823,13 +879,64 @@ fn write_json(path: &Path, value: &serde_json::Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        install_claude_hook, install_cursor_hook, parse_preinstall_dependencies,
-        remove_cursor_hook, remove_tool_hook,
+        apply, codex_directory, install_claude_hook, install_cursor_hook,
+        parse_preinstall_dependencies, remove_cursor_hook, remove_tool_hook, shown, HookAction,
+        HookScope,
     };
+    use crate::cmd::deps::HookAgent;
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn docker_scope_installs_into_the_staged_sandbox_home() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("stashbase-docker-hook-test-{suffix}"));
+
+        for agent in [HookAgent::Claude, HookAgent::Codex, HookAgent::Cursor] {
+            apply(agent, HookAction::Install, &root, HookScope::Docker).unwrap();
+            apply(agent, HookAction::Check, &root, HookScope::Docker).unwrap();
+        }
+
+        assert!(fs::read_to_string(root.join(".claude/settings.json"))
+            .unwrap()
+            .contains("stashbase agent hooks"));
+        // Never CODEX_HOME: the host's value means nothing inside the sandbox.
+        assert_eq!(
+            codex_directory(&root, HookScope::Docker),
+            root.join(".codex")
+        );
+        assert!(root.join(".codex/hooks.json").exists());
+        assert!(root.join(".cursor/hooks.json").exists());
+        assert_eq!(
+            shown(
+                &root.join(".claude/settings.json"),
+                &root,
+                HookScope::Docker
+            ),
+            "/home/agent/.claude/settings.json"
+        );
+
+        apply(
+            HookAgent::Claude,
+            HookAction::Uninstall,
+            &root,
+            HookScope::Docker,
+        )
+        .unwrap();
+        assert!(apply(
+            HookAgent::Claude,
+            HookAction::Check,
+            &root,
+            HookScope::Docker
+        )
+        .is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn parses_multiple_preinstall_packages_with_optional_versions() {
@@ -952,7 +1059,7 @@ mod tests {
             .as_nanos();
         let root = std::env::temp_dir().join(format!("stashbase-claude-hook-test-{suffix}"));
 
-        install_claude_hook(&root, true).unwrap();
+        install_claude_hook(&root, HookScope::Global).unwrap();
         let settings: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(root.join(".claude/settings.json")).unwrap())
                 .unwrap();
@@ -968,7 +1075,7 @@ mod tests {
         assert!(matchers.contains(&"Bash(yarn add *)"));
         assert!(matchers.contains(&"Bash(yarn install *)"));
 
-        install_cursor_hook(&root, true).unwrap();
+        install_cursor_hook(&root, HookScope::Global).unwrap();
         let hooks: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(root.join(".cursor/hooks.json")).unwrap())
                 .unwrap();
