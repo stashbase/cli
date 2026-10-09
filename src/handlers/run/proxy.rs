@@ -2474,6 +2474,18 @@ async fn handle_dependency_hook(
     builder.body(full_body(body)).unwrap()
 }
 
+/// Keeps at most `limit` bytes of `reader`, discarding the rest as it
+/// arrives. The scan's output size is agent-controlled, and draining (rather
+/// than stopping) keeps the child from blocking on a full pipe.
+async fn read_capped(mut reader: impl tokio::io::AsyncRead + Unpin, limit: usize) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+
+    let mut kept = Vec::new();
+    let _ = (&mut reader).take(limit as u64).read_to_end(&mut kept).await;
+    let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
+    kept
+}
+
 /// Runs the host's own `stashbase scan` for a sandboxed git hook. The hook
 /// sends only the mode; what gets scanned, with which key and which config
 /// options, is decided here.
@@ -2522,9 +2534,23 @@ async fn handle_secret_scan_hook(
         .env_remove(crate::api::dependencies::HOOK_BROKER_TOKEN_ENV)
         .env_remove(SCAN_BROKER_URL_ENV)
         .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
 
-    let response = match tokio::time::timeout(scan.timeout, command.output()).await {
+    let run = async move {
+        let mut child = command.spawn()?;
+        let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        let (stdout, stderr, status) = tokio::join!(
+            read_capped(stdout, SECRET_SCAN_BODY_LIMIT),
+            read_capped(stderr, SECRET_SCAN_BODY_LIMIT),
+            child.wait(),
+        );
+        status.map(|status| (status, stdout, stderr))
+    };
+    // On timeout `run` is dropped with the child, which `kill_on_drop` ends.
+    let response = match tokio::time::timeout(scan.timeout, run).await {
         Err(_) => proxy_error_response(
             StatusCode::GATEWAY_TIMEOUT,
             "proxy.secret_scan_timeout",
@@ -2535,14 +2561,14 @@ async fn handle_secret_scan_hook(
             "proxy.secret_scan_failed",
             "Secret scan could not be started",
         ),
-        Ok(Ok(output)) => {
-            let status = match output.status.code() {
+        Ok(Ok((exit, stdout, stderr))) => {
+            let status = match exit.code() {
                 Some(0) => StatusCode::OK,
                 Some(1) => StatusCode::UNPROCESSABLE_ENTITY,
                 _ => StatusCode::BAD_GATEWAY,
             };
-            let mut body = output.stdout;
-            body.extend_from_slice(&output.stderr);
+            let mut body = stdout;
+            body.extend_from_slice(&stderr);
             body.truncate(SECRET_SCAN_BODY_LIMIT);
             Response::builder()
                 .status(status)
@@ -5640,6 +5666,29 @@ mod tests {
 
         assert_eq!(status, 504, "{body}");
         assert!(body.contains("proxy.secret_scan_timeout"), "{body}");
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_caps_huge_output_and_still_finishes() {
+        let dir = scan_test_dir();
+        let exe = dir.join("loud-stashbase");
+        std::fs::write(
+            &exe,
+            "#!/bin/sh\nhead -c 5242880 /dev/zero | tr '\\0' a\nhead -c 5242880 /dev/zero | tr '\\0' b >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let proxy = start_scan_proxy(exe, dir.clone(), Duration::from_secs(10)).await;
+
+        let (status, body) = post_scan(&proxy, "staged", Some(&hook_token(&proxy))).await;
+
+        // 422 rather than 504: the excess was drained, so the scan exited.
+        assert_eq!(status, 422);
+        assert!(body.len() <= SECRET_SCAN_BODY_LIMIT, "{}", body.len());
+        assert!(body.starts_with('a'));
         proxy.stop().await;
         let _ = std::fs::remove_dir_all(dir);
     }

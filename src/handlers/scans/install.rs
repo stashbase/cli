@@ -44,15 +44,15 @@ impl HookType {
 fn hook_block(hook_type: HookType) -> String {
     format!(
         r#"{start}
-if [ -n "$STASHBASE_SCAN_BROKER_URL" ]; then
+if [ -n "${STASHBASE_SCAN_BROKER_URL:-}" ]; then
   command -v curl >/dev/null 2>&1 || {{
     echo "curl not found in the agent sandbox. Cannot run the Stashbase scan."
     exit 1
   }}
   curl -sS --fail-with-body --noproxy '*' -X POST \
-    -H "Authorization: Bearer $STASHBASE_HOOK_BROKER_TOKEN" \
+    -H "Authorization: Bearer ${STASHBASE_HOOK_BROKER_TOKEN:-}" \
     "$STASHBASE_SCAN_BROKER_URL/{mode}" || exit 1
-elif [ "$STASHBASE_SANDBOX" = "1" ]; then
+elif [ "${STASHBASE_SANDBOX:-}" = "1" ]; then
   echo "Stashbase scan hook is not enabled for this agent run. Add allow_hooks = [\"secret_scan\"] to the agent profile."
   exit 1
 else
@@ -370,6 +370,11 @@ mod tests {
 
     #[cfg(unix)]
     fn run_block(hook_type: HookType, env: &[(&str, &str)], with_curl: bool) -> (i32, String) {
+        run_script(hook_block(hook_type), env, with_curl)
+    }
+
+    #[cfg(unix)]
+    fn run_script(script: String, env: &[(&str, &str)], with_curl: bool) -> (i32, String) {
         use std::os::unix::fs::PermissionsExt;
 
         let bin = temp_dir().join("bin");
@@ -388,7 +393,7 @@ mod tests {
         // missing one; everything else the block uses is a shell builtin.
         let output = Command::new("/bin/sh")
             .arg("-c")
-            .arg(hook_block(hook_type))
+            .arg(script)
             .env_clear()
             .env("PATH", &bin)
             .envs(env.iter().copied())
@@ -446,6 +451,21 @@ mod tests {
 
         assert_eq!(code, 1, "{out}");
         assert!(out.contains("curl not found"), "{out}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hook_works_inside_an_existing_set_u_hook() {
+        // `scan install` appends to existing hooks, which may use `set -u`.
+        let script = format!("set -u\n{}", hook_block(HookType::PreCommit));
+
+        let (code, out) = run_script(script.clone(), &[], true);
+        assert_eq!(code, 0, "{out}");
+        assert!(out.contains("cli scan staged --silent --json"), "{out}");
+
+        let (code, out) = run_script(script, &BROKER_ENV, true);
+        assert_eq!(code, 0, "{out}");
+        assert!(out.contains("http://h:1/__stashbase/scan/staged"), "{out}");
     }
 
     #[cfg(unix)]
