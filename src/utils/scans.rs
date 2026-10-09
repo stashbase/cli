@@ -717,13 +717,8 @@ mod restricted_budget_tests {
     use super::*;
 
     fn temp_repo() -> (std::path::PathBuf, git2::Repository) {
-        let dir = std::env::temp_dir().join(format!(
-            "stashbase-scan-budget-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("stashbase-scan-budget-{}", uuid::Uuid::new_v4()));
         let repo = git2::Repository::init(&dir).unwrap();
         (dir, repo)
     }

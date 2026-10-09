@@ -342,6 +342,21 @@ mod tests {
             .unwrap()
     }
 
+    /// Skips locally when this machine can't confine the scan, but fails in
+    /// CI, where a skip would hide that the confinement never ran.
+    fn confinement_available() -> bool {
+        match unavailable_reason() {
+            None => true,
+            Some(reason) if std::env::var_os("CI").is_some() => {
+                panic!("scan confinement must run in CI: {reason}")
+            }
+            Some(reason) => {
+                eprintln!("skipping: {reason}");
+                false
+            }
+        }
+    }
+
     /// `cat` stands in for the CLI binary: the confinement is about which
     /// files the process can read, not what it does with them.
     fn assert_reads_only_the_worktree(base: &Path) {
@@ -371,8 +386,7 @@ mod tests {
 
     #[test]
     fn confined_scan_cannot_read_outside_the_worktree_under_home() {
-        if let Some(reason) = unavailable_reason() {
-            eprintln!("skipping: {reason}");
+        if !confinement_available() {
             return;
         }
         if let Some(home) = std::env::var_os("HOME") {
@@ -382,8 +396,7 @@ mod tests {
 
     #[test]
     fn confined_scan_cannot_read_outside_the_worktree_under_tmp() {
-        if let Some(reason) = unavailable_reason() {
-            eprintln!("skipping: {reason}");
+        if !confinement_available() {
             return;
         }
         assert_reads_only_the_worktree(Path::new("/tmp"));
@@ -392,8 +405,7 @@ mod tests {
 
     #[test]
     fn confined_scan_keeps_profile_deny_read_inside_the_worktree() {
-        if let Some(reason) = unavailable_reason() {
-            eprintln!("skipping: {reason}");
+        if !confinement_available() {
             return;
         }
         let Some(layout) = layout(&std::env::temp_dir()) else {
