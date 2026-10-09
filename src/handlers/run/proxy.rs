@@ -4622,14 +4622,23 @@ mod tests {
             r#"{"session_id":"ags_test","command":"agent","started_at":"","process_id":0,"process_started_at":"","revoked":true}"#,
         )
         .unwrap();
+        // The proxy drops the existing connection. Depending on timing the
+        // peer sees that as a clean EOF or, on Windows, as a reset (WSAECONNRESET
+        // 10054) — both mean the connection was closed.
         let mut closed = [0; 1];
-        assert_eq!(
-            timeout(Duration::from_secs(2), existing.read(&mut closed))
-                .await
-                .unwrap()
-                .unwrap(),
-            0
-        );
+        match timeout(Duration::from_secs(2), existing.read(&mut closed))
+            .await
+            .expect("existing connection was not closed after revocation")
+        {
+            Ok(count) => assert_eq!(count, 0, "existing connection received data"),
+            Err(error) => assert!(
+                matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ),
+                "unexpected error reading the closed connection: {error}"
+            ),
+        }
 
         let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
         stream
