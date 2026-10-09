@@ -109,20 +109,23 @@ mod platform {
     pub(super) fn profile(confinement: &ScanConfinement, home: &Path) -> Result<String> {
         let quote = |path: &Path| format!("\"{}\"", escape_sbpl_path(&path.to_string_lossy()));
         // Metadata (stat, realpath, libgit2's repository lookup) stays
-        // readable everywhere; contents are denied unless allowed below.
+        // readable everywhere; contents are denied outside the allowed
+        // paths. One deny with exclusions, since a later allow does not
+        // override an earlier deny for the same operation.
+        let system = SYSTEM_READABLE.iter().map(Path::new).map(Path::to_path_buf);
+        let allowed = system
+            .chain(confinement.readable(home))
+            .map(|path| {
+                let filter = if path.is_file() { "literal" } else { "subpath" };
+                format!("({filter} {})", quote(&path))
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
         let mut rules = vec![
             "(version 1)".to_owned(),
             "(allow default)".to_owned(),
-            "(deny file-read-data file-read-xattr)".to_owned(),
+            format!("(deny file-read-data file-read-xattr (require-not (require-any {allowed})))"),
         ];
-        let system = SYSTEM_READABLE.iter().map(Path::new).map(Path::to_path_buf);
-        for path in system.chain(confinement.readable(home)) {
-            let filter = if path.is_file() { "literal" } else { "subpath" };
-            rules.push(format!(
-                "(allow file-read-data file-read-xattr ({filter} {}))",
-                quote(&path)
-            ));
-        }
         // Last, so the profile's own denials win inside the working tree.
         rules.push(denied_file_rules(
             &confinement.denied_read,
