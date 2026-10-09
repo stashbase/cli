@@ -2577,6 +2577,12 @@ async fn handle_secret_scan_hook(
         .args(args)
         .current_dir(&scan.workdir)
         .env("HOME", &home.0)
+        // The API this run uses, whether it came from the environment or was
+        // built in, so the scan never falls back to a different default.
+        .env(
+            crate::api::client::API_URL_ENV_VAR,
+            crate::api::client::get_api_url(),
+        )
         .env("TMPDIR", &home.0)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_CACHE_HOME")
@@ -5544,7 +5550,7 @@ mod tests {
             format!(
                 "#!/bin/sh\nsleep {sleep_secs}\n\
                  echo \"args=$*\"\necho \"cwd=$(pwd -P)\"\n\
-                 echo \"key=$STASHBASE_API_KEY\"\necho \"restricted=$STASHBASE_SCAN_RESTRICTED\"\n\
+                 echo \"key=$STASHBASE_API_KEY\"\necho \"api_url=$STASHBASE_API_URL\"\necho \"restricted=$STASHBASE_SCAN_RESTRICTED\"\n\
                  echo \"hook_token=${{STASHBASE_HOOK_BROKER_TOKEN:-unset}}\"\n\
                  echo 'finding on stderr' >&2\nexit {exit_code}\n"
             ),
@@ -5612,6 +5618,13 @@ mod tests {
         assert!(body.contains("args=scan staged --json --silent"), "{body}");
         assert!(body.contains(&format!("cwd={}", dir.display())), "{body}");
         assert!(body.contains("key=parent-api-key"), "{body}");
+        assert!(
+            body.contains(&format!(
+                "api_url={}",
+                crate::api::client::get_api_url()
+            )),
+            "{body}"
+        );
         assert!(body.contains("restricted=1"), "{body}");
         assert!(body.contains("hook_token=unset"), "{body}");
         assert!(body.contains("finding on stderr"), "{body}");
