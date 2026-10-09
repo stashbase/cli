@@ -2632,6 +2632,11 @@ async fn handle_secret_scan_hook(
             };
             let mut body = stdout;
             body.extend_from_slice(&stderr);
+            if status == StatusCode::BAD_GATEWAY {
+                // A scan killed before printing anything (e.g. by the
+                // confinement) would otherwise leave an empty body.
+                body.extend_from_slice(format!("\nstashbase scan exited with {exit}\n").as_bytes());
+            }
             body.truncate(SECRET_SCAN_BODY_LIMIT);
             Response::builder()
                 .status(status)

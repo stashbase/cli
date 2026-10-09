@@ -76,6 +76,9 @@ mod platform {
     /// TLS trust roots, time zones, `/etc` (DNS, hosts) and devices.
     const SYSTEM_READABLE: &[&str] = &[
         "/System",
+        // The dyld shared cache's real location since macOS 13;
+        // `/System/Volumes/Preboot` is only a firmlink to it.
+        "/private/preboot",
         "/usr",
         "/bin",
         "/sbin",
