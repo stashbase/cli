@@ -417,7 +417,10 @@ mod tests {
         let (code, out) = run_block(HookType::PrePush, &BROKER_ENV, true);
 
         assert_eq!(code, 0, "{out}");
-        assert!(out.contains("http://h:1/__stashbase/scan/unpushed"), "{out}");
+        assert!(
+            out.contains("http://h:1/__stashbase/scan/unpushed"),
+            "{out}"
+        );
         assert!(out.contains("Authorization: Bearer t"), "{out}");
         assert!(!out.contains("cli "), "{out}");
     }

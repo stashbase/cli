@@ -2056,7 +2056,9 @@ mod tests {
             secret_scan: true,
         };
 
-        assert!(hook_broker_config(EnabledHooks::default(), Some("k".to_owned()), workdir).is_none());
+        assert!(
+            hook_broker_config(EnabledHooks::default(), Some("k".to_owned()), workdir).is_none()
+        );
         assert!(hook_broker_config(both, None, workdir).is_none());
         assert!(hook_broker_config(both, Some(String::new()), workdir).is_none());
         let deps_only = EnabledHooks {

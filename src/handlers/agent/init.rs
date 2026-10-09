@@ -126,7 +126,9 @@ mod tests {
     fn template_starts_closed_and_includes_a_generic_rule() {
         assert!(PROFILE_TEMPLATE.contains("egress_hosts = []"));
         assert!(PROFILE_TEMPLATE.contains("allow_network_listeners = true"));
-        assert!(PROFILE_TEMPLATE.contains("# allow_hooks = [\"dependency_check\", \"secret_scan\"]"));
+        assert!(
+            PROFILE_TEMPLATE.contains("# allow_hooks = [\"dependency_check\", \"secret_scan\"]")
+        );
         assert!(PROFILE_TEMPLATE.contains("[secrets.SECRET_NAME]"));
         assert!(PROFILE_TEMPLATE.contains("[[secrets.SECRET_NAME.rules]]"));
     }

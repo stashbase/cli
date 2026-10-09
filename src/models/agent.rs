@@ -75,7 +75,10 @@ impl AgentProfile {
     /// The hooks `allow_hooks` asks for, before checking an API key exists.
     pub fn requested_hooks(&self) -> EnabledHooks {
         EnabledHooks {
-            dependency_check: self.allow_hooks.iter().any(|hook| hook == "dependency_check"),
+            dependency_check: self
+                .allow_hooks
+                .iter()
+                .any(|hook| hook == "dependency_check"),
             secret_scan: self.allow_hooks.iter().any(|hook| hook == "secret_scan"),
         }
     }

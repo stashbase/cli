@@ -2481,7 +2481,10 @@ async fn read_capped(mut reader: impl tokio::io::AsyncRead + Unpin, limit: usize
     use tokio::io::AsyncReadExt;
 
     let mut kept = Vec::new();
-    let _ = (&mut reader).take(limit as u64).read_to_end(&mut kept).await;
+    let _ = (&mut reader)
+        .take(limit as u64)
+        .read_to_end(&mut kept)
+        .await;
     let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
     kept
 }
@@ -5580,7 +5583,10 @@ mod tests {
         let (status, body) = post_scan(&proxy, "unpushed", Some(&hook_token(&proxy))).await;
 
         assert_eq!(status, 422, "{body}");
-        assert!(body.contains("args=scan unpushed --json --silent"), "{body}");
+        assert!(
+            body.contains("args=scan unpushed --json --silent"),
+            "{body}"
+        );
         proxy.stop().await;
         let _ = std::fs::remove_dir_all(dir);
     }

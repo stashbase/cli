@@ -2372,12 +2372,11 @@ fn spawn_remote_session_rotation(
 mod tests {
     use super::{
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
-        directory_profile_git_warning, enabled_hooks,
-        ensure_replacement_session_is_compatible, exit_for, infer_remote_agent_type,
-        is_bare_agent_hook, remote_bindings, remote_codex_command_with_mcp_binding_headers,
-        remote_session_rotation_delay_for, remote_session_started_message,
-        remote_session_transport_identity, remote_source_env_names, secret_child_name,
-        summarize_audit_events, uses_local_dependency_hook_broker_mode,
+        directory_profile_git_warning, enabled_hooks, ensure_replacement_session_is_compatible,
+        exit_for, infer_remote_agent_type, is_bare_agent_hook, remote_bindings,
+        remote_codex_command_with_mcp_binding_headers, remote_session_rotation_delay_for,
+        remote_session_started_message, remote_session_transport_identity, remote_source_env_names,
+        secret_child_name, summarize_audit_events, uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::cmd::root::Cli;
