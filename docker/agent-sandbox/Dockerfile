@@ -92,3 +92,11 @@ ENV DISABLE_AUTOUPDATER=1
 # same image — the actual agent container never runs iptables itself and
 # holds no networking capabilities at all.
 WORKDIR /workspace
+
+# The node base image's entrypoint runs any command it can't find as a Node
+# script, so a misspelled agent (`-- claude.`) failed with "Cannot find
+# module '/workspace/claude.'". Every command this image runs is a real
+# executable (the agent, the netns holder's `sleep`, `agent docker shell`'s
+# bash), so run them directly: a typo now fails with Docker's own
+# "executable file not found in $PATH".
+ENTRYPOINT []

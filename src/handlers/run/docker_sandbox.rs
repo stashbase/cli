@@ -1569,6 +1569,13 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_dockerfile_clears_the_node_base_entrypoint() {
+        assert!(SANDBOX_DOCKERFILE
+            .lines()
+            .any(|line| line.trim() == "ENTRYPOINT []"));
+    }
+
+    #[test]
     fn agent_image_source_defaults_when_neither_field_is_set() {
         assert_eq!(
             AgentImageSource::from_profile(None, None),
