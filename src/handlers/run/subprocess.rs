@@ -831,7 +831,7 @@ fn codex_workspace_rules(boundary: CodexSandboxBoundary, current_dir: &Path) -> 
 }
 
 #[cfg(target_os = "macos")]
-fn denied_file_rules(
+pub(crate) fn denied_file_rules(
     deny_read: &[String],
     deny_write: &[String],
     current_dir: &Path,
@@ -967,7 +967,7 @@ fn filesystem_denial_from_line(
 }
 
 #[cfg(target_os = "macos")]
-fn escape_sbpl_path(path: &str) -> String {
+pub(crate) fn escape_sbpl_path(path: &str) -> String {
     path.replace('\\', "\\\\").replace('"', "\\\"")
 }
 

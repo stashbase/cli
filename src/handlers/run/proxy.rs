@@ -104,6 +104,34 @@ pub struct SecretScanConfig {
     /// Run as `<exe> scan <mode> --json --silent`.
     pub exe: PathBuf,
     pub timeout: Duration,
+    pub isolation: ScanIsolation,
+}
+
+pub enum ScanIsolation {
+    /// The scan reads an agent-controlled repository, so it runs with roughly
+    /// the agent's own view of the host filesystem.
+    Confined(super::scan_sandbox::ScanConfinement),
+    /// Runs `exe` directly, for tests of the route itself.
+    #[cfg(test)]
+    Unconfined,
+}
+
+/// An empty home for one scan, so it reads none of the user's dotfiles
+/// (git's global config, the CLI's own config) and can still write.
+struct ScratchHome(PathBuf);
+
+impl ScratchHome {
+    fn create() -> std::io::Result<Self> {
+        let path = std::env::temp_dir().join(format!("stashbase-scan-home-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&path)?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for ScratchHome {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 struct HookBroker {
@@ -2524,10 +2552,37 @@ async fn handle_secret_scan_hook(
     };
 
     let _guard = broker.scan_lock.lock().await;
-    let mut command = tokio::process::Command::new(&scan.exe);
+    let scan_failed = || {
+        proxy_error_response(
+            StatusCode::BAD_GATEWAY,
+            "proxy.secret_scan_failed",
+            "Secret scan could not be started",
+        )
+    };
+    let Ok(home) = ScratchHome::create() else {
+        return scan_failed();
+    };
+    let scan_args = ["scan", mode, "--json", "--silent"];
+    let (program, args) = match &scan.isolation {
+        ScanIsolation::Confined(confinement) => match confinement.wrap(&scan_args, &home.0) {
+            Ok(command) => command,
+            Err(_) => return scan_failed(),
+        },
+        #[cfg(test)]
+        ScanIsolation::Unconfined => (
+            scan.exe.to_string_lossy().into_owned(),
+            scan_args.iter().map(|arg| (*arg).to_owned()).collect(),
+        ),
+    };
+    let mut command = tokio::process::Command::new(program);
     command
-        .args(["scan", mode, "--json", "--silent"])
+        .args(args)
         .current_dir(&scan.workdir)
+        .env("HOME", &home.0)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_CACHE_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .env_remove("XDG_STATE_HOME")
         .env("STASHBASE_API_KEY", &broker.api_key)
         .env(crate::models::scans::SCAN_RESTRICTED_ENV, "1")
         // Keeps the scan's telemetry off, like everything else in the session.
@@ -5514,6 +5569,7 @@ mod tests {
                     workdir,
                     exe,
                     timeout,
+                    isolation: ScanIsolation::Unconfined,
                 }),
             }),
         )

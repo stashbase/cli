@@ -113,7 +113,7 @@ Your global `git config user.name` and `user.email` (if configured on the host) 
 
 ### Secret scan hooks
 
-Git hooks installed with `stashbase scan install` work in the sandbox when the profile sets `allow_hooks = ["secret_scan"]`. The sandbox has neither the Stashbase CLI nor your API key, so the hook asks the Agent Proxy to run the scan on the host against the same working directory, with `curl` and a per-run token. Findings come back to the agent, and the commit or push is blocked, exactly as outside the sandbox. Like any git hook, it is skipped by `git commit --no-verify` — a safety net, not an enforcement boundary. See [Agent Profiles](agent-profiles.md#api-hooks).
+Git hooks installed with `stashbase scan install` work in the sandbox when the profile sets `allow_hooks = ["secret_scan"]`. The sandbox has neither the Stashbase CLI nor your API key, so the hook asks the Agent Proxy to run the scan on the host against the same working directory, with `curl` and a per-run token. Findings come back to the agent, and the commit or push is blocked, exactly as outside the sandbox. The scan itself runs confined (Seatbelt on macOS, bubblewrap on Linux) so it can only read the run's working tree and git directories, never files the agent points it at through symlinks or `.git` redirects; `secret_scan` is unavailable on Windows for that reason. Like any git hook, it is skipped by `git commit --no-verify` — a safety net, not an enforcement boundary. See [Agent Profiles](agent-profiles.md#api-hooks).
 
 ### Notifications, herdr and cmux
 

@@ -709,6 +709,11 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
             })
             .collect();
     }
+    if profile.allow_hooks.iter().any(|hook| hook == "secret_scan") {
+        if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
+            return vec![fail("Hook capability", format!("{reason}."))];
+        }
+    }
     vec![ok(
         "Hook capabilities",
         if profile.allow_hooks.is_empty() {
@@ -1151,7 +1156,11 @@ mod tests {
 
         let checks = validate_hook_capabilities(&profile);
 
-        assert!(checks.iter().all(|check| check.status != Status::Fail));
+        let confinable = crate::handlers::run::scan_sandbox::unavailable_reason().is_none();
+        assert_eq!(
+            checks.iter().all(|check| check.status != Status::Fail),
+            confinable
+        );
     }
 
     #[test]
