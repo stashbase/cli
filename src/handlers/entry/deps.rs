@@ -111,10 +111,14 @@ fn codex_directory(root: &Path, scope: HookScope) -> std::path::PathBuf {
 /// home rather than the host staging directory.
 fn shown(path: &Path, root: &Path, scope: HookScope) -> String {
     match (scope, path.strip_prefix(root)) {
-        (HookScope::Docker, Ok(relative)) => Path::new("/home/agent")
-            .join(relative)
-            .display()
-            .to_string(),
+        // A Linux path whatever the host is, so `/` rather than `Path::join`.
+        (HookScope::Docker, Ok(relative)) => {
+            let parts = relative
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            format!("/home/agent/{}", parts.join("/"))
+        }
         _ => path.display().to_string(),
     }
 }
@@ -882,7 +886,6 @@ mod tests {
     use crate::cmd::deps::HookAgent;
     use std::{
         fs,
-        path::Path,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -910,14 +913,8 @@ mod tests {
         assert!(root.join(".codex/hooks.json").exists());
         assert!(root.join(".cursor/hooks.json").exists());
         assert_eq!(
-            shown(
-                &root.join(".claude/settings.json"),
-                &root,
-                HookScope::Docker
-            ),
-            Path::new("/home/agent/.claude/settings.json")
-                .display()
-                .to_string()
+            shown(&root.join(".claude/settings.json"), &root, HookScope::Docker),
+            "/home/agent/.claude/settings.json"
         );
 
         apply(
