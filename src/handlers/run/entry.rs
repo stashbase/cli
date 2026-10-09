@@ -87,7 +87,7 @@ fn ensure_docker_sandbox_image_available(
         anyhow::bail!(declined_image_build_error(source, &tag));
     }
     eprintln!("Building Docker sandbox image ({tag})...");
-    super::docker_sandbox::build_sandbox_image(source)
+    super::docker_sandbox::build_sandbox_image(source, false)
         .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
     eprintln!("Docker sandbox image built.");
     Ok(tag)
@@ -186,7 +186,20 @@ fn ensure_docker_images_available(
             silent,
         )?;
     }
-    ensure_docker_sandbox_image_available(agent_image_source, silent)
+    let tag = ensure_docker_sandbox_image_available(agent_image_source, silent)?;
+    // Only when the agent itself runs from the default image: a profile with
+    // a custom image still uses the default one for the netns holder, but
+    // its Claude Code/Codex versions are irrelevant there.
+    if !silent && *agent_image_source == super::docker_sandbox::AgentImageSource::Default {
+        if let Some(hint) = super::docker_sandbox::sandbox_image_created_at(agent_image_source)
+            .and_then(|created_at| {
+                super::docker_sandbox::stale_default_image_hint(created_at, chrono::Utc::now())
+            })
+        {
+            eprintln!("{hint}");
+        }
+    }
+    Ok(tag)
 }
 
 fn prepare_run_worktree_in(

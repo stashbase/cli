@@ -195,7 +195,7 @@ pub async fn handle_docker_build_command(
     // suppress it while still showing build progress, the same tradeoff
     // `docker build` itself has. The JSON result below is still the last
     // thing printed, so it remains the thing to parse.
-    crate::handlers::run::docker_sandbox::build_sandbox_image(&source)
+    crate::handlers::run::docker_sandbox::build_sandbox_image(&source, command.force)
         .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
     if raw_output {
         println!(
@@ -479,9 +479,22 @@ pub async fn handle_docker_doctor_command(
     } else {
         Err("skipped: `docker` CLI not found".to_owned())
     };
-    let image_built = crate::handlers::run::docker_sandbox::sandbox_image_exists(
-        &crate::handlers::run::docker_sandbox::AgentImageSource::Default,
-    );
+    let default_source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+    let image_created_at = if daemon_version.is_ok() {
+        crate::handlers::run::docker_sandbox::sandbox_image_created_at(&default_source)
+    } else {
+        None
+    };
+    let image_built = image_created_at.is_some();
+    let agent_versions = if image_built {
+        crate::handlers::run::docker_sandbox::sandbox_image_agent_versions(&default_source)
+    } else {
+        Default::default()
+    };
+    let now = chrono::Utc::now();
+    let stale_hint = image_created_at.and_then(|created_at| {
+        crate::handlers::run::docker_sandbox::stale_default_image_hint(created_at, now)
+    });
     let all_ok = binary_available && daemon_version.is_ok();
 
     if raw_output {
@@ -491,6 +504,10 @@ pub async fn handle_docker_doctor_command(
             "daemon_version": daemon_version.as_ref().ok(),
             "daemon_error": daemon_version.as_ref().err(),
             "default_image_built": image_built,
+            "default_image_created_at": image_created_at.map(|created_at| created_at.to_rfc3339()),
+            "default_image_stale": stale_hint.is_some(),
+            "claude_code_version": agent_versions.claude,
+            "codex_version": agent_versions.codex,
             "ready": all_ok,
         });
         println!("{}", get_formatted_json_string(&json, true)?);
@@ -512,18 +529,30 @@ pub async fn handle_docker_doctor_command(
         ),
         Err(error) => println!("{} Docker daemon reachable: {error}", "✗".red_if_tty()),
     }
-    println!(
-        "{} Default sandbox image built",
-        if image_built {
-            "✓".green_if_tty()
-        } else {
-            "○".yellow_if_tty()
+    match image_created_at {
+        Some(created_at) => {
+            let unknown = || "unknown".to_owned();
+            println!(
+                "{} Default sandbox image built {} (Claude Code {}, Codex {})",
+                if stale_hint.is_some() {
+                    "○".yellow_if_tty()
+                } else {
+                    "✓".green_if_tty()
+                },
+                crate::handlers::run::docker_sandbox::format_image_age(created_at, now),
+                agent_versions.claude.clone().unwrap_or_else(unknown),
+                agent_versions.codex.clone().unwrap_or_else(unknown),
+            );
+            if let Some(hint) = &stale_hint {
+                println!("  ({hint})");
+            }
         }
-    );
-    if !image_built {
-        println!(
-            "  (not required — `agent run` builds it on first use, or run `agent docker build`)"
-        );
+        None => {
+            println!("{} Default sandbox image built", "○".yellow_if_tty());
+            println!(
+                "  (not required — `agent run` builds it on first use, or run `agent docker build`)"
+            );
+        }
     }
     println!();
     if all_ok {

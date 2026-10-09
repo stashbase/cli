@@ -56,6 +56,13 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # its main executable, so its install tree is kept intact and symlinked
 # rather than copying a single binary out the way Claude Code's simpler,
 # single-file layout would allow.
+#
+# `agent docker build --force` passes a fresh AGENT_CLI_CACHEBUST value:
+# Docker caches a RUN step by its command text, not by what the installers
+# would fetch today, so without this a rebuild would replay the cached
+# layer and keep the old Claude Code/Codex versions. Declared here, not at
+# the top, so the apt layer above stays cached.
+ARG AGENT_CLI_CACHEBUST
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && curl -fsSL https://chatgpt.com/codex/install.sh | sh \
     && chmod 755 /root \
