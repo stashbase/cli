@@ -388,6 +388,7 @@ fn hook_broker_config(
     api_key: Option<String>,
     workdir: &Path,
     denied_read: &[String],
+    docker: bool,
 ) -> anyhow::Result<Option<super::proxy::HookBrokerConfig>> {
     let Some(api_key) = api_key.filter(|key| !key.is_empty()) else {
         return Ok(None);
@@ -395,36 +396,43 @@ fn hook_broker_config(
     if !hooks.any() {
         return Ok(None);
     }
-    // The scan runs the host's own CLI in the directory the agent works in.
-    let secret_scan = if hooks.secret_scan {
+    // Both run the host's own CLI, confined, in the directory the agent
+    // works in. The agent hook route is only needed under Docker, whose
+    // image has no Stashbase CLI; natively the hook runs the real CLI.
+    let confined = |timeout_secs: u64| -> anyhow::Result<super::proxy::SecretScanConfig> {
         if let Some(reason) = super::scan_sandbox::unavailable_reason() {
             anyhow::bail!(reason);
         }
-        let exe = std::env::current_exe().map_err(|error| {
-            anyhow::anyhow!("secret_scan cannot locate the stashbase binary: {error}")
-        })?;
-        Some(super::proxy::SecretScanConfig {
+        let exe = std::env::current_exe()
+            .map_err(|error| anyhow::anyhow!("cannot locate the stashbase binary: {error}"))?;
+        Ok(super::proxy::SecretScanConfig {
             workdir: workdir.to_owned(),
             isolation: super::proxy::ScanIsolation::Confined(
                 super::scan_sandbox::ScanConfinement::for_run(workdir, &exe, denied_read),
             ),
-            timeout: std::time::Duration::from_secs(120),
+            timeout: std::time::Duration::from_secs(timeout_secs),
         })
-    } else {
-        None
     };
+    let secret_scan = hooks.secret_scan.then(|| confined(120)).transpose()?;
+    let agent_hook = (hooks.dependency_check && docker)
+        .then(|| confined(60))
+        .transpose()?;
     Ok(Some(super::proxy::HookBrokerConfig {
         api_key,
         dependency_check: hooks.dependency_check,
         secret_scan,
+        agent_hook,
     }))
 }
 
 /// Checked before any sandbox setup, so a refusal leaves nothing to clean up.
-fn ensure_secret_scan_can_be_confined(
+/// Under Docker, `dependency_check` also runs the host's CLI confined.
+fn ensure_hooks_can_be_confined(
     hooks: crate::models::agent::EnabledHooks,
+    backend: crate::models::agent::SandboxBackend,
 ) -> anyhow::Result<()> {
-    if hooks.secret_scan {
+    let docker = backend == crate::models::agent::SandboxBackend::Docker;
+    if hooks.secret_scan || (hooks.dependency_check && docker) {
         if let Some(reason) = super::scan_sandbox::unavailable_reason() {
             anyhow::bail!(reason);
         }
@@ -447,13 +455,13 @@ pub async fn handle_remote_agent_run(
     source_env_names: Vec<String>,
     silent: bool,
 ) -> anyhow::Result<()> {
-    ensure_secret_scan_can_be_confined(hooks)?;
     let cmd = command.first().context("no command provided")?.clone();
     let args = command.into_iter().skip(1).collect();
     let denied_read_paths = policy.denied_read_paths.clone();
     let mut denied_write_paths = policy.denied_write_paths.clone();
     let allow_network_listeners = policy.allow_network_listeners;
     let backend = policy.backend;
+    ensure_hooks_can_be_confined(hooks, backend)?;
     let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
         policy.sandbox_image.as_deref(),
         policy.sandbox_dockerfile.as_deref(),
@@ -499,7 +507,13 @@ pub async fn handle_remote_agent_run(
         Some(workdir) => workdir.to_owned(),
         None => std::env::current_dir()?,
     };
-    let remote_hooks = hook_broker_config(hooks, Some(api_key), &scan_workdir, &denied_read_paths)?;
+    let remote_hooks = hook_broker_config(
+        hooks,
+        Some(api_key),
+        &scan_workdir,
+        &denied_read_paths,
+        docker_network.is_some(),
+    )?;
     let proxy_start_result = if let Some(network) = &docker_network {
         super::proxy::Proxy::start_remote_with_hook_and_bind_host(
             remote,
@@ -1581,7 +1595,6 @@ async fn handle_run(
     hook_api_key: Option<String>,
     local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 ) -> anyhow::Result<()> {
-    ensure_secret_scan_can_be_confined(hooks)?;
     apply_secret_bindings(&mut secrets, secret_bindings);
     let secrets_hash_map = if secret_bindings.is_empty() {
         env::expand_and_inject_env(&mut secrets)
@@ -1701,6 +1714,7 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.backend)
         .unwrap_or_default();
+    ensure_hooks_can_be_confined(hooks, backend)?;
     let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
         proxy_policy
             .as_ref()
@@ -1766,8 +1780,13 @@ async fn handle_run(
             Some(workdir) => workdir.to_owned(),
             None => std::env::current_dir()?,
         };
-        let local_hooks =
-            hook_broker_config(hooks, hook_api_key, &scan_workdir, &denied_read_paths)?;
+        let local_hooks = hook_broker_config(
+            hooks,
+            hook_api_key,
+            &scan_workdir,
+            &denied_read_paths,
+            docker_network.is_some(),
+        )?;
         let proxy_start_result = if let Some(network) = &docker_network {
             super::proxy::Proxy::start_with_hook_and_bind_host(
                 secrets_hash_map,
@@ -2068,7 +2087,7 @@ mod tests {
             secret_scan: true,
         };
 
-        let result = hook_broker_config(scan_only, Some("k".to_owned()), workdir, &[]);
+        let result = hook_broker_config(scan_only, Some("k".to_owned()), workdir, &[], false);
 
         if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
             // Refused up front rather than run unconfined.
@@ -2090,6 +2109,37 @@ mod tests {
     }
 
     #[test]
+    fn hook_broker_config_serves_the_agent_hook_only_under_docker() {
+        let workdir = std::path::Path::new("/repo");
+        let deps_only = EnabledHooks {
+            dependency_check: true,
+            secret_scan: false,
+        };
+
+        let native = hook_broker_config(deps_only, Some("k".to_owned()), workdir, &[], false)
+            .unwrap()
+            .unwrap();
+        assert!(native.agent_hook.is_none());
+
+        let docker = hook_broker_config(deps_only, Some("k".to_owned()), workdir, &[], true);
+        if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
+            let Err(error) = docker else {
+                panic!("the agent hook ran without confinement");
+            };
+            assert_eq!(error.to_string(), reason);
+            return;
+        }
+        let docker = docker.unwrap().unwrap();
+        assert!(docker.dependency_check);
+        let hook = docker.agent_hook.unwrap();
+        assert_eq!(hook.workdir, workdir);
+        assert!(matches!(
+            hook.isolation,
+            crate::handlers::run::proxy::ScanIsolation::Confined(_)
+        ));
+    }
+
+    #[test]
     fn hook_broker_config_needs_a_hook_and_an_api_key() {
         let workdir = std::path::Path::new("/repo");
         let both = EnabledHooks {
@@ -2098,21 +2148,21 @@ mod tests {
         };
 
         assert!(
-            hook_broker_config(EnabledHooks::default(), Some("k".to_owned()), workdir, &[])
+            hook_broker_config(EnabledHooks::default(), Some("k".to_owned()), workdir, &[], false)
                 .unwrap()
                 .is_none()
         );
-        assert!(hook_broker_config(both, None, workdir, &[])
+        assert!(hook_broker_config(both, None, workdir, &[], false)
             .unwrap()
             .is_none());
-        assert!(hook_broker_config(both, Some(String::new()), workdir, &[])
+        assert!(hook_broker_config(both, Some(String::new()), workdir, &[], false)
             .unwrap()
             .is_none());
         let deps_only = EnabledHooks {
             dependency_check: true,
             secret_scan: false,
         };
-        let config = hook_broker_config(deps_only, Some("k".to_owned()), workdir, &[])
+        let config = hook_broker_config(deps_only, Some("k".to_owned()), workdir, &[], false)
             .unwrap()
             .unwrap();
         assert!(config.dependency_check && config.secret_scan.is_none());

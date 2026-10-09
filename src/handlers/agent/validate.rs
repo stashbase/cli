@@ -709,7 +709,11 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
             })
             .collect();
     }
-    if profile.allow_hooks.iter().any(|hook| hook == "secret_scan") {
+    let docker = profile.sandbox.backend == crate::models::agent::SandboxBackend::Docker;
+    let runs_confined = |hook: &String| {
+        hook == "secret_scan" || (docker && hook == "dependency_check")
+    };
+    if profile.allow_hooks.iter().any(runs_confined) {
         if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
             return vec![fail("Hook capability", format!("{reason}."))];
         }
