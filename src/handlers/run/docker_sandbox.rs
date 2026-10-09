@@ -1522,6 +1522,75 @@ fn append_ca_bundle_mount(
     Ok(())
 }
 
+/// Copies `files` (relative to the sandbox home) out of the persistent home
+/// volume into a host staging directory, runs `edit` on it, and, when
+/// `write_back`, copies them back. Runs the default image as the same user
+/// agent runs use, with no network, so the files keep the owner the agent
+/// expects.
+pub(crate) fn with_persistent_home_files(
+    files: &[&str],
+    write_back: bool,
+    edit: impl FnOnce(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let image_exists = std::process::Command::new("docker")
+        .args(["image", "inspect", DEFAULT_SANDBOX_IMAGE])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|error| anyhow::anyhow!("Docker is not available: {error}"))?
+        .success();
+    if !image_exists {
+        anyhow::bail!(
+            "the Docker sandbox image {DEFAULT_SANDBOX_IMAGE} is missing; build it with `stashbase agent docker build`"
+        );
+    }
+    let staging =
+        std::env::temp_dir().join(format!("stashbase-docker-home-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&staging)?;
+    let staging_text = staging.to_string_lossy().into_owned();
+    let copy = |mount: String, script: &str| -> anyhow::Result<()> {
+        let mut args = vec!["run".to_owned(), "--rm".to_owned(), "--network".to_owned(), "none".to_owned()];
+        args.extend(docker_run_user_flag_args());
+        args.extend([
+            "-v".to_owned(),
+            format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
+            "-v".to_owned(),
+            mount,
+            "--entrypoint".to_owned(),
+            "/bin/sh".to_owned(),
+            DEFAULT_SANDBOX_IMAGE.to_owned(),
+            "-c".to_owned(),
+            script.to_owned(),
+            "sh".to_owned(),
+        ]);
+        args.extend(files.iter().map(|file| (*file).to_owned()));
+        let output = std::process::Command::new("docker").args(&args).output()?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "failed to access the Docker sandbox home: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    };
+    let result = (|| {
+        copy(
+            format!("{staging_text}:/stashbase-staging"),
+            r#"for f in "$@"; do if [ -f "/home/agent/$f" ]; then mkdir -p "/stashbase-staging/$(dirname "$f")" && cp "/home/agent/$f" "/stashbase-staging/$f" || exit 1; fi; done"#,
+        )?;
+        edit(&staging)?;
+        if write_back {
+            copy(
+                format!("{staging_text}:/stashbase-staging:ro"),
+                r#"for f in "$@"; do if [ -f "/stashbase-staging/$f" ]; then mkdir -p "/home/agent/$(dirname "$f")" && cp "/stashbase-staging/$f" "/home/agent/$f" || exit 1; fi; done"#,
+            )?;
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
 /// Stands in for the Stashbase CLI, which the sandbox image doesn't have, so
 /// agent hooks configured as `stashbase agent hooks` run on the host through
 /// the Agent Proxy. Exit 2 blocks the tool call in Claude Code and Codex, so

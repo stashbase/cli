@@ -113,7 +113,7 @@ Your global `git config user.name` and `user.email` (if configured on the host) 
 
 ### Dependency hooks
 
-The dependency check hooks (`allow_hooks = ["dependency_check"]`) work in the Docker sandbox without the Stashbase CLI in the image: a stand-in `stashbase` is mounted at `/usr/local/bin/stashbase`, and `stashbase agent hooks` runs on the host instead, confined like the secret scan below. Only project-level hook configs are visible to the agent in the container. See [Agent Profiles](agent-profiles.md#api-hooks).
+The dependency check hooks (`allow_hooks = ["dependency_check"]`) work in the Docker sandbox without the Stashbase CLI in the image: a stand-in `stashbase` is mounted at `/usr/local/bin/stashbase`, and `stashbase agent hooks` runs on the host instead, confined like the secret scan below. The agent in the container sees project-level hook configs and its own home's; `stashbase agent hooks deps install <agent> --docker` installs into the latter for every Docker run. See [Agent Profiles](agent-profiles.md#api-hooks).
 
 ### Secret scan hooks
 
