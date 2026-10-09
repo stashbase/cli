@@ -51,21 +51,26 @@ use super::format::format_env_variable_value;
 ///
 /// In an interactive session, asks before building (an implicit multi-
 /// minute `docker build` on first use would otherwise be a surprising side
-/// effect of `agent run`). In `--silent` mode there is no one to ask, so
-/// this fails closed with instructions rather than silently building or
-/// silently running unsandboxed.
+/// effect of `agent run`). In `--silent` mode, or without a terminal to
+/// prompt on (stdin piped, CI, a script over SSH), there is no one to ask,
+/// so this fails closed with the command that builds it rather than
+/// silently building or silently running unsandboxed.
 fn ensure_docker_sandbox_image_available(
     source: &super::docker_sandbox::AgentImageSource,
     silent: bool,
 ) -> anyhow::Result<String> {
+    use std::io::IsTerminal;
+
     let tag = source.image_tag();
     if super::docker_sandbox::sandbox_image_exists(source) {
         return Ok(tag);
     }
-    if silent {
-        anyhow::bail!(
-            "the Docker sandbox image ({tag}) is not built yet; build it once with `docker build -t {tag} <Dockerfile>` or re-run without --silent to be prompted",
-        );
+    if !can_prompt_for_image_build(
+        silent,
+        std::io::stdin().is_terminal(),
+        std::io::stderr().is_terminal(),
+    ) {
+        anyhow::bail!(missing_image_error(source, &tag, silent));
     }
     eprintln!();
     let should_build = crate::utils::interaction::confirm_opt(&format!(
@@ -79,13 +84,83 @@ fn ensure_docker_sandbox_image_available(
     // unconditionally before deciding what the prompt's outcome was.
     let _ = dialoguer::console::Term::stdout().show_cursor();
     if !should_build {
-        anyhow::bail!("Docker sandbox backend selected, but its image was not built");
+        anyhow::bail!(declined_image_build_error(source, &tag));
     }
     eprintln!("Building Docker sandbox image ({tag})...");
     super::docker_sandbox::build_sandbox_image(source)
         .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
     eprintln!("Docker sandbox image built.");
     Ok(tag)
+}
+
+/// Whether a missing sandbox image may be offered for building with a
+/// prompt. The prompt reads stdin and draws on stderr, so both must be a
+/// terminal; otherwise (CI, piped stdin, a script over SSH) it would block
+/// or fail, so the run fails with `missing_image_error` instead.
+fn can_prompt_for_image_build(
+    silent: bool,
+    stdin_is_terminal: bool,
+    stderr_is_terminal: bool,
+) -> bool {
+    !silent && stdin_is_terminal && stderr_is_terminal
+}
+
+fn missing_image_error(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+    silent: bool,
+) -> String {
+    format!(
+        "the Docker sandbox image ({tag}) is not built yet; build it once with `{}`, or re-run in an interactive terminal{} to be asked",
+        missing_image_build_command(source, tag),
+        if silent { " without --silent" } else { "" },
+    )
+}
+
+fn declined_image_build_error(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+) -> String {
+    format!(
+        "Docker sandbox backend selected, but its image ({tag}) was not built; build it later with `{}`",
+        missing_image_build_command(source, tag),
+    )
+}
+
+/// The command that builds a missing sandbox image. The default image's
+/// Dockerfile is embedded in the binary, so only `agent docker build` can
+/// build it. A custom Dockerfile is built from stdin with no context, the
+/// same way `build_sandbox_image` builds it (a context holding only the
+/// Dockerfile), which also covers a per-run `--docker-dockerfile` that no
+/// profile names.
+fn missing_image_build_command(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+) -> String {
+    match source {
+        super::docker_sandbox::AgentImageSource::Dockerfile(path) => {
+            format!(
+                "docker build -t {tag} - < {}",
+                shell_quote(&path.to_string_lossy())
+            )
+        }
+        _ => "stashbase agent docker build".to_owned(),
+    }
+}
+
+/// Quotes `value` for a POSIX shell so a copied command keeps it as one
+/// word: left bare when it only has characters no shell treats specially,
+/// otherwise single-quoted with each embedded `'` written as `'\''`.
+fn shell_quote(value: &str) -> String {
+    let is_plain = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-+,:=@%".contains(c));
+    if is_plain {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', r"'\''"))
+    }
 }
 
 /// Ensures every image a Docker-backend run will actually need is
@@ -1905,9 +1980,10 @@ fn missing_secret_labels(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_secret_bindings, load_run_secrets_from_file, loaded_message, loading_message,
-        merge_remote_and_local_secrets, missing_secret_labels, needs_remote_fetch,
-        prepare_local_run_secrets,
+        apply_secret_bindings, can_prompt_for_image_build, declined_image_build_error,
+        load_run_secrets_from_file, loaded_message, loading_message,
+        merge_remote_and_local_secrets, missing_image_build_command, missing_image_error,
+        missing_secret_labels, needs_remote_fetch, prepare_local_run_secrets, shell_quote,
     };
     use crate::models::secrets::SecretWithoutComment;
     use std::{
@@ -1916,6 +1992,92 @@ mod tests {
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn missing_default_image_points_to_agent_docker_build() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        assert_eq!(
+            missing_image_build_command(&source, "stashbase/agent-sandbox:latest"),
+            "stashbase agent docker build"
+        );
+    }
+
+    #[test]
+    fn missing_custom_image_builds_the_dockerfile_from_stdin() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Dockerfile(
+            PathBuf::from("/repo/sandbox.Dockerfile"),
+        );
+        assert_eq!(
+            missing_image_build_command(&source, "stashbase/agent-sandbox-custom:abc"),
+            "docker build -t stashbase/agent-sandbox-custom:abc - < /repo/sandbox.Dockerfile"
+        );
+    }
+
+    #[test]
+    fn missing_custom_image_quotes_a_dockerfile_path_with_spaces() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Dockerfile(
+            PathBuf::from("/repo/my image/Dockerfile"),
+        );
+        assert_eq!(
+            missing_image_build_command(&source, "t:abc"),
+            "docker build -t t:abc - < '/repo/my image/Dockerfile'"
+        );
+    }
+
+    #[test]
+    fn shell_quote_leaves_plain_paths_bare_and_escapes_single_quotes() {
+        assert_eq!(
+            shell_quote("/repo/sandbox.Dockerfile"),
+            "/repo/sandbox.Dockerfile"
+        );
+        assert_eq!(
+            shell_quote("/repo/it's/Dockerfile"),
+            r"'/repo/it'\''s/Dockerfile'"
+        );
+        assert_eq!(shell_quote("/repo/$HOME;rm"), "'/repo/$HOME;rm'");
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn image_build_prompt_needs_a_terminal_and_no_silent_flag() {
+        assert!(can_prompt_for_image_build(false, true, true));
+        assert!(!can_prompt_for_image_build(true, true, true), "--silent");
+        assert!(
+            !can_prompt_for_image_build(false, false, true),
+            "piped stdin / CI"
+        );
+        assert!(
+            !can_prompt_for_image_build(false, true, false),
+            "stderr redirected"
+        );
+    }
+
+    #[test]
+    fn missing_image_error_names_the_build_command_and_how_to_be_asked() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        let piped = missing_image_error(&source, "img:latest", false);
+        assert!(piped.contains("`stashbase agent docker build`"), "{piped}");
+        assert!(
+            piped.ends_with("re-run in an interactive terminal to be asked"),
+            "{piped}"
+        );
+        let silent = missing_image_error(&source, "img:latest", true);
+        assert!(
+            silent.ends_with("interactive terminal without --silent to be asked"),
+            "{silent}"
+        );
+    }
+
+    #[test]
+    fn declined_image_build_still_names_the_build_command() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        let message = declined_image_build_error(&source, "img:latest");
+        assert!(message.contains("(img:latest) was not built"), "{message}");
+        assert!(
+            message.ends_with("build it later with `stashbase agent docker build`"),
+            "{message}"
+        );
+    }
 
     /// `finish_run_worktree` must repair the pointer file before any host
     /// git runs in the worktree, then reset foreign refs, then remove the
