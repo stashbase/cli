@@ -84,7 +84,7 @@ fn ensure_docker_sandbox_image_available(
     // unconditionally before deciding what the prompt's outcome was.
     let _ = dialoguer::console::Term::stdout().show_cursor();
     if !should_build {
-        anyhow::bail!("Docker sandbox backend selected, but its image was not built");
+        anyhow::bail!(declined_image_build_error(source, &tag));
     }
     eprintln!("Building Docker sandbox image ({tag})...");
     super::docker_sandbox::build_sandbox_image(source)
@@ -114,6 +114,16 @@ fn missing_image_error(
         "the Docker sandbox image ({tag}) is not built yet; build it once with `{}`, or re-run in an interactive terminal{} to be asked",
         missing_image_build_command(source, tag),
         if silent { " without --silent" } else { "" },
+    )
+}
+
+fn declined_image_build_error(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+) -> String {
+    format!(
+        "Docker sandbox backend selected, but its image ({tag}) was not built; build it later with `{}`",
+        missing_image_build_command(source, tag),
     )
 }
 
@@ -1970,10 +1980,10 @@ fn missing_secret_labels(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_secret_bindings, can_prompt_for_image_build, load_run_secrets_from_file,
-        loaded_message, loading_message, merge_remote_and_local_secrets,
-        missing_image_build_command, missing_image_error, missing_secret_labels,
-        needs_remote_fetch, prepare_local_run_secrets, shell_quote,
+        apply_secret_bindings, can_prompt_for_image_build, declined_image_build_error,
+        load_run_secrets_from_file, loaded_message, loading_message,
+        merge_remote_and_local_secrets, missing_image_build_command, missing_image_error,
+        missing_secret_labels, needs_remote_fetch, prepare_local_run_secrets, shell_quote,
     };
     use crate::models::secrets::SecretWithoutComment;
     use std::{
@@ -2055,6 +2065,17 @@ mod tests {
         assert!(
             silent.ends_with("interactive terminal without --silent to be asked"),
             "{silent}"
+        );
+    }
+
+    #[test]
+    fn declined_image_build_still_names_the_build_command() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        let message = declined_image_build_error(&source, "img:latest");
+        assert!(message.contains("(img:latest) was not built"), "{message}");
+        assert!(
+            message.ends_with("build it later with `stashbase agent docker build`"),
+            "{message}"
         );
     }
 
