@@ -42,6 +42,45 @@ pub struct AgentProfile {
     pub allow_hooks: Vec<String>,
 }
 
+/// Authenticated hooks the run broker serves on the agent's behalf.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EnabledHooks {
+    pub dependency_check: bool,
+    pub secret_scan: bool,
+}
+
+impl EnabledHooks {
+    pub fn any(self) -> bool {
+        self.dependency_check || self.secret_scan
+    }
+
+    /// The startup line's description, e.g. `enabled (dependency_check, secret_scan)`.
+    pub fn label(self) -> String {
+        let names = [
+            (self.dependency_check, "dependency_check"),
+            (self.secret_scan, "secret_scan"),
+        ]
+        .into_iter()
+        .filter_map(|(enabled, name)| enabled.then_some(name))
+        .collect::<Vec<_>>();
+        if names.is_empty() {
+            "disabled".to_owned()
+        } else {
+            format!("enabled ({})", names.join(", "))
+        }
+    }
+}
+
+impl AgentProfile {
+    /// The hooks `allow_hooks` asks for, before checking an API key exists.
+    pub fn requested_hooks(&self) -> EnabledHooks {
+        EnabledHooks {
+            dependency_check: self.allow_hooks.iter().any(|hook| hook == "dependency_check"),
+            secret_scan: self.allow_hooks.iter().any(|hook| hook == "secret_scan"),
+        }
+    }
+}
+
 /// An MCP endpoint rule. `hosts` and `paths` identify the endpoint, while
 /// `tools` limits the tools exposed through it.
 #[derive(Debug, Clone, Serialize, Deserialize)]

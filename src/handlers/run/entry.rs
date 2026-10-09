@@ -380,11 +380,37 @@ fn finish_run_worktree(worktree: &super::worktree::RunWorktree, docker: bool, si
     }
 }
 
+/// What the proxy's hook broker serves for this run, or `None` when no hook
+/// is enabled or there is no API key to call Stashbase with.
+fn hook_broker_config(
+    hooks: crate::models::agent::EnabledHooks,
+    api_key: Option<String>,
+    workdir: &Path,
+) -> Option<super::proxy::HookBrokerConfig> {
+    if !hooks.any() {
+        return None;
+    }
+    Some(super::proxy::HookBrokerConfig {
+        api_key: api_key.filter(|key| !key.is_empty())?,
+        dependency_check: hooks.dependency_check,
+        // The scan runs the host's own CLI in the directory the agent works in.
+        secret_scan: hooks
+            .secret_scan
+            .then(|| std::env::current_exe().ok())
+            .flatten()
+            .map(|exe| super::proxy::SecretScanConfig {
+                workdir: workdir.to_owned(),
+                exe,
+                timeout: std::time::Duration::from_secs(120),
+            }),
+    })
+}
+
 /// Runs an agent through the localhost relay while credentials stay in the
 /// control-plane's short-lived remote agent-proxy session.
 pub async fn handle_remote_agent_run(
     api_key: String,
-    hooks_enabled: bool,
+    hooks: crate::models::agent::EnabledHooks,
     command: Vec<String>,
     policy: super::proxy::ProxyPolicy,
     remote: super::proxy::RemoteProxyConfig,
@@ -442,11 +468,11 @@ pub async fn handle_remote_agent_run(
         )?;
         (None, String::new())
     };
-    let remote_hooks = hooks_enabled.then(|| super::proxy::HookBrokerConfig {
-        api_key,
-        dependency_check: true,
-        secret_scan: None,
-    });
+    let scan_workdir = match run_worktree.workdir() {
+        Some(workdir) => workdir.to_owned(),
+        None => std::env::current_dir()?,
+    };
+    let remote_hooks = hook_broker_config(hooks, Some(api_key), &scan_workdir);
     let proxy_start_result = if let Some(network) = &docker_network {
         super::proxy::Proxy::start_remote_with_hook_and_bind_host(
             remote,
@@ -625,7 +651,7 @@ pub struct HandleRunArgs {
     pub json_format: bool,
     pub silent: bool,
     pub scope: Option<Scope>,
-    pub dependency_hooks: bool,
+    pub hooks: crate::models::agent::EnabledHooks,
     pub local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 }
 
@@ -660,7 +686,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         json_format,
         silent,
         scope,
-        dependency_hooks,
+        hooks,
         local_session,
     } = args;
 
@@ -1171,7 +1197,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             is_from_file,
             silent,
             json_format,
-            dependency_hooks,
+            hooks,
             Some(api_key.clone()),
             local_session,
         )
@@ -1214,7 +1240,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             silent,
             json_format,
-            dependency_hooks,
+            hooks,
             Some(api_key.clone()),
             local_session,
         )
@@ -1374,7 +1400,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             is_from_file,
                             silent,
                             json_format,
-                            dependency_hooks,
+                            hooks,
                             Some(api_key.clone()),
                             local_session,
                         )
@@ -1409,7 +1435,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         is_from_file,
                         silent,
                         json_format,
-                        dependency_hooks,
+                        hooks,
                         Some(api_key.clone()),
                         local_session,
                     )
@@ -1522,7 +1548,7 @@ async fn handle_run(
     is_from_file: bool,
     silent: bool,
     json_format: bool,
-    dependency_hooks: bool,
+    hooks: crate::models::agent::EnabledHooks,
     hook_api_key: Option<String>,
     local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
 ) -> anyhow::Result<()> {
@@ -1706,14 +1732,11 @@ async fn handle_run(
             )?;
             (None, String::new())
         };
-        let local_hooks = dependency_hooks
-            .then_some(hook_api_key)
-            .flatten()
-            .map(|api_key| super::proxy::HookBrokerConfig {
-                api_key,
-                dependency_check: true,
-                secret_scan: None,
-            });
+        let scan_workdir = match run_worktree.workdir() {
+            Some(workdir) => workdir.to_owned(),
+            None => std::env::current_dir()?,
+        };
+        let local_hooks = hook_broker_config(hooks, hook_api_key, &scan_workdir);
         let proxy_start_result = if let Some(network) = &docker_network {
             super::proxy::Proxy::start_with_hook_and_bind_host(
                 secrets_hash_map,
@@ -1994,17 +2017,53 @@ fn missing_secret_labels(
 mod tests {
     use super::{
         apply_secret_bindings, can_prompt_for_image_build, declined_image_build_error,
-        load_run_secrets_from_file, loaded_message, loading_message,
+        hook_broker_config, load_run_secrets_from_file, loaded_message, loading_message,
         merge_remote_and_local_secrets, missing_image_build_command, missing_image_error,
         missing_secret_labels, needs_remote_fetch, prepare_local_run_secrets, shell_quote,
     };
-    use crate::models::secrets::SecretWithoutComment;
+    use crate::models::{agent::EnabledHooks, secrets::SecretWithoutComment};
     use std::{
         collections::HashMap,
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn hook_broker_config_scans_the_run_workdir() {
+        let workdir = std::path::Path::new("/repo/.stashbase/worktrees/feat");
+        let scan_only = EnabledHooks {
+            dependency_check: false,
+            secret_scan: true,
+        };
+
+        let config = hook_broker_config(scan_only, Some("k".to_owned()), workdir).unwrap();
+
+        assert!(!config.dependency_check);
+        let scan = config.secret_scan.unwrap();
+        assert_eq!(scan.workdir, workdir);
+        assert_eq!(scan.exe, std::env::current_exe().unwrap());
+        assert_eq!(scan.timeout, std::time::Duration::from_secs(120));
+    }
+
+    #[test]
+    fn hook_broker_config_needs_a_hook_and_an_api_key() {
+        let workdir = std::path::Path::new("/repo");
+        let both = EnabledHooks {
+            dependency_check: true,
+            secret_scan: true,
+        };
+
+        assert!(hook_broker_config(EnabledHooks::default(), Some("k".to_owned()), workdir).is_none());
+        assert!(hook_broker_config(both, None, workdir).is_none());
+        assert!(hook_broker_config(both, Some(String::new()), workdir).is_none());
+        let deps_only = EnabledHooks {
+            dependency_check: true,
+            secret_scan: false,
+        };
+        let config = hook_broker_config(deps_only, Some("k".to_owned()), workdir).unwrap();
+        assert!(config.dependency_check && config.secret_scan.is_none());
+    }
 
     #[test]
     fn missing_default_image_points_to_agent_docker_build() {

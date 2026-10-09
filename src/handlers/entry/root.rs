@@ -878,11 +878,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         }
                     }
 
-                    let dependency_hooks_requested = profile
-                        .allow_hooks
-                        .iter()
-                        .any(|hook| hook == "dependency_check");
-                    let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
+                    let requested_hooks = profile.requested_hooks();
+                    let hooks = enabled_hooks(&profile, &api_key);
                     if !silent {
                         eprintln!("Network sandbox: enabled");
                         if profile.sandbox.backend
@@ -891,17 +888,10 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             eprintln!("Sandbox backend: Docker (container-isolated)");
                         }
                         print_agent_egress_warnings(&profile);
-                        eprintln!(
-                            "API hook broker: {}",
-                            if dependency_hooks {
-                                "enabled (dependency_check)"
-                            } else {
-                                "disabled"
-                            }
-                        );
-                        if dependency_hooks_requested && !dependency_hooks {
+                        eprintln!("API hook broker: {}", hooks.label());
+                        if requested_hooks.any() && !hooks.any() {
                             eprintln!(
-                                "Warning: dependency_check is configured but no API key is available; dependency checks are disabled."
+                                "Warning: allow_hooks is configured but no API key is available; API hooks are disabled."
                             );
                         }
                     }
@@ -1314,7 +1304,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         );
                         let result = handle_remote_agent_run(
                             api_key.clone(),
-                            dependency_hooks,
+                            hooks,
                             command,
                             policy,
                             crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file, routing },
@@ -1362,7 +1352,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         set_comments: Vec::new(),
                         print_secrets: None,
                         no_print_secrets: true,
-                        dependency_hooks,
+                        hooks,
                         local_session,
                         config_file: None,
                         file: profile.file,
@@ -1422,7 +1412,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     json_format: raw_output,
                     silent,
                     scope: run_cmd.scope,
-                    dependency_hooks: false,
+                    hooks: crate::models::agent::EnabledHooks::default(),
                     local_session: None,
                 };
 
@@ -1590,12 +1580,15 @@ fn uses_local_dependency_hook_broker(entity_type: &EntityType) -> bool {
     )
 }
 
-fn dependency_hooks_enabled(profile: &crate::models::agent::AgentProfile, api_key: &str) -> bool {
-    !api_key.is_empty()
-        && profile
-            .allow_hooks
-            .iter()
-            .any(|hook| hook == "dependency_check")
+fn enabled_hooks(
+    profile: &crate::models::agent::AgentProfile,
+    api_key: &str,
+) -> crate::models::agent::EnabledHooks {
+    if api_key.is_empty() {
+        crate::models::agent::EnabledHooks::default()
+    } else {
+        profile.requested_hooks()
+    }
 }
 
 fn uses_local_dependency_hook_broker_mode(entity_type: &EntityType, mode: Option<&str>) -> bool {
@@ -2379,7 +2372,7 @@ fn spawn_remote_session_rotation(
 mod tests {
     use super::{
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
-        dependency_hooks_enabled, directory_profile_git_warning,
+        directory_profile_git_warning, enabled_hooks,
         ensure_replacement_session_is_compatible, exit_for, infer_remote_agent_type,
         is_bare_agent_hook, remote_bindings, remote_codex_command_with_mcp_binding_headers,
         remote_session_rotation_delay_for, remote_session_started_message,
@@ -2488,8 +2481,33 @@ mod tests {
             "allow_hooks": ["dependency_check"]
         }))
         .unwrap();
-        assert!(!dependency_hooks_enabled(&profile, ""));
-        assert!(dependency_hooks_enabled(&profile, "key"));
+        assert!(!enabled_hooks(&profile, "").dependency_check);
+        assert!(enabled_hooks(&profile, "key").dependency_check);
+    }
+
+    #[test]
+    fn enabled_hooks_reads_both_hook_kinds_and_needs_an_api_key() {
+        let profile_with = |hooks: &[&str]| -> AgentProfile {
+            serde_json::from_value(serde_json::json!({
+                "file": null,
+                "egress_hosts": null,
+                "deny_hosts": null,
+                "allow_hooks": hooks
+            }))
+            .unwrap()
+        };
+
+        let hooks = enabled_hooks(&profile_with(&["secret_scan"]), "key");
+        assert!(hooks.secret_scan && !hooks.dependency_check);
+        assert_eq!(hooks.label(), "enabled (secret_scan)");
+        assert_eq!(
+            enabled_hooks(&profile_with(&["dependency_check", "secret_scan"]), "key").label(),
+            "enabled (dependency_check, secret_scan)"
+        );
+        assert_eq!(
+            enabled_hooks(&profile_with(&["secret_scan"]), "").label(),
+            "disabled"
+        );
     }
 
     #[test]
