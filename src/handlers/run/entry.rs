@@ -746,8 +746,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             silent,
             json_format,
-            crate::models::agent::EnabledHooks::default(),
-            None,
+            // No secrets to fetch, but the hook broker still calls Stashbase
+            // on the host with the parent's key.
+            hooks,
+            Some(api_key.clone()),
             local_session,
         )
         .await;
