@@ -1,10 +1,13 @@
 //! Confines the host-side secret scan the Agent Proxy runs for a sandboxed
 //! agent. The scan reads a repository the agent controls, so a symlink, a
 //! `gitdir:` file, `objects/info/alternates` or `include.path` could
-//! otherwise point it at any file on the host. Reading file contents is
-//! denied by default; the scan can read only the run's working tree, its git
-//! directories, the CLI binary, a scratch home and the operating system's
-//! own files, and the profile's `deny_read` entries stay denied.
+//! otherwise point it at any file on the host. On Linux the scan's root is
+//! built from nothing but system files and the run's paths. On macOS, where
+//! the loader needs too many system paths to list reliably, file contents
+//! under every location that holds users' data (homes, volumes, temporary
+//! directories, `/opt`) are denied except the run's working tree, its git
+//! directories, the CLI binary and a scratch home. On both, the profile's
+//! `deny_read` entries stay denied.
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -72,26 +75,16 @@ mod platform {
     use anyhow::Result;
     use std::path::Path;
 
-    /// What the CLI needs from the OS itself: dyld and system frameworks,
-    /// TLS trust roots, time zones, `/etc` (DNS, hosts) and devices.
-    const SYSTEM_READABLE: &[&str] = &[
-        "/System",
-        // The dyld shared cache's real location since macOS 13;
-        // `/System/Volumes/Preboot` is only a firmlink to it.
-        "/private/preboot",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/Library/Apple",
-        "/Library/Keychains",
-        "/Library/Preferences",
-        "/Library/Security",
-        "/private/etc",
-        "/private/var/db/dyld",
-        "/private/var/db/mds",
-        "/private/var/db/timezone",
-        "/private/var/run/resolv.conf",
-        "/dev",
+    /// Where users' files live on macOS. Everything else on the system
+    /// (libraries, frameworks, `/etc`) stays readable, so the CLI loads
+    /// normally; these are denied except for the run's own paths.
+    const USER_DATA_ROOTS: &[&str] = &[
+        "/Users",
+        "/Volumes",
+        "/private/tmp",
+        "/private/var/folders",
+        "/private/var/root",
+        "/opt",
     ];
 
     pub fn unavailable_reason() -> Option<String> {
@@ -112,12 +105,16 @@ mod platform {
     pub(super) fn profile(confinement: &ScanConfinement, home: &Path) -> Result<String> {
         let quote = |path: &Path| format!("\"{}\"", escape_sbpl_path(&path.to_string_lossy()));
         // Metadata (stat, realpath, libgit2's repository lookup) stays
-        // readable everywhere; contents are denied outside the allowed
-        // paths. One deny with exclusions, since a later allow does not
-        // override an earlier deny for the same operation.
-        let system = SYSTEM_READABLE.iter().map(Path::new).map(Path::to_path_buf);
-        let allowed = system
-            .chain(confinement.readable(home))
+        // readable everywhere. One deny with exclusions, since a later allow
+        // does not override an earlier deny for the same operation.
+        let roots = USER_DATA_ROOTS
+            .iter()
+            .map(|root| format!("(subpath {})", quote(Path::new(root))))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let allowed = confinement
+            .readable(home)
+            .into_iter()
             .map(|path| {
                 let filter = if path.is_file() { "literal" } else { "subpath" };
                 format!("({filter} {})", quote(&path))
@@ -127,7 +124,9 @@ mod platform {
         let mut rules = vec![
             "(version 1)".to_owned(),
             "(allow default)".to_owned(),
-            format!("(deny file-read-data file-read-xattr (require-not (require-any {allowed})))"),
+            format!(
+                "(deny file-read-data file-read-xattr (require-all (require-any {roots}) (require-not (require-any {allowed}))))"
+            ),
         ];
         // Last, so the profile's own denials win inside the working tree.
         rules.push(denied_file_rules(
