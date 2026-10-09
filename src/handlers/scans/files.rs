@@ -6,7 +6,7 @@ use crate::{
         scans::{
             DiffHunk, DiffProcessingState, FileChangesScanResponse, FileHunks,
             IgnoredSecretsPayload, MatchConfigPayload, ProjectContextConfigPayload, ScanConfig,
-            ScanFileChangesPayload, ScanOutputJson,
+            ScanFileChangesPayload, ScanOutputJson, SCAN_RESTRICTED_ENV,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -144,6 +144,11 @@ async fn handle_scan_file_hunks(
             }
         },
         None => ScanConfig::default(),
+    };
+    let config = if std::env::var(SCAN_RESTRICTED_ENV).as_deref() == Ok("1") {
+        config.restricted_for_broker()
+    } else {
+        config
     };
 
     let exclude = default_scan_exclude_patterns()

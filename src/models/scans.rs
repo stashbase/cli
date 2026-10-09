@@ -62,7 +62,22 @@ impl Default for ScanConfig {
     }
 }
 
+/// Set by the Agent Proxy on the host-side scan it runs for a sandboxed
+/// agent's git hook. The scan config lives in the repo, which the agent can
+/// edit, so options that reach beyond narrowing results are ignored.
+pub const SCAN_RESTRICTED_ENV: &str = "STASHBASE_SCAN_RESTRICTED";
+
 impl ScanConfig {
+    /// Drops `match_config` (matching against stored secrets and reading
+    /// arbitrary host files) and `output_dir` (writing outside the repo).
+    pub fn restricted_for_broker(self) -> Self {
+        Self {
+            match_config: None,
+            output_dir: None,
+            ..self
+        }
+    }
+
     pub fn load_from_file(config_path: &str) -> Result<Self, ScanInputValidationError> {
         let file = std::fs::File::open(config_path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -719,5 +734,40 @@ impl ScanOutputJson {
         let json_value = serde_json::to_value(&self)?;
         let pretty_json = get_formatted_json_string(&json_value, stdout)?;
         Ok(pretty_json)
+    }
+}
+
+#[cfg(test)]
+mod restricted_tests {
+    use super::ScanConfig;
+
+    #[test]
+    fn restricted_config_drops_agent_controlled_reach_but_keeps_narrowing() {
+        let yaml = r#"
+excluded-files: ["fixtures/**"]
+output-dir: "/tmp/anywhere"
+ignored-secrets:
+  hashes: ["aa"]
+  regexes: ["^test_"]
+match:
+  project:
+    identifier: "prod"
+    environments: ["production"]
+  files: ["~/.aws/credentials"]
+"#;
+        let config: ScanConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.match_config.is_some() && config.output_dir.is_some());
+
+        let restricted = config.restricted_for_broker();
+
+        assert!(restricted.match_config.is_none());
+        assert!(restricted.output_dir.is_none());
+        assert_eq!(
+            restricted.excluded_files,
+            Some(vec!["fixtures/**".to_owned()])
+        );
+        let ignored = restricted.ignored_secrets.unwrap();
+        assert_eq!(ignored.hashes, Some(vec!["aa".to_owned()]));
+        assert_eq!(ignored.regexes, Some(vec!["^test_".to_owned()]));
     }
 }

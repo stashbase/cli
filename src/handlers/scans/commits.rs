@@ -11,7 +11,7 @@ use crate::{
         scans::{
             CommitChanges, CommitsScanResponse, DiffHunk, DiffProcessingState, FileHunks,
             IgnoredSecretsPayload, MatchConfigPayload, ProjectContextConfigPayload,
-            ScanCommitChangesPayload, ScanConfig, ScanOutputJson,
+            ScanCommitChangesPayload, ScanConfig, ScanOutputJson, SCAN_RESTRICTED_ENV,
         },
         validation::{InputValidationError, ScanInputValidationError},
     },
@@ -83,6 +83,11 @@ pub async fn handle_scan_unpushed_commit_hunks(
             }
         },
         None => ScanConfig::default(),
+    };
+    let config = if std::env::var(SCAN_RESTRICTED_ENV).as_deref() == Ok("1") {
+        config.restricted_for_broker()
+    } else {
+        config
     };
 
     let exclude = default_scan_exclude_patterns()
