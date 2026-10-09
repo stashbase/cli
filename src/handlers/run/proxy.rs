@@ -2577,6 +2577,7 @@ async fn handle_secret_scan_hook(
         .args(args)
         .current_dir(&scan.workdir)
         .env("HOME", &home.0)
+        .env("TMPDIR", &home.0)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_CACHE_HOME")
         .env_remove("XDG_DATA_HOME")

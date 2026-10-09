@@ -1,10 +1,10 @@
 //! Confines the host-side secret scan the Agent Proxy runs for a sandboxed
 //! agent. The scan reads a repository the agent controls, so a symlink, a
 //! `gitdir:` file, `objects/info/alternates` or `include.path` could
-//! otherwise point it at any file on the host. Under this confinement the
-//! scan sees roughly what the agent sees: home directories are hidden except
-//! the run's working tree, its git directories and the CLI binary, and the
-//! profile's `deny_read` entries stay denied.
+//! otherwise point it at any file on the host. Reading file contents is
+//! denied by default; the scan can read only the run's working tree, its git
+//! directories, the CLI binary, a scratch home and the operating system's
+//! own files, and the profile's `deny_read` entries stay denied.
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -39,12 +39,16 @@ impl ScanConfinement {
     }
 
     /// The program and arguments that run `exe args` confined, with `home`
-    /// (an empty, writable directory) standing in for the user's home.
+    /// (an empty, writable directory) standing in for the user's home and
+    /// temporary directory.
     pub fn wrap(&self, args: &[&str], home: &Path) -> Result<(String, Vec<String>)> {
         platform::wrap(self, args, home)
     }
 
-    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(target_os = "macos", target_os = "linux")),
+        allow(dead_code)
+    )]
     fn readable(&self, home: &Path) -> Vec<PathBuf> {
         let mut paths = vec![self.workdir.clone(), self.exe.clone(), canonical(home)];
         paths.extend(self.git_dirs.iter().cloned());
@@ -61,33 +65,31 @@ fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_owned())
 }
 
-/// Roots that hold users' files, hidden from the scan.
-#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
-fn hidden_roots(candidates: &[&str]) -> Vec<PathBuf> {
-    let mut roots = candidates
-        .iter()
-        .map(PathBuf::from)
-        .chain(std::env::var_os("HOME").map(PathBuf::from))
-        .filter(|path| path.exists())
-        .map(|path| canonical(&path))
-        .collect::<Vec<_>>();
-    roots.sort();
-    roots.dedup();
-    // A root inside another root adds nothing.
-    let all = roots.clone();
-    roots.retain(|root| {
-        !all.iter()
-            .any(|other| other != root && root.starts_with(other))
-    });
-    roots
-}
-
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{hidden_roots, ScanConfinement};
+    use super::ScanConfinement;
     use crate::handlers::run::subprocess::{denied_file_rules, escape_sbpl_path};
     use anyhow::Result;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
+
+    /// What the CLI needs from the OS itself: dyld and system frameworks,
+    /// TLS trust roots, time zones, `/etc` (DNS, hosts) and devices.
+    const SYSTEM_READABLE: &[&str] = &[
+        "/System",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/Library/Apple",
+        "/Library/Keychains",
+        "/Library/Preferences",
+        "/Library/Security",
+        "/private/etc",
+        "/private/var/db/dyld",
+        "/private/var/db/mds",
+        "/private/var/db/timezone",
+        "/private/var/run/resolv.conf",
+        "/dev",
+    ];
 
     pub fn unavailable_reason() -> Option<String> {
         None
@@ -105,30 +107,21 @@ mod platform {
     }
 
     pub(super) fn profile(confinement: &ScanConfinement, home: &Path) -> Result<String> {
-        let readable = confinement.readable(home);
         let quote = |path: &Path| format!("\"{}\"", escape_sbpl_path(&path.to_string_lossy()));
-
-        let mut rules = vec!["(version 1)".to_owned(), "(allow default)".to_owned()];
-        for root in hidden_roots(&["/Users", "/Volumes", "/private/var/root"]) {
-            rules.push(format!("(deny file-read* (subpath {}))", quote(&root)));
-        }
-        // Path resolution (realpath, libgit2's repository lookup) stats each
-        // ancestor of the paths the scan needs; that metadata is all it gets.
-        let mut ancestors = readable
-            .iter()
-            .flat_map(|path| path.ancestors().skip(1).map(PathBuf::from))
-            .collect::<Vec<_>>();
-        ancestors.sort();
-        ancestors.dedup();
-        for ancestor in ancestors {
-            rules.push(format!(
-                "(allow file-read-metadata (literal {}))",
-                quote(&ancestor)
-            ));
-        }
-        for path in &readable {
+        // Metadata (stat, realpath, libgit2's repository lookup) stays
+        // readable everywhere; contents are denied unless allowed below.
+        let mut rules = vec![
+            "(version 1)".to_owned(),
+            "(allow default)".to_owned(),
+            "(deny file-read-data file-read-xattr)".to_owned(),
+        ];
+        let system = SYSTEM_READABLE.iter().map(Path::new).map(Path::to_path_buf);
+        for path in system.chain(confinement.readable(home)) {
             let filter = if path.is_file() { "literal" } else { "subpath" };
-            rules.push(format!("(allow file-read* ({filter} {}))", quote(path)));
+            rules.push(format!(
+                "(allow file-read-data file-read-xattr ({filter} {}))",
+                quote(&path)
+            ));
         }
         // Last, so the profile's own denials win inside the working tree.
         rules.push(denied_file_rules(
@@ -142,10 +135,33 @@ mod platform {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    use super::{hidden_roots, ScanConfinement};
+    use super::ScanConfinement;
     use crate::handlers::run::{docker_sandbox::empty_shadow_file_path, fs_rules};
     use anyhow::Result;
     use std::path::{Path, PathBuf};
+
+    /// Top-level directories that are usually symlinks into `/usr`.
+    const ROOT_LINKS: &[&str] = &["/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
+
+    /// What the CLI needs from `/etc` and `/run`: DNS, TLS trust roots, user
+    /// lookup, time zone and the dynamic linker cache.
+    const SYSTEM_FILES: &[&str] = &[
+        "/etc/resolv.conf",
+        "/etc/hosts",
+        "/etc/nsswitch.conf",
+        "/etc/host.conf",
+        "/etc/gai.conf",
+        "/etc/ssl",
+        "/etc/ca-certificates",
+        "/etc/pki",
+        "/etc/passwd",
+        "/etc/group",
+        "/etc/localtime",
+        "/etc/ld.so.cache",
+        "/etc/ld.so.conf",
+        "/etc/ld.so.conf.d",
+        "/run/systemd/resolve",
+    ];
 
     fn executable() -> Option<&'static str> {
         ["bwrap", "bubblewrap"].into_iter().find(|name| {
@@ -201,6 +217,8 @@ mod platform {
         Ok((executable, command))
     }
 
+    /// Builds the scan's root from nothing: unlike the agent's own Linux
+    /// sandbox, `/` is not bound, so only what is listed here exists.
     pub(super) fn bwrap_args(
         confinement: &ScanConfinement,
         home: &Path,
@@ -208,25 +226,39 @@ mod platform {
         let text = |path: &Path| path.to_string_lossy().into_owned();
         let mut args = vec![
             "--die-with-parent".to_owned(),
-            "--ro-bind".to_owned(),
-            "/".to_owned(),
-            "/".to_owned(),
             "--proc".to_owned(),
             "/proc".to_owned(),
             "--dev".to_owned(),
             "/dev".to_owned(),
+            "--tmpfs".to_owned(),
+            "/tmp".to_owned(),
+            "--ro-bind".to_owned(),
+            "/usr".to_owned(),
+            "/usr".to_owned(),
         ];
-        for root in hidden_roots(&["/home", "/root", "/mnt", "/media", "/srv"]) {
-            args.extend(["--tmpfs".to_owned(), text(&root)]);
+        for link in ROOT_LINKS {
+            let path = Path::new(link);
+            match std::fs::read_link(path) {
+                Ok(target) => args.extend(["--symlink".to_owned(), text(&target), text(path)]),
+                Err(_) if path.is_dir() => {
+                    args.extend(["--ro-bind".to_owned(), text(path), text(path)])
+                }
+                Err(_) => {}
+            }
+        }
+        for file in SYSTEM_FILES {
+            args.extend(["--ro-bind-try".to_owned(), (*file).to_owned(), (*file).to_owned()]);
         }
         let home = super::canonical(home);
         for path in confinement.readable(&home) {
             let mode = if path == home { "--bind" } else { "--ro-bind" };
             args.extend([mode.to_owned(), text(&path), text(&path)]);
         }
-        for path in
-            fs_rules::expand_policy_entries(&confinement.denied_read, &confinement.workdir, None)?
-        {
+        for path in fs_rules::expand_policy_entries(
+            &confinement.denied_read,
+            &confinement.workdir,
+            None,
+        )? {
             if PathBuf::from(&path).is_dir() {
                 args.extend(["--tmpfs".to_owned(), path]);
             } else {
@@ -265,14 +297,17 @@ mod tests {
         outside: PathBuf,
     }
 
-    /// A repo, a scratch home, and a secret outside both, all inside a
-    /// directory under the real home so the hidden roots cover it.
-    fn layout() -> Option<Layout> {
-        let base = std::env::var_os("HOME").map(PathBuf::from)?;
-        let root = base.join(format!(
-            ".stashbase-scan-sandbox-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+    impl Drop for Layout {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+            let _ = fs::remove_dir_all(&self.home);
+        }
+    }
+
+    /// A repo under `base`, with a secret next to it (outside the worktree)
+    /// and a symlink from the worktree to that secret.
+    fn layout(base: &Path) -> Option<Layout> {
+        let root = base.join(format!(".stashbase-scan-sandbox-test-{}", uuid::Uuid::new_v4()));
         let workdir = root.join("repo");
         let home =
             std::env::temp_dir().join(format!("stashbase-scan-home-{}", uuid::Uuid::new_v4()));
@@ -292,7 +327,9 @@ mod tests {
     }
 
     fn run_cat(confinement: &ScanConfinement, home: &Path, file: &Path) -> std::process::Output {
-        let (program, args) = confinement.wrap(&[&file.to_string_lossy()], home).unwrap();
+        let (program, args) = confinement
+            .wrap(&[&file.to_string_lossy()], home)
+            .unwrap();
         std::process::Command::new(program)
             .args(args)
             .current_dir(&confinement.workdir)
@@ -300,40 +337,52 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
-    fn confined_scan_reads_the_worktree_but_not_host_files_it_links_to() {
-        if let Some(reason) = unavailable_reason() {
-            eprintln!("skipping: {reason}");
-            return;
-        }
-        let Some(layout) = layout() else {
-            eprintln!("skipping: no writable HOME");
+    /// `cat` stands in for the CLI binary: the confinement is about which
+    /// files the process can read, not what it does with them.
+    fn assert_reads_only_the_worktree(base: &Path) {
+        let Some(layout) = layout(base) else {
+            eprintln!("skipping: cannot create a test layout under {}", base.display());
             return;
         };
-        // `cat` stands in for the CLI binary: the confinement is about which
-        // files the process can read, not what it does with them.
         let cat = canonical(Path::new("/bin/cat"));
         let confinement = ScanConfinement::for_run(&layout.workdir, &cat, &[]);
 
-        let inside = run_cat(
-            &confinement,
-            &layout.home,
-            &layout.workdir.join("inside.txt"),
-        );
+        let inside = run_cat(&confinement, &layout.home, &layout.workdir.join("inside.txt"));
         let via_link = run_cat(&confinement, &layout.home, &layout.workdir.join("link.txt"));
         let direct = run_cat(&confinement, &layout.home, &layout.outside);
 
         assert_eq!(String::from_utf8_lossy(&inside.stdout), "inside");
         assert!(
-            !via_link.status.success(),
-            "followed a symlink out of the worktree"
+            !String::from_utf8_lossy(&via_link.stdout).contains("outside"),
+            "followed a symlink out of the worktree under {}",
+            base.display()
         );
         assert!(
-            !direct.status.success(),
-            "read a host file outside the worktree"
+            !String::from_utf8_lossy(&direct.stdout).contains("outside"),
+            "read a host file outside the worktree under {}",
+            base.display()
         );
-        let _ = fs::remove_dir_all(&layout.root);
-        let _ = fs::remove_dir_all(&layout.home);
+    }
+
+    #[test]
+    fn confined_scan_cannot_read_outside_the_worktree_under_home() {
+        if let Some(reason) = unavailable_reason() {
+            eprintln!("skipping: {reason}");
+            return;
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            assert_reads_only_the_worktree(Path::new(&home));
+        }
+    }
+
+    #[test]
+    fn confined_scan_cannot_read_outside_the_worktree_under_tmp() {
+        if let Some(reason) = unavailable_reason() {
+            eprintln!("skipping: {reason}");
+            return;
+        }
+        assert_reads_only_the_worktree(Path::new("/tmp"));
+        assert_reads_only_the_worktree(&std::env::temp_dir());
     }
 
     #[test]
@@ -342,8 +391,7 @@ mod tests {
             eprintln!("skipping: {reason}");
             return;
         }
-        let Some(layout) = layout() else {
-            eprintln!("skipping: no writable HOME");
+        let Some(layout) = layout(&std::env::temp_dir()) else {
             return;
         };
         fs::write(layout.workdir.join(".env"), "SECRET=1").unwrap();
@@ -356,13 +404,11 @@ mod tests {
             !String::from_utf8_lossy(&denied.stdout).contains("SECRET"),
             "read a deny_read file"
         );
-        let _ = fs::remove_dir_all(&layout.root);
-        let _ = fs::remove_dir_all(&layout.home);
     }
 
     #[test]
     fn for_run_captures_git_dirs_outside_the_worktree() {
-        let Some(layout) = layout() else {
+        let Some(layout) = layout(&std::env::temp_dir()) else {
             return;
         };
         let cat = canonical(Path::new("/bin/cat"));
@@ -372,7 +418,5 @@ mod tests {
         // A plain repo's `.git` is inside the worktree, so nothing extra.
         assert!(confinement.git_dirs.is_empty());
         assert_eq!(confinement.workdir, layout.workdir);
-        let _ = fs::remove_dir_all(&layout.root);
-        let _ = fs::remove_dir_all(&layout.home);
     }
 }
