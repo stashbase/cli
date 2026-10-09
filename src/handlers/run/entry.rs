@@ -746,7 +746,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             silent,
             json_format,
-            false,
+            crate::models::agent::EnabledHooks::default(),
             None,
             local_session,
         )
