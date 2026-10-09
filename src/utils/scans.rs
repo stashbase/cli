@@ -612,3 +612,201 @@ pub fn update_findings_with_file_matches(
         }
     }
 }
+
+pub const RESTRICTED_SCAN_MAX_FILE_BYTES: u64 = 1024 * 1024;
+pub const RESTRICTED_SCAN_MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
+pub const RESTRICTED_SCAN_MAX_FILES: usize = 10_000;
+pub const RESTRICTED_SCAN_MAX_COMMITS: usize = 1_000;
+
+/// Caps what a restricted scan reads. The Agent Proxy runs it on the host for
+/// a sandboxed agent, which controls the staged content and the history, so
+/// without a cap it could make the host load arbitrarily large blobs.
+pub struct RestrictedScanBudget {
+    remaining_bytes: u64,
+    remaining_files: usize,
+    remaining_commits: usize,
+}
+
+impl RestrictedScanBudget {
+    pub fn new() -> Self {
+        Self {
+            remaining_bytes: RESTRICTED_SCAN_MAX_TOTAL_BYTES,
+            remaining_files: RESTRICTED_SCAN_MAX_FILES,
+            remaining_commits: RESTRICTED_SCAN_MAX_COMMITS,
+        }
+    }
+
+    /// `Some` when this process is a restricted scan.
+    pub fn for_current_scan() -> Option<Self> {
+        (std::env::var(crate::models::scans::SCAN_RESTRICTED_ENV).as_deref() == Ok("1"))
+            .then(Self::new)
+    }
+
+    /// Keeps libgit2 from loading a blob above the per-file cap, as a second
+    /// line behind `charge_diff`.
+    pub fn limit_diff_options(options: &mut git2::DiffOptions) {
+        options.max_size(RESTRICTED_SCAN_MAX_FILE_BYTES as i64);
+    }
+
+    pub fn charge_commit(&mut self) -> Result<(), ScanInputValidationError> {
+        if self.remaining_commits == 0 {
+            return Err(too_large(format!(
+                "more than {RESTRICTED_SCAN_MAX_COMMITS} commits to scan"
+            )));
+        }
+        self.remaining_commits -= 1;
+        Ok(())
+    }
+
+    /// Charges every changed file in `diff` before any content is loaded.
+    /// Sizes come from the object headers, which the agent cannot misstate
+    /// the way it can an index entry.
+    pub fn charge_diff(
+        &mut self,
+        repo: &git2::Repository,
+        diff: &git2::Diff,
+    ) -> Result<(), ScanInputValidationError> {
+        let odb = repo
+            .odb()
+            .map_err(|e| ScanInputValidationError::GitDiffProcessing {
+                message: e.message().to_string(),
+            })?;
+        for delta in diff.deltas() {
+            if delta.status() == git2::Delta::Deleted {
+                continue;
+            }
+            if self.remaining_files == 0 {
+                return Err(too_large(format!(
+                    "more than {RESTRICTED_SCAN_MAX_FILES} changed files"
+                )));
+            }
+            self.remaining_files -= 1;
+
+            let file = delta.new_file();
+            if file.id().is_zero() {
+                continue;
+            }
+            let (size, _) = odb.read_header(file.id()).map_err(|e| {
+                ScanInputValidationError::GitDiffProcessing {
+                    message: e.message().to_string(),
+                }
+            })?;
+            let size = size as u64;
+            if size > RESTRICTED_SCAN_MAX_FILE_BYTES {
+                let path = file
+                    .path()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                return Err(too_large(format!("'{path}' is larger than 1 MiB")));
+            }
+            if size > self.remaining_bytes {
+                return Err(too_large("the changes total more than 32 MiB".to_owned()));
+            }
+            self.remaining_bytes -= size;
+        }
+        Ok(())
+    }
+}
+
+fn too_large(detail: String) -> ScanInputValidationError {
+    ScanInputValidationError::RestrictedScanTooLarge { detail }
+}
+
+#[cfg(test)]
+mod restricted_budget_tests {
+    use super::*;
+
+    fn temp_repo() -> (std::path::PathBuf, git2::Repository) {
+        let dir = std::env::temp_dir().join(format!(
+            "stashbase-scan-budget-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let repo = git2::Repository::init(&dir).unwrap();
+        (dir, repo)
+    }
+
+    fn diff_adding(repo: &git2::Repository, files: &[(&str, usize)]) -> git2::Diff<'_> {
+        let mut builder = repo.treebuilder(None).unwrap();
+        for (name, size) in files {
+            let blob = repo.blob(&vec![b'a'; *size]).unwrap();
+            builder.insert(name, blob, 0o100644).unwrap();
+        }
+        let tree = repo.find_tree(builder.write().unwrap()).unwrap();
+        repo.diff_tree_to_tree(None, Some(&tree), None).unwrap()
+    }
+
+    #[test]
+    fn budget_accepts_ordinary_changes() {
+        let (dir, repo) = temp_repo();
+        let diff = diff_adding(&repo, &[("a.txt", 10), ("b.txt", 1024)]);
+
+        assert!(RestrictedScanBudget::new().charge_diff(&repo, &diff).is_ok());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn budget_rejects_a_file_over_the_per_file_cap() {
+        let (dir, repo) = temp_repo();
+        let size = RESTRICTED_SCAN_MAX_FILE_BYTES as usize + 1;
+        let diff = diff_adding(&repo, &[("big.txt", size)]);
+
+        let error = RestrictedScanBudget::new()
+            .charge_diff(&repo, &diff)
+            .unwrap_err();
+
+        assert!(
+            matches!(&error, ScanInputValidationError::RestrictedScanTooLarge { detail } if detail.contains("big.txt")),
+            "{error:?}"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn budget_rejects_changes_over_the_total_cap_across_diffs() {
+        let (dir, repo) = temp_repo();
+        let per_file = RESTRICTED_SCAN_MAX_FILE_BYTES as usize;
+        let files = (0..20)
+            .map(|index| (format!("f{index}.txt"), per_file))
+            .collect::<Vec<_>>();
+        let files = files
+            .iter()
+            .map(|(name, size)| (name.as_str(), *size))
+            .collect::<Vec<_>>();
+        let (first, second) = files.split_at(16);
+        let mut budget = RestrictedScanBudget::new();
+
+        // 16 MiB and then 4 MiB fit; another 16 MiB, as in a later
+        // commit's diff, crosses the 32 MiB total.
+        assert!(budget
+            .charge_diff(&repo, &diff_adding(&repo, first))
+            .is_ok());
+        assert!(budget
+            .charge_diff(&repo, &diff_adding(&repo, second))
+            .is_ok());
+        let error = budget
+            .charge_diff(&repo, &diff_adding(&repo, first))
+            .unwrap_err();
+
+        assert!(
+            matches!(&error, ScanInputValidationError::RestrictedScanTooLarge { detail } if detail.contains("32 MiB")),
+            "{error:?}"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn budget_caps_the_number_of_commits() {
+        let mut budget = RestrictedScanBudget::new();
+        for _ in 0..RESTRICTED_SCAN_MAX_COMMITS {
+            budget.charge_commit().unwrap();
+        }
+
+        assert!(matches!(
+            budget.charge_commit(),
+            Err(ScanInputValidationError::RestrictedScanTooLarge { .. })
+        ));
+    }
+}

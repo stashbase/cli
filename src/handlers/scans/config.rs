@@ -175,12 +175,63 @@ pub fn resolve_scan_config_path(config_file_path: Option<String>) -> Option<Stri
     }
 
     let repo = Repository::discover(".").ok()?;
-    let workdir = repo.workdir()?;
-    let default_config = workdir.join(DEFAULT_SCAN_CONFIG_PATH);
+    let restricted = std::env::var(crate::models::scans::SCAN_RESTRICTED_ENV).as_deref() == Ok("1");
+    default_config_in(repo.workdir()?, restricted)
+        .map(|path| path.to_string_lossy().to_string())
+}
 
-    if default_config.exists() {
-        Some(default_config.to_string_lossy().to_string())
+/// A restricted scan runs on the host for a sandboxed agent, which could make
+/// the config a symlink to any host file; only a regular file is used then.
+fn default_config_in(workdir: &Path, restricted: bool) -> Option<std::path::PathBuf> {
+    let default_config = workdir.join(DEFAULT_SCAN_CONFIG_PATH);
+    let usable = if restricted {
+        fs::symlink_metadata(&default_config).is_ok_and(|metadata| metadata.is_file())
     } else {
-        None
+        default_config.exists()
+    };
+    usable.then_some(default_config)
+}
+
+#[cfg(all(test, unix))]
+mod restricted_config_tests {
+    use super::{default_config_in, DEFAULT_SCAN_CONFIG_PATH};
+    use std::fs;
+
+    fn temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "stashbase-scan-config-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn restricted_scan_ignores_a_symlinked_config() {
+        let dir = temp_dir();
+        let outside = dir.join("outside-secret");
+        fs::write(&outside, "excluded-files: []\n").unwrap();
+        let workdir = dir.join("repo");
+        fs::create_dir_all(&workdir).unwrap();
+        std::os::unix::fs::symlink(&outside, workdir.join(DEFAULT_SCAN_CONFIG_PATH)).unwrap();
+
+        assert!(default_config_in(&workdir, true).is_none());
+        assert!(default_config_in(&workdir, false).is_some());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn restricted_scan_uses_a_regular_config() {
+        let dir = temp_dir();
+        fs::write(dir.join(DEFAULT_SCAN_CONFIG_PATH), "excluded-files: []\n").unwrap();
+
+        assert_eq!(
+            default_config_in(&dir, true),
+            Some(dir.join(DEFAULT_SCAN_CONFIG_PATH))
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 }

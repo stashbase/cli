@@ -16,6 +16,7 @@ use crate::{
             default_scan_exclude_patterns, file_content_equals, filter_new_findings,
             get_file_matches, get_latest_scan_file, is_binary_file, is_valid_sha256_hash,
             load_baseline_results, process_diff_line, save_scan_results, should_exclude_file,
+            RestrictedScanBudget,
             update_findings_with_file_matches, SCAN_CONTEXT_LINES, SCAN_IGNORE_LINE_COMMENT,
         },
         spinner::new_spinner,
@@ -782,9 +783,13 @@ fn get_file_hunks(
         }
     };
 
+    let mut budget = RestrictedScanBudget::for_current_scan();
     let mut diff_opts = git2::DiffOptions::new();
     diff_opts.context_lines(context_lines as u32);
     diff_opts.show_binary(false);
+    if budget.is_some() {
+        RestrictedScanBudget::limit_diff_options(&mut diff_opts);
+    }
     if matches!(mode, FileScanMode::Changed) {
         diff_opts.include_untracked(true);
         diff_opts.recurse_untracked_dirs(true);
@@ -801,6 +806,9 @@ fn get_file_hunks(
     .map_err(|e| ScanInputValidationError::GitDiffGeneration {
         message: e.message().to_string(),
     })?;
+    if let Some(budget) = budget.as_mut() {
+        budget.charge_diff(&repo, &diff)?;
+    }
 
     let state = Rc::new(RefCell::new(DiffProcessingState::new()));
 
