@@ -26,5 +26,10 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt --check
 
+      # The secret-scan confinement tests skip without a working bubblewrap.
+      - name: Install bubblewrap
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
       - name: Run tests
         run: cargo test --locked
