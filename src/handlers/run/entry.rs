@@ -2147,17 +2147,23 @@ mod tests {
             secret_scan: true,
         };
 
-        assert!(
-            hook_broker_config(EnabledHooks::default(), Some("k".to_owned()), workdir, &[], false)
-                .unwrap()
-                .is_none()
-        );
+        assert!(hook_broker_config(
+            EnabledHooks::default(),
+            Some("k".to_owned()),
+            workdir,
+            &[],
+            false
+        )
+        .unwrap()
+        .is_none());
         assert!(hook_broker_config(both, None, workdir, &[], false)
             .unwrap()
             .is_none());
-        assert!(hook_broker_config(both, Some(String::new()), workdir, &[], false)
-            .unwrap()
-            .is_none());
+        assert!(
+            hook_broker_config(both, Some(String::new()), workdir, &[], false)
+                .unwrap()
+                .is_none()
+        );
         let deps_only = EnabledHooks {
             dependency_check: true,
             secret_scan: false,

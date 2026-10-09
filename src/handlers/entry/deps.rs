@@ -73,7 +73,9 @@ fn in_scope(target: &AgentHookTarget, action: HookAction) -> Result<()> {
         (HookScope::Global, home)
     } else {
         let root = git2::Repository::discover(".")
-            .context("Hook commands without --global or --docker must run inside a git repository.")?
+            .context(
+                "Hook commands without --global or --docker must run inside a git repository.",
+            )?
             .workdir()
             .map(Path::to_path_buf)
             .context("Git repository has no working directory.")?;
@@ -425,12 +427,18 @@ fn parse_package_spec(spec: &str) -> Result<DependencyCheckRequest> {
 fn uninstall_claude_hook(root: &Path, scope: HookScope) -> Result<()> {
     let path = root.join(".claude/settings.json");
     if !path.exists() {
-        println!("No Claude dependency hook found in {}", shown(&path, root, scope));
+        println!(
+            "No Claude dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     let mut settings = read_json(&path).context("Failed to read .claude/settings.json.")?;
     if !remove_tool_hook(&mut settings) {
-        println!("No Claude dependency hook found in {}", shown(&path, root, scope));
+        println!(
+            "No Claude dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     write_json(&path, &settings)?;
@@ -446,12 +454,18 @@ fn uninstall_codex_hook(root: &Path, scope: HookScope) -> Result<()> {
     let directory = codex_directory(root, scope);
     let path = directory.join("hooks.json");
     if !path.exists() {
-        println!("No Codex dependency hook found in {}", shown(&path, root, scope));
+        println!(
+            "No Codex dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     let mut hooks = read_json(&path).context("Failed to read .codex/hooks.json.")?;
     if !remove_tool_hook(&mut hooks) {
-        println!("No Codex dependency hook found in {}", shown(&path, root, scope));
+        println!(
+            "No Codex dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     write_json(&path, &hooks)?;
@@ -524,12 +538,18 @@ fn install_cursor_hook(root: &Path, scope: HookScope) -> Result<()> {
 fn uninstall_cursor_hook(root: &Path, scope: HookScope) -> Result<()> {
     let path = root.join(".cursor/hooks.json");
     if !path.exists() {
-        println!("No Cursor dependency hook found in {}", shown(&path, root, scope));
+        println!(
+            "No Cursor dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     let mut config = read_json(&path).context("Failed to read .cursor/hooks.json.")?;
     if !remove_cursor_hook(&mut config) {
-        println!("No Cursor dependency hook found in {}", shown(&path, root, scope));
+        println!(
+            "No Cursor dependency hook found in {}",
+            shown(&path, root, scope)
+        );
         return Ok(());
     }
     write_json(&path, &config)?;
@@ -883,16 +903,37 @@ mod tests {
             .unwrap()
             .contains("stashbase agent hooks"));
         // Never CODEX_HOME: the host's value means nothing inside the sandbox.
-        assert_eq!(codex_directory(&root, HookScope::Docker), root.join(".codex"));
+        assert_eq!(
+            codex_directory(&root, HookScope::Docker),
+            root.join(".codex")
+        );
         assert!(root.join(".codex/hooks.json").exists());
         assert!(root.join(".cursor/hooks.json").exists());
         assert_eq!(
-            shown(&root.join(".claude/settings.json"), &root, HookScope::Docker),
-            Path::new("/home/agent/.claude/settings.json").display().to_string()
+            shown(
+                &root.join(".claude/settings.json"),
+                &root,
+                HookScope::Docker
+            ),
+            Path::new("/home/agent/.claude/settings.json")
+                .display()
+                .to_string()
         );
 
-        apply(HookAgent::Claude, HookAction::Uninstall, &root, HookScope::Docker).unwrap();
-        assert!(apply(HookAgent::Claude, HookAction::Check, &root, HookScope::Docker).is_err());
+        apply(
+            HookAgent::Claude,
+            HookAction::Uninstall,
+            &root,
+            HookScope::Docker,
+        )
+        .unwrap();
+        assert!(apply(
+            HookAgent::Claude,
+            HookAction::Check,
+            &root,
+            HookScope::Docker
+        )
+        .is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

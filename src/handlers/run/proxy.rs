@@ -5947,7 +5947,11 @@ mod tests {
     }
 
     #[cfg(unix)]
-    async fn start_agent_hook_proxy(exe: PathBuf, workdir: PathBuf, dependency_check: bool) -> Proxy {
+    async fn start_agent_hook_proxy(
+        exe: PathBuf,
+        workdir: PathBuf,
+        dependency_check: bool,
+    ) -> Proxy {
         Proxy::start_with_hook(
             HashMap::new(),
             ProxyPolicy::permissive(),
@@ -5990,13 +5994,18 @@ mod tests {
         let dir = scan_test_dir();
         let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 0), dir.clone(), true).await;
 
-        let (status, body) =
-            post_agent_hook(&proxy, br#"{"tool_input":{"command":"npm i left-pad"}}"#.to_vec())
-                .await;
+        let (status, body) = post_agent_hook(
+            &proxy,
+            br#"{"tool_input":{"command":"npm i left-pad"}}"#.to_vec(),
+        )
+        .await;
 
         assert_eq!(status, 200, "{body}");
         assert!(body.contains("args=agent hooks"), "{body}");
-        assert!(body.contains(r#"stdin={"tool_input":{"command":"npm i left-pad"}}"#), "{body}");
+        assert!(
+            body.contains(r#"stdin={"tool_input":{"command":"npm i left-pad"}}"#),
+            "{body}"
+        );
         assert!(body.contains("key=parent-api-key"), "{body}");
         // Calls the API directly rather than looping back into the broker.
         assert!(body.contains("hook_mode=unset"), "{body}");

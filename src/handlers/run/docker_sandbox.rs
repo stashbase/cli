@@ -1549,7 +1549,12 @@ pub(crate) fn with_persistent_home_files(
     std::fs::create_dir_all(&staging)?;
     let staging_text = staging.to_string_lossy().into_owned();
     let copy = |mount: String, script: &str| -> anyhow::Result<()> {
-        let mut args = vec!["run".to_owned(), "--rm".to_owned(), "--network".to_owned(), "none".to_owned()];
+        let mut args = vec![
+            "run".to_owned(),
+            "--rm".to_owned(),
+            "--network".to_owned(),
+            "none".to_owned(),
+        ];
         args.extend(docker_run_user_flag_args());
         args.extend([
             "-v".to_owned(),
@@ -1629,8 +1634,9 @@ fn append_agent_hook_shim_mount(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|error| format!("failed to make the agent hook stand-in executable: {error}"))?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(
+            |error| format!("failed to make the agent hook stand-in executable: {error}"),
+        )?;
     }
     args.extend([
         "-v".to_owned(),
@@ -1828,7 +1834,11 @@ mod tests {
         append_agent_hook_shim_mount(&mut with, &env_vars).unwrap();
 
         assert_eq!(with[0], "-v");
-        assert!(with[1].ends_with(":/usr/local/bin/stashbase:ro"), "{}", with[1]);
+        assert!(
+            with[1].ends_with(":/usr/local/bin/stashbase:ro"),
+            "{}",
+            with[1]
+        );
         let source = with[1].trim_end_matches(":/usr/local/bin/stashbase:ro");
         assert_eq!(std::fs::read_to_string(source).unwrap(), AGENT_HOOK_SHIM);
     }
@@ -1837,11 +1847,16 @@ mod tests {
     fn run_shim(args: &[&str], env: &[(&str, &str)], with_curl: bool) -> (i32, String) {
         use std::os::unix::fs::PermissionsExt;
 
-        let bin = std::env::temp_dir().join(format!("stashbase-shim-test-{}", uuid::Uuid::new_v4()));
+        let bin =
+            std::env::temp_dir().join(format!("stashbase-shim-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&bin).unwrap();
         if with_curl {
             let curl = bin.join("curl");
-            std::fs::write(&curl, "#!/bin/sh\necho \"curl $*\"\nexit ${FAKE_CURL_EXIT:-0}\n").unwrap();
+            std::fs::write(
+                &curl,
+                "#!/bin/sh\necho \"curl $*\"\nexit ${FAKE_CURL_EXIT:-0}\n",
+            )
+            .unwrap();
             std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let output = std::process::Command::new("/bin/sh")
@@ -1862,7 +1877,10 @@ mod tests {
 
     #[cfg(unix)]
     const SHIM_ENV: [(&str, &str); 2] = [
-        ("STASHBASE_AGENT_HOOK_URL", "http://h:1/__stashbase/agent-hook"),
+        (
+            "STASHBASE_AGENT_HOOK_URL",
+            "http://h:1/__stashbase/agent-hook",
+        ),
         ("STASHBASE_HOOK_BROKER_TOKEN", "t"),
     ];
 
