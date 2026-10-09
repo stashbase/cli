@@ -518,6 +518,8 @@ stashbase scan install --all
 stashbase scan uninstall pre-commit --file .husky/pre-commit
 ```
 
+In a `stashbase agent run` session, these hooks need `allow_hooks = ["secret_scan"]` in the agent profile: the scan then runs on the host with your key, confined to the run's files. See [Agent Profiles](docs/agent-profiles.md#api-hooks).
+
 ### Dependency Security Hooks
 
 Block suspicious package installs before they run. Install hooks for Codex, Claude Code, or Cursor:
@@ -546,7 +548,14 @@ stashbase agent hooks deps uninstall cursor
 stashbase agent hooks deps uninstall codex --global
 stashbase agent hooks deps uninstall claude --global
 stashbase agent hooks deps uninstall cursor --global
+
+# Install, check or remove in the Docker sandbox's home (shared by every Docker agent run)
+stashbase agent hooks deps install claude --docker
+stashbase agent hooks deps check claude --docker
+stashbase agent hooks deps uninstall claude --docker
 ```
+
+In a `stashbase agent run` session, the hook needs `allow_hooks = ["dependency_check"]` in the agent profile. A Docker run can't see your global hooks: use per-repository hooks or `--docker`. See [Agent Profiles](docs/agent-profiles.md#api-hooks).
 
 Use `dependencies` as an alias for `deps`. The hook supports npm, Bun, pnpm, and Yarn. For package-specific installs, it sends only package names and versions to Stashbase. For project-wide installs like `npm ci`, it scans direct dependencies from `package.json` and uses versions from lockfiles when available. This is not a full dependency-tree audit; transitive dependencies are not scanned.
 
