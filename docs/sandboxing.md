@@ -215,9 +215,9 @@ Lists the same networks (name, session id, creation time, and whether it's tied 
 stashbase agent docker build [--force]
 ```
 
-Builds the default sandbox image ahead of time instead of waiting to be prompted on first `agent run`, or rebuilds it with `--force` (e.g. after the embedded Dockerfile picks up new apt packages or a security patch) without needing to `docker rmi` it by hand first.
+Builds the default sandbox image ahead of time instead of waiting to be prompted on first `agent run`, or rebuilds it with `--force` without needing to `docker rmi` it by hand first. `--force` also refreshes what's inside: it pulls the latest base image (`docker build --pull`) and reinstalls Claude Code and Codex at their current versions, since the image pins them and disables their in-app auto-updaters. Re-run it whenever you want newer agent CLIs; `agent run` also reminds you once the default image is more than 14 days old.
 
-Add `--profile <name>` to target that profile's own `sandbox.image`/`sandbox.dockerfile` instead of the default — useful for pre-building or force-refreshing a custom image the same way, without needing to trigger a real `agent run` first. `--profile-source auto|global|directory` controls where `--profile` is loaded from, same as `agent run`/`agent validate`. A profile using a plain `image` reference has nothing to build (`docker run` pulls it automatically), so this reports that and does nothing rather than erroring.
+Add `--profile <name>` to target that profile's own `sandbox.image`/`sandbox.dockerfile` instead of the default — useful for pre-building or force-refreshing a custom image the same way, without needing to trigger a real `agent run` first. For a custom Dockerfile, `--force` pulls the base image but otherwise follows Docker's normal layer cache. `--profile-source auto|global|directory` controls where `--profile` is loaded from, same as `agent run`/`agent validate`. A profile using a plain `image` reference has nothing to build (`docker run` pulls it automatically), so this reports that and does nothing rather than erroring.
 
 ### Checking readiness
 
@@ -225,7 +225,7 @@ Add `--profile <name>` to target that profile's own `sandbox.image`/`sandbox.doc
 stashbase agent docker doctor
 ```
 
-Checks whether the Docker sandbox backend can actually run here — the `docker` CLI on PATH, the daemon reachable (and its version), and whether the default image is already built — without starting a real sandboxed run to find out. Exits non-zero if anything's not ready; pass `--json` for machine-readable output. Useful for onboarding or CI setup scripts that want to fail fast with a clear reason, rather than discovering a missing Docker install only when a real `agent run` fails.
+Checks whether the Docker sandbox backend can actually run here — the `docker` CLI on PATH, the daemon reachable (and its version), and whether the default image is already built (with how old it is and the Claude Code/Codex versions inside it) — without starting a real sandboxed run to find out. Exits non-zero if anything's not ready; pass `--json` for machine-readable output. Useful for onboarding or CI setup scripts that want to fail fast with a clear reason, rather than discovering a missing Docker install only when a real `agent run` fails.
 
 ### Docker backend limitations
 

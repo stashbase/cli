@@ -174,7 +174,7 @@ pub struct AgentDockerStatusCommand {}
 
 #[derive(Debug, Args)]
 pub struct AgentDockerBuildCommand {
-    /// Rebuild even if the image already exists locally
+    /// Rebuild even if the image already exists, pulling the latest base image (and, for the default image, the latest Claude Code and Codex)
     #[arg(long)]
     pub force: bool,
 

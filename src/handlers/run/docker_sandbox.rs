@@ -638,6 +638,97 @@ pub(crate) fn sandbox_image_exists(source: &AgentImageSource) -> bool {
         .unwrap_or(false)
 }
 
+/// How old the default image may get before `agent run` suggests
+/// rebuilding it. The image pins Claude Code and Codex (their in-app
+/// updaters are disabled), and both ship new versions every few days, so
+/// without a nudge an image silently falls weeks behind.
+pub(crate) const STALE_IMAGE_AFTER_DAYS: i64 = 14;
+
+/// When the local image for `source` was built, or `None` if it isn't
+/// built (or `docker` can't say). Not meaningful for a plain image
+/// reference, which `docker run` pulls on demand.
+pub(crate) fn sandbox_image_created_at(
+    source: &AgentImageSource,
+) -> Option<chrono::DateTime<chrono::Utc>> {
+    let output = std::process::Command::new("docker")
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            "{{.Created}}",
+            &source.image_tag(),
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    chrono::DateTime::parse_from_rfc3339(String::from_utf8_lossy(&output.stdout).trim())
+        .ok()
+        .map(|created_at| created_at.with_timezone(&chrono::Utc))
+}
+
+/// Whole days between `created_at` and `now` as a short phrase.
+pub(crate) fn format_image_age(
+    created_at: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
+    match (now - created_at).num_days() {
+        days if days <= 0 => "today".to_owned(),
+        1 => "1 day ago".to_owned(),
+        days => format!("{days} days ago"),
+    }
+}
+
+/// The nudge `agent run` prints when the default image is older than
+/// `STALE_IMAGE_AFTER_DAYS`, or `None` while it's still fresh.
+pub(crate) fn stale_default_image_hint(
+    created_at: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<String> {
+    ((now - created_at).num_days() > STALE_IMAGE_AFTER_DAYS).then(|| {
+        format!(
+            "The Docker sandbox image was built {}; run `stashbase agent docker build --force` to update Claude Code and Codex.",
+            format_image_age(created_at, now)
+        )
+    })
+}
+
+/// Claude Code and Codex versions baked into an image; a field is `None`
+/// when that CLI is missing or its `--version` output wasn't recognized.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct AgentCliVersions {
+    pub claude: Option<String>,
+    pub codex: Option<String>,
+}
+
+/// Reads the agent CLI versions installed in `source`'s image by running
+/// their `--version` in a throwaway, network-less container. Costs a
+/// container start, so it's for diagnostics (`agent docker doctor`), not
+/// the `agent run` hot path.
+pub(crate) fn sandbox_image_agent_versions(source: &AgentImageSource) -> AgentCliVersions {
+    std::process::Command::new("docker")
+        .args(["run", "--rm", "--network", "none", &source.image_tag()])
+        .args(["sh", "-c", "claude --version; codex --version"])
+        .output()
+        .map(|output| parse_agent_cli_versions(&String::from_utf8_lossy(&output.stdout)))
+        .unwrap_or_default()
+}
+
+/// Parses `claude --version` (`2.1.295 (Claude Code)`) and
+/// `codex --version` (`codex-cli 0.162.0`) output.
+fn parse_agent_cli_versions(output: &str) -> AgentCliVersions {
+    let mut versions = AgentCliVersions::default();
+    for line in output.lines().map(str::trim) {
+        if line.ends_with("(Claude Code)") {
+            versions.claude = line.split_whitespace().next().map(str::to_owned);
+        } else if let Some(version) = line.strip_prefix("codex-cli ") {
+            versions.codex = Some(version.trim().to_owned());
+        }
+    }
+    versions
+}
+
 /// Reads a file at `relative_path` (relative to `CONTAINER_HOME`) out of the
 /// persistent home volume — the same volume `docker_run_command` mounts as
 /// the sandboxed agent's `HOME` — without starting a full agent run. Used to
@@ -717,7 +808,13 @@ pub(crate) fn docker_shell_command_args(
 /// packages), and a silent hang would look broken. This does mean a
 /// failure's error message comes from the already-visible build output,
 /// not a captured string.
-pub(crate) fn build_sandbox_image(source: &AgentImageSource) -> Result<(), String> {
+///
+/// `refresh` (`agent docker build --force`) makes the rebuild pick up new
+/// upstream content rather than replaying Docker's layer cache, which keys
+/// a `RUN` step on its command text — not on what that command would fetch
+/// today — so a plain rebuild would reuse the old Claude Code/Codex
+/// binaries forever. See `docker_build_args`.
+pub(crate) fn build_sandbox_image(source: &AgentImageSource, refresh: bool) -> Result<(), String> {
     let tag = source
         .build_tag()
         .ok_or_else(|| "a custom image reference has nothing to build".to_owned())?;
@@ -746,7 +843,7 @@ pub(crate) fn build_sandbox_image(source: &AgentImageSource) -> Result<(), Strin
     }
     .and_then(|build_dir| {
         std::process::Command::new("docker")
-            .args(["build", "-t", &tag])
+            .args(docker_build_args(source, &tag, refresh))
             .arg(&build_dir)
             .status()
             .map_err(|error| format!("failed to run `docker build`: {error}"))
@@ -760,6 +857,33 @@ pub(crate) fn build_sandbox_image(source: &AgentImageSource) -> Result<(), Strin
     });
     let _ = std::fs::remove_dir_all(&build_dir);
     build_result
+}
+
+/// Name of the build arg declared just above the embedded Dockerfile's
+/// Claude Code/Codex install step.
+const AGENT_CLI_CACHEBUST_ARG: &str = "AGENT_CLI_CACHEBUST";
+
+/// `docker build` args (minus the context directory). With `refresh`:
+/// `--pull` re-resolves the base image, so OS security patches land; and,
+/// for the default image only, a fresh `AGENT_CLI_CACHEBUST` value
+/// invalidates the cache from the agent-CLI install step onward, so
+/// Claude Code and Codex are reinstalled at their latest versions while
+/// the slow apt layer above it stays cached (unless `--pull` brought a new
+/// base image, which rebuilds everything anyway). A custom Dockerfile
+/// doesn't declare that arg, so it isn't passed there.
+fn docker_build_args(source: &AgentImageSource, tag: &str, refresh: bool) -> Vec<String> {
+    let mut args = vec!["build".to_owned(), "-t".to_owned(), tag.to_owned()];
+    if refresh {
+        args.push("--pull".to_owned());
+        if matches!(source, AgentImageSource::Default) {
+            args.push("--build-arg".to_owned());
+            args.push(format!(
+                "{AGENT_CLI_CACHEBUST_ARG}={}",
+                uuid::Uuid::new_v4()
+            ));
+        }
+    }
+    args
 }
 
 /// `--user uid:gid` args for the agent container, Linux only: Docker
@@ -1683,7 +1807,7 @@ mod tests {
         static BUILD_ONCE: OnceLock<()> = OnceLock::new();
         BUILD_ONCE.get_or_init(|| {
             if !sandbox_image_exists(&AgentImageSource::Default) {
-                build_sandbox_image(&AgentImageSource::Default)
+                build_sandbox_image(&AgentImageSource::Default, false)
                     .expect("building the embedded Dockerfile should succeed for tests");
             }
         });
@@ -1692,6 +1816,108 @@ mod tests {
     #[test]
     fn sandbox_dockerfile_is_embedded_and_non_empty() {
         assert!(SANDBOX_DOCKERFILE.contains("FROM"));
+    }
+
+    #[test]
+    fn sandbox_dockerfile_declares_the_agent_cli_cachebust_arg_before_installing() {
+        let arg_line = SANDBOX_DOCKERFILE
+            .lines()
+            .position(|line| line.trim() == format!("ARG {AGENT_CLI_CACHEBUST_ARG}"))
+            .expect("the cache-bust ARG must be declared");
+        let install_line = SANDBOX_DOCKERFILE
+            .lines()
+            .position(|line| line.contains("claude.ai/install.sh"))
+            .expect("the Claude Code install step must exist");
+        assert!(arg_line < install_line);
+    }
+
+    #[test]
+    fn format_image_age_reads_naturally() {
+        let now = chrono::Utc::now();
+        assert_eq!(format_image_age(now, now), "today");
+        assert_eq!(
+            format_image_age(now - chrono::Duration::days(1), now),
+            "1 day ago"
+        );
+        assert_eq!(
+            format_image_age(now - chrono::Duration::days(23), now),
+            "23 days ago"
+        );
+    }
+
+    #[test]
+    fn stale_default_image_hint_only_past_the_threshold() {
+        let now = chrono::Utc::now();
+        assert_eq!(
+            stale_default_image_hint(now - chrono::Duration::days(STALE_IMAGE_AFTER_DAYS), now),
+            None
+        );
+        let hint = stale_default_image_hint(
+            now - chrono::Duration::days(STALE_IMAGE_AFTER_DAYS + 1),
+            now,
+        )
+        .expect("stale image should produce a hint");
+        assert!(hint.contains("15 days ago"), "{hint}");
+        assert!(
+            hint.contains("`stashbase agent docker build --force`"),
+            "{hint}"
+        );
+    }
+
+    #[test]
+    fn parse_agent_cli_versions_reads_both_tools() {
+        assert_eq!(
+            parse_agent_cli_versions("2.1.295 (Claude Code)\ncodex-cli 0.162.0\n"),
+            AgentCliVersions {
+                claude: Some("2.1.295".to_owned()),
+                codex: Some("0.162.0".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_agent_cli_versions_tolerates_a_missing_tool() {
+        assert_eq!(
+            parse_agent_cli_versions("codex-cli 0.162.0\n"),
+            AgentCliVersions {
+                claude: None,
+                codex: Some("0.162.0".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn docker_build_args_reuse_the_cache_without_refresh() {
+        assert_eq!(
+            docker_build_args(&AgentImageSource::Default, "t", false),
+            ["build", "-t", "t"]
+        );
+    }
+
+    #[test]
+    fn docker_build_args_refresh_pulls_and_busts_the_agent_cli_layer() {
+        let args = docker_build_args(&AgentImageSource::Default, "t", true);
+        assert!(args.contains(&"--pull".to_owned()));
+        let bust = args
+            .iter()
+            .position(|arg| arg == "--build-arg")
+            .map(|index| &args[index + 1])
+            .expect("a cache-bust build arg");
+        assert!(bust.starts_with(&format!("{AGENT_CLI_CACHEBUST_ARG}=")));
+        // A fresh value every time, or the cache would still hit.
+        assert_ne!(
+            args,
+            docker_build_args(&AgentImageSource::Default, "t", true)
+        );
+    }
+
+    #[test]
+    fn docker_build_args_refresh_only_pulls_for_a_custom_dockerfile() {
+        let source = AgentImageSource::Dockerfile(std::path::PathBuf::from("Dockerfile"));
+        assert_eq!(
+            docker_build_args(&source, "t", true),
+            ["build", "-t", "t", "--pull"]
+        );
     }
 
     #[test]
@@ -1756,7 +1982,8 @@ mod tests {
     #[test]
     fn building_a_plain_image_reference_is_rejected() {
         let source = AgentImageSource::Image("myorg/img:tag".to_owned());
-        let error = build_sandbox_image(&source).expect_err("nothing to build for an image ref");
+        let error =
+            build_sandbox_image(&source, false).expect_err("nothing to build for an image ref");
         assert!(error.contains("nothing to build"));
     }
 
@@ -1769,11 +1996,14 @@ mod tests {
             eprintln!("skipping: Docker not available in this environment");
             return;
         }
-        // Don't assert on the starting state — a prior test run or the
-        // developer's own machine may already have the image built.
-        // Just prove building it results in it existing.
-        build_sandbox_image(&AgentImageSource::Default)
-            .expect("building the embedded Dockerfile should succeed");
+        // Only build when missing (always the case on a fresh CI runner): a
+        // cached rebuild over a developer's existing image re-tags `:latest`
+        // to whatever install layer Docker cached first, silently undoing a
+        // `agent docker build --force` that pulled newer agent CLIs.
+        if !sandbox_image_exists(&AgentImageSource::Default) {
+            build_sandbox_image(&AgentImageSource::Default, false)
+                .expect("building the embedded Dockerfile should succeed");
+        }
         assert!(sandbox_image_exists(&AgentImageSource::Default));
     }
 
