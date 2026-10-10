@@ -13,6 +13,7 @@ use crate::{
     cmd::config::SecretsOutputFormat,
     utils::{
         self,
+        human_datetime::display_utc_timestamp,
         output::{is_color_enabled, write_indented, ColorizeIfColoredOutput},
     },
 };
@@ -187,9 +188,9 @@ impl From<SecretMetadata> for SecretMetadataTable {
             comment: value.comment.unwrap_or_default(),
             version: value.version,
             has_value: value.has_value,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
-            last_accessed_at: value.last_accessed_at.unwrap_or_default(),
+            created_at: display_utc_timestamp(&value.created_at),
+            updated_at: display_utc_timestamp(&value.updated_at),
+            last_accessed_at: display_utc_timestamp(&value.last_accessed_at.unwrap_or_default()),
         }
     }
 }
@@ -200,9 +201,9 @@ impl From<SecretMetadata> for SecretMetadataTableWithoutComment {
             name: value.name,
             version: value.version,
             has_value: value.has_value,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
-            last_accessed_at: value.last_accessed_at.unwrap_or_default(),
+            created_at: display_utc_timestamp(&value.created_at),
+            updated_at: display_utc_timestamp(&value.updated_at),
+            last_accessed_at: display_utc_timestamp(&value.last_accessed_at.unwrap_or_default()),
         }
     }
 }
