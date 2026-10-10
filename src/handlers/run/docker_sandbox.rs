@@ -413,7 +413,8 @@ pub(crate) struct ExistingRunNetwork {
     /// `None` for the pre-session-naming fallback (a bare UUID) — see
     /// `generate_run_network_name`.
     pub session_id: Option<String>,
-    /// RFC 3339 creation timestamp, straight from `docker network inspect`.
+    /// Creation timestamp as UTC RFC 3339 (see `format_utc`), or empty when
+    /// `docker network inspect` couldn't report it.
     pub created_at: String,
 }
 
@@ -453,7 +454,7 @@ pub(crate) fn list_run_networks() -> Result<Vec<ExistingRunNetwork>, String> {
                 .output()
                 .map_err(|error| format!("failed to run `docker network inspect`: {error}"))?;
             let created_at = if inspect.status.success() {
-                String::from_utf8_lossy(&inspect.stdout).trim().to_owned()
+                normalize_network_created_at(&String::from_utf8_lossy(&inspect.stdout))
             } else {
                 // The network could have been removed between the `ls` and
                 // this `inspect` (e.g. a concurrent run finishing normally)
@@ -647,6 +648,13 @@ pub(crate) const STALE_IMAGE_AFTER_DAYS: i64 = 14;
 /// When the local image for `source` was built, or `None` if it isn't
 /// built (or `docker` can't say). Not meaningful for a plain image
 /// reference, which `docker run` pulls on demand.
+/// Turns `docker network inspect --format '{{.Created}}'` output into a UTC
+/// RFC 3339 timestamp, keeping the raw value if it doesn't parse.
+fn normalize_network_created_at(output: &str) -> String {
+    let raw = output.trim().trim_matches('"');
+    crate::utils::human_datetime::display_utc_timestamp(raw)
+}
+
 pub(crate) fn sandbox_image_created_at(
     source: &AgentImageSource,
 ) -> Option<chrono::DateTime<chrono::Utc>> {
@@ -1829,6 +1837,20 @@ mod tests {
             .position(|line| line.contains("claude.ai/install.sh"))
             .expect("the Claude Code install step must exist");
         assert!(arg_line < install_line);
+    }
+
+    #[test]
+    fn network_created_at_is_normalized_to_utc() {
+        // Docker Engine exposes `.Created` as an RFC 3339 string.
+        assert_eq!(
+            normalize_network_created_at("2026-10-09T09:57:15.791491833+02:00\n"),
+            "2026-10-09T07:57:15Z"
+        );
+        assert_eq!(
+            normalize_network_created_at("2026-10-09T07:57:15.791491833Z"),
+            "2026-10-09T07:57:15Z"
+        );
+        assert_eq!(normalize_network_created_at("not-a-date"), "not-a-date");
     }
 
     #[test]

@@ -6,11 +6,15 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use crate::utils::{interaction, spinner::request_spinner};
+use crate::utils::{
+    human_datetime::{format_utc, format_utc_timestamp},
+    interaction,
+    spinner::request_spinner,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalAgentSession {
@@ -36,7 +40,7 @@ impl LocalAgentSessionGuard {
 
         let session = LocalAgentSession {
             session_id: session_id.clone(),
-            started_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            started_at: format_utc(Utc::now()),
             process_id: std::process::id(),
             process_started_at: process_start_time(std::process::id())?,
             revoked: false,
@@ -196,12 +200,6 @@ impl From<LocalAgentSession> for AgentSessionRow {
     }
 }
 
-fn format_utc_timestamp(value: &str) -> Result<String> {
-    Ok(DateTime::parse_from_rfc3339(value)?
-        .with_timezone(&Utc)
-        .to_rfc3339_opts(SecondsFormat::Secs, true))
-}
-
 pub fn format_sessions(rows: &Vec<AgentSessionRow>, json: bool) -> Result<()> {
     if json {
         println!(
@@ -219,8 +217,8 @@ pub fn format_sessions(rows: &Vec<AgentSessionRow>, json: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_utc_timestamp, is_valid_agent_session_id, process_start_time,
-        should_confirm_bulk_revoke, validate_bulk_scope, AgentSessionRow,
+        is_valid_agent_session_id, process_start_time, should_confirm_bulk_revoke,
+        validate_bulk_scope, AgentSessionRow,
     };
 
     #[test]
@@ -229,18 +227,6 @@ mod tests {
         let first = process_start_time(pid).unwrap();
         assert!(!first.is_empty());
         assert_eq!(process_start_time(pid).unwrap(), first);
-    }
-
-    #[test]
-    fn session_timestamps_are_utc_seconds() {
-        assert_eq!(
-            format_utc_timestamp("2026-09-13T11:53:59.237435+00:00").unwrap(),
-            "2026-09-13T11:53:59Z"
-        );
-        assert_eq!(
-            format_utc_timestamp("2026-07-03T16:10:07+02:00").unwrap(),
-            "2026-07-03T14:10:07Z"
-        );
     }
 
     #[test]
