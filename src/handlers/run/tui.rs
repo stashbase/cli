@@ -268,7 +268,8 @@ pub fn render_frame(cols: u16, info: &TuiStatusInfo) -> (String, u16) {
 }
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
-const MOUSE_CAPTURE_ENABLE: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+// 1002 (button-event tracking) adds drag motion, for wrapper-side selection.
+const MOUSE_CAPTURE_ENABLE: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const MOUSE_CAPTURE_DISABLE: &[u8] =
     b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l";
 const TERMINAL_MODE_RESET: &[u8] = b"\x1b[?1l\x1b>\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?2026l";
@@ -287,6 +288,59 @@ enum WheelRouting {
     Wrapper,
     AlternateScroll,
     Child,
+}
+
+/// What the input thread asks the render loop to do with mouse input the
+/// wrapper keeps for itself. Positions are 0-based in the real terminal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MouseAction {
+    Scroll(i16),
+    Press {
+        row: u16,
+        col: u16,
+    },
+    Drag {
+        row: u16,
+        col: u16,
+    },
+    Release {
+        row: u16,
+        col: u16,
+    },
+    /// The user typed into the agent: drop any highlighted selection.
+    ClearSelection,
+}
+
+/// Copies `text` to the clipboard of the terminal the user is looking at
+/// (OSC 52, which also works over SSH) and, on macOS, to the local
+/// pasteboard for terminals that ignore OSC 52.
+fn copy_to_clipboard(text: &str) {
+    use base64::Engine as _;
+    use std::io::Write as _;
+    let mut stdout = std::io::stdout();
+    let _ = write!(
+        stdout,
+        "\x1b]52;c;{}\x07",
+        base64::engine::general_purpose::STANDARD.encode(text)
+    );
+    let _ = stdout.flush();
+    #[cfg(target_os = "macos")]
+    {
+        let text = text.to_owned();
+        std::thread::spawn(move || {
+            if let Ok(mut child) = std::process::Command::new("pbcopy")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                let _ = child.wait();
+            }
+        });
+    }
 }
 
 struct TuiState {
@@ -332,8 +386,35 @@ impl TuiState {
         self.dirty = true;
     }
 
-    fn scroll(&mut self, rows: i16) {
-        self.screen.scroll(rows);
+    fn mouse(&mut self, action: MouseAction) {
+        match action {
+            MouseAction::Scroll(rows) => self.screen.scroll(rows),
+            MouseAction::Press { row, col } if row < self.child_rows => self
+                .screen
+                .start_selection(row, col.min(self.cols.saturating_sub(1))),
+            MouseAction::Press { .. } => self.screen.clear_selection(),
+            MouseAction::Drag { row, col } => self.screen.extend_selection(
+                row.min(self.child_rows.saturating_sub(1)),
+                col.min(self.cols.saturating_sub(1)),
+            ),
+            MouseAction::Release { row, col } => {
+                if self.screen.has_selection() {
+                    self.screen.extend_selection(
+                        row.min(self.child_rows.saturating_sub(1)),
+                        col.min(self.cols.saturating_sub(1)),
+                    );
+                    if let Some(text) = self.screen.finish_selection() {
+                        copy_to_clipboard(&text);
+                    }
+                }
+            }
+            MouseAction::ClearSelection => {
+                if !self.screen.has_selection() {
+                    return;
+                }
+                self.screen.clear_selection();
+            }
+        }
         self.dirty = true;
     }
 
@@ -1077,7 +1158,7 @@ mod imp {
     fn spawn_input_forwarder(
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         stop: Arc<AtomicBool>,
-        scrolls: mpsc::Sender<i16>,
+        mouse: mpsc::Sender<super::MouseAction>,
         child_captures_mouse: Arc<AtomicBool>,
         child_uses_alternate_scroll: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<()> {
@@ -1097,7 +1178,7 @@ mod imp {
                 if count <= 0 {
                     break;
                 }
-                let mut scroll = 0;
+                let mut actions = Vec::new();
                 let routing = if child_captures_mouse.load(Ordering::Relaxed) {
                     super::WheelRouting::Child
                 } else if child_uses_alternate_scroll.load(Ordering::Relaxed) {
@@ -1105,14 +1186,14 @@ mod imp {
                 } else {
                     super::WheelRouting::Wrapper
                 };
-                let bytes = translate_mouse_wheel_input(
+                let bytes = translate_mouse_input(
                     &mut pending,
                     &buffer[..count as usize],
-                    &mut scroll,
+                    &mut actions,
                     routing,
                 );
-                if scroll != 0 {
-                    let _ = scrolls.send(scroll);
+                for action in actions {
+                    let _ = mouse.send(action);
                 }
                 if writer
                     .lock()
@@ -1126,31 +1207,34 @@ mod imp {
         })
     }
 
+    /// Splits SGR mouse reports out of terminal input. With `Child` routing
+    /// the child asked for mouse input and gets everything verbatim.
+    /// Otherwise mouse reporting is on only for the wrapper: the vertical
+    /// wheel scrolls (or, under `AlternateScroll`, becomes arrow keys), a
+    /// left-button drag selects, and every other report is dropped.
     #[cfg(unix)]
-    pub(super) fn translate_mouse_wheel_input(
+    pub(super) fn translate_mouse_input(
         pending: &mut Vec<u8>,
         input: &[u8],
-        scroll: &mut i16,
+        actions: &mut Vec<super::MouseAction>,
         routing: super::WheelRouting,
     ) -> Vec<u8> {
+        use super::{MouseAction, WheelRouting};
         pending.extend_from_slice(input);
-        if matches!(routing, super::WheelRouting::Child) {
+        if matches!(routing, WheelRouting::Child) {
             return std::mem::take(pending);
         }
         let mut forwarded = Vec::with_capacity(pending.len());
+        let mut typed = false;
         let mut index = 0;
         while index < pending.len() {
-            if pending[index] != b'\x1b' {
-                forwarded.push(pending[index]);
-                index += 1;
-                continue;
-            }
             let remaining = &pending[index..];
             if b"\x1b[<".starts_with(remaining) {
                 break;
             }
             if !remaining.starts_with(b"\x1b[<") {
                 forwarded.push(pending[index]);
+                typed = true;
                 index += 1;
                 continue;
             }
@@ -1161,30 +1245,41 @@ mod imp {
                 break;
             };
             let end = end + 4;
-            let button = std::str::from_utf8(&remaining[3..end - 1])
+            let release = remaining[end - 1] == b'm';
+            let fields: Vec<u16> = std::str::from_utf8(&remaining[3..end - 1])
                 .ok()
-                .and_then(|event| event.split(';').next())
-                .and_then(|button| button.parse::<u8>().ok());
-            match button {
-                Some(button) if button & 0b0110_0000 == 64 => match (button & 0b11, routing) {
-                    (0, super::WheelRouting::Wrapper) => *scroll = scroll.saturating_add(3),
-                    (1, super::WheelRouting::Wrapper) => *scroll = scroll.saturating_sub(3),
-                    (0, super::WheelRouting::AlternateScroll) => {
+                .map(|event| {
+                    event
+                        .split(';')
+                        .filter_map(|field| field.parse().ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let [button, col, row] = fields[..] {
+                let (row, col) = (row.saturating_sub(1), col.saturating_sub(1));
+                // Low two bits: button; 4/8/16: modifiers; 32: motion; 64: wheel.
+                let motion = button & 32 != 0;
+                match (button & !0b1_1100, routing) {
+                    (64, WheelRouting::Wrapper) => actions.push(MouseAction::Scroll(3)),
+                    (65, WheelRouting::Wrapper) => actions.push(MouseAction::Scroll(-3)),
+                    (64, WheelRouting::AlternateScroll) => {
                         forwarded.extend_from_slice(b"\x1b[A\x1b[A\x1b[A")
                     }
-                    (1, super::WheelRouting::AlternateScroll) => {
+                    (65, WheelRouting::AlternateScroll) => {
                         forwarded.extend_from_slice(b"\x1b[B\x1b[B\x1b[B")
                     }
+                    (0, _) if release => actions.push(MouseAction::Release { row, col }),
+                    (0, _) => actions.push(MouseAction::Press { row, col }),
+                    (32, _) if motion => actions.push(MouseAction::Drag { row, col }),
                     _ => {}
-                },
-                // Mouse reporting is on only for the wrapper's own wheel
-                // scrolling; a child that never enabled it must not receive
-                // clicks, drags or releases.
-                _ => {}
+                }
             }
             index += end;
         }
         pending.drain(..index);
+        if typed {
+            actions.insert(0, MouseAction::ClearSelection);
+        }
         forwarded
     }
 
@@ -1192,7 +1287,7 @@ mod imp {
     fn spawn_input_forwarder(
         writer: Arc<Mutex<Box<dyn Write + Send>>>,
         stop: Arc<AtomicBool>,
-        _scrolls: mpsc::Sender<i16>,
+        _mouse: mpsc::Sender<super::MouseAction>,
         _child_captures_mouse: Arc<AtomicBool>,
         _child_uses_alternate_scroll: Arc<AtomicBool>,
     ) -> std::thread::JoinHandle<()> {
@@ -1243,7 +1338,7 @@ mod imp {
             .context("failed to initialize --tui")?;
         terminal.clear().context("failed to clear --tui")?;
         let (events, receiver) = mpsc::channel();
-        let (scrolls, scroll_receiver) = mpsc::channel();
+        let (mouse, mouse_receiver) = mpsc::channel();
         let mut session = match pty::PtySession::spawn(command, pty_size(child_rows, cols), events)
         {
             Ok(session) => session,
@@ -1261,7 +1356,7 @@ mod imp {
         let input = spawn_input_forwarder(
             session.input_writer(),
             stop.clone(),
-            scrolls,
+            mouse,
             child_captures_mouse.clone(),
             child_uses_alternate_scroll.clone(),
         );
@@ -1277,8 +1372,8 @@ mod imp {
                     pty::TuiEvent::OutputClosed => output_closed = true,
                 }
             }
-            while let Ok(rows) = scroll_receiver.try_recv() {
-                state.scroll(rows);
+            while let Ok(action) = mouse_receiver.try_recv() {
+                state.mouse(action);
             }
             child_captures_mouse.store(state.child_captures_mouse(), Ordering::Relaxed);
             child_uses_alternate_scroll
@@ -1643,97 +1738,90 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn translate(input: &[u8], routing: WheelRouting) -> (Vec<u8>, Vec<MouseAction>) {
+        let mut pending = Vec::new();
+        let mut actions = Vec::new();
+        let forwarded =
+            super::imp::translate_mouse_input(&mut pending, input, &mut actions, routing);
+        (forwarded, actions)
+    }
+
+    #[cfg(unix)]
     #[test]
     fn mouse_wheel_scrolls_wrapper_history_without_touching_other_input() {
         let mut pending = Vec::new();
-        let mut scroll = 0;
+        let mut actions = Vec::new();
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(
+            super::imp::translate_mouse_input(
                 &mut pending,
                 b"x\x1b[<64;10;5M",
-                &mut scroll,
+                &mut actions,
                 WheelRouting::Wrapper
             ),
             b"x"
         );
-        assert_eq!(scroll, 3);
-        scroll = 0;
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(
+            actions,
+            [MouseAction::ClearSelection, MouseAction::Scroll(3)]
+        );
+        actions.clear();
+        assert_eq!(
+            super::imp::translate_mouse_input(
                 &mut pending,
                 b"\x1b[<65;",
-                &mut scroll,
+                &mut actions,
                 WheelRouting::Wrapper,
             ),
             b""
         );
-        assert_eq!(scroll, 0);
+        assert!(actions.is_empty());
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(
+            super::imp::translate_mouse_input(
                 &mut pending,
                 b"10;5M",
-                &mut scroll,
+                &mut actions,
                 WheelRouting::Wrapper,
             ),
             b""
         );
-        assert_eq!(scroll, -3);
-        scroll = 0;
+        assert_eq!(actions, [MouseAction::Scroll(-3)]);
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(
-                &mut pending,
-                b"\x1b[A",
-                &mut scroll,
-                WheelRouting::Wrapper,
-            ),
-            b"\x1b[A"
+            translate(b"\x1b[A", WheelRouting::Wrapper),
+            (b"\x1b[A".to_vec(), vec![MouseAction::ClearSelection])
         );
-        assert_eq!(scroll, 0);
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(
-                &mut pending,
-                b"\x1b[<64;10;5M",
-                &mut scroll,
-                WheelRouting::Child,
-            ),
+            translate(b"\x1b[<64;10;5M", WheelRouting::Child).0,
             b"\x1b[<64;10;5M"
         );
-        assert_eq!(scroll, 0);
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(
-                &mut pending,
-                b"\x1b[<64;10;5M",
-                &mut scroll,
-                WheelRouting::AlternateScroll,
-            ),
-            b"\x1b[A\x1b[A\x1b[A"
+            translate(b"\x1b[<64;10;5M", WheelRouting::AlternateScroll),
+            (b"\x1b[A\x1b[A\x1b[A".to_vec(), Vec::new())
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn wrapper_mouse_capture_does_not_leak_clicks_to_the_child() {
-        // Press, drag, release, and horizontal wheel: none of these were
-        // asked for by a child that has not enabled mouse reporting.
-        let clicks = b"a\x1b[<0;10;5M\x1b[<32;11;5M\x1b[<0;11;5m\x1b[<66;10;5Mb";
+    fn wrapper_turns_left_drag_into_a_selection_instead_of_leaking_it() {
+        // Press, drag, release (1-based col;row), then a right click and a
+        // horizontal wheel: none of these reach a child that has not
+        // enabled mouse reporting.
+        let clicks = b"\x1b[<0;10;5M\x1b[<32;11;5M\x1b[<0;11;6m\x1b[<2;3;3M\x1b[<66;10;5M";
         for routing in [WheelRouting::Wrapper, WheelRouting::AlternateScroll] {
-            let mut pending = Vec::new();
-            let mut scroll = 0;
             assert_eq!(
-                super::imp::translate_mouse_wheel_input(&mut pending, clicks, &mut scroll, routing),
-                b"ab"
+                translate(clicks, routing),
+                (
+                    Vec::new(),
+                    vec![
+                        MouseAction::Press { row: 4, col: 9 },
+                        MouseAction::Drag { row: 4, col: 10 },
+                        MouseAction::Release { row: 5, col: 10 },
+                    ]
+                )
             );
-            assert_eq!(scroll, 0);
         }
-        let mut pending = Vec::new();
-        let mut scroll = 0;
         assert_eq!(
-            super::imp::translate_mouse_wheel_input(
-                &mut pending,
-                clicks,
-                &mut scroll,
-                WheelRouting::Child
-            ),
-            clicks
+            translate(clicks, WheelRouting::Child),
+            (clicks.to_vec(), Vec::new())
         );
     }
 

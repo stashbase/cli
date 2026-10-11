@@ -13,6 +13,31 @@ pub struct AgentScreen {
     scrollback: usize,
     utf8_tail: Vec<u8>,
     modes: InputModes,
+    selection: Option<Selection>,
+}
+
+/// A mouse selection in absolute positions (line index into the terminal's
+/// lines including scrollback, column), so it stays on the same text while
+/// the wrapper scrolls its history.
+#[derive(Clone, Copy)]
+struct Selection {
+    anchor: (usize, u16),
+    head: (usize, u16),
+}
+
+impl Selection {
+    fn ordered(&self) -> ((usize, u16), (usize, u16)) {
+        if self.anchor <= self.head {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    fn contains(&self, line: usize, col: u16) -> bool {
+        let (start, end) = self.ordered();
+        (line, col) >= start && (line, col) <= end
+    }
 }
 
 impl AgentScreen {
@@ -25,6 +50,7 @@ impl AgentScreen {
             scrollback: 0,
             utf8_tail: Vec::new(),
             modes: InputModes::default(),
+            selection: None,
         }
     }
 
@@ -115,6 +141,80 @@ impl AgentScreen {
         .min(self.history_len());
     }
 
+    /// Starts a selection at a visible `(row, col)` of the agent's viewport.
+    pub fn start_selection(&mut self, row: u16, col: u16) {
+        let point = (self.absolute_line(row), col);
+        self.selection = Some(Selection {
+            anchor: point,
+            head: point,
+        });
+    }
+
+    pub fn extend_selection(&mut self, row: u16, col: u16) {
+        let line = self.absolute_line(row);
+        if let Some(selection) = &mut self.selection {
+            selection.head = (line, col);
+        }
+    }
+
+    /// Ends the drag and returns the selected text. A click that never
+    /// dragged off its cell selects nothing and clears the highlight.
+    pub fn finish_selection(&mut self) -> Option<String> {
+        let selection = self.selection?;
+        if selection.anchor == selection.head {
+            self.selection = None;
+            return None;
+        }
+        let (start, end) = selection.ordered();
+        let lines: Vec<String> = self
+            .terminal
+            .lines()
+            .enumerate()
+            .skip(start.0)
+            .take(end.0 - start.0 + 1)
+            .map(|(index, line)| {
+                let from = if index == start.0 {
+                    start.1 as usize
+                } else {
+                    0
+                };
+                let to = if index == end.0 {
+                    end.1 as usize + 1
+                } else {
+                    usize::MAX
+                };
+                line.cells()
+                    .iter()
+                    .enumerate()
+                    .filter(|(col, cell)| *col >= from && *col < to && cell.width() > 0)
+                    .map(|(_, cell)| cell.char())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect();
+        Some(lines.join("\n"))
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection = None;
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection.is_some()
+    }
+
+    fn absolute_line(&self, row: u16) -> usize {
+        self.first_visible_line() + row.min(self.terminal.size().1 as u16 - 1) as usize
+    }
+
+    fn first_visible_line(&self) -> usize {
+        self.terminal
+            .lines()
+            .count()
+            .saturating_sub(self.terminal.size().1 + self.scrollback)
+    }
+
     pub fn input_mode_formatted(&self) -> Vec<u8> {
         self.modes.formatted()
     }
@@ -131,6 +231,7 @@ impl AgentScreen {
 
     pub fn render(&self, area: Rect, buffer: &mut Buffer) {
         let (rows, cols) = self.size();
+        let first_line = self.first_visible_line();
         for (row, line) in self
             .visible_lines()
             .take(rows.min(area.height) as usize)
@@ -149,7 +250,14 @@ impl AgentScreen {
                     continue;
                 };
                 cell.set_char(source.char());
-                cell.set_style(cell_style(source));
+                let mut style = cell_style(source);
+                if self
+                    .selection
+                    .is_some_and(|selection| selection.contains(first_line + row, col as u16))
+                {
+                    style.add_modifier ^= Modifier::REVERSED;
+                }
+                cell.set_style(style);
             }
         }
     }
@@ -163,12 +271,10 @@ impl AgentScreen {
 
     fn visible_lines(&self) -> impl Iterator<Item = &avt::Line> {
         let rows = self.terminal.size().1;
-        let start = self
-            .terminal
+        self.terminal
             .lines()
-            .count()
-            .saturating_sub(rows + self.scrollback);
-        self.terminal.lines().skip(start).take(rows)
+            .skip(self.first_visible_line())
+            .take(rows)
     }
 
     #[cfg(test)]
@@ -413,6 +519,72 @@ mod tests {
         assert!(!screen.captures_mouse());
         screen.process(b"0h");
         assert!(screen.captures_mouse());
+    }
+
+    #[test]
+    fn drag_selection_copies_text_across_lines() {
+        let mut screen = AgentScreen::new(3, 12);
+        screen.process(b"hello world\r\nsecond line\r\nthird");
+        screen.start_selection(0, 6);
+        screen.extend_selection(1, 5);
+        assert_eq!(screen.finish_selection().as_deref(), Some("world\nsecond"));
+    }
+
+    #[test]
+    fn selection_drawn_upwards_is_normalized() {
+        let mut screen = AgentScreen::new(3, 12);
+        screen.process(b"hello world\r\nsecond line");
+        screen.start_selection(1, 5);
+        screen.extend_selection(0, 6);
+        assert_eq!(screen.finish_selection().as_deref(), Some("world\nsecond"));
+    }
+
+    #[test]
+    fn click_without_drag_selects_nothing() {
+        let mut screen = AgentScreen::new(2, 12);
+        screen.process(b"hello");
+        screen.start_selection(0, 1);
+        assert_eq!(screen.finish_selection(), None);
+        assert!(!screen.has_selection());
+    }
+
+    #[test]
+    fn selection_trims_trailing_blanks_and_skips_wide_char_spacers() {
+        let mut screen = AgentScreen::new(2, 10);
+        screen.process("你好 ab\r\nx".as_bytes());
+        screen.start_selection(0, 0);
+        screen.extend_selection(0, 9);
+        assert_eq!(screen.finish_selection().as_deref(), Some("你好 ab"));
+    }
+
+    #[test]
+    fn selection_follows_scrolled_back_history() {
+        let mut screen = AgentScreen::new(2, 8);
+        screen.process(b"one\r\ntwo\r\nthree");
+        screen.scroll(1);
+        // Rows now show "one" / "two".
+        screen.start_selection(0, 0);
+        screen.extend_selection(0, 2);
+        screen.scroll(-1);
+        assert_eq!(screen.finish_selection().as_deref(), Some("one"));
+    }
+
+    #[test]
+    fn selection_renders_reversed_until_cleared() {
+        let mut screen = AgentScreen::new(1, 4);
+        screen.process(b"abcd");
+        screen.start_selection(0, 1);
+        screen.extend_selection(0, 2);
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
+        screen.render(buffer.area, &mut buffer);
+        assert!(!buffer[(0, 0)].modifier.contains(Modifier::REVERSED));
+        assert!(buffer[(1, 0)].modifier.contains(Modifier::REVERSED));
+        assert!(buffer[(2, 0)].modifier.contains(Modifier::REVERSED));
+        assert!(!buffer[(3, 0)].modifier.contains(Modifier::REVERSED));
+        screen.clear_selection();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
+        screen.render(buffer.area, &mut buffer);
+        assert!(!buffer[(1, 0)].modifier.contains(Modifier::REVERSED));
     }
 
     #[test]
