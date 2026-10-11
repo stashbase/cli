@@ -141,13 +141,8 @@ pub async fn run_command_with_filesystem_policy_and_network(
     git_mounts: Option<&super::docker_sandbox::GitMounts>,
     tui: Option<super::tui::TuiStatusInfo>,
 ) -> Result<ExitStatus> {
-    if tui.is_some() {
-        if !super::tui::tui_supported() {
-            anyhow::bail!(super::tui::tui_unsupported_reason());
-        }
-        if backend == crate::models::agent::SandboxBackend::Docker {
-            anyhow::bail!("--tui is not supported with the Docker sandbox backend yet");
-        }
+    if tui.is_some() && !super::tui::tui_supported() {
+        anyhow::bail!(super::tui::tui_unsupported_reason());
     }
     // `workdir` is `Some` for a `--worktree` run: the agent works in the
     // worktree, not in the directory stashbase was started from.
@@ -184,7 +179,9 @@ pub async fn run_command_with_filesystem_policy_and_network(
             denied_read_paths,
             denied_write_paths,
             &env_vars,
-            std::io::stdin().is_terminal(),
+            // Under --tui the `docker` client runs on the TUI's pty, so the
+            // container gets a terminal even when our own stdin is not one.
+            tui.is_some() || std::io::stdin().is_terminal(),
             agent_image,
             sandbox_memory,
             sandbox_cpus,
@@ -198,6 +195,20 @@ pub async fn run_command_with_filesystem_policy_and_network(
         let mut env_vars = env_vars;
         if let Some(agent) = herdr_agent_hint(command, &env_vars, |key| env::var(key).ok()) {
             env_vars.insert("HERDR_AGENT".to_owned(), agent);
+        }
+        if let Some(tui_info) = tui {
+            return run_built_command_in_tui(
+                program,
+                launcher_args,
+                args,
+                env_vars,
+                env_removals,
+                restrict_stashbase_credentials,
+                proxy_mode,
+                current_dir,
+                tui_info,
+            )
+            .await;
         }
         return run_built_command(
             program,
