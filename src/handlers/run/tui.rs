@@ -268,6 +268,9 @@ pub fn render_frame(cols: u16, info: &TuiStatusInfo) -> (String, u16) {
 }
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+/// How often a drag held on the viewport's edge scrolls one more line.
+const DRAG_SCROLL_INTERVAL: Duration = Duration::from_millis(50);
+const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 // 1002 (button-event tracking) adds drag motion, for wrapper-side selection.
 const MOUSE_CAPTURE_ENABLE: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 const MOUSE_CAPTURE_DISABLE: &[u8] =
@@ -350,6 +353,14 @@ struct TuiState {
     dirty: bool,
     next_draw: Instant,
     input_modes: Vec<u8>,
+    /// A left-button drag is in progress (false after a double-click, whose
+    /// release must not reshape the word selection).
+    dragging: bool,
+    /// Lines to scroll per `DRAG_SCROLL_INTERVAL` while the drag is held on
+    /// the viewport's top (+1) or bottom (-1) edge, and the column it is at.
+    drag_scroll: Option<(i16, u16)>,
+    next_drag_scroll: Instant,
+    last_click: Option<(u16, u16, Instant)>,
 }
 
 impl TuiState {
@@ -361,6 +372,10 @@ impl TuiState {
             dirty: true,
             next_draw: now,
             input_modes: Vec::new(),
+            dragging: false,
+            drag_scroll: None,
+            next_drag_scroll: now,
+            last_click: None,
         }
     }
 
@@ -386,36 +401,86 @@ impl TuiState {
         self.dirty = true;
     }
 
-    fn mouse(&mut self, action: MouseAction) {
+    /// Applies one mouse action; returns text the caller should copy to
+    /// the clipboard.
+    fn mouse(&mut self, action: MouseAction, now: Instant) -> Option<String> {
+        let last_row = self.child_rows.saturating_sub(1);
+        let col_of = |col: u16| col.min(self.cols.saturating_sub(1));
+        let mut copy = None;
         match action {
             MouseAction::Scroll(rows) => self.screen.scroll(rows),
-            MouseAction::Press { row, col } if row < self.child_rows => self
-                .screen
-                .start_selection(row, col.min(self.cols.saturating_sub(1))),
-            MouseAction::Press { .. } => self.screen.clear_selection(),
-            MouseAction::Drag { row, col } => self.screen.extend_selection(
-                row.min(self.child_rows.saturating_sub(1)),
-                col.min(self.cols.saturating_sub(1)),
-            ),
-            MouseAction::Release { row, col } => {
-                if self.screen.has_selection() {
-                    self.screen.extend_selection(
-                        row.min(self.child_rows.saturating_sub(1)),
-                        col.min(self.cols.saturating_sub(1)),
-                    );
-                    if let Some(text) = self.screen.finish_selection() {
-                        copy_to_clipboard(&text);
-                    }
+            MouseAction::Press { row, col } if row < self.child_rows => {
+                let col = col_of(col);
+                let double = self.last_click.is_some_and(|(last_row, last_col, at)| {
+                    (last_row, last_col) == (row, col)
+                        && now.duration_since(at) <= DOUBLE_CLICK_INTERVAL
+                });
+                if double {
+                    self.last_click = None;
+                    self.dragging = false;
+                    copy = self.screen.select_word(row, col);
+                } else {
+                    self.last_click = Some((row, col, now));
+                    self.dragging = true;
+                    self.screen.start_selection(row, col);
                 }
+                self.drag_scroll = None;
             }
+            MouseAction::Press { .. } => {
+                self.dragging = false;
+                self.drag_scroll = None;
+                self.screen.clear_selection();
+            }
+            MouseAction::Drag { row, col } if self.dragging => {
+                let col = col_of(col);
+                self.screen.extend_selection(row.min(last_row), col);
+                let direction = if row == 0 {
+                    Some(1)
+                } else if row >= last_row {
+                    Some(-1)
+                } else {
+                    None
+                };
+                if direction.is_some() && self.drag_scroll.is_none() {
+                    self.next_drag_scroll = now + DRAG_SCROLL_INTERVAL;
+                }
+                self.drag_scroll = direction.map(|direction| (direction, col));
+            }
+            MouseAction::Release { row, col } if self.dragging => {
+                self.dragging = false;
+                self.drag_scroll = None;
+                self.screen.extend_selection(row.min(last_row), col_of(col));
+                copy = self.screen.finish_selection();
+            }
+            MouseAction::Drag { .. } | MouseAction::Release { .. } => return None,
             MouseAction::ClearSelection => {
                 if !self.screen.has_selection() {
-                    return;
+                    return None;
                 }
                 self.screen.clear_selection();
             }
         }
         self.dirty = true;
+        copy
+    }
+
+    /// Keeps scrolling while a drag is held on the viewport's edge, moving
+    /// the selection's end onto each line that scrolls into view.
+    fn tick(&mut self, now: Instant) {
+        let Some((direction, col)) = self.drag_scroll else {
+            return;
+        };
+        let edge_row = if direction > 0 {
+            0
+        } else {
+            self.child_rows.saturating_sub(1)
+        };
+        while now >= self.next_drag_scroll {
+            self.screen.scroll(direction);
+            self.screen.extend_selection(edge_row, col);
+            self.next_drag_scroll += DRAG_SCROLL_INTERVAL;
+            self.dirty = true;
+        }
     }
 
     fn child_captures_mouse(&self) -> bool {
@@ -821,8 +886,11 @@ mod imp {
                 }
             }
             while let Ok(action) = mouse_receiver.try_recv() {
-                state.mouse(action);
+                if let Some(text) = state.mouse(action, Instant::now()) {
+                    super::copy_to_clipboard(&text);
+                }
             }
+            state.tick(Instant::now());
             child_captures_mouse.store(state.child_captures_mouse(), Ordering::Relaxed);
             child_uses_alternate_scroll
                 .store(state.child_uses_alternate_scroll(), Ordering::Relaxed);
@@ -1183,6 +1251,101 @@ mod tests {
         assert!(TERMINAL_MODE_RESET
             .windows(b"\x1b[?2026l".len())
             .any(|mode| mode == b"\x1b[?2026l"));
+    }
+
+    fn state_with_lines(child_rows: u16, cols: u16, lines: u16, now: Instant) -> TuiState {
+        let mut state = TuiState::new(child_rows, cols, now);
+        let text: Vec<String> = (1..=lines).map(|line| line.to_string()).collect();
+        state.output(text.join("\r\n").as_bytes());
+        state
+    }
+
+    #[test]
+    fn dragging_onto_the_top_edge_keeps_scrolling_history_into_the_selection() {
+        let start = Instant::now();
+        // Three rows showing "8", "9", "10".
+        let mut state = state_with_lines(3, 10, 10, start);
+        state.mouse(MouseAction::Press { row: 2, col: 0 }, start);
+        state.mouse(MouseAction::Drag { row: 0, col: 0 }, start);
+        state.tick(start + Duration::from_millis(60));
+        state.tick(start + Duration::from_millis(120));
+        // Two lines scrolled in: the top row is now "6".
+        assert_eq!(
+            state.mouse(MouseAction::Release { row: 0, col: 0 }, start),
+            Some("6\n7\n8\n9\n1".to_owned())
+        );
+        // Released: no more scrolling.
+        state.tick(start + Duration::from_millis(500));
+        state.mouse(
+            MouseAction::Press { row: 0, col: 0 },
+            start + Duration::from_secs(1),
+        );
+        state.mouse(
+            MouseAction::Drag { row: 0, col: 1 },
+            start + Duration::from_secs(1),
+        );
+        assert_eq!(
+            state.mouse(
+                MouseAction::Release { row: 0, col: 1 },
+                start + Duration::from_secs(1)
+            ),
+            Some("6".to_owned()),
+            "the top row is still \"6\": scrolling stopped at release"
+        );
+    }
+
+    #[test]
+    fn dragging_onto_the_status_bar_scrolls_back_down() {
+        let start = Instant::now();
+        let mut state = state_with_lines(3, 10, 10, start);
+        state.mouse(MouseAction::Scroll(3), start);
+        // Rows show "5", "6", "7"; drag from "5" into the status bar.
+        state.mouse(MouseAction::Press { row: 0, col: 0 }, start);
+        state.mouse(MouseAction::Drag { row: 5, col: 0 }, start);
+        state.tick(start + Duration::from_millis(60));
+        assert_eq!(
+            state.mouse(MouseAction::Release { row: 5, col: 0 }, start),
+            Some("5\n6\n7\n8".to_owned())
+        );
+    }
+
+    #[test]
+    fn double_click_selects_the_word_and_its_release_keeps_it() {
+        let start = Instant::now();
+        let mut state = TuiState::new(2, 30, start);
+        state.output(b"open src/tui.rs now");
+        assert_eq!(
+            state.mouse(MouseAction::Press { row: 0, col: 7 }, start),
+            None
+        );
+        assert_eq!(
+            state.mouse(MouseAction::Release { row: 0, col: 7 }, start),
+            None
+        );
+        let again = start + Duration::from_millis(200);
+        assert_eq!(
+            state.mouse(MouseAction::Press { row: 0, col: 7 }, again),
+            Some("src/tui.rs".to_owned())
+        );
+        assert_eq!(
+            state.mouse(MouseAction::Release { row: 0, col: 7 }, again),
+            None
+        );
+        assert!(state.screen.has_selection());
+    }
+
+    #[test]
+    fn slow_second_click_is_not_a_double_click() {
+        let start = Instant::now();
+        let mut state = TuiState::new(2, 30, start);
+        state.output(b"open src/tui.rs now");
+        state.mouse(MouseAction::Press { row: 0, col: 7 }, start);
+        state.mouse(MouseAction::Release { row: 0, col: 7 }, start);
+        let later = start + Duration::from_millis(900);
+        assert_eq!(
+            state.mouse(MouseAction::Press { row: 0, col: 7 }, later),
+            None
+        );
     }
 
     #[cfg(unix)]

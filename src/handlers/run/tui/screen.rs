@@ -165,6 +165,43 @@ impl AgentScreen {
             self.selection = None;
             return None;
         }
+        Some(self.selected_text(selection))
+    }
+
+    /// Selects the word under a visible `(row, col)`, as a terminal does on
+    /// double-click. Quotes and brackets end a word; `/`, `:`, `.` and the
+    /// like do not, so paths and URLs come out whole.
+    pub fn select_word(&mut self, row: u16, col: u16) -> Option<String> {
+        let line_index = self.absolute_line(row);
+        let line = self.terminal.lines().nth(line_index)?;
+        let is_word = |cell: &avt::Cell| {
+            cell.width() == 0
+                || !(cell.char().is_whitespace() || "\"'`()[]{}<>,;|".contains(cell.char()))
+        };
+        let cells = line.cells();
+        let col = col as usize;
+        if col >= cells.len() || !is_word(&cells[col]) || cells[col].width() == 0 {
+            self.selection = None;
+            return None;
+        }
+        let start = (0..col)
+            .rev()
+            .take_while(|&i| is_word(&cells[i]))
+            .last()
+            .unwrap_or(col);
+        let end = (col + 1..cells.len())
+            .take_while(|&i| is_word(&cells[i]))
+            .last()
+            .unwrap_or(col);
+        let selection = Selection {
+            anchor: (line_index, start as u16),
+            head: (line_index, end as u16),
+        };
+        self.selection = Some(selection);
+        Some(self.selected_text(selection))
+    }
+
+    fn selected_text(&self, selection: Selection) -> String {
         let (start, end) = selection.ordered();
         let lines: Vec<String> = self
             .terminal
@@ -193,7 +230,7 @@ impl AgentScreen {
                     .to_owned()
             })
             .collect();
-        Some(lines.join("\n"))
+        lines.join("\n")
     }
 
     pub fn clear_selection(&mut self) {
@@ -585,6 +622,24 @@ mod tests {
         let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
         screen.render(buffer.area, &mut buffer);
         assert!(!buffer[(1, 0)].modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn select_word_takes_paths_and_urls_whole() {
+        let mut screen = AgentScreen::new(1, 40);
+        screen.process(b"see (src/main.rs:12) or https://x.io/a");
+        assert_eq!(screen.select_word(0, 9).as_deref(), Some("src/main.rs:12"));
+        assert!(screen.has_selection());
+        assert_eq!(screen.select_word(0, 30).as_deref(), Some("https://x.io/a"));
+    }
+
+    #[test]
+    fn select_word_on_blank_or_single_char_cells() {
+        let mut screen = AgentScreen::new(1, 10);
+        screen.process(b"a  bc");
+        assert_eq!(screen.select_word(0, 1), None);
+        assert!(!screen.has_selection());
+        assert_eq!(screen.select_word(0, 0).as_deref(), Some("a"));
     }
 
     #[test]
