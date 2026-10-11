@@ -966,6 +966,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         } else {
                             crate::handlers::run::tui::TuiMode::Local
                         },
+                        docker_sandbox: false,
                         session_id: None,
                         egress_host_count: profile.egress_hosts.as_ref().map_or(0, Vec::len),
                         filesystem_read_denial_count: profile.filesystem.deny_read.len(),

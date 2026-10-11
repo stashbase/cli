@@ -76,6 +76,8 @@ pub struct TuiStatusInfo {
     pub profile: String,
     pub global_profile: bool,
     pub mode: TuiMode,
+    /// Set once the run has settled on the Docker sandbox backend.
+    pub docker_sandbox: bool,
     pub session_id: Option<String>,
     pub egress_host_count: usize,
     pub filesystem_read_denial_count: usize,
@@ -114,7 +116,8 @@ impl TuiStatusInfo {
     }
 }
 
-/// Identity chips: session (when known), profile, mode, and project/environment.
+/// Identity chips: session (when known), profile, mode, sandbox backend, and
+/// project/environment.
 fn identity_chips(info: &TuiStatusInfo) -> Vec<String> {
     let mut chips = Vec::new();
     if let Some(session_id) = &info.session_id {
@@ -125,6 +128,9 @@ fn identity_chips(info: &TuiStatusInfo) -> Vec<String> {
         chips.push("global".to_owned());
     }
     chips.push(info.mode.label().to_owned());
+    if info.docker_sandbox {
+        chips.push("docker".to_owned());
+    }
     if let Some(project_environment) = &info.project_environment {
         chips.push(project_environment.clone());
     }
@@ -1364,6 +1370,7 @@ mod tests {
             profile: "coding".to_owned(),
             global_profile: false,
             mode: TuiMode::Remote,
+            docker_sandbox: false,
             session_id: Some("ags_wAiPhZv2K9mX".to_owned()),
             egress_host_count: 3,
             filesystem_read_denial_count: 0,
@@ -1408,6 +1415,17 @@ mod tests {
         let (frame, _rows) = render_frame(80, &info);
         assert!(frame.contains("local"));
         assert!(!frame.contains("ags_wAiPhZv2K9mX"));
+    }
+
+    #[test]
+    fn status_bar_marks_docker_sandbox_runs() {
+        let mut info = sample_info();
+        info.mode = TuiMode::Local;
+        let (frame, _rows) = render_frame(80, &info);
+        assert!(!frame.contains("docker"));
+        info.docker_sandbox = true;
+        let (frame, _rows) = render_frame(80, &info);
+        assert!(frame.contains("local · docker"));
     }
 
     #[test]
@@ -1581,6 +1599,7 @@ mod tests {
             profile: "coding".to_owned(),
             global_profile: false,
             mode: TuiMode::Local,
+            docker_sandbox: false,
             session_id: None,
             egress_host_count: 0,
             filesystem_read_denial_count: 0,

@@ -196,7 +196,8 @@ pub async fn run_command_with_filesystem_policy_and_network(
         if let Some(agent) = herdr_agent_hint(command, &env_vars, |key| env::var(key).ok()) {
             env_vars.insert("HERDR_AGENT".to_owned(), agent);
         }
-        if let Some(tui_info) = tui {
+        if let Some(mut tui_info) = tui {
+            tui_info.docker_sandbox = true;
             return run_built_command_in_tui(
                 program,
                 launcher_args,
