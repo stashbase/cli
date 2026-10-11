@@ -1175,9 +1175,12 @@ mod imp {
                     (1, super::WheelRouting::AlternateScroll) => {
                         forwarded.extend_from_slice(b"\x1b[B\x1b[B\x1b[B")
                     }
-                    _ => forwarded.extend_from_slice(&remaining[..end]),
+                    _ => {}
                 },
-                _ => forwarded.extend_from_slice(&remaining[..end]),
+                // Mouse reporting is on only for the wrapper's own wheel
+                // scrolling; a child that never enabled it must not receive
+                // clicks, drags or releases.
+                _ => {}
             }
             index += end;
         }
@@ -1704,6 +1707,33 @@ mod tests {
                 WheelRouting::AlternateScroll,
             ),
             b"\x1b[A\x1b[A\x1b[A"
+        );
+    }
+
+    #[test]
+    fn wrapper_mouse_capture_does_not_leak_clicks_to_the_child() {
+        // Press, drag, release, and horizontal wheel: none of these were
+        // asked for by a child that has not enabled mouse reporting.
+        let clicks = b"a\x1b[<0;10;5M\x1b[<32;11;5M\x1b[<0;11;5m\x1b[<66;10;5Mb";
+        for routing in [WheelRouting::Wrapper, WheelRouting::AlternateScroll] {
+            let mut pending = Vec::new();
+            let mut scroll = 0;
+            assert_eq!(
+                super::imp::translate_mouse_wheel_input(&mut pending, clicks, &mut scroll, routing),
+                b"ab"
+            );
+            assert_eq!(scroll, 0);
+        }
+        let mut pending = Vec::new();
+        let mut scroll = 0;
+        assert_eq!(
+            super::imp::translate_mouse_wheel_input(
+                &mut pending,
+                clicks,
+                &mut scroll,
+                WheelRouting::Child
+            ),
+            clicks
         );
     }
 
