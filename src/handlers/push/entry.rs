@@ -20,6 +20,7 @@ use crate::{
         self, interaction,
         output::ColorizeIfColoredOutput,
         secrets::read_secrets_from_file,
+        spinner::Streams,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
             validate_project_environment_identifier, validate_secret_names,
@@ -28,7 +29,6 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use log::debug;
-use spinoff::Streams;
 
 #[derive(Debug)]
 pub struct HandlePushArgs {

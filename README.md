@@ -13,6 +13,8 @@ Stashbase is an open-source access layer that gives coding agents the access the
   - [How the Agent Proxy Works](#how-the-agent-proxy-works)
   - [Profile Syntax and Configuration](#profile-syntax-and-configuration)
   - [Filesystem and Network Containment](#filesystem-and-network-containment)
+  - [Docker Sandbox Backend](#docker-sandbox-backend)
+  - [Parallel Agents in Git Worktrees](#parallel-agents-in-git-worktrees)
   - [Remote Agent Sessions](#remote-agent-sessions)
   - [MCP Tools Authorization](#mcp-tools-authorization)
   - [Audit Logs and Session Revocation](#audit-logs-and-session-revocation)
@@ -229,9 +231,11 @@ deny_read = [".env", "~/.ssh", "~/.aws"]
 deny_write = [".git", "~/.ssh", "~/.aws"]
 ```
 
+Entries can also be globs (`"**/.env*"`, `"~/.config/*/token"`) or regexes prefixed `re:` (`"re:^~/.*\\.pem$"`). On macOS, patterns are checked on every access. On Linux and with the Docker backend, they're expanded when the run starts, so files created during the run aren't covered. See [Agent Profiles](docs/agent-profiles.md#filesystem-network-restrictions-and-sandbox-backends) for the full syntax.
+
 On macOS, Stashbase wraps the agent in Seatbelt, which enforces filesystem rules. On Linux and WSL2, it uses `systemd-run --user` with cgroup IP rules, or falls back to `bubblewrap` for namespace isolation. Windows native is not implemented; use WSL2 instead.
 
-Denied reads return `/dev/null`; denied writes go to an empty overlay. Existing file descriptors and data already in memory are not affected. These are policy-only; these profiles do not require secrets.
+Denied reads see empty content (a genuine empty regular file, not `/dev/null` — that's a character device, which confuses tooling that expects a normal file at that path); denied writes go to an empty overlay. Existing file descriptors and data already in memory are not affected. These are policy-only; these profiles do not require secrets.
 
 #### Network containment
 
@@ -240,6 +244,55 @@ Every `agent run` denies the child direct network access. The agent communicates
 On macOS, this uses the deprecated `sandbox-exec` utility. On Linux and WSL2, it uses `systemd-run --user --scope` with cgroup rules.
 
 This is network containment only, not filesystem, process-memory, or kernel isolation.
+
+**If Docker is available, prefer the Docker sandbox backend below over the native one** — it's meaningfully stronger: filesystem access is allow-list rather than deny-list (nothing outside the working directory is visible at all, instead of specific paths being blocked), network egress is enforced at the network layer rather than relying on the agent to honor its proxy environment variables, and it works identically across macOS, Linux, and Windows (via Docker Desktop) instead of needing platform-specific mechanisms with a Windows gap. The native backend remains the default for now since it needs nothing beyond the CLI itself, but Docker is the recommended choice whenever it's an option.
+
+### Docker Sandbox Backend
+
+The recommended backend when Docker is available: the agent runs inside a Docker container instead of a same-host sandboxed process, with allow-list filesystem access and a network-layer firewall (enforced even against an agent that deliberately ignores its proxy env vars).
+
+```toml
+[sandbox]
+backend = "docker"
+```
+
+```bash
+stashbase agent run --profile coding -- claude
+```
+
+Or override the profile's choice for one invocation without editing the file: `--docker-sandbox true|false`, per-run image overrides with `--docker-image <ref>` / `--docker-dockerfile <path>`, and resource caps with `--docker-memory <value>` / `--docker-cpus <value>` (also settable per profile via `[sandbox] memory`/`cpus`; no cap by default).
+
+Claude Code and Codex are pre-installed in the default sandbox image; a profile can also run its own image or Dockerfile instead (`[sandbox] image`/`dockerfile`) to add other tools, without loosening any of the sandbox constraints themselves.
+
+Agent notifications keep working inside the sandbox, with no setup: [cmux](https://cmux.com), [herdr](https://herdr.dev), Ghostty, iTerm2, kitty, tmux and other terminals get Claude Code's and Codex's "turn finished" and "needs input" notifications as usual, and herdr also shows the sandboxed agent's idle/working/blocked state.
+
+See **[docs/sandboxing.md](docs/sandboxing.md)** for the full picture: how the network firewall is enforced, custom images, git identity forwarding, [notifications and herdr/cmux](docs/sandboxing.md#notifications-herdr-and-cmux), login persistence across images, Codex/Claude Code OAuth quirks, and current limitations.
+
+### Parallel Agents in Git Worktrees
+
+Run an agent in its own git worktree instead of your checkout, so several agents can work on one repository at once without touching each other's files or yours (native backend, or Docker on macOS/Linux):
+
+```bash
+stashbase agent run --profile coding --worktree -- claude
+```
+
+```toml
+[workspace]
+worktree = true   # per profile; `--worktree=false` skips it for one run
+```
+
+Each run gets a readable name such as `amber-river-storm`: the worktree lives in the repo at `.stashbase/worktrees/amber-river-storm` (visible in your IDE, hidden from `git status`) on branch `stashbase/amber-river-storm`. The agent can commit there but can't change your checkout or git config and hooks, and stashbase checks your other branches after the run (without undoing commits you made meanwhile). Review and integrate its work from your checkout:
+
+```bash
+stashbase agent worktrees list
+stashbase agent worktrees merge amber-river-storm   # --squash, -m "message", --keep
+stashbase agent worktrees clean
+stashbase agent worktrees remove amber-river-storm  # discard one agent's work; --keep-branch
+```
+
+Continue an earlier run on its branch with `stashbase agent run --profile coding --resume amber-river-storm -- claude`.
+
+See **[docs/sandboxing.md](docs/sandboxing.md#worktrees)** for the protections, cleanup behavior and known gaps.
 
 ### Remote Agent Sessions
 
@@ -250,6 +303,16 @@ stashbase agent run --remote --profile coding -- codex
 ```
 
 The child receives only placeholders and connects through a temporary localhost relay. Session tokens and resolved credential values stay out of the child environment and never reach your machine. Personal credentials remain private to your account. The session is managed from Stashbase, where you can monitor and revoke it remotely before the child exits.
+
+#### Routing modes
+
+By default a remote run uses **credential routing**: only requests that need a Stashbase credential (hosts covered by your credential policies and personal credentials) go through the remote Agent Proxy. Everything else, including model API traffic, is forwarded directly by the local relay, which still enforces `egress_hosts` and `deny_hosts` and writes the local audit log. Stashbase decides which hosts are routed for each session; neither the agent nor your local config can change that list.
+
+```bash
+stashbase agent run --remote --remote-mode full --profile coding -- codex
+```
+
+`--remote-mode full` sends all agent traffic through the remote proxy, so the remote side sees and enforces policy on everything. Both modes are available on paid plans, and workspace policy can enforce one of them. A session also runs in `full` when a credential binding covers every host (`hosts = ["*"]` in the binding, not `egress_hosts = ["*"]`, which doesn't affect routing) and so can't be listed. If a mode is not allowed, the CLI says which one is. In credential mode, requests to a host that is not routed cannot carry a credential placeholder; the relay refuses them (`proxy.credential_host_not_routed`) instead of sending the placeholder upstream. The audit log records the session's routing mode and, for each event, whether it went `remote` or `direct`; `stashbase agent logs summary --group-by route` summarizes the split. A remote HTTPS tunnel is opaque to the local relay, so for remote hosts the local log shows the connection and the requests inside it appear in the remote-side logs, while direct hosts get full per-request local logging. If Stashbase does not return a host list (an older service), the CLI falls back to `full` and says so.
 
 Remote Agent Proxy is not a general network sandbox; it relays supported HTTP traffic for supported coding-agent workflows. SSH, raw TCP, and arbitrary third-party integrations are unsupported.
 
@@ -455,6 +518,8 @@ stashbase scan install --all
 stashbase scan uninstall pre-commit --file .husky/pre-commit
 ```
 
+In a `stashbase agent run` session, these hooks need `allow_hooks = ["secret_scan"]` in the agent profile: the scan then runs on the host with your key, confined to the run's files. See [Agent Profiles](docs/agent-profiles.md#api-hooks).
+
 ### Dependency Security Hooks
 
 Block suspicious package installs before they run. Install hooks for Codex, Claude Code, or Cursor:
@@ -483,7 +548,14 @@ stashbase agent hooks deps uninstall cursor
 stashbase agent hooks deps uninstall codex --global
 stashbase agent hooks deps uninstall claude --global
 stashbase agent hooks deps uninstall cursor --global
+
+# Install, check or remove in the Docker sandbox's home (shared by every Docker agent run)
+stashbase agent hooks deps install claude --docker
+stashbase agent hooks deps check claude --docker
+stashbase agent hooks deps uninstall claude --docker
 ```
+
+In a `stashbase agent run` session, the hook needs `allow_hooks = ["dependency_check"]` in the agent profile. A Docker run can't see your global hooks: use per-repository hooks or `--docker`. See [Agent Profiles](docs/agent-profiles.md#api-hooks).
 
 Use `dependencies` as an alias for `deps`. The hook supports npm, Bun, pnpm, and Yarn. For package-specific installs, it sends only package names and versions to Stashbase. For project-wide installs like `npm ci`, it scans direct dependencies from `package.json` and uses versions from lockfiles when available. This is not a full dependency-tree audit; transitive dependencies are not scanned.
 
@@ -573,3 +645,10 @@ Stashbase CLI is licensed under the [Apache License 2.0](https://www.apache.org/
 ### Contact
 
 For questions or feedback, contact us at [support@stashbase.dev](mailto:support@stashbase.dev).
+
+## Telemetry
+
+The CLI sends privacy-preserving usage telemetry for a small set of commands: setup, pull, push, run, secrets schema pull, scan install, and agent init, run and docker build. It never includes
+commands or arguments, paths, secrets, hosts or policy contents, and is never
+sent from sandboxes or CI. Opt out with `stashbase config telemetry disable`,
+`STASHBASE_TELEMETRY=0` or `DO_NOT_TRACK=1`. See [docs/telemetry.md](docs/telemetry.md).

@@ -53,7 +53,7 @@ paths = ["/user", "/repos/*"]
 
 The child process receives `GH_TOKEN` as a placeholder. When it makes a matching HTTP request (GET to `/user` or `/repos/*` on `api.github.com`), the proxy injects the real token. Any unmatched request is blocked.
 
-## Filesystem and Network Restrictions
+## Filesystem, Network Restrictions, and Sandbox Backends
 
 Restrict what the child can read or write:
 
@@ -63,12 +63,40 @@ deny_read = ["~/.ssh", "~/.aws"]
 deny_write = ["~/.git"]
 ```
 
-Paths use explicit prefixes: `~` for home, relative paths for the current directory. Enforcement uses platform-native mechanisms:
-- **macOS**: Seatbelt sandbox
-- **Linux**: `systemd-run` or `bubblewrap` (automatic fallback)
-- **Unsupported platforms**: Validation fails closed; the run does not proceed
+Paths use explicit prefixes: `~` for home, relative paths for the current directory. A denied directory covers everything under it.
 
-Existing file descriptors and data already in process memory remain unrestricted.
+Entries can also be patterns:
+
+```toml
+[filesystem]
+deny_read = [
+  "**/.env*",               # glob: any .env file at any depth below the current directory
+  "~/.config/*/token",      # `*` and `?` match within one path segment
+  "re:^~/.*\\.pem$",        # regex, prefixed `re:`, matched against the absolute path
+]
+```
+
+- An entry containing `*` or `?` is a glob. `**` matches any number of directories, and `[a-z]`/`[!.]` character classes work inside globs. Brackets on their own don't make an entry a glob, so a plain path like `~/notes/[old]` keeps its literal meaning.
+- An entry prefixed `re:` is a regular expression. It must start with `^/` or `^~/`, and it may only use POSIX constructs: write `[0-9]` instead of `\d`, and group alternatives (`^/(a|b)/...`) instead of using a top-level `|`.
+- `path:` forces a literal path, e.g. `path:/data/what?`.
+- Like a plain path, a pattern that matches a directory denies everything under it. This holds for regexes ending in `$` too: `re:^/srv/secrets$` also denies `/srv/secrets/key`.
+- On macOS, the native backend matches patterns every time a file is accessed, so files the agent creates during the run are covered. Linux and the Docker backend expand patterns once, when the run starts; files created later aren't covered. `stashbase agent validate` warns about this, and `stashbase agent explain` lists each pattern with how it's matched.
+- Patterns aren't supported on Windows; validation fails.
+
+By default, enforcement uses the platform-native mechanism (Seatbelt on macOS, `systemd-run`/`bubblewrap` on Linux). **If Docker is available, prefer `[sandbox] backend = "docker"` instead** — it's meaningfully stronger (allow-list filesystem access, a real network-layer firewall, and it works on Windows too, unlike the native backend).
+
+See **[Sandboxing](sandboxing.md)** for the full picture: both backends, how the Docker backend's network firewall is enforced, custom images, git identity forwarding, login persistence, and Codex/Claude Code OAuth quirks.
+
+## Worktrees
+
+Run the agent in its own git worktree (branch `stashbase/<name>`, inside the repo at `.stashbase/worktrees/<name>`) instead of your checkout, so several agents can work in one repository in parallel:
+
+```toml
+[workspace]
+worktree = true
+```
+
+Or per run: `stashbase agent run --profile coding --worktree -- claude` (`--worktree=false` skips it when the profile turns it on). Works with the native backend and, on macOS/Linux, the Docker backend. Review and merge the agent's work from your checkout with `stashbase agent worktrees list`, `merge <name>` and `clean` — see **[Worktrees](sandboxing.md#worktrees)**.
 
 ## Network Access and HTTP Rules
 
@@ -137,15 +165,19 @@ allow_tools = ["search_issues", "get_issue"]
 
 The HTTP rule controls credential injection at the endpoint. The MCP rule controls which tools the agent may call. Omit `allow_tools` or leave it empty to deny all tools by default. Use `allow_tools = ["*"]` to allow all tools (a matching `deny_tools` still takes precedence).
 
-## Dependency Hooks
+## API Hooks
 
-If your profile enables authenticated hooks (e.g., dependency checking), grant capability explicitly:
+Hooks that call the Stashbase API (dependency checking, secret scanning) must be granted explicitly:
 
 ```toml
-allow_hooks = ["dependency_check"]
+allow_hooks = ["dependency_check", "secret_scan"]
 ```
 
-The child receives only a scoped local broker token. Hooks are disabled by default.
+The child receives only a scoped local broker token, never your API key. Hooks are disabled by default.
+
+`dependency_check` works with the hooks from `stashbase agent hooks deps install`. With the native backend they run your installed CLI, which asks the Agent Proxy to call the API. The Docker image has no Stashbase CLI, so in a Docker run a small stand-in is mounted as `stashbase` inside the container: it forwards the hook's input to the Agent Proxy, which runs `stashbase agent hooks` on the host, confined the same way as the secret scan below, and returns its answer. If the proxy can't be reached, the stand-in blocks the command instead of letting the install through unchecked. In a Docker run the agent can't see the global hook config in your home directory. Either install the hook per repository (without `--global`; the container sees the repo), or install it into the Docker sandbox's own home, which every Docker run shares: `stashbase agent hooks deps install claude --docker` (likewise `check` and `uninstall`).
+
+`secret_scan` lets the git hooks from `stashbase scan install` run inside the sandbox. The hook sends only a token to the Agent Proxy, which runs `stashbase scan staged` (or `unpushed`) on the host, in the run's working directory, with your key. Because the agent can edit the repo's scan config, these scans ignore its `match` and `output-dir` settings; `excluded-files` and `ignored-secrets` still apply. The host-side scan is confined, so a symlink or a `.git` redirect planted by the agent can't point it at your other files. On Linux it sees only system files plus the run's working tree, git directories and the CLI binary. On macOS it can't read file contents anywhere users' data lives (home directories, `/Volumes`, `/tmp`, `/var/folders`, `/opt`) except those same run paths; system files stay readable, and file names and sizes stay visible because path lookup needs them. The profile's `deny_read` entries stay denied on both. This uses Seatbelt on macOS and bubblewrap on Linux; where neither is available (including Windows), a profile with `secret_scan` refuses to start. Restricted scans also stop at 1 MiB per changed file, 32 MiB in total, 10,000 files or 1,000 commits; larger changes have to be committed from outside the sandbox. The hook needs `curl` in the sandbox (the default Docker image has it). Hooks installed before this existed need `stashbase scan install` once more to pick up the sandbox-aware block. Without `secret_scan`, a scan hook inside the sandbox fails with a message pointing here.
 
 ## Audit Logs and Session Revocation
 
@@ -205,7 +237,7 @@ The proxy is HTTP/HTTPS only and designed for standard developer tools. It does 
 - Request-body or query-parameter injection (credentials are header-only)
 - Process-level isolation (same-user processes can still access broader system credentials)
 
-For complete network isolation, use a container or VM.
+For stronger filesystem and network isolation than the native backend provides, see [Sandboxing](sandboxing.md).
 
 ## Full Reference
 

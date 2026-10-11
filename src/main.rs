@@ -13,9 +13,11 @@ use crate::{cmd::root::ColorChoice, handlers::entry::root::handle_cli};
 mod api;
 mod cmd;
 mod config;
+mod exit;
 mod handlers;
 mod logging;
 mod models;
+mod telemetry;
 mod utils;
 
 pub static SUBPROCESS_RUNNING: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
@@ -24,6 +26,13 @@ pub static REQUEST_TIMEOUT_SECS: OnceCell<u64> = OnceCell::new();
 pub static REQUEST_ABORTED: AtomicBool = AtomicBool::new(false);
 
 fn main() {
+    // The detached telemetry sender is this same binary; it must not run a
+    // command, report telemetry itself, or touch the terminal.
+    if telemetry::send::is_worker() {
+        telemetry::send::run_worker_from_stdin();
+        return;
+    }
+
     init_logger();
     enable_virtual_terminal();
     set_handlers();
@@ -32,11 +41,9 @@ fn main() {
     set_color_choice(args.color);
     set_request_timeout_secs(args.timeout);
 
-    handle_cli(args);
+    telemetry::begin(&args.entity_type);
 
-    if REQUEST_ABORTED.load(Ordering::SeqCst) {
-        std::process::exit(130);
-    }
+    handle_cli(args).terminate()
 }
 
 #[cfg(windows)]

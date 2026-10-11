@@ -41,6 +41,11 @@ pub struct AgentHookTarget {
     /// Apply to the global configuration instead of only this repository
     #[arg(long)]
     pub global: bool,
+
+    /// Apply to the Docker sandbox's home, which every Docker-backend agent
+    /// run shares, instead of this machine's configuration
+    #[arg(long, conflicts_with = "global")]
+    pub docker: bool,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]

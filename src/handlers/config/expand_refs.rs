@@ -1,13 +1,18 @@
-use crate::{config::config, models::config::UpdateConfig, utils::output::ColorizeIfColoredOutput};
+use anyhow::Result;
 
-pub fn set_expand_refs_config(enabled: Option<bool>) {
+use crate::{
+    config::config, exit::ReportedFailure, models::config::UpdateConfig,
+    telemetry::event::ErrorKind, utils::output::ColorizeIfColoredOutput,
+};
+
+pub fn set_expand_refs_config(enabled: Option<bool>) -> Result<()> {
     if let None = enabled {
         eprintln!(
             "{} {}",
             "Error:".red_if_tty_stderr(),
             "No 'enabled' boolean value provided."
         );
-        return;
+        return Err(ReportedFailure::new(ErrorKind::Validation));
     }
 
     let enabled = enabled.unwrap();
@@ -20,10 +25,12 @@ pub fn set_expand_refs_config(enabled: Option<bool>) {
 
     if let Err(err) = res {
         eprintln!("{} {}", "Error:".red_if_tty_stderr(), err);
-    } else {
-        let msg = format!("Default expand-refs config set.");
-        println!("{}", msg);
+        return Err(ReportedFailure::new(ErrorKind::Other));
     }
+
+    let msg = format!("Default expand-refs config set.");
+    println!("{}", msg);
+    Ok(())
 }
 
 pub fn print_expand_refs_config(enabled: &Option<bool>) {

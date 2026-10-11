@@ -3,7 +3,6 @@ use std::fmt::Display;
 use anyhow::{bail, Result};
 use log::debug;
 use serde::{de::DeserializeOwned, Serialize};
-use spinoff::Spinner;
 use tabled::Tabled;
 
 use crate::{
@@ -19,7 +18,7 @@ use crate::{
     },
     utils::{
         output::get_formatted_json_string,
-        spinner::request_spinner,
+        spinner::{request_spinner, Spinner},
         tables,
         validation::{validate_project_identifier, validate_secret_name},
     },

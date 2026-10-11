@@ -1243,6 +1243,9 @@ mod imp {
                 return Err(error);
             }
         };
+        // The child exists now: an `agent run` counts as launched for
+        // telemetry only from this point.
+        crate::telemetry::mark_agent_run_launched();
         let stop = Arc::new(AtomicBool::new(false));
         let child_captures_mouse = Arc::new(AtomicBool::new(false));
         let child_uses_alternate_scroll = Arc::new(AtomicBool::new(false));

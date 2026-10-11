@@ -43,6 +43,77 @@ pub enum AgentSubcommand {
     McpCheck(AgentMcpCheckCommand),
     /// View local metadata-only proxy audit logs
     Logs(AgentLogsCommand),
+    /// Manage Docker sandbox backend resources
+    Docker(AgentDockerCommand),
+    /// Review, merge and clean up the git worktrees `agent run --worktree` leaves behind
+    Worktrees {
+        #[command(subcommand)]
+        command: AgentWorktreesSubcommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentWorktreesSubcommand {
+    /// List agent branches in this repository with their status and unmerged commits
+    List(AgentWorktreesListCommand),
+    /// Merge an agent's branch into your current branch, then remove its worktree and branch
+    Merge(AgentWorktreesMergeCommand),
+    /// Remove agent worktrees and branches whose work is already merged
+    Clean(AgentWorktreesCleanCommand),
+    /// Remove one agent's worktree and branch, discarding its work
+    #[command(alias = "delete")]
+    Remove(AgentWorktreesRemoveCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesRemoveCommand {
+    /// Worktree name as shown by `list` (e.g. amber-river-storm), with or without the `stashbase/` prefix
+    #[arg(required_unless_present = "all", conflicts_with = "all")]
+    pub name: Option<String>,
+
+    /// Remove every agent worktree and branch (running, locked and UNSAFE ones are skipped)
+    #[arg(long)]
+    pub all: bool,
+
+    /// Remove only the worktree and keep the branch (e.g. to `--resume` it later)
+    #[arg(long)]
+    pub keep_branch: bool,
+
+    /// Remove without prompting, even if unmerged commits or uncommitted changes are lost
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesListCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesMergeCommand {
+    /// Worktree name as shown by `list` (e.g. amber-river-storm), with or without the `stashbase/` prefix
+    pub name: String,
+
+    /// Combine the agent's commits into a single commit instead of a merge commit
+    #[arg(long)]
+    pub squash: bool,
+
+    /// Commit message for the merge (or squash) commit, used as given; defaults to git's own "Merge branch 'stashbase/<name>'" (or, with --squash, "Squash branch 'stashbase/<name>'" listing the squashed commits)
+    #[arg(short, long)]
+    pub message: Option<String>,
+
+    /// Keep the agent's worktree and branch after merging
+    #[arg(long)]
+    pub keep: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentWorktreesCleanCommand {
+    /// Also remove unmerged work and worktrees with uncommitted changes
+    #[arg(long)]
+    pub all: bool,
+
+    /// Remove without prompting for confirmation
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -51,6 +122,69 @@ pub enum AgentSessionsSubcommand {
     List(AgentSessionsCommand),
     /// Revoke an active local or remote agent session
     Revoke(AgentRevokeCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerCommand {
+    #[command(subcommand)]
+    pub subcommand: AgentDockerSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentDockerSubcommand {
+    /// Find and remove Docker sandbox networks/containers left behind by a run that didn't tear down cleanly (e.g. `stashbase` was killed with SIGKILL mid-run)
+    Cleanup(AgentDockerCleanupCommand),
+    /// List Docker sandbox networks/containers currently present on this machine
+    Status(AgentDockerStatusCommand),
+    /// Build (or rebuild) the default Docker sandbox image
+    Build(AgentDockerBuildCommand),
+    /// Check whether the Docker sandbox backend can run on this machine
+    Doctor(AgentDockerDoctorCommand),
+    /// Open an interactive shell in the sandbox image with the persistent agent home mounted (e.g. to log in or install tools under $HOME)
+    Shell(AgentDockerShellCommand),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerDoctorCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerShellCommand {
+    /// Image to start the shell in instead of the built-in default sandbox image
+    #[arg(long)]
+    pub image: Option<String>,
+
+    /// Run the shell as root instead of the user agent runs use (only differs on Linux; files created in $HOME may become unwritable for agent runs)
+    #[arg(long)]
+    pub root: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerCleanupCommand {
+    /// Remove every leftover resource without prompting for confirmation
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Instead of leftover networks, remove the per-repo volumes backing profiles' `sandbox.isolated_paths` (e.g. the container's own node_modules; reinstalled on next use)
+    #[arg(long)]
+    pub isolated_paths: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerStatusCommand {}
+
+#[derive(Debug, Args)]
+pub struct AgentDockerBuildCommand {
+    /// Rebuild even if the image already exists, pulling the latest base image (and, for the default image, the latest Claude Code and Codex)
+    #[arg(long)]
+    pub force: bool,
+
+    /// Build the given profile's `sandbox.image`/`sandbox.dockerfile` instead of the built-in default image
+    #[arg(long)]
+    pub profile: Option<String>,
+
+    /// Where to load --profile from
+    #[arg(long, value_enum, default_value = "auto")]
+    pub profile_source: AgentProfileSource,
 }
 
 #[derive(Debug, Args)]
@@ -177,6 +311,72 @@ pub struct AgentRunCommand {
     /// Resolve Stashbase secrets in a short-lived remote agent proxy session
     #[arg(long)]
     pub remote: bool,
+
+    /// Which traffic uses the remote proxy: `credential` (default) sends only
+    /// requests that need a Stashbase credential; `full` sends everything.
+    /// Your plan or workspace policy decides which modes are allowed.
+    #[arg(long, value_enum, requires = "remote")]
+    pub remote_mode: Option<crate::handlers::run::routing::RemoteMode>,
+
+    /// Override the profile's `[sandbox] backend` for this run only: `true`
+    /// forces the Docker backend, `false` forces the native backend.
+    /// Omit to use whatever the profile declares.
+    #[arg(long, value_parser = clap::builder::BoolishValueParser::new())]
+    pub docker_sandbox: Option<bool>,
+
+    /// Override the profile's `[sandbox] image` for this run only: run this
+    /// image instead of the profile's configured one (or the built-in
+    /// default). Implies the Docker backend even if the profile or
+    /// `--docker-sandbox` says otherwise. Mutually exclusive with
+    /// `--docker-dockerfile`.
+    #[arg(long, conflicts_with = "docker_dockerfile")]
+    pub docker_image: Option<String>,
+
+    /// Override the profile's `[sandbox] dockerfile` for this run only:
+    /// build and run this Dockerfile instead of the profile's configured
+    /// one (or the built-in default). Implies the Docker backend even if
+    /// the profile or `--docker-sandbox` says otherwise. Mutually
+    /// exclusive with `--docker-image`.
+    #[arg(long, conflicts_with = "docker_image")]
+    pub docker_dockerfile: Option<String>,
+
+    /// Override the profile's `[sandbox] memory` for this run only:
+    /// `docker run --memory` value, e.g. "2g". No cap by default.
+    #[arg(long)]
+    pub docker_memory: Option<String>,
+
+    /// Override the profile's `[sandbox] cpus` for this run only: `docker
+    /// run --cpus` value, e.g. "1.5". No cap by default.
+    #[arg(long)]
+    pub docker_cpus: Option<String>,
+
+    /// Run the agent in a fresh git worktree on branch `stashbase/<name>`
+    /// instead of the current checkout. `--worktree`
+    /// turns it on and `--worktree=false` off for this run, overriding the
+    /// profile's `[workspace] worktree`; omit to use the profile's setting.
+    /// The value needs `=` so a following agent command (`--worktree
+    /// claude`) is never mistaken for it.
+    #[arg(
+        long,
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "true",
+        value_parser = clap::builder::BoolishValueParser::new()
+    )]
+    pub worktree: Option<bool>,
+
+    /// Continue an earlier agent run in its worktree (by name, as shown by
+    /// `agent worktrees list`): reuses the worktree if it was kept, or
+    /// recreates it from its `stashbase/<name>` branch. Implies `--worktree`.
+    #[arg(long, value_name = "NAME")]
+    pub resume: Option<String>,
+
+    /// Add to the profile's `[sandbox] isolated_paths` for this run only:
+    /// a directory relative to the working directory (e.g. "node_modules")
+    /// that gets its own per-repo volume inside the container.
+    /// Comma-separated, e.g. `--docker-isolated-paths node_modules,.venv`.
+    #[arg(long, value_name = "PATHS", value_delimiter = ',')]
+    pub docker_isolated_paths: Vec<String>,
 
     /// Store metadata-only proxy audit events locally
     #[arg(
@@ -503,6 +703,8 @@ pub enum AgentAuditGroupBy {
     /// Group by configured credential binding name
     #[value(alias = "secret")]
     Binding,
+    /// Group by how a remote session carried the destination (remote or direct)
+    Route,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -522,6 +724,14 @@ mod tests {
     use super::{AgentAuditGroupBy, AgentSubcommand};
 
     #[test]
+    fn audit_route_group_is_selectable() {
+        assert_eq!(
+            AgentAuditGroupBy::from_str("route", true),
+            Ok(AgentAuditGroupBy::Route)
+        );
+    }
+
+    #[test]
     fn audit_binding_group_accepts_the_legacy_secret_alias() {
         assert_eq!(
             AgentAuditGroupBy::from_str("binding", true),
@@ -531,6 +741,81 @@ mod tests {
             AgentAuditGroupBy::from_str("secret", true),
             Ok(AgentAuditGroupBy::Binding)
         );
+    }
+
+    #[test]
+    fn worktree_flag_is_on_off_or_absent_and_never_swallows_the_command() {
+        use super::{AgentCommand, AgentSubcommand};
+        use crate::cmd::root::{Cli, EntityType};
+        use clap::Parser;
+
+        let parse = |args: &[&str]| {
+            let mut argv = vec!["stashbase", "agent", "run", "--profile", "p"];
+            argv.extend_from_slice(args);
+            match Cli::try_parse_from(argv).expect("parses").entity_type {
+                EntityType::Agent(AgentCommand {
+                    subcommand: AgentSubcommand::Run(run),
+                }) => run,
+                _ => panic!("expected `agent run`"),
+            }
+        };
+        assert_eq!(parse(&["claude"]).worktree, None);
+        let on = parse(&["--worktree", "claude"]);
+        assert_eq!(on.worktree, Some(true));
+        assert_eq!(on.command, vec!["claude".to_owned()]);
+        assert_eq!(parse(&["--worktree", "--", "claude"]).worktree, Some(true));
+        assert_eq!(parse(&["--worktree=true", "claude"]).worktree, Some(true));
+        assert_eq!(parse(&["--worktree=false", "claude"]).worktree, Some(false));
+        assert!(Cli::try_parse_from([
+            "stashbase",
+            "agent",
+            "worktrees",
+            "delete",
+            "--all",
+            "--yes"
+        ])
+        .is_ok());
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "worktrees", "remove"]).is_err(),
+            "a name or --all is required"
+        );
+        assert!(
+            Cli::try_parse_from(["stashbase", "agent", "worktrees", "remove", "x", "--all"])
+                .is_err(),
+            "not both"
+        );
+        for alias in ["remove", "delete"] {
+            let parsed = Cli::try_parse_from([
+                "stashbase",
+                "agent",
+                "worktrees",
+                alias,
+                "amber-river-storm",
+                "--keep-branch",
+            ]);
+            assert!(parsed.is_ok(), "`agent worktrees {alias}` parses");
+        }
+        let resume = parse(&["--resume", "amber-river-storm", "claude"]);
+        assert_eq!(resume.resume.as_deref(), Some("amber-river-storm"));
+        assert_eq!(resume.command, vec!["claude".to_owned()]);
+    }
+
+    #[test]
+    fn remote_mode_needs_remote_and_accepts_only_known_modes() {
+        use crate::cmd::root::Cli;
+        use clap::Parser;
+
+        let run = |args: &[&str]| {
+            let mut full = vec!["stashbase", "agent", "run", "--profile", "p"];
+            full.extend_from_slice(args);
+            full.extend_from_slice(&["--", "true"]);
+            Cli::try_parse_from(full)
+        };
+        assert!(run(&["--remote", "--remote-mode", "credential"]).is_ok());
+        assert!(run(&["--remote", "--remote-mode", "full"]).is_ok());
+        assert!(run(&["--remote"]).is_ok());
+        assert!(run(&["--remote-mode", "full"]).is_err());
+        assert!(run(&["--remote", "--remote-mode", "everything"]).is_err());
     }
 
     #[test]

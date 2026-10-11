@@ -19,19 +19,22 @@ use crate::{
             AgentAuditGroupBy, AgentLogsCommand, AgentLogsListCommand, AgentLogsSubcommand,
             AgentLogsSummaryCommand, AgentProfileSource, AgentSubcommand,
         },
-        config::{ConfigSubcommand, OutputFormat, SecretsOutputFormat},
+        config::{ConfigCommand, ConfigSubcommand, OutputFormat, SecretsOutputFormat},
         root::{Cli, EntityType, WhoamiCommand, WhoamiOutputFormat},
     },
     config::{config, secure_store},
+    exit::{needs_printing, Exit, IntoExit},
     handlers::{
-        agent_doctor::handle_agent_doctor_command,
-        agent_explain::handle_agent_explain_command,
-        agent_init::handle_agent_init_command,
-        agent_mcp::{handle_agent_mcp_configure_command, handle_agent_mcp_tools_command},
-        agent_policy::SecretHttpPolicy,
-        agent_policy_test::handle_agent_policy_test_command,
-        agent_profiles::handle_agent_profiles_command,
-        agent_validate::handle_agent_validate_command,
+        agent::{
+            doctor::handle_agent_doctor_command,
+            explain::handle_agent_explain_command,
+            init::handle_agent_init_command,
+            mcp::{handle_agent_mcp_configure_command, handle_agent_mcp_tools_command},
+            policy::SecretHttpPolicy,
+            policy_test::handle_agent_policy_test_command,
+            profiles::handle_agent_profiles_command,
+            validate::handle_agent_validate_command,
+        },
         doctor::handle_doctor_command,
         entry::{
             auth::{handle_whoami_command, GetCurrentAuthDetailsRequestArgs},
@@ -53,11 +56,12 @@ use crate::{
                 read_local_proxy_audit_logs, ProfileAuditProvenance, ProxyAuditLog,
                 ProxyAuditLogEvent, ProxyAuditLogFilter, ProxyPolicy, SecretInjection,
             },
-            subprocess::CommandFailed,
         },
         setup::setup,
+        telemetry::handle_telemetry_command,
     },
     models::{config::Config, validation::InputValidationError},
+    telemetry::event::{classify_error, ErrorKind},
     utils::{
         env::get_stashbase_api_key,
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -86,7 +90,7 @@ fn install_remote_agent_shutdown_handler() {
             _ = interrupt.recv() => 130,
         };
         crate::api::remote_proxy::end_registered_agent_run().await;
-        std::process::exit(exit_code);
+        Exit::code(exit_code).terminate();
     });
 }
 
@@ -97,7 +101,7 @@ fn install_remote_agent_shutdown_handler() {
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_ok() {
             crate::api::remote_proxy::end_registered_agent_run().await;
-            std::process::exit(130);
+            Exit::code(130).terminate();
         }
     });
 }
@@ -128,15 +132,39 @@ fn remote_codex_command_with_mcp_binding_headers(
     command: &[String],
     bindings: &[crate::api::remote_proxy::RemoteBinding],
     child_env: &HashMap<String, String>,
+    sandbox: Option<(crate::models::agent::SandboxBackend, &str)>,
 ) -> anyhow::Result<Vec<String>> {
     if infer_remote_agent_type(command) != "codex" {
         return Ok(command.to_vec());
     }
-    let Some(config_path) = codex_config_path() else {
-        return Ok(command.to_vec());
-    };
-    let Ok(contents) = std::fs::read_to_string(config_path) else {
-        return Ok(command.to_vec());
+    // The docker backend gives the sandboxed agent its own persistent home
+    // volume, entirely separate from the host's home directory (see
+    // `docker_sandbox::PERSISTENT_HOME_VOLUME`). Codex's *effective*
+    // config.toml there can differ arbitrarily from the host's own
+    // ~/.codex/config.toml, so reading the host file and generating
+    // `--config` overrides from it would target server names that may not
+    // exist (or exist differently) inside the sandbox, producing malformed
+    // `mcp_servers.*` entries once the override is applied. Read the config
+    // out of the volume itself instead.
+    let contents = match sandbox {
+        Some((crate::models::agent::SandboxBackend::Docker, image)) => {
+            match crate::handlers::run::docker_sandbox::read_persistent_home_file(
+                image,
+                ".codex/config.toml",
+            ) {
+                Some(contents) => contents,
+                None => return Ok(command.to_vec()),
+            }
+        }
+        _ => {
+            let Some(config_path) = codex_config_path() else {
+                return Ok(command.to_vec());
+            };
+            let Ok(contents) = std::fs::read_to_string(config_path) else {
+                return Ok(command.to_vec());
+            };
+            contents
+        }
     };
     let config: toml::Value = toml::from_str(&contents)
         .context("could not parse Codex config while preparing Remote Agent MCP headers")?;
@@ -345,6 +373,17 @@ fn audit_binding_sources(
         .collect()
 }
 
+/// The line an `agent run --remote` prints once the control plane has opened
+/// its session. The binding values stay remote, so it counts bindings, not secrets.
+fn remote_session_started_message(binding_count: usize) -> String {
+    let noun = if binding_count == 1 {
+        "binding"
+    } else {
+        "bindings"
+    };
+    format!("Remote agent session started ({binding_count} {noun})")
+}
+
 /// Returns the canonical source variables that must be removed from the child
 /// environment before binding placeholders are installed.
 fn remote_source_env_names(bindings: &[crate::api::remote_proxy::RemoteBinding]) -> Vec<String> {
@@ -355,50 +394,44 @@ fn remote_source_env_names(bindings: &[crate::api::remote_proxy::RemoteBinding])
 }
 
 #[tokio::main()]
-pub async fn handle_cli(args: Cli) {
+pub async fn handle_cli(args: Cli) -> Exit {
     if let EntityType::Generate(cmd) = args.entity_type {
-        if let Err(e) = handle_generate_command(cmd, args.raw) {
-            eprintln!("{:?}", e);
-        }
-        return;
+        return print_error(handle_generate_command(cmd, args.raw));
+    }
+
+    // `config telemetry ...` is handled before the config file is read, so
+    // opting out never depends on config.toml being readable.
+    if let EntityType::Config(ConfigCommand {
+        subcommand: ConfigSubcommand::Telemetry(cmd),
+    }) = args.entity_type
+    {
+        return print_error(handle_telemetry_command(cmd.subcommand, args.raw));
     }
 
     if let EntityType::Doctor(cmd) = args.entity_type {
-        match handle_doctor_command(cmd, args.raw, args.api_key).await {
-            Ok(has_failures) => {
-                if has_failures {
-                    std::process::exit(1);
-                }
-            }
+        return match handle_doctor_command(cmd, args.raw, args.api_key).await {
+            Ok(has_failures) => check_exit(has_failures),
             Err(e) => {
                 eprintln!("{:?}", e);
-                std::process::exit(1);
+                Exit::failed_with(classify_error(&e), 1)
             }
-        }
-        return;
+        };
     }
 
+    let bare_agent_hook = is_bare_agent_hook(&args.entity_type);
     let config = config::get_config();
     if let Ok(config) = config {
         if let EntityType::Config(cmd) = args.entity_type {
-            if let Err(err) = handle_config_commands(cmd, &config, args.raw) {
-                eprintln!("{:?}", err);
-            }
-
-            return;
+            return print_error(handle_config_commands(cmd, &config, args.raw));
         } else if let EntityType::Setup(_) = args.entity_type {
-            if let Err(err) = setup(config) {
-                eprintln!("{:?}", err);
-            }
-
-            return;
+            return print_error(setup(config));
         }
 
         let profile_name = match config::resolve_profile_name(&config) {
             Ok(profile) => profile,
             Err(error) => {
                 eprintln!("{}", error);
-                return;
+                return exit_for(Exit::failed(ErrorKind::Validation), bare_agent_hook);
             }
         };
         let secure_store_api_key = match secure_store::get_api_key_for_profile(&profile_name) {
@@ -464,13 +497,14 @@ pub async fn handle_cli(args: Cli) {
                     eprintln!("{}", json_str);
                 }
             }
-            std::process::exit(1);
+            // The CLI itself calls this an authentication error.
+            return Exit::failed_with(ErrorKind::Auth, 1);
         }
 
         // Local commands such as `agent logs` do not need Stashbase authentication.
         let api_key = api_key.unwrap_or_default();
 
-        let result = match args.entity_type {
+        let result: anyhow::Result<Exit> = match args.entity_type {
             EntityType::Whoami(WhoamiCommand { format }) => {
                 let format = match format {
                     Some(format) => match format {
@@ -494,7 +528,7 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                 };
 
-                handle_whoami_command(args).await
+                handle_whoami_command(args).await.into_exit()
             }
             EntityType::Project(cmd) => {
                 let default_output_format = match config.ouput_format {
@@ -503,6 +537,7 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_project_commands(cmd, api_key, raw_output, silent, default_output_format)
                     .await
+                    .into_exit()
             }
             EntityType::Environment(cmd) => {
                 let default_output_format = match config.ouput_format {
@@ -511,6 +546,7 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_environment_commands(cmd, api_key, raw_output, silent, default_output_format)
                     .await
+                    .into_exit()
             }
             EntityType::Config(_) => {
                 unreachable!()
@@ -545,6 +581,7 @@ pub async fn handle_cli(args: Cli) {
                     default_secrets_output_format,
                 )
                 .await
+                .into_exit()
             }
             EntityType::Webhooks(cmd) => {
                 let default_output_format = match config.ouput_format {
@@ -553,31 +590,92 @@ pub async fn handle_cli(args: Cli) {
                 };
                 handle_webhook_commands(cmd, api_key, silent, raw_output, default_output_format)
                     .await
+                    .into_exit()
             }
             EntityType::Agent(agent_cmd) => match agent_cmd.subcommand {
                 AgentSubcommand::Hooks(command) => {
-                    handle_agent_hooks_commands(command, api_key).await
+                    handle_agent_hooks_commands(command, api_key).await.into_exit()
                 }
                 AgentSubcommand::Init(agent_init) => {
-                    handle_agent_init_command(agent_init, silent, raw_output)
+                    handle_agent_init_command(agent_init, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Sessions {
                     command: crate::cmd::agent::AgentSessionsSubcommand::List(command),
                 } => {
-                    crate::handlers::agent_sessions::handle_sessions(
+                    crate::handlers::agent::sessions::handle_sessions(
                         command, &api_key, raw_output, silent,
                     )
                     .await
+                    .into_exit()
                 }
                 AgentSubcommand::Sessions {
                     command: crate::cmd::agent::AgentSessionsSubcommand::Revoke(command),
                 } => {
-                    crate::handlers::agent_sessions::handle_revoke(
+                    crate::handlers::agent::sessions::handle_revoke(
                         command, &api_key, raw_output, silent,
                     )
                     .await
+                    .into_exit()
                 }
-                AgentSubcommand::Logs(mut agent_logs) => match agent_logs.subcommand.take() {
+                AgentSubcommand::Worktrees { command } => (match command {
+                    crate::cmd::agent::AgentWorktreesSubcommand::List(_) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_list(raw_output)
+                    }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Merge(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_merge(
+                            command, raw_output, silent,
+                        )
+                    }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Clean(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_clean(
+                            command, raw_output, silent,
+                        )
+                    }
+                    crate::cmd::agent::AgentWorktreesSubcommand::Remove(command) => {
+                        crate::handlers::agent::worktrees::handle_worktrees_remove(
+                            command, raw_output, silent,
+                        )
+                    }
+                })
+                .into_exit(),
+                AgentSubcommand::Docker(agent_docker) => match agent_docker.subcommand {
+                    crate::cmd::agent::AgentDockerSubcommand::Cleanup(command) => {
+                        crate::handlers::agent::docker::handle_docker_cleanup_command(
+                            command, raw_output, silent,
+                        )
+                        .await
+                        .into_exit()
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Status(command) => {
+                        crate::handlers::agent::docker::handle_docker_status_command(
+                            command, raw_output,
+                        )
+                        .await
+                        .into_exit()
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Build(command) => {
+                        crate::handlers::agent::docker::handle_docker_build_command(
+                            command, &config, raw_output, silent,
+                        )
+                        .await
+                        .into_exit()
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Doctor(command) => {
+                        match crate::handlers::agent::docker::handle_docker_doctor_command(
+                            command, raw_output,
+                        )
+                        .await
+                        {
+                            Ok(failed) => Ok(check_exit(failed)),
+                            Err(error) => Err(error),
+                        }
+                    }
+                    crate::cmd::agent::AgentDockerSubcommand::Shell(command) => {
+                        crate::handlers::agent::docker::handle_docker_shell_command(command)
+                            .await
+                    }
+                },
+                AgentSubcommand::Logs(mut agent_logs) => (match agent_logs.subcommand.take() {
                     Some(AgentLogsSubcommand::List(list)) => {
                         handle_agent_logs(list.into(), raw_output).await
                     }
@@ -585,34 +683,33 @@ pub async fn handle_cli(args: Cli) {
                         handle_agent_logs_summary(summary, silent, raw_output)
                     }
                     None => handle_agent_logs(agent_logs, raw_output).await,
-                },
+                })
+                .into_exit(),
                 AgentSubcommand::Doctor(agent_doctor) => {
                     match handle_agent_doctor_command(agent_doctor, raw_output).await {
-                        Ok(true) => std::process::exit(1),
-                        Ok(false) => Ok(()),
+                        Ok(failed) => Ok(check_exit(failed)),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Mcp(agent_mcp) => match agent_mcp.subcommand {
                     crate::cmd::agent::AgentMcpSubcommand::Tools(command) => {
-                        handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await
+                        handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await.into_exit()
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Configure(command) => {
-                        handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await
+                        handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await.into_exit()
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
-                        match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                        match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
                             command,
                             &config,
                             raw_output,
                         ) {
-                            Ok(true) => std::process::exit(1),
-                            Ok(false) => Ok(()),
+                            Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Verify(command) => {
-                        match crate::handlers::agent_mcp::handle_agent_mcp_verify_command(
+                        match crate::handlers::agent::mcp::handle_agent_mcp_verify_command(
                             command,
                             &config,
                             raw_output,
@@ -621,35 +718,32 @@ pub async fn handle_cli(args: Cli) {
                         )
                         .await
                         {
-                            Ok(true) => std::process::exit(1),
-                            Ok(false) => Ok(()),
+                            Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
                     }
                 },
                 AgentSubcommand::McpTools(agent_mcp) => {
-                    handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await
+                    handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await.into_exit()
                 }
                 AgentSubcommand::McpCheck(agent_mcp) => {
-                    match crate::handlers::agent_mcp::handle_agent_mcp_check_command(
+                    match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
                         agent_mcp,
                         &config,
                         raw_output,
                     ) {
-                        Ok(true) => std::process::exit(1),
-                        Ok(false) => Ok(()),
+                        Ok(failed) => Ok(check_exit(failed)),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Validate(agent_validate) => {
                     match handle_agent_validate_command(agent_validate, &config, raw_output).await {
-                        Ok(true) => std::process::exit(1),
-                        Ok(false) => Ok(()),
+                        Ok(failed) => Ok(check_exit(failed)),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Explain(agent_explain) => {
-                    handle_agent_explain_command(agent_explain, &config, silent, raw_output)
+                    handle_agent_explain_command(agent_explain, &config, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Policy(agent_policy) => match agent_policy.subcommand {
                     crate::cmd::agent::AgentPolicySubcommand::Test(agent_policy_test) => {
@@ -659,14 +753,13 @@ pub async fn handle_cli(args: Cli) {
                             silent,
                             raw_output,
                         ) {
-                            Ok(true) => std::process::exit(1),
-                            Ok(false) => Ok(()),
+                            Ok(failed) => Ok(check_exit(failed)),
                             Err(error) => Err(error),
                         }
                     }
                 },
                 AgentSubcommand::Profiles(agent_profiles) => {
-                    handle_agent_profiles_command(agent_profiles, &config, silent, raw_output)
+                    handle_agent_profiles_command(agent_profiles, &config, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Run(agent_run) => async {
                     let explicit_profile = agent_run
@@ -711,7 +804,7 @@ pub async fn handle_cli(args: Cli) {
                     }};
                     let loaded_from_directory = directory_source.is_some();
 
-                    let Some(profile) = profile else {
+                    let Some(mut profile) = profile else {
                         let source = match agent_run.profile_source {
                             AgentProfileSource::Global => "global",
                             AgentProfileSource::Directory => "directory",
@@ -721,10 +814,41 @@ pub async fn handle_cli(args: Cli) {
                             "Agent profile '{}' was not found in the {source} config.",
                             agent_run.profile,
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     };
 
-                    crate::handlers::agent_validate::ensure_profile_is_valid_for_run(&profile)?;
+                    profile.sandbox.backend =
+                        profile.sandbox.backend.with_cli_override(agent_run.docker_sandbox);
+                    if let Some(image) = &agent_run.docker_image {
+                        profile.sandbox.image = Some(image.clone());
+                        profile.sandbox.dockerfile = None;
+                        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+                    } else if let Some(dockerfile) = &agent_run.docker_dockerfile {
+                        profile.sandbox.dockerfile = Some(dockerfile.clone());
+                        profile.sandbox.image = None;
+                        profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
+                    }
+                    if let Some(memory) = &agent_run.docker_memory {
+                        profile.sandbox.memory = Some(memory.clone());
+                    }
+                    if let Some(cpus) = &agent_run.docker_cpus {
+                        profile.sandbox.cpus = Some(cpus.clone());
+                    }
+                    if let Some(worktree) = agent_run.worktree {
+                        profile.workspace.worktree = worktree;
+                    }
+                    if agent_run.resume.is_some() {
+                        if agent_run.worktree == Some(false) {
+                            anyhow::bail!("--resume continues a worktree run; it can't be combined with --worktree=false");
+                        }
+                        profile.workspace.worktree = true;
+                    }
+                    for path in &agent_run.docker_isolated_paths {
+                        if !profile.sandbox.isolated_paths.contains(path) {
+                            profile.sandbox.isolated_paths.push(path.clone());
+                        }
+                    }
+                    crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
                     // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is
@@ -754,25 +878,20 @@ pub async fn handle_cli(args: Cli) {
                         }
                     }
 
-                    let dependency_hooks_requested = profile
-                        .allow_hooks
-                        .iter()
-                        .any(|hook| hook == "dependency_check");
-                    let dependency_hooks = dependency_hooks_enabled(&profile, &api_key);
+                    let requested_hooks = profile.requested_hooks();
+                    let hooks = enabled_hooks(&profile, &api_key);
                     if !silent {
                         eprintln!("Network sandbox: enabled");
+                        if profile.sandbox.backend
+                            == crate::models::agent::SandboxBackend::Docker
+                        {
+                            eprintln!("Sandbox backend: Docker (container-isolated)");
+                        }
                         print_agent_egress_warnings(&profile);
-                        eprintln!(
-                            "API hook broker: {}",
-                            if dependency_hooks {
-                                "enabled (dependency_check)"
-                            } else {
-                                "disabled"
-                            }
-                        );
-                        if dependency_hooks_requested && !dependency_hooks {
+                        eprintln!("API hook broker: {}", hooks.label());
+                        if requested_hooks.any() && !hooks.any() {
                             eprintln!(
-                                "Warning: dependency_check is configured but no API key is available; dependency checks are disabled."
+                                "Warning: allow_hooks is configured but no API key is available; API hooks are disabled."
                             );
                         }
                     }
@@ -800,14 +919,14 @@ pub async fn handle_cli(args: Cli) {
                             "Egress-only agent profile '{}' must not define 'file' or a [secrets] source.",
                             agent_run.profile
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     }
                     if !egress_only && !valid_source {
                         eprintln!(
                             "Agent profile '{}' has an invalid secret source configuration.",
                             agent_run.profile
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     }
                     if egress_only && !silent {
                         eprintln!(
@@ -826,14 +945,14 @@ pub async fn handle_cli(args: Cli) {
                                 .format_error_output(raw_output)
                                 .unwrap_or_else(|_| "Error formatting validation error".to_owned())
                         );
-                        std::process::exit(1);
+                        return Ok(Exit::failed_with(ErrorKind::Other, 1));
                     }
                     if agent_run.tui && !crate::handlers::run::tui::tui_supported() {
                         eprintln!(
                             "Error: {}",
                             crate::handlers::run::tui::tui_unsupported_reason()
                         );
-                        std::process::exit(1);
+                        return Ok(Exit::failed_with(ErrorKind::Other, 1));
                     }
                     // Counts only: the status bar must never see a secret
                     // value, a request body, a header, or a URL, so this is
@@ -882,7 +1001,7 @@ pub async fn handle_cli(args: Cli) {
                             "Agent profile '{}' maps more than one binding to the same source secret.",
                             agent_run.profile
                         );
-                        return Ok(());
+                        return Ok(Exit::failed(ErrorKind::Validation));
                     }
 
                     let policy = ProxyPolicy {
@@ -953,6 +1072,14 @@ pub async fn handle_cli(args: Cli) {
                         egress_hosts_configured: profile.egress_hosts.is_some(),
                         strict_deny: true,
                         mcp_rules: compiled_mcp_rules(&profile),
+                        backend: profile.sandbox.backend,
+                        sandbox_image: profile.sandbox.image.clone(),
+                        sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
+                        sandbox_memory: profile.sandbox.memory.clone(),
+                        sandbox_cpus: profile.sandbox.cpus.clone(),
+                        worktree: profile.workspace.worktree,
+                        worktree_resume: agent_run.resume.clone(),
+                        sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -962,6 +1089,27 @@ pub async fn handle_cli(args: Cli) {
                         profile_source,
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,
                     )?;
+                    let telemetry_profile_source = if agent_run.policy_file.is_some() {
+                        crate::telemetry::event::ProfileSource::File
+                    } else if loaded_from_directory {
+                        crate::telemetry::event::ProfileSource::Directory
+                    } else {
+                        crate::telemetry::event::ProfileSource::Global
+                    };
+                    crate::telemetry::prepare_agent_run(
+                        telemetry_profile_source,
+                        agent_run.remote,
+                        match profile.sandbox.backend {
+                            crate::models::agent::SandboxBackend::Docker => {
+                                crate::telemetry::event::SandboxKind::Docker
+                            }
+                            crate::models::agent::SandboxBackend::Native => {
+                                crate::telemetry::event::SandboxKind::Native
+                            }
+                        },
+                        profile.workspace.worktree,
+                        agent_run.audit_log,
+                    );
                     let local_session_id = format!("ags_{}", ShortUuid::generate());
                     let audit_log = (!agent_run.remote)
                         .then(|| {
@@ -1033,15 +1181,54 @@ pub async fn handle_cli(args: Cli) {
                             agent_type: Some(infer_remote_agent_type(&agent_run.command).to_owned()),
                             session_purpose: None,
                             previous_session_token: None,
+                            routing_mode: Some(
+                                agent_run
+                                    .remote_mode
+                                    .unwrap_or(crate::handlers::run::routing::RemoteMode::Credential),
+                            ),
                         };
-                        let session = crate::api::remote_proxy::create_session(&session_request, raw_output)
-                            .await
+                        let mut session_spinner = (!silent).then(|| {
+                            crate::utils::spinner::new_spinner(
+                                "Starting remote agent session...",
+                                crate::utils::spinner::Streams::Stderr,
+                            )
+                        });
+                        let session_result =
+                            crate::api::remote_proxy::create_session(&session_request, raw_output)
+                                .await;
+                        if let Some(mut spinner) = session_spinner.take() {
+                            spinner.clear();
+                        }
+                        let session = session_result
                             // The Agent Proxy setup follows startup warnings. Keep its
                             // formatted API error visually distinct without changing
                             // output spacing for every other CLI command.
                             .map_err(|error| anyhow::anyhow!("\n{error}"))?;
+                        if !silent {
+                            eprintln!(
+                                "{} {}",
+                                "✓".green_if_tty_stderr(),
+                                remote_session_started_message(bindings.len())
+                            );
+                        }
                         let token = session.session_token.clone();
                         let remote_session_id = session.session_id.clone();
+                        let routing = match crate::handlers::run::routing::resolve_session_routing(
+                            &session,
+                            &bindings,
+                            &[],
+                        ) {
+                            Ok(routing) => routing,
+                            Err(error) => {
+                                crate::api::remote_proxy::revoke_session(api_key.clone(), &token).await;
+                                return Err(error);
+                            }
+                        };
+                        if !silent {
+                            eprintln!("{}", routing_summary(&routing, session_request.routing_mode, session.routing_mode.is_some()));
+                        }
+                        crate::telemetry::set_agent_run_remote_mode(routing.mode);
+                        let routing = Arc::new(RwLock::new(routing));
                         let remote_audit_log = match agent_run
                             .audit_log
                             .then(|| {
@@ -1055,6 +1242,7 @@ pub async fn handle_cli(args: Cli) {
                                     audit_log
                                         .with_profile_provenance(profile_provenance.clone())
                                         .with_binding_sources(binding_sources)
+                                        .with_routing(routing.clone())
                                 })
                             })
                             .transpose()
@@ -1085,10 +1273,22 @@ pub async fn handle_cli(args: Cli) {
                             })
                             .collect();
                         let source_env_names = remote_source_env_names(&bindings);
+                        let sandbox_image_tag = (profile.sandbox.backend
+                            == crate::models::agent::SandboxBackend::Docker)
+                            .then(|| {
+                                crate::handlers::run::docker_sandbox::AgentImageSource::from_profile(
+                                    profile.sandbox.image.as_deref(),
+                                    profile.sandbox.dockerfile.as_deref(),
+                                )
+                                .image_tag()
+                            });
                         let command = match remote_codex_command_with_mcp_binding_headers(
                             &agent_run.command,
                             &bindings,
                             &child_env,
+                            sandbox_image_tag
+                                .as_deref()
+                                .map(|image| (profile.sandbox.backend, image)),
                         ) {
                             Ok(command) => command,
                             Err(error) => {
@@ -1141,13 +1341,14 @@ pub async fn handle_cli(args: Cli) {
                             session,
                             remote_session.clone(),
                             remote_transport_identity,
+                            routing.clone(),
                         );
                         let result = handle_remote_agent_run(
                             api_key.clone(),
-                            dependency_hooks,
+                            hooks,
                             command,
                             policy,
-                            crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file },
+                            crate::handlers::run::proxy::RemoteProxyConfig { proxy_url, session: remote_session.clone(), placeholders, child_env, protocol, ca_file: remote_ca_file, routing },
                             agent_run.proxy_port,
                             network_sandbox,
                             agent_run.trust_proxy_ca,
@@ -1167,13 +1368,13 @@ pub async fn handle_cli(args: Cli) {
                             .unwrap_or(token);
                         crate::api::remote_proxy::end_agent_run(api_key, &current_token).await;
                         crate::api::remote_proxy::clear_agent_run_cleanup();
-                        return result;
+                        return result.into_exit();
                     }
                     let print_local_session_id = audit_log.is_none();
                     let local_session = if agent_run.remote {
                         None
                     } else {
-                        Some(crate::handlers::agent_sessions::LocalAgentSessionGuard::start(
+                        Some(crate::handlers::agent::sessions::LocalAgentSessionGuard::start(
                             local_session_id.clone(),
                         )?)
                     };
@@ -1196,7 +1397,7 @@ pub async fn handle_cli(args: Cli) {
                         set_comments: Vec::new(),
                         print_secrets: None,
                         no_print_secrets: true,
-                        dependency_hooks,
+                        hooks,
                         local_session,
                         config_file: None,
                         file: profile.file,
@@ -1212,7 +1413,7 @@ pub async fn handle_cli(args: Cli) {
                     if !silent && !agent_run.remote && print_local_session_id {
                         eprintln!("Agent session: {local_session_id}");
                     }
-                    handle_load_env_run(args).await
+                    handle_load_env_run(args).await.into_exit()
                 }
                 .await,
             },
@@ -1226,11 +1427,11 @@ pub async fn handle_cli(args: Cli) {
                             }
 
                             eprintln!("{}", formatted_err);
-                            return;
+                            return Exit::failed(ErrorKind::Validation);
                         }
                         Err(format_err) => {
                             eprintln!("Error formatting validation error: {:?}", format_err);
-                            return;
+                            return Exit::failed(ErrorKind::Other);
                         }
                     }
                 }
@@ -1260,12 +1461,12 @@ pub async fn handle_cli(args: Cli) {
                     json_format: raw_output,
                     silent,
                     scope: run_cmd.scope,
-                    dependency_hooks: false,
+                    hooks: crate::models::agent::EnabledHooks::default(),
                     local_session: None,
                     tui: None,
                 };
 
-                handle_load_env_run(args).await
+                handle_load_env_run(args).await.into_exit()
             }
             EntityType::Pull(pull_cmd) => {
                 // Validate scope conflicts
@@ -1279,7 +1480,7 @@ pub async fn handle_cli(args: Cli) {
                         e.format_error_output(raw_output)
                             .unwrap_or_else(|_| "Error formatting validation error".to_string())
                     );
-                    return;
+                    return Exit::failed(ErrorKind::Validation);
                 }
 
                 let args = HandlePullArgs {
@@ -1301,7 +1502,7 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                 };
 
-                handle_pull(args).await
+                handle_pull(args).await.into_exit()
             }
 
             EntityType::Push(push_cmd) => {
@@ -1316,7 +1517,7 @@ pub async fn handle_cli(args: Cli) {
                         e.format_error_output(raw_output)
                             .unwrap_or_else(|_| "Error formatting validation error".to_string())
                     );
-                    return;
+                    return Exit::failed(ErrorKind::Validation);
                 }
 
                 let args = HandlePushArgs {
@@ -1335,41 +1536,88 @@ pub async fn handle_cli(args: Cli) {
                     silent,
                 };
 
-                handle_push(args).await
+                handle_push(args).await.into_exit()
             }
-            EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent).await,
-            EntityType::Open => handle_open_dashboard(api_key, silent).await,
+            EntityType::Scan(cmd) => handle_scan_commands(cmd, api_key, raw_output, silent)
+                .await
+                .into_exit(),
+            EntityType::Open => handle_open_dashboard(api_key, silent).await.into_exit(),
             EntityType::Generate(_) => unreachable!(),
             EntityType::Doctor(_) => unreachable!(),
         };
 
-        if let Err(err) = result {
-            if REQUEST_ABORTED.load(Ordering::SeqCst) {
-                eprintln!("{}", "Request aborted".red_if_tty_stderr());
-                return;
+        let exit = match result {
+            Ok(exit) => exit,
+            Err(err) => {
+                if REQUEST_ABORTED.load(Ordering::SeqCst) {
+                    eprintln!("{}", "Request aborted".red_if_tty_stderr());
+                    return Exit::code(130);
+                }
+                if needs_printing(&err) {
+                    eprintln!("{:?}", err);
+                }
+                Exit::from(err)
             }
-            eprintln!("{:?}", err);
-            if let Some(command_failed) = err.downcast_ref::<CommandFailed>() {
-                std::process::exit(command_failed.exit_code());
-            }
-        }
+        };
+        exit_for(exit, bare_agent_hook)
     } else {
         if let EntityType::Config(cmd) = args.entity_type {
             if let ConfigSubcommand::Reset(_) = cmd.subcommand {
-                if let Err(e) = handle_config_commands(cmd, &Config::new(), args.raw) {
-                    eprintln!("{:?}", e);
-                }
-
-                return;
+                return print_error(handle_config_commands(cmd, &Config::new(), args.raw));
             }
         }
 
         let err = config.unwrap_err();
         if REQUEST_ABORTED.load(Ordering::SeqCst) {
             eprintln!("{}", "Request aborted".red_if_tty_stderr());
-            return;
+            return Exit::code(130);
         }
+        // An unreadable or malformed config file.
         eprintln!("{:?}", err);
+        exit_for(Exit::failed(ErrorKind::Validation), bare_agent_hook)
+    }
+}
+
+/// Prints an error the way every handler does, unless the handler already
+/// printed it, and fails the command.
+fn print_error(result: anyhow::Result<()>) -> Exit {
+    match result {
+        Ok(()) => Exit::ok(),
+        Err(error) => {
+            if needs_printing(&error) {
+                eprintln!("{:?}", error);
+            }
+            Exit::from(error)
+        }
+    }
+}
+
+/// For checks (`doctor`, `validate`, ...) whose `Ok(true)` means a check
+/// failed: they exit 1 without an error value to classify.
+fn check_exit(failed: bool) -> Exit {
+    if failed {
+        Exit::failed_with(ErrorKind::Other, 1)
+    } else {
+        Exit::ok()
+    }
+}
+
+/// The bare `agent hooks` invocation: Claude Code, Codex and Cursor run it
+/// before tool calls and read its exit code, so its failures keep exiting 0.
+fn is_bare_agent_hook(entity_type: &EntityType) -> bool {
+    matches!(
+        entity_type,
+        EntityType::Agent(crate::cmd::agent::AgentCommand {
+            subcommand: AgentSubcommand::Hooks(command),
+        }) if command.subcommand.is_none()
+    )
+}
+
+fn exit_for(exit: Exit, bare_agent_hook: bool) -> Exit {
+    if bare_agent_hook {
+        exit.zero_on_failure()
+    } else {
+        exit
     }
 }
 
@@ -1382,12 +1630,15 @@ fn uses_local_dependency_hook_broker(entity_type: &EntityType) -> bool {
     )
 }
 
-fn dependency_hooks_enabled(profile: &crate::models::agent::AgentProfile, api_key: &str) -> bool {
-    !api_key.is_empty()
-        && profile
-            .allow_hooks
-            .iter()
-            .any(|hook| hook == "dependency_check")
+fn enabled_hooks(
+    profile: &crate::models::agent::AgentProfile,
+    api_key: &str,
+) -> crate::models::agent::EnabledHooks {
+    if api_key.is_empty() {
+        crate::models::agent::EnabledHooks::default()
+    } else {
+        profile.requested_hooks()
+    }
 }
 
 fn uses_local_dependency_hook_broker_mode(entity_type: &EntityType, mode: Option<&str>) -> bool {
@@ -1711,6 +1962,7 @@ fn audit_group_by_name(group_by: AgentAuditGroupBy) -> &'static str {
         AgentAuditGroupBy::Host => "host",
         AgentAuditGroupBy::Action => "action",
         AgentAuditGroupBy::Binding => "binding",
+        AgentAuditGroupBy::Route => "route",
     }
 }
 
@@ -1724,6 +1976,7 @@ fn summarize_audit_groups(
             AgentAuditGroupBy::Host => event.destination_host.as_deref(),
             AgentAuditGroupBy::Action => Some(event.action.as_str()),
             AgentAuditGroupBy::Binding => event.binding_name.as_deref(),
+            AgentAuditGroupBy::Route => event.route.as_deref(),
         }
         .unwrap_or("-")
         .to_owned();
@@ -1877,9 +2130,11 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
     println!(
-        "{}  session_id={} event_id={} profile={} profile_source={} action={} host={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        "{}  session_id={} event_id={} profile={} profile_source={} routing_mode={} action={} host={} route={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
         event.timestamp, event.session_id, event.event_id, event.profile,
-        event.profile_source.as_deref().unwrap_or("-"), event.action, host,
+        event.profile_source.as_deref().unwrap_or("-"),
+        event.routing_mode.as_deref().unwrap_or("-"), event.action, host,
+        event.route.as_deref().unwrap_or("-"),
         event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
         event.binding_source.as_deref().unwrap_or("-"), status, duration,
         request_bytes, response_bytes
@@ -1976,6 +2231,32 @@ fn ensure_replacement_session_is_compatible(
     Ok(())
 }
 
+fn routing_summary(
+    routing: &crate::handlers::run::routing::RemoteRouting,
+    requested: Option<crate::handlers::run::routing::RemoteMode>,
+    backend_sent_mode: bool,
+) -> String {
+    use crate::handlers::run::routing::RemoteMode;
+    match routing.mode {
+        RemoteMode::Credential => {
+            let count = routing.routes.len();
+            let (noun, verb) = if count == 1 {
+                ("host", "uses")
+            } else {
+                ("hosts", "use")
+            };
+            format!(
+                "Routing: credential ({count} {noun} {verb} the Remote Agent Proxy; other traffic goes direct)"
+            )
+        }
+        RemoteMode::Full if requested == Some(RemoteMode::Credential) && !backend_sent_mode => {
+            "Routing: full (this Remote Agent Proxy does not support credential routing yet)"
+                .to_owned()
+        }
+        RemoteMode::Full => "Routing: full (all traffic uses the Remote Agent Proxy)".to_owned(),
+    }
+}
+
 fn remote_session_rotation_delay(expires_at: DateTime<Utc>) -> Duration {
     let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
     remote_session_rotation_delay_for(remaining)
@@ -2000,6 +2281,7 @@ fn spawn_remote_session_rotation(
     initial_session: crate::api::remote_proxy::RemoteProxySession,
     state: Arc<RwLock<crate::handlers::run::proxy::RemoteProxySessionState>>,
     initial_transport: (String, Option<(String, String)>),
+    routing: Arc<RwLock<crate::handlers::run::routing::RemoteRouting>>,
 ) -> (watch::Sender<bool>, JoinHandle<()>) {
     let (stop, mut stop_rx) = watch::channel(false);
     let task = tokio::spawn(async move {
@@ -2038,9 +2320,28 @@ fn spawn_remote_session_rotation(
                         &next_session,
                     )
                     .and_then(|_| provision_remote_session_ca(&next_session))
-                    .and_then(|_| remote_session_state(&next_session))
+                    .and_then(|_| {
+                        // Child TLS trust and the relay's routing are fixed at
+                        // startup, so a replacement may refresh the host list
+                        // but not switch modes.
+                        let next_routing = crate::handlers::run::routing::resolve_session_routing(
+                            &next_session,
+                            &request.bindings,
+                            &[],
+                        )?;
+                        let current_mode = routing.read().map(|routing| routing.mode).ok();
+                        if current_mode.is_some_and(|mode| mode != next_routing.mode) {
+                            anyhow::bail!(
+                                "Agent Proxy changed its routing mode while rotating a session; restart the agent run"
+                            );
+                        }
+                        Ok(next_routing)
+                    })
+                    .and_then(|next_routing| {
+                        remote_session_state(&next_session).map(|state| (state, next_routing))
+                    })
                     {
-                        Ok(next_state) => next_state,
+                        Ok(next) => next,
                         Err(error) => {
                             crate::api::remote_proxy::revoke_session(
                                 request.api_key.clone(),
@@ -2066,6 +2367,10 @@ fn spawn_remote_session_rotation(
                             continue;
                         }
                     };
+                    let (next_state, next_routing) = next_state;
+                    if let Ok(mut current) = routing.write() {
+                        *current = next_routing;
+                    }
                     let old_token = {
                         let mut current = match state.write() {
                             Ok(current) => current,
@@ -2117,16 +2422,18 @@ fn spawn_remote_session_rotation(
 mod tests {
     use super::{
         audit_binding_sources, codex_mcp_binding_header_overrides, configured_host_matches,
-        dependency_hooks_enabled, directory_profile_git_warning,
-        ensure_replacement_session_is_compatible, infer_remote_agent_type, remote_bindings,
-        remote_session_rotation_delay_for, remote_session_transport_identity,
-        remote_source_env_names, secret_child_name, summarize_audit_events,
-        uses_local_dependency_hook_broker_mode,
+        directory_profile_git_warning, enabled_hooks, ensure_replacement_session_is_compatible,
+        exit_for, infer_remote_agent_type, is_bare_agent_hook, remote_bindings,
+        remote_codex_command_with_mcp_binding_headers, remote_session_rotation_delay_for,
+        remote_session_started_message, remote_session_transport_identity, remote_source_env_names,
+        secret_child_name, summarize_audit_events, uses_local_dependency_hook_broker_mode,
     };
     use crate::api::remote_proxy::{RemoteBinding, RemoteBindingSource};
     use crate::cmd::root::Cli;
+    use crate::exit::Exit;
     use crate::handlers::run::proxy::ProxyAuditLogEvent;
     use crate::models::agent::{AgentBindingProfile, AgentProfile, AgentSecretsProfile};
+    use crate::telemetry::event::ErrorKind;
     use clap::Parser;
     use std::{
         collections::HashMap,
@@ -2197,6 +2504,24 @@ mod tests {
     }
 
     #[test]
+    fn only_the_bare_hook_invocation_keeps_exit_0_on_failure() {
+        let parse = |args: &[&str]| Cli::try_parse_from(args).unwrap().entity_type;
+
+        assert!(is_bare_agent_hook(&parse(&["stashbase", "agent", "hooks"])));
+        for args in [
+            &["stashbase", "agent", "hooks", "deps", "install", "codex"][..],
+            &["stashbase", "agent", "run", "--profile", "p", "--", "true"],
+            &["stashbase", "pull"],
+        ] {
+            assert!(!is_bare_agent_hook(&parse(args)), "{args:?}");
+        }
+
+        let failed = Exit::failed(ErrorKind::Validation);
+        assert_eq!(exit_for(failed, true).code, 0);
+        assert_eq!(exit_for(failed, false).code, 1);
+    }
+
+    #[test]
     fn dependency_hooks_require_an_api_key() {
         let profile: AgentProfile = serde_json::from_value(serde_json::json!({
             "file": null,
@@ -2205,8 +2530,33 @@ mod tests {
             "allow_hooks": ["dependency_check"]
         }))
         .unwrap();
-        assert!(!dependency_hooks_enabled(&profile, ""));
-        assert!(dependency_hooks_enabled(&profile, "key"));
+        assert!(!enabled_hooks(&profile, "").dependency_check);
+        assert!(enabled_hooks(&profile, "key").dependency_check);
+    }
+
+    #[test]
+    fn enabled_hooks_reads_both_hook_kinds_and_needs_an_api_key() {
+        let profile_with = |hooks: &[&str]| -> AgentProfile {
+            serde_json::from_value(serde_json::json!({
+                "file": null,
+                "egress_hosts": null,
+                "deny_hosts": null,
+                "allow_hooks": hooks
+            }))
+            .unwrap()
+        };
+
+        let hooks = enabled_hooks(&profile_with(&["secret_scan"]), "key");
+        assert!(hooks.secret_scan && !hooks.dependency_check);
+        assert_eq!(hooks.label(), "enabled (secret_scan)");
+        assert_eq!(
+            enabled_hooks(&profile_with(&["dependency_check", "secret_scan"]), "key").label(),
+            "enabled (dependency_check, secret_scan)"
+        );
+        assert_eq!(
+            enabled_hooks(&profile_with(&["secret_scan"]), "").label(),
+            "disabled"
+        );
     }
 
     #[test]
@@ -2259,6 +2609,86 @@ mod tests {
     }
 
     #[test]
+    fn codex_mcp_header_overrides_read_docker_sandbox_home_not_host_home() {
+        // Points CODEX_HOME at a config with a `github` MCP server, to prove
+        // the Docker-backend branch never reads it: a bogus, unreachable
+        // image means `read_persistent_home_file` returns `None`, and the
+        // function must fall back to the unmodified command rather than
+        // silently reading the host's CODEX_HOME as it would pre-fix.
+        let previous = std::env::var_os("CODEX_HOME");
+        let temp_dir = std::env::temp_dir().join(format!(
+            "stashbase-codex-home-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(
+            temp_dir.join("config.toml"),
+            r#"
+                [mcp_servers.github]
+                bearer_token_env_var = "GITHUB_PAT_TOKEN"
+            "#,
+        )
+        .unwrap();
+        std::env::set_var("CODEX_HOME", &temp_dir);
+
+        let bindings = [RemoteBinding {
+            name: "GH_TOKEN".to_owned(),
+            source: RemoteBindingSource::Secret,
+            source_name: "GH_TOKEN".to_owned(),
+            hosts: vec!["api.github.com".to_owned()],
+            rules: Vec::new(),
+            header: "Authorization".to_owned(),
+            placeholder: "${STASHBASE_GH_TOKEN}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
+        }];
+        let child_env = HashMap::from([("GH_TOKEN".to_owned(), "GITHUB_PAT_TOKEN".to_owned())]);
+        let command = vec!["codex".to_owned()];
+
+        let native_result =
+            remote_codex_command_with_mcp_binding_headers(&command, &bindings, &child_env, None)
+                .unwrap();
+        assert!(
+            native_result
+                .iter()
+                .any(|arg| arg.contains("mcp_servers.github.http_headers")),
+            "native/no-sandbox path should read the host CODEX_HOME"
+        );
+
+        let docker_result = remote_codex_command_with_mcp_binding_headers(
+            &command,
+            &bindings,
+            &child_env,
+            Some((
+                crate::models::agent::SandboxBackend::Docker,
+                "stashbase/definitely-not-a-real-image:test",
+            )),
+        )
+        .unwrap();
+        assert_eq!(
+            docker_result, command,
+            "docker-backend path must not fall back to reading the host's CODEX_HOME"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+        match previous {
+            Some(value) => std::env::set_var("CODEX_HOME", value),
+            None => std::env::remove_var("CODEX_HOME"),
+        }
+    }
+
+    #[test]
+    fn remote_session_started_message_counts_bindings() {
+        assert_eq!(
+            remote_session_started_message(1),
+            "Remote agent session started (1 binding)"
+        );
+        assert_eq!(
+            remote_session_started_message(3),
+            "Remote agent session started (3 bindings)"
+        );
+    }
+
+    #[test]
     fn remote_bindings_compile_mixed_sources_with_value_templates() {
         let binding = |from: Option<&str>| AgentBindingProfile {
             hosts: vec!["api.example.com".to_owned()],
@@ -2275,6 +2705,8 @@ mod tests {
             allow_network_listeners: false,
             deny_hosts: None,
             filesystem: Default::default(),
+            sandbox: Default::default(),
+            workspace: Default::default(),
             mcp_servers: HashMap::new(),
             secrets: AgentSecretsProfile {
                 project: Some("project".to_owned()),
@@ -2438,6 +2870,8 @@ mod tests {
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
+            routing_mode: None,
+            route: None,
             action: action.to_owned(),
             destination_host: Some(host.to_owned()),
             path: None,
@@ -2488,6 +2922,8 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                routing_mode: None,
+                route: Some("remote".to_owned()),
                 action: "injected".to_owned(),
                 destination_host: Some("api.github.com".to_owned()),
                 path: None,
@@ -2510,6 +2946,8 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                routing_mode: None,
+                route: Some("direct".to_owned()),
                 action: "forwarded".to_owned(),
                 destination_host: Some("registry.npmjs.org".to_owned()),
                 path: None,
@@ -2539,6 +2977,12 @@ mod tests {
             super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Binding);
         assert_eq!(by_binding[0].value, "-");
         assert_eq!(by_binding[1].value, "GITHUB_TOKEN");
+
+        let by_route =
+            super::summarize_audit_groups(&events, crate::cmd::agent::AgentAuditGroupBy::Route);
+        let route = |value: &str| by_route.iter().find(|group| group.value == value).unwrap();
+        assert_eq!(route("remote").request_bytes, 10);
+        assert_eq!(route("direct").response_bytes, 200);
     }
 
     #[test]
@@ -2599,6 +3043,45 @@ mod tests {
     }
 
     #[test]
+    fn routing_summary_names_the_remote_agent_proxy_and_counts_hosts() {
+        use crate::handlers::run::routing::{RemoteMode, RemoteRouting};
+        let credential = |hosts: &[&str]| {
+            let hosts = hosts
+                .iter()
+                .map(|host| (*host).to_owned())
+                .collect::<Vec<_>>();
+            RemoteRouting::resolve(Some(RemoteMode::Credential), Some(&hosts), [], true).unwrap()
+        };
+
+        assert_eq!(
+            super::routing_summary(&credential(&["a.com"]), Some(RemoteMode::Credential), true),
+            "Routing: credential (1 host uses the Remote Agent Proxy; other traffic goes direct)"
+        );
+        assert_eq!(
+            super::routing_summary(
+                &credential(&["a.com", "b.com"]),
+                Some(RemoteMode::Credential),
+                true
+            ),
+            "Routing: credential (2 hosts use the Remote Agent Proxy; other traffic goes direct)"
+        );
+        assert_eq!(
+            super::routing_summary(&RemoteRouting::full(), Some(RemoteMode::Full), true),
+            "Routing: full (all traffic uses the Remote Agent Proxy)"
+        );
+        // The service chose `full` itself (for example a binding that covers every
+        // host), so it does support credential routing.
+        assert_eq!(
+            super::routing_summary(&RemoteRouting::full(), Some(RemoteMode::Credential), true),
+            "Routing: full (all traffic uses the Remote Agent Proxy)"
+        );
+        assert_eq!(
+            super::routing_summary(&RemoteRouting::full(), Some(RemoteMode::Credential), false),
+            "Routing: full (this Remote Agent Proxy does not support credential routing yet)"
+        );
+    }
+
+    #[test]
     fn replacement_session_rejects_a_changed_interception_ca() {
         let initial = crate::api::remote_proxy::RemoteProxySession {
             session_id: "session-1".to_owned(),
@@ -2611,6 +3094,8 @@ mod tests {
                 sha256: "first".to_owned(),
                 pem: "unused".to_owned(),
             }),
+            routing_mode: None,
+            route_hosts: None,
         };
         let replacement = crate::api::remote_proxy::RemoteProxySession {
             session_id: "session-2".to_owned(),
@@ -2623,6 +3108,8 @@ mod tests {
                 sha256: "second".to_owned(),
                 pem: "unused".to_owned(),
             }),
+            routing_mode: None,
+            route_hosts: None,
         };
 
         let identity = remote_session_transport_identity(&initial).unwrap();

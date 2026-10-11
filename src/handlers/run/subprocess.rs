@@ -1,15 +1,18 @@
 use std::collections::HashMap;
 use std::env;
-#[cfg(unix)]
 use std::io::IsTerminal;
 #[cfg(unix)]
+use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::io::{AsRawFd, FromRawFd};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use anyhow::{Context, Result};
 use duct::{cmd, Expression};
 use thiserror::Error;
+
+use super::fs_rules::parse_fs_rule;
 
 // use log::debug;
 #[cfg(not(unix))]
@@ -65,7 +68,7 @@ pub async fn run_command(
         &[],
         &[],
         None,
-        None,
+        crate::models::agent::SandboxBackend::Native,
     )
     .await
 }
@@ -82,34 +85,149 @@ pub async fn run_command_with_filesystem_policy(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     audit_log: Option<super::proxy::ProxyAuditLog>,
+    backend: crate::models::agent::SandboxBackend,
+) -> Result<ExitStatus> {
+    run_command_with_filesystem_policy_and_network(
+        command,
+        args,
+        env_vars,
+        env_removals,
+        sandbox,
+        allow_network_listeners,
+        proxy_mode,
+        restrict_stashbase_credentials,
+        denied_read_paths,
+        denied_write_paths,
+        audit_log,
+        backend,
+        None,
+        super::docker_sandbox::DEFAULT_SANDBOX_IMAGE,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Like `run_command_with_filesystem_policy`, but for the Docker backend
+/// takes an already-created per-run network instead of creating its own —
+/// the caller creates it once and binds the credential proxy to the same
+/// network's gateway, so the proxy and the container agree on which
+/// network they share. `docker_network` must be `Some` when `backend` is
+/// `SandboxBackend::Docker`; it is ignored for the native backend.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_command_with_filesystem_policy_and_network(
+    command: &str,
+    args: Vec<String>,
+    env_vars: HashMap<String, String>,
+    env_removals: Vec<String>,
+    sandbox: bool,
+    allow_network_listeners: bool,
+    proxy_mode: bool,
+    restrict_stashbase_credentials: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    audit_log: Option<super::proxy::ProxyAuditLog>,
+    backend: crate::models::agent::SandboxBackend,
+    docker_network: Option<&super::docker_sandbox::DockerRunNetwork>,
+    agent_image: &str,
+    sandbox_memory: Option<&str>,
+    sandbox_cpus: Option<&str>,
+    sandbox_isolated_paths: &[String],
+    workdir: Option<&Path>,
+    git_mounts: Option<&super::docker_sandbox::GitMounts>,
     tui: Option<super::tui::TuiStatusInfo>,
 ) -> Result<ExitStatus> {
-    if let Some(tui_info) = tui {
+    if tui.is_some() {
         if !super::tui::tui_supported() {
             anyhow::bail!(super::tui::tui_unsupported_reason());
         }
-        return run_command_in_tui_with_filesystem_policy(
+        if backend == crate::models::agent::SandboxBackend::Docker {
+            anyhow::bail!("--tui is not supported with the Docker sandbox backend yet");
+        }
+    }
+    // `workdir` is `Some` for a `--worktree` run: the agent works in the
+    // worktree, not in the directory stashbase was started from.
+    let current_dir = match workdir {
+        Some(dir) => dir.to_path_buf(),
+        None => env::current_dir()?,
+    };
+
+    if backend == crate::models::agent::SandboxBackend::Docker {
+        if let Some(error) = super::docker_sandbox::docker_enforcement_error() {
+            anyhow::bail!("Docker sandbox backend unavailable: {error}");
+        }
+        let network =
+            docker_network.context("Docker sandbox backend selected without a per-run network")?;
+        let args = codex_args_forcing_full_access(command, args);
+        let cwd = current_dir.to_string_lossy();
+        for path in sandbox_isolated_paths {
+            let created =
+                super::docker_sandbox::ensure_isolated_path_volume(&cwd, path, agent_image)
+                    .map_err(|error| {
+                        anyhow::anyhow!("failed to prepare isolated path '{path}': {error}")
+                    })?;
+            if created {
+                eprintln!(
+                    "Isolated path '{path}' is new and empty for this repo — run your install (e.g. `npm ci`) inside the sandbox first."
+                );
+            }
+        }
+        let (program, launcher_args) = super::docker_sandbox::docker_run_command(
             command,
+            network,
+            &current_dir,
+            git_mounts,
+            denied_read_paths,
+            denied_write_paths,
+            &env_vars,
+            std::io::stdin().is_terminal(),
+            agent_image,
+            sandbox_memory,
+            sandbox_cpus,
+            sandbox_isolated_paths,
+        )
+        .map_err(|error| anyhow::anyhow!("failed to build Docker sandbox invocation: {error}"))?;
+        // Added only after `docker_run_command` has built its `-e` args, so
+        // the hint lands on the host-side `docker` process (the pane's
+        // foreground process, which Herdr inspects) and never reaches the
+        // container.
+        let mut env_vars = env_vars;
+        if let Some(agent) = herdr_agent_hint(command, &env_vars, |key| env::var(key).ok()) {
+            env_vars.insert("HERDR_AGENT".to_owned(), agent);
+        }
+        return run_built_command(
+            program,
+            launcher_args,
             args,
             env_vars,
             env_removals,
-            sandbox,
-            allow_network_listeners,
-            proxy_mode,
             restrict_stashbase_credentials,
+            proxy_mode,
             denied_read_paths,
             denied_write_paths,
-            tui_info,
+            audit_log,
+            current_dir,
         )
         .await;
     }
-    let current_dir = env::current_dir()?;
+
     #[cfg(target_os = "macos")]
-    let (args, codex_boundary) = codex_args_with_outer_sandbox(
-        command,
-        args,
-        has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths),
-    );
+    let (args, codex_boundary) = {
+        let has_outer_sandbox =
+            has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths);
+        let (args, codex_boundary) =
+            codex_args_with_outer_sandbox(command, args, has_outer_sandbox);
+        let args = codex_args_without_daemon(
+            command,
+            args,
+            has_outer_sandbox && codex_supports_no_daemon(command),
+        );
+        (args, codex_boundary)
+    };
     #[cfg(not(target_os = "macos"))]
     let codex_boundary = CodexSandboxBoundary::FullAccess;
     let (program, launcher_args) = sandbox_command_with_filesystem_policy(
@@ -120,7 +238,73 @@ pub async fn run_command_with_filesystem_policy(
         denied_read_paths,
         denied_write_paths,
         codex_boundary,
+        &current_dir,
     )?;
+    if let Some(tui_info) = tui {
+        return run_built_command_in_tui(
+            program,
+            launcher_args,
+            args,
+            env_vars,
+            env_removals,
+            restrict_stashbase_credentials,
+            proxy_mode,
+            current_dir,
+            tui_info,
+        )
+        .await;
+    }
+    run_built_command(
+        program,
+        launcher_args,
+        args,
+        env_vars,
+        env_removals,
+        restrict_stashbase_credentials,
+        proxy_mode,
+        denied_read_paths,
+        denied_write_paths,
+        audit_log,
+        current_dir,
+    )
+    .await
+}
+
+/// Starts `expression`, calls `on_launched` once the child process exists,
+/// then waits for it. Equivalent to `expression.run()`, except that it tells
+/// the caller when the spawn has actually succeeded, so a failure to start
+/// the child is never reported as a launched run.
+fn run_marking_launch(
+    expression: &Expression,
+    on_launched: impl FnOnce(),
+) -> std::io::Result<std::process::Output> {
+    let handle = expression.start()?;
+    on_launched();
+    handle.into_output()
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_built_command(
+    program: String,
+    launcher_args: Vec<String>,
+    args: Vec<String>,
+    env_vars: HashMap<String, String>,
+    env_removals: Vec<String>,
+    restrict_stashbase_credentials: bool,
+    proxy_mode: bool,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    audit_log: Option<super::proxy::ProxyAuditLog>,
+    current_dir: PathBuf,
+) -> Result<ExitStatus> {
+    // NOTE: for the Docker backend, `program` is `docker` — every
+    // `cmd.env_remove`/`cmd.env` call below acts on the `docker` CLI
+    // process's own environment, not the container's. The container only
+    // ever sees what `docker_run_command` explicitly passed via `-e`, so
+    // these removals are inert (harmlessly so, since nothing is inherited
+    // into the container to begin with) for that path. Do not rely on this
+    // block to enforce a Docker-path env restriction — enforce it in
+    // `docker_run_command` instead.
     let cmd: Expression = cmd(program, launcher_args)
         .before_spawn(move |cmd| {
             // Agent profiles may rename a project secret for the child process.
@@ -159,7 +343,7 @@ pub async fn run_command_with_filesystem_policy(
             }
             Ok(())
         })
-        .env("FORCE_COLOR", "true")
+        .env("FORCE_COLOR", force_color_level())
         .dir(current_dir);
     // .full_env(env_vars);
     // .env("--color", "always");
@@ -176,27 +360,54 @@ pub async fn run_command_with_filesystem_policy(
             std::io::stdin().is_terminal(),
             std::io::stderr().is_terminal(),
         ) {
-            let terminal_input = unsafe { libc::dup(std::io::stdin().as_raw_fd()) };
-            if terminal_input < 0 {
+            let mut pipe_fds = [0; 2];
+            if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
                 return Err(std::io::Error::last_os_error().into());
             }
-            let terminal_error = unsafe { libc::dup(std::io::stderr().as_raw_fd()) };
-            if terminal_error < 0 {
-                return Err(std::io::Error::last_os_error().into());
-            }
-            let output = cmd
-                .stdin_file(unsafe { std::fs::File::from_raw_fd(terminal_input) })
+            // Drain stderr concurrently so an interactive child cannot block
+            // on a full pipe. The bytes are still forwarded to the terminal
+            // and parsed after exit for filesystem policy reporting.
+            let mut stderr_reader = unsafe { std::fs::File::from_raw_fd(pipe_fds[0]) };
+            let stderr_writer = unsafe { std::fs::File::from_raw_fd(pipe_fds[1]) };
+            let stderr_forwarder = std::thread::spawn(move || {
+                let mut captured = Vec::new();
+                let mut terminal = std::io::stderr();
+                let mut buffer = [0; 8192];
+                loop {
+                    let count = stderr_reader.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    terminal.write_all(&buffer[..count])?;
+                    captured.extend_from_slice(&buffer[..count]);
+                }
+                terminal.flush()?;
+                Ok::<_, std::io::Error>(captured)
+            });
+            let child = cmd
                 .stdout_file(terminal_output)
-                .stderr_file(unsafe { std::fs::File::from_raw_fd(terminal_error) })
-                .unchecked()
-                .run()?;
+                .stderr_file(stderr_writer)
+                .unchecked();
+            // The child exists now: an `agent run` counts as launched for
+            // telemetry only from this point.
+            let output = run_marking_launch(&child, crate::telemetry::mark_agent_run_launched)?;
+            drop(child);
+            let stderr = stderr_forwarder
+                .join()
+                .map_err(|_| anyhow::anyhow!("stderr forwarding thread panicked"))??;
+            record_child_stderr(
+                &stderr,
+                denied_read_paths,
+                denied_write_paths,
+                audit_log.as_ref(),
+            )?;
             output.status
         } else {
-            let output = cmd
+            let child = cmd
                 .stdout_file(terminal_output)
                 .stderr_capture()
-                .unchecked()
-                .run()?;
+                .unchecked();
+            let output = run_marking_launch(&child, crate::telemetry::mark_agent_run_launched)?;
             emit_child_stderr(
                 &output.stderr,
                 denied_read_paths,
@@ -210,6 +421,8 @@ pub async fn run_command_with_filesystem_policy(
     #[cfg(not(unix))]
     let status = {
         let mut reader = cmd.stdout_to_stderr().unchecked().reader()?;
+        // The child exists now: an `agent run` counts as launched for telemetry.
+        crate::telemetry::mark_agent_run_launched();
         {
             let mut lines = BufReader::new(&mut reader).lines();
             while let Some(line) = lines.next() {
@@ -225,40 +438,21 @@ pub async fn run_command_with_filesystem_policy(
     Ok(status)
 }
 
-/// Builds the same sandboxed command as `run_command_with_filesystem_policy`,
-/// but runs it inside a pseudo-terminal with a Stashbase status bar reserved
-/// at the bottom of the real terminal instead of inheriting stdio directly.
-async fn run_command_in_tui_with_filesystem_policy(
-    command: &str,
+/// Runs an already-built sandboxed command inside a pseudo-terminal with a
+/// Stashbase status bar reserved at the bottom of the real terminal instead
+/// of inheriting stdio directly.
+#[allow(clippy::too_many_arguments)]
+async fn run_built_command_in_tui(
+    program: String,
+    launcher_args: Vec<String>,
     args: Vec<String>,
     env_vars: HashMap<String, String>,
     env_removals: Vec<String>,
-    sandbox: bool,
-    allow_network_listeners: bool,
-    proxy_mode: bool,
     restrict_stashbase_credentials: bool,
-    denied_read_paths: &[String],
-    denied_write_paths: &[String],
+    proxy_mode: bool,
+    current_dir: PathBuf,
     tui_info: super::tui::TuiStatusInfo,
 ) -> Result<ExitStatus> {
-    let current_dir = env::current_dir()?;
-    #[cfg(target_os = "macos")]
-    let (args, codex_boundary) = codex_args_with_outer_sandbox(
-        command,
-        args,
-        has_outer_macos_sandbox(sandbox, denied_read_paths, denied_write_paths),
-    );
-    #[cfg(not(target_os = "macos"))]
-    let codex_boundary = CodexSandboxBoundary::FullAccess;
-    let (program, launcher_args) = sandbox_command_with_filesystem_policy(
-        command,
-        sandbox,
-        allow_network_listeners,
-        &env_vars,
-        denied_read_paths,
-        denied_write_paths,
-        codex_boundary,
-    )?;
     let mut child_args = launcher_args;
     child_args.extend(args);
     let mut child_env_removals = env_removals;
@@ -378,12 +572,152 @@ fn codex_args_with_outer_sandbox(
     (args, boundary)
 }
 
+/// Codex 0.158+ hands interactive sessions to a shared app-server daemon over a
+/// Unix socket in `~/.codex`. That daemon runs outside the outer Seatbelt profile,
+/// so commands it executes would escape the network and filesystem policy, and the
+/// profile's `(deny network-outbound)` blocks the socket anyway. `--no-daemon` keeps
+/// Codex in-process, inside the Stashbase boundary.
+#[cfg(target_os = "macos")]
+fn codex_args_without_daemon(
+    command: &str,
+    mut args: Vec<String>,
+    supports_no_daemon: bool,
+) -> Vec<String> {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    if !is_codex || !supports_no_daemon || args.iter().any(|arg| arg == "--no-daemon") {
+        return args;
+    }
+    args.insert(0, "--no-daemon".to_owned());
+    args
+}
+
+/// Older Codex releases reject the unknown `--no-daemon` flag.
+#[cfg(target_os = "macos")]
+fn codex_supports_no_daemon(command: &str) -> bool {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    is_codex
+        && std::process::Command::new(command)
+            .arg("--help")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains("--no-daemon"))
+}
+
 #[cfg(target_os = "macos")]
 fn codex_boundary_for_mode(mode: &str) -> CodexSandboxBoundary {
     match mode {
         "read-only" => CodexSandboxBoundary::ReadOnly,
         "danger-full-access" => CodexSandboxBoundary::FullAccess,
         _ => CodexSandboxBoundary::WorkspaceWrite,
+    }
+}
+
+/// The `HERDR_AGENT` value for a Docker-sandboxed agent run inside a Herdr
+/// pane, or `None` when there is nothing to add.
+///
+/// Herdr identifies an agent by the pane's foreground process. For the
+/// Docker backend that is the host's `docker` CLI — the agent itself runs
+/// inside the Docker VM, invisible to the host process tree — so Herdr
+/// can't tell an agent is there and shows no idle/working/blocked state.
+/// Herdr's documented fix for wrappers is `HERDR_AGENT=<agent>` set on the
+/// host-side wrapper process, which selects that agent's screen-detection
+/// rules for the pane. An explicit `HERDR_AGENT` always wins: one in
+/// `env_vars` (a profile env var or binding) is already applied to the
+/// `docker` process, and one the user exported is inherited by it.
+fn herdr_agent_hint(
+    command: &str,
+    env_vars: &HashMap<String, String>,
+    host_env: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    if host_env("HERDR_ENV").as_deref() != Some("1")
+        || env_vars.contains_key("HERDR_AGENT")
+        || host_env("HERDR_AGENT").is_some()
+    {
+        return None;
+    }
+    let agent = PathBuf::from(command)
+        .file_stem()?
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    (!agent.is_empty()).then_some(agent)
+}
+
+/// Rewrites Codex's own `--sandbox <mode>` argument to `danger-full-access`
+/// (or injects it if absent), the same way `codex_args_with_outer_sandbox`
+/// does for the native macOS backend when an outer Seatbelt profile is
+/// already active. Unlike that macOS-only helper, this one runs
+/// unconditionally for the Docker backend on every host platform: the
+/// Docker container is *always* an outer sandbox once selected, and
+/// Codex's own inner sandbox (bubblewrap on Linux, Seatbelt on macOS) is
+/// both redundant — the container is already the enforcement boundary —
+/// and, for bubblewrap specifically, non-functional inside a container
+/// that has already dropped all capabilities (`bwrap` needs to create a
+/// new user/mount namespace, which `--cap-drop ALL` blocks outright).
+/// Codex's approval policy is left untouched; only its own filesystem
+/// sandboxing is disabled.
+fn codex_args_forcing_full_access(command: &str, mut args: Vec<String>) -> Vec<String> {
+    let is_codex = PathBuf::from(command)
+        .file_stem()
+        .is_some_and(|name| name.eq_ignore_ascii_case("codex"));
+    if !is_codex {
+        return args;
+    }
+    if args
+        .iter()
+        .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
+    {
+        return args;
+    }
+    let mut found_sandbox = false;
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--sandbox" {
+            if let Some(mode) = args.get_mut(index + 1) {
+                *mode = "danger-full-access".to_owned();
+            } else {
+                args.push("danger-full-access".to_owned());
+            }
+            found_sandbox = true;
+            index += 2;
+        } else if args[index].starts_with("--sandbox=") {
+            args[index] = "--sandbox=danger-full-access".to_owned();
+            found_sandbox = true;
+            index += 1;
+        } else {
+            index += 1;
+        }
+    }
+    if !found_sandbox {
+        args.splice(
+            0..0,
+            ["--sandbox".to_owned(), "danger-full-access".to_owned()],
+        );
+    }
+    args
+}
+
+/// `FORCE_COLOR` is read as a color *level* by `supports-color` (used by Codex's
+/// TUI): `true` means basic 16 colors and short-circuits truecolor detection,
+/// which strips theme colors. Report the level the host terminal supports.
+pub(super) fn force_color_level() -> String {
+    if let Ok(existing) = env::var("FORCE_COLOR") {
+        if !existing.is_empty() {
+            return existing;
+        }
+    }
+    let colorterm = env::var("COLORTERM").unwrap_or_default();
+    let term = env::var("TERM").unwrap_or_default();
+    if colorterm.eq_ignore_ascii_case("truecolor") || colorterm.eq_ignore_ascii_case("24bit") {
+        "3".to_owned()
+    } else if term.contains("256") {
+        "2".to_owned()
+    } else {
+        "1".to_owned()
     }
 }
 
@@ -406,9 +740,11 @@ fn sandbox_command(
         &[],
         &[],
         CodexSandboxBoundary::FullAccess,
+        &env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sandbox_command_with_filesystem_policy(
     command: &str,
     sandbox: bool,
@@ -417,6 +753,7 @@ fn sandbox_command_with_filesystem_policy(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
     codex_boundary: CodexSandboxBoundary,
+    current_dir: &Path,
 ) -> Result<(String, Vec<String>)> {
     #[cfg(target_os = "linux")]
     let _ = env_vars;
@@ -434,11 +771,13 @@ fn sandbox_command_with_filesystem_policy(
                     if let Some(error) = bubblewrap_enforcement_error() {
                         anyhow::bail!(error);
                     }
-                    return Ok(bubblewrap_command(
+                    return bubblewrap_command(
                         command,
                         denied_read_paths,
                         denied_write_paths,
-                    ));
+                        current_dir,
+                    )
+                    .map_err(|error| anyhow::anyhow!(error));
                 }
             }
             #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -492,8 +831,8 @@ fn sandbox_command_with_filesystem_policy(
             {}
             {}
         "#,
-            codex_workspace_rules(codex_boundary),
-            denied_file_rules(denied_read_paths, denied_write_paths)
+            codex_workspace_rules(codex_boundary, current_dir),
+            denied_file_rules(denied_read_paths, denied_write_paths, current_dir)?
         );
         return Ok((
             "/usr/bin/sandbox-exec".to_owned(),
@@ -515,21 +854,20 @@ fn sandbox_command_with_filesystem_policy(
             if let Some(error) = bubblewrap_enforcement_error() {
                 anyhow::bail!(error);
             }
-            return Ok(bubblewrap_command(
-                command,
-                denied_read_paths,
-                denied_write_paths,
-            ));
+            return bubblewrap_command(command, denied_read_paths, denied_write_paths, current_dir)
+                .map_err(|error| anyhow::anyhow!(error));
         }
         if !sandbox && denied_read_paths.is_empty() && denied_write_paths.is_empty() {
             return Ok((command.to_owned(), Vec::new()));
         }
-        return Ok(systemd_command(
+        return systemd_command(
             command,
             sandbox,
             denied_read_paths,
             denied_write_paths,
-        ));
+            current_dir,
+        )
+        .map_err(|error| anyhow::anyhow!(error));
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -539,11 +877,11 @@ fn sandbox_command_with_filesystem_policy(
 }
 
 #[cfg(target_os = "macos")]
-fn codex_workspace_rules(boundary: CodexSandboxBoundary) -> String {
+fn codex_workspace_rules(boundary: CodexSandboxBoundary, current_dir: &Path) -> String {
     if boundary == CodexSandboxBoundary::FullAccess {
         return String::new();
     }
-    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let current_dir = current_dir.to_path_buf();
     let codex_home = env::var_os("CODEX_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")));
@@ -571,62 +909,58 @@ fn codex_workspace_rules(boundary: CodexSandboxBoundary) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn denied_file_rules(deny_read: &[String], deny_write: &[String]) -> String {
+pub(crate) fn denied_file_rules(
+    deny_read: &[String],
+    deny_write: &[String],
+    current_dir: &Path,
+) -> Result<String> {
     let mut rules = Vec::new();
-    for path in resolve_policy_paths(deny_read) {
-        let escaped = escape_sbpl_path(&path);
-        let matcher = if PathBuf::from(&path).is_file() {
-            "literal"
-        } else {
-            "subpath"
-        };
-        rules.push(format!("(deny file-read* ({matcher} \"{escaped}\"))"));
-    }
-    for path in resolve_policy_paths(deny_write) {
-        let escaped = escape_sbpl_path(&path);
-        let matcher = if PathBuf::from(&path).is_file() {
-            "literal"
-        } else {
-            "subpath"
-        };
-        rules.push(format!("(deny file-write* ({matcher} \"{escaped}\"))"));
+    for (operation, entries) in [("file-read*", deny_read), ("file-write*", deny_write)] {
+        for rule in
+            super::fs_rules::parse_fs_rules(entries, current_dir).map_err(anyhow::Error::msg)?
+        {
+            // Seatbelt matches patterns itself, so files created during the
+            // run are covered too; other backends only get a launch snapshot.
+            let filter = match rule {
+                super::fs_rules::FsRule::Path(path) => {
+                    let matcher = if PathBuf::from(&path).is_file() {
+                        "literal"
+                    } else {
+                        "subpath"
+                    };
+                    format!("({matcher} \"{}\")", escape_sbpl_path(&path))
+                }
+                super::fs_rules::FsRule::Pattern { regex, .. } => {
+                    format!("(regex \"{}\")", escape_sbpl_path(&regex))
+                }
+            };
+            rules.push(format!("(deny {operation} {filter})"));
+        }
     }
     rules.sort();
     rules.dedup();
     if rules.is_empty() {
-        String::new()
+        Ok(String::new())
     } else {
-        format!("\n            {}", rules.join("\n            "))
+        Ok(format!("\n            {}", rules.join("\n            ")))
     }
 }
 
-fn resolve_policy_paths(paths: &[String]) -> Vec<String> {
-    let home = env::var_os("HOME").map(PathBuf::from);
-    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut resolved = paths
-        .iter()
-        .map(|path| {
-            let path = path.trim();
-            let path = if path == "~" {
-                home.clone().unwrap_or_else(|| PathBuf::from(path))
-            } else if let Some(rest) = path.strip_prefix("~/") {
-                home.clone()
-                    .unwrap_or_else(|| PathBuf::from("~"))
-                    .join(rest)
-            } else {
-                PathBuf::from(path)
-            };
-            if path.is_absolute() {
-                path
-            } else {
-                current_dir.join(path)
-            }
-        })
-        .map(|path| path.to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    resolved.sort();
-    resolved.dedup();
-    resolved
+#[cfg(unix)]
+fn record_child_stderr(
+    stderr: &[u8],
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+    audit_log: Option<&super::proxy::ProxyAuditLog>,
+) -> Result<()> {
+    for line in String::from_utf8_lossy(stderr).lines() {
+        if let Some((path, operation)) =
+            filesystem_denial_from_line(line, denied_read_paths, denied_write_paths)
+        {
+            emit_filesystem_denial(&path, operation, audit_log);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -678,13 +1012,9 @@ fn filesystem_denial_from_line(
         return None;
     }
 
+    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let matches_path = |configured: &str| {
-        let configured = configured.trim();
-        let Some(denied_path) = resolve_policy_paths(&[configured.to_owned()])
-            .into_iter()
-            .next()
-            .map(PathBuf::from)
-        else {
+        let Ok(rule) = parse_fs_rule(configured, &current_dir) else {
             return false;
         };
         line.split_whitespace().any(|token| {
@@ -698,11 +1028,9 @@ fn filesystem_denial_from_line(
             let candidate = if candidate.is_absolute() {
                 candidate
             } else {
-                env::current_dir()
-                    .unwrap_or_else(|_| PathBuf::from("."))
-                    .join(candidate)
+                current_dir.join(candidate)
             };
-            candidate == denied_path || candidate.starts_with(&denied_path)
+            rule.matches(&candidate)
         })
     };
 
@@ -717,7 +1045,7 @@ fn filesystem_denial_from_line(
 }
 
 #[cfg(target_os = "macos")]
-fn escape_sbpl_path(path: &str) -> String {
+pub(crate) fn escape_sbpl_path(path: &str) -> String {
     path.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
@@ -865,7 +1193,8 @@ fn bubblewrap_command(
     command: &str,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
-) -> (String, Vec<String>) {
+    current_dir: &Path,
+) -> Result<(String, Vec<String>), String> {
     let executable = if command_in_path("bwrap") {
         "bwrap"
     } else {
@@ -882,20 +1211,22 @@ fn bubblewrap_command(
         "/dev".to_owned(),
         "/dev".to_owned(),
         "--chdir".to_owned(),
-        env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("/"))
-            .to_string_lossy()
-            .into_owned(),
+        current_dir.to_string_lossy().into_owned(),
     ];
-    let read_paths = resolve_policy_paths(denied_read_paths);
+    let read_paths = super::fs_rules::expand_policy_entries(denied_read_paths, current_dir, None)?;
     for path in &read_paths {
         if PathBuf::from(path).is_dir() {
             args.extend(["--tmpfs".to_owned(), path.clone()]);
         } else {
-            args.extend(["--ro-bind".to_owned(), "/dev/null".to_owned(), path.clone()]);
+            // Not `/dev/null`: `--ro-bind` preserves the *source's* file
+            // type at the target, and `/dev/null` is a character device,
+            // not a regular file — see `empty_shadow_file_path`'s doc
+            // comment for why that matters in practice.
+            let shadow_file = super::docker_sandbox::empty_shadow_file_path()?;
+            args.extend(["--ro-bind".to_owned(), shadow_file, path.clone()]);
         }
     }
-    for path in resolve_policy_paths(denied_write_paths) {
+    for path in super::fs_rules::expand_policy_entries(denied_write_paths, current_dir, None)? {
         if read_paths.iter().any(|read| {
             let read = PathBuf::from(read);
             let path = PathBuf::from(&path);
@@ -906,7 +1237,7 @@ fn bubblewrap_command(
         args.extend(["--ro-bind".to_owned(), path.clone(), path]);
     }
     args.extend(["--".to_owned(), command.to_owned()]);
-    (executable.to_owned(), args)
+    Ok((executable.to_owned(), args))
 }
 
 #[cfg(target_os = "linux")]
@@ -915,7 +1246,8 @@ fn systemd_command(
     sandbox: bool,
     denied_read_paths: &[String],
     denied_write_paths: &[String],
-) -> (String, Vec<String>) {
+    current_dir: &Path,
+) -> Result<(String, Vec<String>), String> {
     // systemd applies these cgroup IP rules only to the child command. The
     // parent-owned proxy remains outside the scope and can forward approved
     // requests to the internet, while the child can reach only 127.0.0.1.
@@ -931,14 +1263,14 @@ fn systemd_command(
             "--property=IPAddressAllow=::1".to_owned(),
         ]);
     }
-    for path in resolve_policy_paths(denied_read_paths) {
+    for path in super::fs_rules::expand_policy_entries(denied_read_paths, current_dir, None)? {
         args.push(format!("--property=InaccessiblePaths={path}"));
     }
-    for path in resolve_policy_paths(denied_write_paths) {
+    for path in super::fs_rules::expand_policy_entries(denied_write_paths, current_dir, None)? {
         args.push(format!("--property=ReadOnlyPaths={path}"));
     }
     args.extend(["--".to_owned(), command.to_owned()]);
-    ("systemd-run".to_owned(), args)
+    Ok(("systemd-run".to_owned(), args))
 }
 
 #[cfg(target_os = "linux")]
@@ -984,14 +1316,16 @@ pub(crate) fn filesystem_enforcement_error() -> Option<String> {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use super::{
+        codex_args_forcing_full_access, filesystem_backend_for_policy, filesystem_denial_from_line,
+        herdr_agent_hint, run_command, run_marking_launch, sandbox_command,
+        should_inherit_terminal_streams,
+    };
     #[cfg(target_os = "macos")]
     use super::{
-        codex_args_with_outer_sandbox, codex_workspace_rules, escape_sbpl_path,
-        has_outer_macos_sandbox, sandbox_command_with_filesystem_policy, CodexSandboxBoundary,
-    };
-    use super::{
-        filesystem_backend_for_policy, filesystem_denial_from_line, run_command, sandbox_command,
-        should_inherit_terminal_streams,
+        codex_args_with_outer_sandbox, codex_args_without_daemon, codex_workspace_rules,
+        escape_sbpl_path, has_outer_macos_sandbox, sandbox_command_with_filesystem_policy,
+        CodexSandboxBoundary,
     };
     use std::collections::HashMap;
     use std::sync::{Mutex, OnceLock};
@@ -999,6 +1333,107 @@ mod tests {
     fn environment_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    #[test]
+    fn herdr_agent_hint_names_the_agent_inside_a_herdr_pane() {
+        let host_env = |key: &str| (key == "HERDR_ENV").then(|| "1".to_owned());
+        assert_eq!(
+            herdr_agent_hint("/usr/local/bin/Claude", &HashMap::new(), host_env),
+            Some("claude".to_owned())
+        );
+    }
+
+    #[test]
+    fn herdr_agent_hint_is_none_outside_herdr() {
+        assert_eq!(herdr_agent_hint("claude", &HashMap::new(), |_| None), None);
+    }
+
+    #[test]
+    fn herdr_agent_hint_keeps_a_user_exported_value() {
+        let host_env = |key: &str| match key {
+            "HERDR_ENV" => Some("1".to_owned()),
+            "HERDR_AGENT" => Some("codex".to_owned()),
+            _ => None,
+        };
+        assert_eq!(herdr_agent_hint("claude", &HashMap::new(), host_env), None);
+    }
+
+    #[test]
+    fn herdr_agent_hint_keeps_an_explicit_profile_value() {
+        let host_env = |key: &str| (key == "HERDR_ENV").then(|| "1".to_owned());
+        let env_vars = HashMap::from([("HERDR_AGENT".to_owned(), "codex".to_owned())]);
+        assert_eq!(herdr_agent_hint("claude", &env_vars, host_env), None);
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_leaves_non_codex_commands_untouched() {
+        let args = vec!["--sandbox".to_owned(), "workspace-write".to_owned()];
+        let result = codex_args_forcing_full_access("claude", args.clone());
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_rewrites_existing_sandbox_flag() {
+        let args = vec![
+            "exec".to_owned(),
+            "--sandbox".to_owned(),
+            "workspace-write".to_owned(),
+        ];
+        let result = codex_args_forcing_full_access("codex", args);
+        assert_eq!(
+            result,
+            vec![
+                "exec".to_owned(),
+                "--sandbox".to_owned(),
+                "danger-full-access".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_rewrites_equals_form() {
+        let args = vec!["exec".to_owned(), "--sandbox=read-only".to_owned()];
+        let result = codex_args_forcing_full_access("codex", args);
+        assert_eq!(
+            result,
+            vec!["exec".to_owned(), "--sandbox=danger-full-access".to_owned()]
+        );
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_injects_flag_when_absent() {
+        let args = vec!["exec".to_owned(), "echo hi".to_owned()];
+        let result = codex_args_forcing_full_access("codex", args);
+        assert_eq!(
+            result,
+            vec![
+                "--sandbox".to_owned(),
+                "danger-full-access".to_owned(),
+                "exec".to_owned(),
+                "echo hi".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_respects_explicit_bypass_flag() {
+        let args = vec![
+            "exec".to_owned(),
+            "--dangerously-bypass-approvals-and-sandbox".to_owned(),
+        ];
+        let result = codex_args_forcing_full_access("codex", args.clone());
+        assert_eq!(result, args);
+    }
+
+    #[test]
+    fn codex_args_forcing_full_access_matches_codex_regardless_of_path() {
+        let args = vec!["--sandbox".to_owned(), "workspace-write".to_owned()];
+        let result = codex_args_forcing_full_access("/usr/local/bin/codex", args);
+        assert_eq!(
+            result,
+            vec!["--sandbox".to_owned(), "danger-full-access".to_owned()]
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -1011,12 +1446,32 @@ mod tests {
 
     #[test]
     fn parses_structured_filesystem_denial() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "cat: .env: Operation not permitted",
             &[".env".to_owned()],
             &[],
         );
         assert_eq!(denial, Some((".env".to_owned(), "read")));
+    }
+
+    #[test]
+    fn attributes_denials_to_matching_glob_entries() {
+        let _guard = environment_lock().lock().unwrap();
+        let denial = filesystem_denial_from_line(
+            "cat: config/.env.local: Operation not permitted",
+            &["**/.env*".to_owned()],
+            &["/unrelated/*".to_owned()],
+        );
+        assert_eq!(denial, Some(("**/.env*".to_owned(), "read")));
+        assert_eq!(
+            filesystem_denial_from_line(
+                "cat: config/settings: Operation not permitted",
+                &["**/.env*".to_owned()],
+                &[],
+            ),
+            None
+        );
     }
 
     #[test]
@@ -1036,6 +1491,7 @@ mod tests {
 
     #[test]
     fn ignores_unrelated_permission_errors_with_matching_basename() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "tool: /tmp/other/.env: Permission denied",
             &["/tmp/project/.env".to_owned()],
@@ -1046,6 +1502,7 @@ mod tests {
 
     #[test]
     fn matches_normalized_relative_paths_and_denied_directory_descendants() {
+        let _guard = environment_lock().lock().unwrap();
         let relative = filesystem_denial_from_line(
             "cat: ./.env: Operation not permitted",
             &[".env".to_owned()],
@@ -1063,6 +1520,7 @@ mod tests {
 
     #[test]
     fn classifies_exact_write_denial() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "echo: protected.txt: Permission denied",
             &[],
@@ -1073,6 +1531,7 @@ mod tests {
 
     #[test]
     fn does_not_match_sibling_directory_with_shared_prefix() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "cat: /tmp/private-agent-other/key: Operation not permitted",
             &["/tmp/private-agent".to_owned()],
@@ -1083,12 +1542,32 @@ mod tests {
 
     #[test]
     fn ignores_permission_error_without_configured_path() {
+        let _guard = environment_lock().lock().unwrap();
         let denial = filesystem_denial_from_line(
             "cat: public.txt: Permission denied",
             &[".env".to_owned()],
             &[".git".to_owned()],
         );
         assert_eq!(denial, None);
+    }
+
+    #[test]
+    fn launch_is_reported_only_after_the_child_really_started() {
+        use std::cell::Cell;
+        let launched = Cell::new(0);
+
+        // The program cannot be started: nothing may be marked as launched.
+        let missing =
+            duct::cmd("/definitely/not/a/stashbase/binary", Vec::<String>::new()).unchecked();
+        assert!(run_marking_launch(&missing, || launched.set(launched.get() + 1)).is_err());
+        assert_eq!(launched.get(), 0);
+
+        // A child that starts counts as launched even if it then exits
+        // non-zero, and its exit status still comes through.
+        let failing = duct::cmd("sh", ["-c", "exit 3"]).unchecked();
+        let output = run_marking_launch(&failing, || launched.set(launched.get() + 1)).unwrap();
+        assert_eq!(output.status.code(), Some(3));
+        assert_eq!(launched.get(), 1);
     }
 
     #[tokio::test]
@@ -1312,11 +1791,72 @@ mod tests {
             &["/tmp/private-agent-file".to_owned()],
             &[],
             CodexSandboxBoundary::FullAccess,
+            &std::env::current_dir().unwrap(),
         )
         .unwrap();
 
         assert_eq!(program, "/usr/bin/sandbox-exec");
         assert!(args[1].contains("(deny file-read* (subpath \"/tmp/private-agent-file\"))"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_filesystem_policy_matches_patterns_with_seatbelt_regex() {
+        let (_, args) = sandbox_command_with_filesystem_policy(
+            "/bin/sh",
+            false,
+            false,
+            &HashMap::new(),
+            &["**/.env*".to_owned()],
+            &["re:^/srv/[a-z]+/locked$".to_owned()],
+            CodexSandboxBoundary::FullAccess,
+            std::path::Path::new("/work/repo"),
+        )
+        .unwrap();
+
+        assert!(args[1]
+            .contains("(deny file-read* (regex \"^/work/repo(/.*)?/\\\\.env[^/]*(/.*)?$\"))"));
+        assert!(args[1].contains("(deny file-write* (regex \"^(/srv/[a-z]+/locked)(/.*)?$\"))"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_filesystem_policy_rejects_invalid_patterns() {
+        let error = sandbox_command_with_filesystem_policy(
+            "/bin/sh",
+            false,
+            false,
+            &HashMap::new(),
+            &["re:relative".to_owned()],
+            &[],
+            CodexSandboxBoundary::FullAccess,
+            std::path::Path::new("/work/repo"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("must start with"));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_codex_runs_without_daemon_inside_outer_sandbox() {
+        let args = vec!["--sandbox".to_owned(), "danger-full-access".to_owned()];
+        assert_eq!(
+            codex_args_without_daemon("/opt/homebrew/bin/codex", args.clone(), true),
+            ["--no-daemon", "--sandbox", "danger-full-access"]
+        );
+        assert_eq!(
+            codex_args_without_daemon("codex", args.clone(), false),
+            args
+        );
+        assert_eq!(
+            codex_args_without_daemon("claude", args.clone(), true),
+            args
+        );
+        let explicit = vec!["resume".to_owned(), "--no-daemon".to_owned()];
+        assert_eq!(
+            codex_args_without_daemon("codex", explicit.clone(), true),
+            explicit
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -1392,7 +1932,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_outer_profile_preserves_codex_write_boundaries() {
-        let cwd = std::env::current_dir().unwrap();
+        // A fixed workspace, not the process cwd: other tests change the
+        // cwd concurrently.
+        let cwd = std::path::PathBuf::from("/some/workspace");
         let cwd_rule = format!(
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&cwd.to_string_lossy())
@@ -1407,12 +1949,12 @@ mod tests {
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&codex_home.to_string_lossy())
         );
-        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite);
+        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite, &cwd);
         assert!(workspace.contains("(deny file-write* (subpath \"/\"))"));
         assert!(workspace.contains(&cwd_rule));
         assert!(workspace.contains(&codex_home_rule));
 
-        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly);
+        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly, &cwd);
         assert!(read_only.contains("(deny file-write* (subpath \"/\"))"));
         assert!(!read_only.contains(&cwd_rule));
     }
@@ -1439,11 +1981,16 @@ mod tests {
             &[],
             &["blocked.txt".to_owned()],
             CodexSandboxBoundary::FullAccess,
+            &std::env::current_dir().unwrap(),
         )
         .unwrap();
         let status = Command::new(program)
             .args(args)
             .args(["-c", "printf allowed > allowed.tmp && mv allowed.tmp allowed.txt; printf blocked > blocked.tmp && mv blocked.tmp blocked.txt"])
+            // `mv` asks "override ...?" on stdin when the target isn't
+            // writable and stdin is a terminal, which hangs `cargo test`
+            // run from an interactive shell.
+            .stdin(std::process::Stdio::null())
             .status()
             .unwrap();
 
@@ -1460,10 +2007,132 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// The native `--worktree` protections, enforced for real by Seatbelt:
+    /// the agent can commit in its worktree but not touch the user's
+    /// checkout or the git files host git executes.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_worktree_policy_allows_commits_but_protects_the_checkout() {
+        use crate::handlers::run::worktree::{create_run_worktree, test_support};
+        use std::process::Command;
+
+        let (repo, _root) = test_support::fixture();
+        std::fs::create_dir_all(repo.join(".stashbase/agents")).unwrap();
+        std::fs::write(repo.join(".stashbase/agents/coding.toml"), "").unwrap();
+        // Default location: nested inside the checkout it protects.
+        let wt = create_run_worktree(&repo, "ags_seatbelt", None).unwrap();
+        let denied_write = wt.native_protected_paths().unwrap();
+        let (program, args) = sandbox_command_with_filesystem_policy(
+            "/bin/sh",
+            false,
+            false,
+            &HashMap::new(),
+            &[],
+            &denied_write,
+            CodexSandboxBoundary::FullAccess,
+            &wt.workdir,
+        )
+        .unwrap();
+        let run = |script: &str| {
+            Command::new(&program)
+                .args(&args)
+                .args(["-c", script])
+                .current_dir(&wt.workdir)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t")
+                .stdin(std::process::Stdio::null())
+                .output()
+                .unwrap()
+        };
+
+        let commit = run("echo agent > agent.txt && git add agent.txt && git commit -qm agent");
+        assert!(
+            commit.status.success(),
+            "commit in the worktree must work: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+        assert_eq!(
+            test_support::git(
+                &repo,
+                &["log", "-1", "--format=%s", "stashbase/ags_seatbelt"]
+            ),
+            "agent"
+        );
+
+        let checkout_file = repo.join("sub/f");
+        let common = &wt.common_dir;
+        for (target, script) in [
+            (
+                checkout_file.clone(),
+                format!("echo evil > '{}'", checkout_file.display()),
+            ),
+            (
+                repo.join(".stashbase/agents/coding.toml"),
+                format!(
+                    "echo evil > '{}'",
+                    repo.join(".stashbase/agents/coding.toml").display()
+                ),
+            ),
+            (
+                common.join("config"),
+                format!("echo evil >> '{}'", common.join("config").display()),
+            ),
+            (
+                wt.admin_dir.join("config.worktree"),
+                format!(
+                    "echo evil > '{}'",
+                    wt.admin_dir.join("config.worktree").display()
+                ),
+            ),
+            (
+                common.join("HEAD"),
+                format!("echo evil > '{}'", common.join("HEAD").display()),
+            ),
+            (
+                common.join("hooks/post-checkout"),
+                format!(
+                    "echo evil > '{}'",
+                    common.join("hooks/post-checkout").display()
+                ),
+            ),
+        ] {
+            let before = std::fs::read_to_string(&target).ok();
+            assert!(
+                !run(&script).status.success(),
+                "write to {} must be denied",
+                target.display()
+            );
+            assert_eq!(
+                std::fs::read_to_string(&target).ok(),
+                before,
+                "{}",
+                target.display()
+            );
+        }
+
+        // Swapping a protected path out from under the rules (rename, or
+        // replace with a symlink to agent-controlled content) must fail too.
+        let hooks = common.join("hooks");
+        let config = common.join("config");
+        for script in [
+            format!("mv '{0}' '{0}.bak'", hooks.display()),
+            format!("rm -rf '{0}' && ln -s /tmp '{0}'", hooks.display()),
+            format!("mv '{0}' '{0}.bak'", config.display()),
+            format!("rm -f '{0}' && ln -s /tmp/evil '{0}'", config.display()),
+        ] {
+            assert!(!run(&script).status.success(), "`{script}` must be denied");
+        }
+        assert!(std::fs::symlink_metadata(&hooks).unwrap().is_dir());
+        assert!(std::fs::symlink_metadata(&config).unwrap().is_file());
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_sandbox_uses_systemd_cgroup_network_rules() {
-        let (program, args) = super::systemd_command("curl", true, &[], &[]);
+        let (program, args) =
+            super::systemd_command("curl", true, &[], &[], std::path::Path::new("/")).unwrap();
         assert_eq!(program, "systemd-run");
         assert!(args.contains(&"--property=IPAddressDeny=any".to_owned()));
         assert!(args.contains(&"--property=IPAddressAllow=127.0.0.1".to_owned()));
@@ -1487,7 +2156,9 @@ mod tests {
             "sh",
             &[private_dir.clone(), private_file.clone()],
             &[readonly_dir, readonly_file.clone()],
-        );
+            &root,
+        )
+        .unwrap();
         assert!(program == "bwrap" || program == "bubblewrap");
         assert!(args.windows(2).any(|window| {
             window
@@ -1495,12 +2166,25 @@ mod tests {
                 .map(String::as_str)
                 .eq(["--tmpfs", private_dir.as_str()])
         }));
+        // Not `/dev/null`: `--ro-bind` preserves the *source's* file type
+        // at the target, and `/dev/null` is a character device, not a
+        // regular file — see `empty_shadow_file_path`'s doc comment.
+        let expected_source =
+            crate::handlers::run::docker_sandbox::empty_shadow_file_path().unwrap();
         assert!(args.windows(3).any(|window| {
-            window
-                .iter()
-                .map(String::as_str)
-                .eq(["--ro-bind", "/dev/null", private_file.as_str()])
+            window.iter().map(String::as_str).eq([
+                "--ro-bind",
+                expected_source.as_str(),
+                private_file.as_str(),
+            ])
         }));
+        assert!(std::path::Path::new(&expected_source).is_file());
+        {
+            use std::os::unix::fs::FileTypeExt;
+            let file_type = std::fs::metadata(&expected_source).unwrap().file_type();
+            assert!(!file_type.is_char_device());
+            assert!(!file_type.is_block_device());
+        }
         assert!(args.windows(3).any(|window| {
             window.iter().map(String::as_str).eq([
                 "--ro-bind",
@@ -1508,6 +2192,37 @@ mod tests {
                 readonly_file.as_str(),
             ])
         }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_backends_expand_glob_entries_at_launch() {
+        let root =
+            std::env::temp_dir().join(format!("stashbase-glob-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join(".env"), b"A=1").unwrap();
+        std::fs::write(root.join("sub/.env.local"), b"B=2").unwrap();
+        std::fs::write(root.join("sub/readme"), b"").unwrap();
+        let env = root.join(".env").to_string_lossy().into_owned();
+        let env_local = root.join("sub/.env.local").to_string_lossy().into_owned();
+
+        let (_, systemd) =
+            super::systemd_command("sh", false, &["**/.env*".to_owned()], &[], &root).unwrap();
+        assert!(systemd.contains(&format!("--property=InaccessiblePaths={env}")));
+        assert!(systemd.contains(&format!("--property=InaccessiblePaths={env_local}")));
+        assert!(!systemd.iter().any(|arg| arg.contains("readme")));
+
+        let (_, bwrap) =
+            super::bubblewrap_command("sh", &[], &["**/.env*".to_owned()], &root).unwrap();
+        for path in [&env, &env_local] {
+            assert!(bwrap.windows(3).any(|window| {
+                window
+                    .iter()
+                    .map(String::as_str)
+                    .eq(["--ro-bind", path.as_str(), path.as_str()])
+            }));
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -194,6 +194,7 @@ pub enum ScanInputValidationError {
     ConfigFileParse { path: String, message: String },
     InvalidIgnoreSecretRegex { regex: String, message: String },
     InvalidIgnoreSecretHash { hash: String },
+    RestrictedScanTooLarge { detail: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -1140,6 +1141,13 @@ impl ScanInputValidationError {
             ScanInputValidationError::InvalidIgnoreSecretHash { hash } => (
                 "Invalid ignore secret hash.",
                 Some(Box::leak(format!("Hash: {}", hash).into_boxed_str())),
+            ),
+            ScanInputValidationError::RestrictedScanTooLarge { detail } => (
+                "Changes are too large for a sandboxed scan.",
+                Some(Box::leak(
+                    format!("{detail}. Commit or push them from outside the agent sandbox.")
+                        .into_boxed_str(),
+                )),
             ),
         }
     }

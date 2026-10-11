@@ -13,7 +13,6 @@ use dialoguer::{
     Confirm, MultiSelect,
 };
 use serde_json::{json, Value};
-use spinoff::Spinner;
 
 use crate::{
     api::secrets,
@@ -26,8 +25,8 @@ use crate::{
     },
     config::config,
     handlers::{
-        agent_policy::SecretHttpPolicy,
-        agent_profiles::{
+        agent::policy::SecretHttpPolicy,
+        agent::profiles::{
             profile_not_found_error, profile_not_found_error_with_output, source_label,
         },
         entry::root::{provision_remote_session_ca, remote_bindings, remote_session_state},
@@ -40,8 +39,9 @@ use crate::{
         config::Config,
     },
     utils::{
-        output::get_formatted_json_string, secrets::read_secrets_from_file,
-        spinner::request_spinner,
+        output::get_formatted_json_string,
+        secrets::read_secrets_from_file,
+        spinner::{request_spinner, Spinner},
     },
 };
 
@@ -676,6 +676,14 @@ async fn proxied_client(
         egress_hosts_configured: profile.egress_hosts.is_some(),
         strict_deny: true,
         mcp_rules: mcp_rules.clone(),
+        backend: profile.sandbox.backend,
+        sandbox_image: profile.sandbox.image.clone(),
+        sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
+        sandbox_memory: profile.sandbox.memory.clone(),
+        sandbox_cpus: profile.sandbox.cpus.clone(),
+        worktree: profile.workspace.worktree,
+        worktree_resume: None,
+        sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
     };
     let proxy = Proxy::start_with_port(secrets, policy, None, None).await?;
     let proxy_url = proxy.child_env()["HTTPS_PROXY"].clone();
@@ -744,8 +752,16 @@ async fn remote_proxied_client(
         agent_type: None,
         session_purpose: Some("mcp_inspection".to_owned()),
         previous_session_token: None,
+        routing_mode: None,
     };
     let session = crate::api::remote_proxy::create_session(&request, json_format).await?;
+    // Inspection talks to the MCP server with its credential, so that host
+    // always goes through the Agent Proxy whatever mode the control plane picks.
+    let routing = crate::handlers::run::routing::resolve_session_routing(
+        &session,
+        &bindings,
+        std::slice::from_ref(&host),
+    )?;
     let protocol = match session.protocol.as_str() {
         "http/1.1-custom" => RemoteProxyProtocol::Custom,
         "http/1.1-forward-proxy-tls-intercept" => RemoteProxyProtocol::ForwardProxyTlsIntercept,
@@ -824,6 +840,14 @@ async fn remote_proxied_client(
                 tools: rule.tools.clone(),
             })
             .collect(),
+        backend: profile.sandbox.backend,
+        sandbox_image: profile.sandbox.image.clone(),
+        sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
+        sandbox_memory: profile.sandbox.memory.clone(),
+        sandbox_cpus: profile.sandbox.cpus.clone(),
+        worktree: profile.workspace.worktree,
+        worktree_resume: None,
+        sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
     };
     let proxy = Proxy::start_remote_with_port(
         RemoteProxyConfig {
@@ -833,6 +857,7 @@ async fn remote_proxied_client(
             child_env,
             protocol,
             ca_file,
+            routing: Arc::new(RwLock::new(routing)),
         },
         policy,
         None,

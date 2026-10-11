@@ -3,12 +3,12 @@ use std::path::Path;
 
 use anyhow::{bail, Context};
 use log::debug;
-use spinoff::{Spinner, Streams};
 use tabled::Tabled;
 
 use crate::{
     api::secrets,
     cmd::secrets::SecretsFileFormat,
+    exit::ReportedFailure,
     handlers::run::subprocess,
     models::{
         api_client::{GetRequestApiResponse, OutputError},
@@ -20,12 +20,14 @@ use crate::{
             SecretsInputValidationError,
         },
     },
+    telemetry::event::{classify_output_error, ErrorKind},
     utils::{
         env,
         interaction::{self},
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
         secrets::read_secrets_from_file,
         separator,
+        spinner::{Spinner, Streams},
         tables::build::build_table,
         validation::{
             map_secret_to_load_exclude_secrets_error, map_secret_to_load_only_secrets_error,
@@ -38,11 +40,424 @@ use crate::{
 
 use super::format::format_env_variable_value;
 
+/// Ensures the Docker sandbox backend's agent image exists locally,
+/// building it (the built-in embedded Dockerfile, or a profile-supplied
+/// custom one) on first use. There is no registry to `docker pull` from for
+/// either of those, so the only way an installed `stashbase` binary can get
+/// them is to build them itself; a plain `sandbox.image` reference, by
+/// contrast, needs nothing built here — `docker run` pulls it automatically.
+///
+/// Returns the image tag `docker run` should use for the agent container.
+///
+/// In an interactive session, asks before building (an implicit multi-
+/// minute `docker build` on first use would otherwise be a surprising side
+/// effect of `agent run`). In `--silent` mode, or without a terminal to
+/// prompt on (stdin piped, CI, a script over SSH), there is no one to ask,
+/// so this fails closed with the command that builds it rather than
+/// silently building or silently running unsandboxed.
+fn ensure_docker_sandbox_image_available(
+    source: &super::docker_sandbox::AgentImageSource,
+    silent: bool,
+) -> anyhow::Result<String> {
+    use std::io::IsTerminal;
+
+    let tag = source.image_tag();
+    if super::docker_sandbox::sandbox_image_exists(source) {
+        return Ok(tag);
+    }
+    if !can_prompt_for_image_build(
+        silent,
+        std::io::stdin().is_terminal(),
+        std::io::stderr().is_terminal(),
+    ) {
+        anyhow::bail!(missing_image_error(source, &tag, silent));
+    }
+    eprintln!();
+    let should_build = crate::utils::interaction::confirm_opt(&format!(
+        "The Docker sandbox image ({tag}) isn't built yet. Build it now?"
+    ))
+    .unwrap_or(false);
+    // dialoguer can leave the terminal cursor hidden if the prompt is
+    // dismissed via Ctrl+C rather than answered normally (a known
+    // dialoguer/raw-mode interaction — see the Ctrl+C handler in main.rs
+    // for the same workaround applied to other prompts). Restore it
+    // unconditionally before deciding what the prompt's outcome was.
+    let _ = dialoguer::console::Term::stdout().show_cursor();
+    if !should_build {
+        anyhow::bail!(declined_image_build_error(source, &tag));
+    }
+    eprintln!("Building Docker sandbox image ({tag})...");
+    super::docker_sandbox::build_sandbox_image(source, false)
+        .map_err(|error| anyhow::anyhow!("failed to build the Docker sandbox image: {error}"))?;
+    eprintln!("Docker sandbox image built.");
+    Ok(tag)
+}
+
+/// Whether a missing sandbox image may be offered for building with a
+/// prompt. The prompt reads stdin and draws on stderr, so both must be a
+/// terminal; otherwise (CI, piped stdin, a script over SSH) it would block
+/// or fail, so the run fails with `missing_image_error` instead.
+fn can_prompt_for_image_build(
+    silent: bool,
+    stdin_is_terminal: bool,
+    stderr_is_terminal: bool,
+) -> bool {
+    !silent && stdin_is_terminal && stderr_is_terminal
+}
+
+fn missing_image_error(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+    silent: bool,
+) -> String {
+    format!(
+        "the Docker sandbox image ({tag}) is not built yet; build it once with `{}`, or re-run in an interactive terminal{} to be asked",
+        missing_image_build_command(source, tag),
+        if silent { " without --silent" } else { "" },
+    )
+}
+
+fn declined_image_build_error(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+) -> String {
+    format!(
+        "Docker sandbox backend selected, but its image ({tag}) was not built; build it later with `{}`",
+        missing_image_build_command(source, tag),
+    )
+}
+
+/// The command that builds a missing sandbox image. The default image's
+/// Dockerfile is embedded in the binary, so only `agent docker build` can
+/// build it. A custom Dockerfile is built from stdin with no context, the
+/// same way `build_sandbox_image` builds it (a context holding only the
+/// Dockerfile), which also covers a per-run `--docker-dockerfile` that no
+/// profile names.
+fn missing_image_build_command(
+    source: &super::docker_sandbox::AgentImageSource,
+    tag: &str,
+) -> String {
+    match source {
+        super::docker_sandbox::AgentImageSource::Dockerfile(path) => {
+            format!(
+                "docker build -t {tag} - < {}",
+                shell_quote(&path.to_string_lossy())
+            )
+        }
+        _ => "stashbase agent docker build".to_owned(),
+    }
+}
+
+/// Quotes `value` for a POSIX shell so a copied command keeps it as one
+/// word: left bare when it only has characters no shell treats specially,
+/// otherwise single-quoted with each embedded `'` written as `'\''`.
+fn shell_quote(value: &str) -> String {
+    let is_plain = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/._-+,:=@%".contains(c));
+    if is_plain {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', r"'\''"))
+    }
+}
+
+/// Ensures every image a Docker-backend run will actually need is
+/// available, and returns the tag the agent container should use.
+///
+/// The network-namespace holder (see `start_netns_holder`) always uses the
+/// built-in default image, deliberately never a profile's custom
+/// `sandbox.image`/`sandbox.dockerfile` — but `ensure_docker_sandbox_image_available`
+/// on its own only ensures whichever source the *agent* container resolves
+/// to. For a profile using a custom image, that leaves the default image
+/// unchecked: if it was never built (a user who only ever runs custom
+/// images has no reason to have it), the holder's own `docker run` fails
+/// outright since there's no registry to auto-pull it from. This ensures
+/// both, skipping the duplicate prompt/build when the agent's own source
+/// already *is* the default.
+fn ensure_docker_images_available(
+    agent_image_source: &super::docker_sandbox::AgentImageSource,
+    silent: bool,
+) -> anyhow::Result<String> {
+    if *agent_image_source != super::docker_sandbox::AgentImageSource::Default {
+        ensure_docker_sandbox_image_available(
+            &super::docker_sandbox::AgentImageSource::Default,
+            silent,
+        )?;
+    }
+    let tag = ensure_docker_sandbox_image_available(agent_image_source, silent)?;
+    // Only when the agent itself runs from the default image: a profile with
+    // a custom image still uses the default one for the netns holder, but
+    // its Claude Code/Codex versions are irrelevant there.
+    if !silent && *agent_image_source == super::docker_sandbox::AgentImageSource::Default {
+        if let Some(hint) = super::docker_sandbox::sandbox_image_created_at(agent_image_source)
+            .and_then(|created_at| {
+                super::docker_sandbox::stale_default_image_hint(created_at, chrono::Utc::now())
+            })
+        {
+            eprintln!("{hint}");
+        }
+    }
+    Ok(tag)
+}
+
+fn prepare_run_worktree_in(
+    request: Option<&super::worktree::WorktreeRequest>,
+    silent: bool,
+    cwd: &Path,
+    worktrees_root: Option<&Path>,
+) -> anyhow::Result<Option<super::worktree::RunWorktree>> {
+    let Some(request) = request else {
+        return Ok(None);
+    };
+    let worktree = match request {
+        super::worktree::WorktreeRequest::New => {
+            super::worktree::create_named_run_worktree(cwd, worktrees_root)
+                .map_err(|error| anyhow::anyhow!("failed to create agent worktree: {error}"))?
+        }
+        super::worktree::WorktreeRequest::Resume(name) => {
+            super::worktree::resume_run_worktree(cwd, name, worktrees_root)
+                .map_err(|error| anyhow::anyhow!("failed to resume agent worktree: {error}"))?
+        }
+    };
+    if !silent {
+        let verb = match request {
+            super::worktree::WorktreeRequest::New => "Agent worktree",
+            super::worktree::WorktreeRequest::Resume(_) => "Resuming agent worktree",
+        };
+        eprintln!(
+            "{verb}: {} (branch {})",
+            worktree.path.display(),
+            worktree.branch
+        );
+        if worktree.source_was_dirty {
+            eprintln!(
+                "warning: your checkout has uncommitted changes; the agent worktree starts from HEAD without them"
+            );
+        }
+    }
+    Ok(Some(worktree))
+}
+
+fn prepare_run_worktree(
+    request: Option<&super::worktree::WorktreeRequest>,
+    silent: bool,
+) -> anyhow::Result<Option<super::worktree::RunWorktree>> {
+    let cwd = std::env::current_dir()?;
+    prepare_run_worktree_in(request, silent, &cwd, None)
+}
+
+/// Owns a run's agent worktree, if any, and cleans it up exactly once when
+/// dropped — on every exit path, including early `return`s, `?` and
+/// panics — so no setup failure can leave a worktree (and its lock)
+/// behind. The normal path calls `finish` explicitly to keep the cleanup
+/// output where it belongs.
+pub(crate) struct RunWorktreeGuard {
+    worktree: Option<super::worktree::RunWorktree>,
+    silent: bool,
+    /// Docker backend: the run's isolated-path volumes are keyed by the
+    /// worktree path, so they go away with a removed worktree.
+    docker: bool,
+}
+
+impl RunWorktreeGuard {
+    #[cfg(test)]
+    fn none(silent: bool) -> Self {
+        Self {
+            worktree: None,
+            silent,
+            docker: false,
+        }
+    }
+
+    /// What the agent container needs mounted besides the worktree.
+    fn git_mounts(&self) -> Option<super::docker_sandbox::GitMounts> {
+        self.worktree
+            .as_ref()
+            .map(super::docker_sandbox::GitMounts::from)
+    }
+
+    /// Where the agent should start, when running in a worktree.
+    fn workdir(&self) -> Option<&Path> {
+        self.worktree
+            .as_ref()
+            .map(|worktree| worktree.workdir.as_path())
+    }
+
+    fn finish(self) {
+        drop(self);
+    }
+}
+
+impl Drop for RunWorktreeGuard {
+    fn drop(&mut self) {
+        if let Some(worktree) = self.worktree.take() {
+            finish_run_worktree(&worktree, self.docker, self.silent);
+        }
+    }
+}
+
+/// `prepare_run_worktree` for the native backend, whose filesystem policy
+/// is a deny-list: also adds the paths `RunWorktree::native_protected_paths`
+/// names to the run's `deny_write`, so the agent can't touch the user's
+/// checkout or the git files host git executes. Fails closed — if the
+/// protections can't be computed the run is aborted, and the guard cleans
+/// the worktree up as it drops.
+fn prepare_native_run_worktree(
+    request: Option<&super::worktree::WorktreeRequest>,
+    silent: bool,
+    denied_write_paths: &mut Vec<String>,
+) -> anyhow::Result<RunWorktreeGuard> {
+    let guard = RunWorktreeGuard {
+        worktree: prepare_run_worktree(request, silent)?,
+        silent,
+        docker: false,
+    };
+    if let Some(worktree) = &guard.worktree {
+        let paths = worktree.native_protected_paths().map_err(|error| {
+            anyhow::anyhow!("failed to protect the checkout for the agent worktree: {error}")
+        })?;
+        // Generated absolute paths: keep them literal even if the checkout's
+        // path happens to contain glob characters.
+        denied_write_paths.extend(
+            paths
+                .iter()
+                .map(|path| super::fs_rules::literal_entry(path)),
+        );
+    }
+    Ok(guard)
+}
+
+/// `prepare_run_worktree` for the Docker backend. Nothing to add to the
+/// policy: the container only ever sees the worktree and the git mounts
+/// from `RunWorktreeGuard::git_mounts` (see
+/// `docker_sandbox::append_git_mounts`), never the user's checkout.
+fn prepare_docker_run_worktree(
+    request: Option<&super::worktree::WorktreeRequest>,
+    silent: bool,
+) -> anyhow::Result<RunWorktreeGuard> {
+    Ok(RunWorktreeGuard {
+        worktree: prepare_run_worktree(request, silent)?,
+        silent,
+        docker: true,
+    })
+}
+
+/// Post-run cleanup. Order matters: pointer files are restored first
+/// because every later step runs host git that would otherwise follow a
+/// tampered pointer (see `worktree.rs` module docs). Errors are reported,
+/// never allowed to mask the run's own exit status.
+fn finish_run_worktree(worktree: &super::worktree::RunWorktree, docker: bool, silent: bool) {
+    match worktree.restore_pointers() {
+        Ok(true) => eprintln!(
+            "warning: the agent modified the worktree's git pointer files; they were restored"
+        ),
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!(
+                "warning: could not verify the agent worktree's git pointer files ({error}); \
+                 do not run git in {} until you have checked its .git file",
+                worktree.path.display()
+            );
+            return;
+        }
+    }
+    match worktree.restore_foreign_refs() {
+        Ok(changes) => {
+            for change in changes {
+                eprintln!("warning: {change}");
+            }
+        }
+        Err(error) => eprintln!("warning: failed to check refs after the run: {error}"),
+    }
+    match worktree.finish() {
+        Ok(super::worktree::WorktreeOutcome::Removed) => {
+            if docker {
+                for error in
+                    super::docker_sandbox::remove_isolated_path_volumes_under(&worktree.path)
+                {
+                    eprintln!("warning: failed to remove isolated path volume {error}");
+                }
+            }
+            if !silent {
+                eprintln!("Agent work is on branch {}", worktree.branch);
+            }
+        }
+        Ok(super::worktree::WorktreeOutcome::Kept) => eprintln!(
+            "Agent worktree has uncommitted changes and was kept at {} (branch {})",
+            worktree.path.display(),
+            worktree.branch
+        ),
+        Err(error) => eprintln!("warning: failed to remove the agent worktree: {error}"),
+    }
+}
+
+/// What the proxy's hook broker serves for this run, or `None` when no hook
+/// is enabled or there is no API key to call Stashbase with. Fails when
+/// `secret_scan` is enabled but its host-side scan can't be confined here.
+fn hook_broker_config(
+    hooks: crate::models::agent::EnabledHooks,
+    api_key: Option<String>,
+    workdir: &Path,
+    denied_read: &[String],
+    docker: bool,
+) -> anyhow::Result<Option<super::proxy::HookBrokerConfig>> {
+    let Some(api_key) = api_key.filter(|key| !key.is_empty()) else {
+        return Ok(None);
+    };
+    if !hooks.any() {
+        return Ok(None);
+    }
+    // Both run the host's own CLI, confined, in the directory the agent
+    // works in. The agent hook route is only needed under Docker, whose
+    // image has no Stashbase CLI; natively the hook runs the real CLI.
+    let confined = |timeout_secs: u64| -> anyhow::Result<super::proxy::SecretScanConfig> {
+        if let Some(reason) = super::scan_sandbox::unavailable_reason() {
+            anyhow::bail!(reason);
+        }
+        let exe = std::env::current_exe()
+            .map_err(|error| anyhow::anyhow!("cannot locate the stashbase binary: {error}"))?;
+        Ok(super::proxy::SecretScanConfig {
+            workdir: workdir.to_owned(),
+            isolation: super::proxy::ScanIsolation::Confined(
+                super::scan_sandbox::ScanConfinement::for_run(workdir, &exe, denied_read),
+            ),
+            timeout: std::time::Duration::from_secs(timeout_secs),
+        })
+    };
+    let secret_scan = hooks.secret_scan.then(|| confined(120)).transpose()?;
+    let agent_hook = (hooks.dependency_check && docker)
+        .then(|| confined(60))
+        .transpose()?;
+    Ok(Some(super::proxy::HookBrokerConfig {
+        api_key,
+        dependency_check: hooks.dependency_check,
+        secret_scan,
+        agent_hook,
+    }))
+}
+
+/// Checked before any sandbox setup, so a refusal leaves nothing to clean up.
+/// Under Docker, `dependency_check` also runs the host's CLI confined.
+fn ensure_hooks_can_be_confined(
+    hooks: crate::models::agent::EnabledHooks,
+    backend: crate::models::agent::SandboxBackend,
+) -> anyhow::Result<()> {
+    let docker = backend == crate::models::agent::SandboxBackend::Docker;
+    if hooks.secret_scan || (hooks.dependency_check && docker) {
+        if let Some(reason) = super::scan_sandbox::unavailable_reason() {
+            anyhow::bail!(reason);
+        }
+    }
+    Ok(())
+}
+
 /// Runs an agent through the localhost relay while credentials stay in the
 /// control-plane's short-lived remote agent-proxy session.
 pub async fn handle_remote_agent_run(
     api_key: String,
-    hooks_enabled: bool,
+    hooks: crate::models::agent::EnabledHooks,
     command: Vec<String>,
     policy: super::proxy::ProxyPolicy,
     remote: super::proxy::RemoteProxyConfig,
@@ -57,18 +472,116 @@ pub async fn handle_remote_agent_run(
     let cmd = command.first().context("no command provided")?.clone();
     let args = command.into_iter().skip(1).collect();
     let denied_read_paths = policy.denied_read_paths.clone();
-    let denied_write_paths = policy.denied_write_paths.clone();
+    let mut denied_write_paths = policy.denied_write_paths.clone();
     let allow_network_listeners = policy.allow_network_listeners;
+    let backend = policy.backend;
+    ensure_hooks_can_be_confined(hooks, backend)?;
+    let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
+        policy.sandbox_image.as_deref(),
+        policy.sandbox_dockerfile.as_deref(),
+    );
+    let sandbox_memory = policy.sandbox_memory.clone();
+    let sandbox_cpus = policy.sandbox_cpus.clone();
+    let sandbox_isolated_paths = policy.sandbox_isolated_paths.clone();
+    let worktree_request = policy.worktree_request();
     let command_audit_log = audit_log.clone();
-    let proxy = super::proxy::Proxy::start_remote_with_hook(
-        remote,
-        policy,
-        audit_log,
-        proxy_port,
-        hooks_enabled.then_some(api_key),
-    )
-    .await?;
-    let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
+    let mut setup_spinner: Option<Spinner> = None;
+    let run_worktree;
+    let (docker_network, agent_image) = if backend == crate::models::agent::SandboxBackend::Docker {
+        // Resolved before the spinner starts: this can print its own
+        // interactive "build the image now?" prompt on first use, which
+        // must never race a concurrently animating spinner writing to the
+        // same stream (see the same reasoning for the proxy-started
+        // message below).
+        let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
+        run_worktree = prepare_docker_run_worktree(worktree_request.as_ref(), silent)?;
+        setup_spinner = (!silent).then(|| {
+            crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
+        });
+        (
+            Some(
+                super::docker_sandbox::create_run_network(
+                    audit_log.as_ref().map(|log| log.session_id()),
+                )
+                .map_err(|error| {
+                    anyhow::anyhow!("failed to create Docker sandbox network: {error}")
+                })?,
+            ),
+            agent_image,
+        )
+    } else {
+        run_worktree = prepare_native_run_worktree(
+            worktree_request.as_ref(),
+            silent,
+            &mut denied_write_paths,
+        )?;
+        (None, String::new())
+    };
+    let scan_workdir = match run_worktree.workdir() {
+        Some(workdir) => workdir.to_owned(),
+        None => std::env::current_dir()?,
+    };
+    let remote_hooks = hook_broker_config(
+        hooks,
+        Some(api_key),
+        &scan_workdir,
+        &denied_read_paths,
+        docker_network.is_some(),
+    )?;
+    let proxy_start_result = if let Some(network) = &docker_network {
+        super::proxy::Proxy::start_remote_with_hook_and_bind_host(
+            remote,
+            policy,
+            audit_log,
+            proxy_port,
+            remote_hooks,
+            &super::docker_sandbox::proxy_bind_host(network),
+        )
+        .await
+    } else {
+        super::proxy::Proxy::start_remote_with_hook(
+            remote,
+            policy,
+            audit_log,
+            proxy_port,
+            remote_hooks,
+        )
+        .await
+    };
+    let proxy = match proxy_start_result {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            if let Some(mut spinner) = setup_spinner.take() {
+                spinner.clear();
+            }
+            if let Some(network) = &docker_network {
+                let _ = super::docker_sandbox::remove_run_network(network);
+            }
+            return Err(error);
+        }
+    };
+    // Same teardown as the other setup failures: `?` here would skip it and
+    // leave the proxy, the Docker network and the agent worktree behind.
+    let _trusted_ca = match trust_proxy_ca.then(|| proxy.trust_ca()).transpose() {
+        Ok(trusted_ca) => trusted_ca,
+        Err(error) => {
+            if let Some(mut spinner) = setup_spinner.take() {
+                spinner.clear();
+            }
+            proxy.stop().await;
+            if let Some(network) = &docker_network {
+                let _ = super::docker_sandbox::remove_run_network(network);
+            }
+            return Err(error);
+        }
+    };
+    // Stop the spinner before any plain `eprintln!` — the spinner redraws its
+    // line from a background thread, and interleaving that with ordinary
+    // stderr writes garbles both. Re-created below to cover the remaining
+    // netns-holder setup phase.
+    if let Some(mut spinner) = setup_spinner.take() {
+        spinner.clear();
+    }
     if !silent {
         let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
         eprintln!(
@@ -77,10 +590,56 @@ pub async fn handle_remote_agent_run(
         );
         eprintln!("Remote agent proxy session active");
     }
-    let result = subprocess::run_command_with_filesystem_policy(
+    let mut child_env = if let Some(network) = &docker_network {
+        super::docker_sandbox::rewrite_proxy_urls_for_container(
+            proxy.child_env(),
+            &super::docker_sandbox::proxy_bind_host(network),
+            &super::docker_sandbox::proxy_container_host(network),
+        )
+    } else {
+        proxy.child_env().clone()
+    };
+    let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
+        crate::utils::spinner::new_spinner(
+            "Starting network namespace holder and firewall...",
+            Streams::Stderr,
+        )
+    });
+    if let Some(network) = &docker_network {
+        match super::docker_sandbox::start_netns_holder(network, &child_env) {
+            Ok(Some(resolved_proxy_ip)) => {
+                // The agent container joins the holder's network namespace
+                // via `--network container:<holder>`, which Docker refuses
+                // to combine with `--add-host` — so the agent has no way to
+                // resolve `host.docker.internal` itself. Point it straight
+                // at the already-resolved IP instead, sidestepping the
+                // need for any DNS/hosts lookup in the agent container.
+                child_env = super::docker_sandbox::rewrite_proxy_urls_for_container(
+                    &child_env,
+                    &super::docker_sandbox::proxy_container_host(network),
+                    &resolved_proxy_ip,
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                if let Some(mut spinner) = setup_spinner.take() {
+                    spinner.clear();
+                }
+                let _ = super::docker_sandbox::remove_run_network(network);
+                proxy.stop().await;
+                return Err(anyhow::anyhow!(
+                    "failed to start Docker sandbox network namespace holder: {error}"
+                ));
+            }
+        }
+    }
+    if let Some(mut spinner) = setup_spinner.take() {
+        spinner.clear();
+    }
+    let result = subprocess::run_command_with_filesystem_policy_and_network(
         &cmd,
         args,
-        proxy.child_env().clone(),
+        child_env,
         source_env_names,
         sandbox,
         allow_network_listeners,
@@ -89,10 +648,27 @@ pub async fn handle_remote_agent_run(
         &denied_read_paths,
         &denied_write_paths,
         command_audit_log,
+        backend,
+        docker_network.as_ref(),
+        &agent_image,
+        sandbox_memory.as_deref(),
+        sandbox_cpus.as_deref(),
+        &sandbox_isolated_paths,
+        run_worktree.workdir(),
+        run_worktree.git_mounts().as_ref(),
         tui,
     )
     .await;
     proxy.stop().await;
+    if let Some(network) = &docker_network {
+        if let Err(error) = super::docker_sandbox::remove_run_network(network) {
+            eprintln!(
+                "warning: failed to remove Docker sandbox network {}: {error}",
+                network.name
+            );
+        }
+    }
+    run_worktree.finish();
     if !silent {
         eprintln!("Remote agent proxy relay stopped");
     }
@@ -131,11 +707,16 @@ pub struct HandleRunArgs {
     pub json_format: bool,
     pub silent: bool,
     pub scope: Option<Scope>,
-    pub dependency_hooks: bool,
-    pub local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    pub hooks: crate::models::agent::EnabledHooks,
+    pub local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
     pub tui: Option<super::tui::TuiStatusInfo>,
 }
 
+/// Errors this prints itself (missing secrets, API errors, a declined prompt)
+/// return `ReportedFailure`, so the command exits 1 without printing them twice.
+/// The one early `Ok(())` is cancelling the `stashbase.yaml` config selection,
+/// which exits 0; for `agent run`, `telemetry::never_launched_error` still
+/// catches a run that never launched.
 pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
     let HandleRunArgs {
         api_key,
@@ -162,7 +743,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         json_format,
         silent,
         scope,
-        dependency_hooks,
+        hooks,
         local_session,
         tui,
     } = args;
@@ -223,8 +804,10 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             silent,
             json_format,
-            false,
-            None,
+            // No secrets to fetch, but the hook broker still calls Stashbase
+            // on the host with the parent's key.
+            hooks,
+            Some(api_key.clone()),
             local_session,
             tui.clone(),
         )
@@ -549,7 +1132,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     let mut spinner = if !silent {
         Some(crate::utils::spinner::new_spinner(
-            "Loading environment...",
+            loading_message(proxy_policy.is_some()),
             Streams::Stderr,
         ))
     } else {
@@ -594,7 +1177,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 });
 
                 let json_str = get_formatted_json_string(&message, false).unwrap();
-                eprintln!("{}", json_str);
+                if let Some(ref mut spinner) = spinner {
+                    spinner.stop_with_message(&json_str);
+                } else {
+                    eprintln!("{}", json_str);
+                }
             } else if let Some(ref mut spinner) = spinner {
                 spinner.stop_with_message(&format!(
                     "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
@@ -611,7 +1198,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                 );
             }
 
-            return Ok(());
+            return Err(ReportedFailure::new(ErrorKind::NotFound));
         }
 
         if only_len > 0 && secrets.len() < only_len {
@@ -625,9 +1212,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             msg.insert_str(0, "\n");
             msg.push_str(&format!("\n  Missing: {}", missing_secrets.join(", ")));
 
-            // `spinoff` spinners can only be stopped once. The confirmed run
-            // below will finish its own spinner, so discard this one after
-            // clearing the warning line.
+            // The confirmed run below starts its own spinner, so discard this
+            // one after clearing the warning line.
             if let Some(mut spinner) = spinner.take() {
                 spinner.stop_and_persist("", "");
             }
@@ -643,7 +1229,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             };
 
             if confirmation != Some(true) {
-                return Ok(());
+                return Err(ReportedFailure::new(ErrorKind::NotFound));
             }
         }
 
@@ -672,7 +1258,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             is_from_file,
             silent,
             json_format,
-            dependency_hooks,
+            hooks,
             Some(api_key.clone()),
             local_session,
             tui.clone(),
@@ -696,7 +1282,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         })
         .unwrap_or_else(|| only.clone());
 
-    if remote_only.is_empty() {
+    if !needs_remote_fetch(&only, &remote_only, proxy_policy.is_some()) {
         let mut secrets = local_overrides.unwrap_or_default();
         for secret in &mut secrets {
             secret.value = format_env_variable_value(secret.value.to_string());
@@ -716,7 +1302,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             false,
             silent,
             json_format,
-            dependency_hooks,
+            hooks,
             Some(api_key.clone()),
             local_session,
             tui.clone(),
@@ -733,7 +1319,8 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
         } else if !silent {
             eprintln!("{formatted_err}");
         }
-        return Ok(());
+        // Matches the root API-key guard: the CLI calls this an authentication error.
+        return Err(ReportedFailure::new(ErrorKind::Auth));
     }
 
     let res = secrets::pull(
@@ -749,6 +1336,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
 
     if let Err(err) = res {
         debug!("Error: {:#?}", &err);
+        let kind = classify_output_error(&err);
         let formatted_err = err.format_error_output(json_format)?;
 
         if let Some(mut spinner) = spinner {
@@ -757,7 +1345,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
             eprintln!("{}", formatted_err);
         }
 
-        return Ok(());
+        return Err(ReportedFailure::new(kind));
     }
 
     match res {
@@ -788,7 +1376,11 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         });
 
                         let json_str = get_formatted_json_string(&message, false).unwrap();
-                        eprintln!("{}", json_str);
+                        if let Some(ref mut spinner) = spinner {
+                            spinner.stop_with_message(&json_str);
+                        } else {
+                            eprintln!("{}", json_str);
+                        }
                     } else {
                         let msg = format!(
                             "{}\n  Message: {}\n  Details:\n    Missing secrets: {}",
@@ -804,7 +1396,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         }
                     }
 
-                    return Ok(());
+                    return Err(ReportedFailure::new(ErrorKind::NotFound));
                 }
 
                 if only_len > 0 && secrets.len() < only_len {
@@ -871,14 +1463,14 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                             is_from_file,
                             silent,
                             json_format,
-                            dependency_hooks,
+                            hooks,
                             Some(api_key.clone()),
                             local_session,
                             tui.clone(),
                         )
                         .await?;
                     } else {
-                        return Ok(());
+                        return Err(ReportedFailure::new(ErrorKind::NotFound));
                     }
                 } else {
                     if !setted_secrets.is_empty() {
@@ -907,7 +1499,7 @@ pub async fn handle_load_env_run(args: HandleRunArgs) -> anyhow::Result<()> {
                         is_from_file,
                         silent,
                         json_format,
-                        dependency_hooks,
+                        hooks,
                         Some(api_key.clone()),
                         local_session,
                         tui.clone(),
@@ -1021,32 +1613,26 @@ async fn handle_run(
     is_from_file: bool,
     silent: bool,
     json_format: bool,
-    dependency_hooks: bool,
+    hooks: crate::models::agent::EnabledHooks,
     hook_api_key: Option<String>,
-    local_session: Option<crate::handlers::agent_sessions::LocalAgentSessionGuard>,
+    local_session: Option<crate::handlers::agent::sessions::LocalAgentSessionGuard>,
     tui: Option<super::tui::TuiStatusInfo>,
 ) -> anyhow::Result<()> {
     if tui.is_some() && !proxy {
         anyhow::bail!("--tui requires the agent proxy and is not supported for `stashbase run`");
     }
     apply_secret_bindings(&mut secrets, secret_bindings);
-    let secrets_hash_map = env::expand_and_inject_env(&mut secrets);
+    let secrets_hash_map = if secret_bindings.is_empty() {
+        env::expand_and_inject_env(&mut secrets)
+    } else {
+        env::expand_env_without_process_override(&mut secrets)
+    };
 
     if !silent {
         let mut success_msg = format!(
-            "{} {} ({} {})",
+            "{} {}",
             "✓".green_if_tty_stderr(),
-            if secrets.is_empty() {
-                "Egress-only profile"
-            } else {
-                "Environment loaded"
-            },
-            secrets.len(),
-            if secrets.len() == 1 {
-                "secret"
-            } else {
-                "secrets"
-            }
+            loaded_message(secrets.len(), proxy_policy.is_some())
         );
 
         if print_secrets.is_some() && !is_from_file {
@@ -1143,30 +1729,147 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.denied_read_paths.clone())
         .unwrap_or_default();
-    let denied_write_paths = proxy_policy
+    let mut denied_write_paths = proxy_policy
         .as_ref()
         .map(|policy| policy.denied_write_paths.clone())
         .unwrap_or_default();
     let allow_network_listeners = proxy_policy
         .as_ref()
         .is_some_and(|policy| policy.allow_network_listeners);
+    let backend = proxy_policy
+        .as_ref()
+        .map(|policy| policy.backend)
+        .unwrap_or_default();
+    ensure_hooks_can_be_confined(hooks, backend)?;
+    let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
+        proxy_policy
+            .as_ref()
+            .and_then(|policy| policy.sandbox_image.as_deref()),
+        proxy_policy
+            .as_ref()
+            .and_then(|policy| policy.sandbox_dockerfile.as_deref()),
+    );
+    let sandbox_memory = proxy_policy
+        .as_ref()
+        .and_then(|policy| policy.sandbox_memory.clone());
+    let sandbox_cpus = proxy_policy
+        .as_ref()
+        .and_then(|policy| policy.sandbox_cpus.clone());
+    let worktree_request = proxy_policy
+        .as_ref()
+        .and_then(super::proxy::ProxyPolicy::worktree_request);
+    let sandbox_isolated_paths = proxy_policy
+        .as_ref()
+        .map(|policy| policy.sandbox_isolated_paths.clone())
+        .unwrap_or_default();
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
     let command_result = if proxy {
         let command_audit_log = audit_log.clone();
-        let proxy = super::proxy::Proxy::start_with_hook(
-            secrets_hash_map,
-            proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
-            audit_log,
-            proxy_port,
-            dependency_hooks.then_some(hook_api_key).flatten(),
-        )
-        .await?;
+        let mut setup_spinner: Option<Spinner> = None;
+        let run_worktree;
+        let (docker_network, agent_image) = if backend
+            == crate::models::agent::SandboxBackend::Docker
+        {
+            // Resolved before the spinner starts: this can print its own
+            // interactive "build the image now?" prompt on first use, which
+            // must never race a concurrently animating spinner writing to
+            // the same stream (see the same reasoning for the
+            // proxy-started message below).
+            let agent_image = ensure_docker_images_available(&agent_image_source, silent)?;
+            run_worktree = prepare_docker_run_worktree(worktree_request.as_ref(), silent)?;
+            setup_spinner = (!silent).then(|| {
+                crate::utils::spinner::new_spinner("Preparing sandbox network...", Streams::Stderr)
+            });
+            let run_session_id = local_session
+                .as_ref()
+                .map(|session| session.session_id())
+                .or_else(|| audit_log.as_ref().map(|log| log.session_id()));
+            (
+                Some(
+                    super::docker_sandbox::create_run_network(run_session_id).map_err(|error| {
+                        anyhow::anyhow!("failed to create Docker sandbox network: {error}")
+                    })?,
+                ),
+                agent_image,
+            )
+        } else {
+            run_worktree = prepare_native_run_worktree(
+                worktree_request.as_ref(),
+                silent,
+                &mut denied_write_paths,
+            )?;
+            (None, String::new())
+        };
+        let scan_workdir = match run_worktree.workdir() {
+            Some(workdir) => workdir.to_owned(),
+            None => std::env::current_dir()?,
+        };
+        let local_hooks = hook_broker_config(
+            hooks,
+            hook_api_key,
+            &scan_workdir,
+            &denied_read_paths,
+            docker_network.is_some(),
+        )?;
+        let proxy_start_result = if let Some(network) = &docker_network {
+            super::proxy::Proxy::start_with_hook_and_bind_host(
+                secrets_hash_map,
+                proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
+                audit_log,
+                proxy_port,
+                local_hooks,
+                &super::docker_sandbox::proxy_bind_host(network),
+            )
+            .await
+        } else {
+            super::proxy::Proxy::start_with_hook(
+                secrets_hash_map,
+                proxy_policy.unwrap_or_else(super::proxy::ProxyPolicy::permissive),
+                audit_log,
+                proxy_port,
+                local_hooks,
+            )
+            .await
+        };
+        let proxy = match proxy_start_result {
+            Ok(proxy) => proxy,
+            Err(error) => {
+                if let Some(mut spinner) = setup_spinner.take() {
+                    spinner.clear();
+                }
+                if let Some(network) = &docker_network {
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                }
+                return Err(error);
+            }
+        };
         if let Some(session) = &local_session {
             proxy.set_revocation_path(session.path());
         }
-        let _trusted_ca = trust_proxy_ca.then(|| proxy.trust_ca()).transpose()?;
+        // Same teardown as the other setup failures: `?` here would skip it and
+        // leave the proxy, the Docker network and the agent worktree behind.
+        let _trusted_ca = match trust_proxy_ca.then(|| proxy.trust_ca()).transpose() {
+            Ok(trusted_ca) => trusted_ca,
+            Err(error) => {
+                if let Some(mut spinner) = setup_spinner.take() {
+                    spinner.clear();
+                }
+                proxy.stop().await;
+                if let Some(network) = &docker_network {
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                }
+                return Err(error);
+            }
+        };
+        // Stop the spinner before any plain `eprintln!` — the spinner redraws
+        // its line from a background thread, and interleaving that with
+        // ordinary stderr writes garbles both. Re-created below to cover
+        // the remaining netns-holder setup phase.
+        if let Some(mut spinner) = setup_spinner.take() {
+            spinner.clear();
+        }
         if !silent {
             let address = proxy.child_env()["HTTP_PROXY"].trim_start_matches("http://");
             eprintln!(
@@ -1174,8 +1877,53 @@ async fn handle_run(
                 address.rsplit(':').next().unwrap_or_default()
             );
         }
-        let child_env = proxy.child_env().clone();
-        let command = Box::pin(subprocess::run_command_with_filesystem_policy(
+        let mut child_env = if let Some(network) = &docker_network {
+            super::docker_sandbox::rewrite_proxy_urls_for_container(
+                proxy.child_env(),
+                &super::docker_sandbox::proxy_bind_host(network),
+                &super::docker_sandbox::proxy_container_host(network),
+            )
+        } else {
+            proxy.child_env().clone()
+        };
+        let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
+            crate::utils::spinner::new_spinner(
+                "Starting network namespace holder and firewall...",
+                Streams::Stderr,
+            )
+        });
+        if let Some(network) = &docker_network {
+            match super::docker_sandbox::start_netns_holder(network, &child_env) {
+                Ok(Some(resolved_proxy_ip)) => {
+                    // See the matching comment in handle_remote_agent_run:
+                    // the agent container cannot resolve
+                    // `host.docker.internal` itself once it joins the
+                    // holder's network namespace, so point it at the
+                    // already-resolved IP instead.
+                    child_env = super::docker_sandbox::rewrite_proxy_urls_for_container(
+                        &child_env,
+                        &super::docker_sandbox::proxy_container_host(network),
+                        &resolved_proxy_ip,
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    if let Some(mut spinner) = setup_spinner.take() {
+                        spinner.clear();
+                    }
+                    let _ = super::docker_sandbox::remove_run_network(network);
+                    proxy.stop().await;
+                    return Err(anyhow::anyhow!(
+                        "failed to start Docker sandbox network namespace holder: {error}"
+                    ));
+                }
+            }
+        }
+        if let Some(mut spinner) = setup_spinner.take() {
+            spinner.clear();
+        }
+        let git_mounts = run_worktree.git_mounts();
+        let command = Box::pin(subprocess::run_command_with_filesystem_policy_and_network(
             &cmd,
             args,
             child_env,
@@ -1187,14 +1935,38 @@ async fn handle_run(
             &denied_read_paths,
             &denied_write_paths,
             command_audit_log,
+            backend,
+            docker_network.as_ref(),
+            &agent_image,
+            sandbox_memory.as_deref(),
+            sandbox_cpus.as_deref(),
+            &sandbox_isolated_paths,
+            run_worktree.workdir(),
+            git_mounts.as_ref(),
             tui,
         ));
         let result = command.await;
         proxy.stop().await;
+        if let Some(network) = &docker_network {
+            if let Err(error) = super::docker_sandbox::remove_run_network(network) {
+                eprintln!(
+                    "warning: failed to remove Docker sandbox network {}: {error}",
+                    network.name
+                );
+            }
+        }
+        run_worktree.finish();
         if !silent {
             eprintln!("Agent proxy stopped");
         }
         result
+    } else if backend != crate::models::agent::SandboxBackend::Native {
+        // The non-proxy path has no proxy/network to attach a Docker
+        // sandbox to. Fail closed rather than silently downgrading a
+        // profile's requested backend to Native.
+        Err(anyhow::anyhow!(
+            "the selected sandbox backend requires the agent proxy; re-run with the proxy enabled"
+        ))
     } else {
         // TODO: errors: no such file or directory
         subprocess::run_command(
@@ -1242,6 +2014,43 @@ fn apply_secret_bindings(
     }
 }
 
+/// The spinner `run` shows while loading. An agent run loads only its
+/// profile's bindings, so it names those rather than a whole environment.
+fn loading_message(agent_run: bool) -> &'static str {
+    if agent_run {
+        "Loading bindings..."
+    } else {
+        "Loading environment..."
+    }
+}
+
+/// The line `run` prints once the secrets are loaded. "Egress-only profile"
+/// describes an agent profile, so plain `stashbase run` never says it.
+fn loaded_message(secret_count: usize, agent_run: bool) -> String {
+    let (label, noun) = match (agent_run, secret_count) {
+        (true, 0) => ("Egress-only profile", "secrets"),
+        (true, 1) => ("Bindings loaded", "binding"),
+        (true, _) => ("Bindings loaded", "bindings"),
+        (false, 1) => ("Environment loaded", "secret"),
+        (false, _) => ("Environment loaded", "secrets"),
+    };
+    format!("{label} ({secret_count} {noun})")
+}
+
+/// Whether `run` has to fetch secrets from Stashbase. `remote_only` is
+/// `only` minus the secrets a local profile file already provides.
+///
+/// An empty `only` means "every secret" for `stashbase run`, so it always
+/// fetches. An agent run (`agent_run`) only ever receives the secrets its
+/// profile binds, so an empty `only` there means none.
+fn needs_remote_fetch(only: &[String], remote_only: &[String], agent_run: bool) -> bool {
+    if only.is_empty() {
+        !agent_run
+    } else {
+        !remote_only.is_empty()
+    }
+}
+
 /// Combines the remote fallback with local overrides. Names outside the
 /// profile's requested source set are discarded before a child can receive them.
 fn merge_remote_and_local_secrets(
@@ -1284,16 +2093,347 @@ fn missing_secret_labels(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_secret_bindings, load_run_secrets_from_file, merge_remote_and_local_secrets,
-        missing_secret_labels, prepare_local_run_secrets,
+        apply_secret_bindings, can_prompt_for_image_build, declined_image_build_error,
+        hook_broker_config, load_run_secrets_from_file, loaded_message, loading_message,
+        merge_remote_and_local_secrets, missing_image_build_command, missing_image_error,
+        missing_secret_labels, needs_remote_fetch, prepare_local_run_secrets, shell_quote,
     };
-    use crate::models::secrets::SecretWithoutComment;
+    use crate::models::{agent::EnabledHooks, secrets::SecretWithoutComment};
     use std::{
         collections::HashMap,
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn hook_broker_config_scans_the_run_workdir() {
+        let workdir = std::path::Path::new("/repo/.stashbase/worktrees/feat");
+        let scan_only = EnabledHooks {
+            dependency_check: false,
+            secret_scan: true,
+        };
+
+        let result = hook_broker_config(scan_only, Some("k".to_owned()), workdir, &[], false);
+
+        if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
+            // Refused up front rather than run unconfined.
+            let Err(error) = result else {
+                panic!("secret_scan ran without confinement");
+            };
+            assert_eq!(error.to_string(), reason);
+            return;
+        }
+        let config = result.unwrap().unwrap();
+        assert!(!config.dependency_check);
+        let scan = config.secret_scan.unwrap();
+        assert_eq!(scan.workdir, workdir);
+        assert_eq!(scan.timeout, std::time::Duration::from_secs(120));
+        assert!(matches!(
+            scan.isolation,
+            crate::handlers::run::proxy::ScanIsolation::Confined(_)
+        ));
+    }
+
+    #[test]
+    fn hook_broker_config_serves_the_agent_hook_only_under_docker() {
+        let workdir = std::path::Path::new("/repo");
+        let deps_only = EnabledHooks {
+            dependency_check: true,
+            secret_scan: false,
+        };
+
+        let native = hook_broker_config(deps_only, Some("k".to_owned()), workdir, &[], false)
+            .unwrap()
+            .unwrap();
+        assert!(native.agent_hook.is_none());
+
+        let docker = hook_broker_config(deps_only, Some("k".to_owned()), workdir, &[], true);
+        if let Some(reason) = crate::handlers::run::scan_sandbox::unavailable_reason() {
+            let Err(error) = docker else {
+                panic!("the agent hook ran without confinement");
+            };
+            assert_eq!(error.to_string(), reason);
+            return;
+        }
+        let docker = docker.unwrap().unwrap();
+        assert!(docker.dependency_check);
+        let hook = docker.agent_hook.unwrap();
+        assert_eq!(hook.workdir, workdir);
+        assert!(matches!(
+            hook.isolation,
+            crate::handlers::run::proxy::ScanIsolation::Confined(_)
+        ));
+    }
+
+    #[test]
+    fn hook_broker_config_needs_a_hook_and_an_api_key() {
+        let workdir = std::path::Path::new("/repo");
+        let both = EnabledHooks {
+            dependency_check: true,
+            secret_scan: true,
+        };
+
+        assert!(hook_broker_config(
+            EnabledHooks::default(),
+            Some("k".to_owned()),
+            workdir,
+            &[],
+            false
+        )
+        .unwrap()
+        .is_none());
+        assert!(hook_broker_config(both, None, workdir, &[], false)
+            .unwrap()
+            .is_none());
+        assert!(
+            hook_broker_config(both, Some(String::new()), workdir, &[], false)
+                .unwrap()
+                .is_none()
+        );
+        let deps_only = EnabledHooks {
+            dependency_check: true,
+            secret_scan: false,
+        };
+        let config = hook_broker_config(deps_only, Some("k".to_owned()), workdir, &[], false)
+            .unwrap()
+            .unwrap();
+        assert!(config.dependency_check && config.secret_scan.is_none());
+    }
+
+    #[test]
+    fn missing_default_image_points_to_agent_docker_build() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        assert_eq!(
+            missing_image_build_command(&source, "stashbase/agent-sandbox:latest"),
+            "stashbase agent docker build"
+        );
+    }
+
+    #[test]
+    fn missing_custom_image_builds_the_dockerfile_from_stdin() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Dockerfile(
+            PathBuf::from("/repo/sandbox.Dockerfile"),
+        );
+        assert_eq!(
+            missing_image_build_command(&source, "stashbase/agent-sandbox-custom:abc"),
+            "docker build -t stashbase/agent-sandbox-custom:abc - < /repo/sandbox.Dockerfile"
+        );
+    }
+
+    #[test]
+    fn missing_custom_image_quotes_a_dockerfile_path_with_spaces() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Dockerfile(
+            PathBuf::from("/repo/my image/Dockerfile"),
+        );
+        assert_eq!(
+            missing_image_build_command(&source, "t:abc"),
+            "docker build -t t:abc - < '/repo/my image/Dockerfile'"
+        );
+    }
+
+    #[test]
+    fn shell_quote_leaves_plain_paths_bare_and_escapes_single_quotes() {
+        assert_eq!(
+            shell_quote("/repo/sandbox.Dockerfile"),
+            "/repo/sandbox.Dockerfile"
+        );
+        assert_eq!(
+            shell_quote("/repo/it's/Dockerfile"),
+            r"'/repo/it'\''s/Dockerfile'"
+        );
+        assert_eq!(shell_quote("/repo/$HOME;rm"), "'/repo/$HOME;rm'");
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn image_build_prompt_needs_a_terminal_and_no_silent_flag() {
+        assert!(can_prompt_for_image_build(false, true, true));
+        assert!(!can_prompt_for_image_build(true, true, true), "--silent");
+        assert!(
+            !can_prompt_for_image_build(false, false, true),
+            "piped stdin / CI"
+        );
+        assert!(
+            !can_prompt_for_image_build(false, true, false),
+            "stderr redirected"
+        );
+    }
+
+    #[test]
+    fn missing_image_error_names_the_build_command_and_how_to_be_asked() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        let piped = missing_image_error(&source, "img:latest", false);
+        assert!(piped.contains("`stashbase agent docker build`"), "{piped}");
+        assert!(
+            piped.ends_with("re-run in an interactive terminal to be asked"),
+            "{piped}"
+        );
+        let silent = missing_image_error(&source, "img:latest", true);
+        assert!(
+            silent.ends_with("interactive terminal without --silent to be asked"),
+            "{silent}"
+        );
+    }
+
+    #[test]
+    fn declined_image_build_still_names_the_build_command() {
+        let source = crate::handlers::run::docker_sandbox::AgentImageSource::Default;
+        let message = declined_image_build_error(&source, "img:latest");
+        assert!(message.contains("(img:latest) was not built"), "{message}");
+        assert!(
+            message.ends_with("build it later with `stashbase agent docker build`"),
+            "{message}"
+        );
+    }
+
+    /// `finish_run_worktree` must repair the pointer file before any host
+    /// git runs in the worktree, then reset foreign refs, then remove the
+    /// (clean) worktree — with the agent's own branch kept.
+    #[test]
+    fn finish_run_worktree_restores_then_removes() {
+        use crate::handlers::run::worktree::{create_run_worktree, test_support};
+
+        let (repo, root) = test_support::fixture();
+        let wt = create_run_worktree(&repo, "ags_finish", Some(&root)).unwrap();
+        let other_before = test_support::git(&repo, &["rev-parse", "other"]);
+        test_support::git(&wt.path, &["commit", "-q", "--allow-empty", "-m", "agent"]);
+        let rewritten = test_support::unrelated_commit(&wt.path);
+        test_support::git(&wt.path, &["update-ref", "refs/heads/other", &rewritten]);
+        std::fs::write(wt.path.join(".git"), "gitdir: /nonexistent\n").unwrap();
+
+        super::finish_run_worktree(&wt, false, true);
+
+        assert!(!wt.path.exists(), "clean worktree removed after repair");
+        assert_eq!(
+            test_support::git(&repo, &["rev-parse", "other"]),
+            other_before
+        );
+        assert_eq!(
+            test_support::git(&repo, &["log", "-1", "--format=%s", "stashbase/ags_finish"]),
+            "agent"
+        );
+    }
+
+    fn guarded_worktree(
+        silent: bool,
+    ) -> (
+        std::path::PathBuf,
+        std::path::PathBuf,
+        super::RunWorktreeGuard,
+    ) {
+        let (repo, root) = crate::handlers::run::worktree::test_support::fixture();
+        let worktree = super::prepare_run_worktree_in(
+            Some(&crate::handlers::run::worktree::WorktreeRequest::New),
+            true,
+            &repo,
+            Some(&root),
+        )
+        .unwrap();
+        let path = worktree.as_ref().unwrap().path.clone();
+        (
+            repo,
+            path,
+            super::RunWorktreeGuard {
+                worktree,
+                silent,
+                docker: false,
+            },
+        )
+    }
+
+    #[test]
+    fn worktree_guard_cleans_up_when_setup_fails_with_an_early_return() {
+        let (repo, path, guard) = guarded_worktree(true);
+        let setup = move || -> anyhow::Result<()> {
+            let _guard = guard;
+            anyhow::bail!("proxy failed to start");
+        };
+        assert!(setup().is_err());
+        assert!(!path.exists(), "clean worktree removed on the early return");
+        let listing = crate::handlers::run::worktree::test_support::git(
+            &repo,
+            &["worktree", "list", "--porcelain"],
+        );
+        assert!(!listing.contains("locked"), "lock released: {listing}");
+    }
+
+    #[test]
+    fn worktree_guard_cleans_up_on_panic() {
+        let (_, path, guard) = guarded_worktree(true);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _guard = guard;
+            panic!("unexpected failure mid-run");
+        }));
+        assert!(result.is_err());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn worktree_guard_finishes_once() {
+        let (_, path, guard) = guarded_worktree(true);
+        assert_eq!(guard.workdir(), Some(path.as_path()));
+        guard.finish();
+        assert!(!path.exists());
+        // Dropping an empty guard is a no-op.
+        super::RunWorktreeGuard::none(true).finish();
+    }
+
+    #[test]
+    fn prepare_run_worktree_resumes_a_kept_worktree() {
+        use crate::handlers::run::worktree::{test_support, WorktreeOutcome, WorktreeRequest};
+        let (repo, root) = test_support::fixture();
+        let first =
+            super::prepare_run_worktree_in(Some(&WorktreeRequest::New), true, &repo, Some(&root))
+                .unwrap()
+                .unwrap();
+        std::fs::write(first.path.join("wip.txt"), "x").unwrap();
+        first.restore_pointers().unwrap();
+        assert_eq!(first.finish().unwrap(), WorktreeOutcome::Kept);
+        let name = first
+            .path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+
+        let resumed = super::prepare_run_worktree_in(
+            Some(&WorktreeRequest::Resume(name)),
+            true,
+            &repo,
+            Some(&root),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(resumed.path, first.path);
+        assert!(resumed.path.join("wip.txt").exists());
+    }
+
+    #[test]
+    fn prepare_run_worktree_is_a_no_op_when_disabled() {
+        assert!(
+            super::prepare_run_worktree_in(None, true, std::path::Path::new("/"), None)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn prepare_run_worktree_creates_a_named_worktree_when_enabled() {
+        let (repo, root) = crate::handlers::run::worktree::test_support::fixture();
+        let worktree = super::prepare_run_worktree_in(
+            Some(&crate::handlers::run::worktree::WorktreeRequest::New),
+            true,
+            &repo,
+            Some(&root),
+        )
+        .unwrap()
+        .expect("worktree created");
+        assert!(worktree
+            .path
+            .starts_with(crate::handlers::run::worktree::canonicalize(&root).unwrap()));
+        assert!(worktree.branch.starts_with("stashbase/"));
+    }
 
     fn temp_file_path(suffix: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -1395,6 +2535,41 @@ mod tests {
         );
 
         assert_eq!(missing, ["GH_TOKEN (from GITHUB_TOKEN)"]);
+    }
+
+    #[test]
+    fn an_agent_run_loads_bindings_rather_than_an_environment() {
+        assert_eq!(loading_message(true), "Loading bindings...");
+        assert_eq!(loading_message(false), "Loading environment...");
+    }
+
+    #[test]
+    fn only_an_agent_run_without_secrets_is_called_egress_only() {
+        assert_eq!(loaded_message(0, true), "Egress-only profile (0 secrets)");
+        assert_eq!(loaded_message(1, true), "Bindings loaded (1 binding)");
+        assert_eq!(loaded_message(3, true), "Bindings loaded (3 bindings)");
+        assert_eq!(loaded_message(1, false), "Environment loaded (1 secret)");
+        assert_eq!(loaded_message(0, false), "Environment loaded (0 secrets)");
+        assert_eq!(loaded_message(10, false), "Environment loaded (10 secrets)");
+    }
+
+    #[test]
+    fn run_without_only_fetches_every_secret() {
+        assert!(needs_remote_fetch(&[], &[], false));
+    }
+
+    #[test]
+    fn an_agent_run_never_fetches_secrets_it_does_not_bind() {
+        assert!(!needs_remote_fetch(&[], &[], true));
+    }
+
+    #[test]
+    fn requested_secrets_are_fetched_unless_a_local_file_provides_them_all() {
+        let only = ["GITHUB_TOKEN".to_owned()];
+        for agent_run in [false, true] {
+            assert!(needs_remote_fetch(&only, &only, agent_run));
+            assert!(!needs_remote_fetch(&only, &[], agent_run));
+        }
     }
 
     #[test]

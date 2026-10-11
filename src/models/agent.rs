@@ -16,6 +16,14 @@ pub struct AgentProfile {
     /// Filesystem paths denied to the agent process tree.
     #[serde(default)]
     pub filesystem: AgentFilesystemProfile,
+    /// Selects the sandbox enforcement backend. Defaults to the platform's
+    /// native mechanism (Seatbelt/systemd-run/bubblewrap).
+    #[serde(default)]
+    pub sandbox: AgentSandboxProfile,
+    /// Where the agent works (`[workspace]`), as opposed to how it is
+    /// isolated (`[sandbox]`).
+    #[serde(default)]
+    pub workspace: AgentWorkspaceProfile,
     /// Named HTTP MCP servers and their tool policies.
     #[serde(default)]
     pub mcp_servers: HashMap<String, AgentMcpServer>,
@@ -32,6 +40,48 @@ pub struct AgentProfile {
     /// Capabilities the agent may use through the local run broker.
     #[serde(default)]
     pub allow_hooks: Vec<String>,
+}
+
+/// Authenticated hooks the run broker serves on the agent's behalf.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EnabledHooks {
+    pub dependency_check: bool,
+    pub secret_scan: bool,
+}
+
+impl EnabledHooks {
+    pub fn any(self) -> bool {
+        self.dependency_check || self.secret_scan
+    }
+
+    /// The startup line's description, e.g. `enabled (dependency_check, secret_scan)`.
+    pub fn label(self) -> String {
+        let names = [
+            (self.dependency_check, "dependency_check"),
+            (self.secret_scan, "secret_scan"),
+        ]
+        .into_iter()
+        .filter_map(|(enabled, name)| enabled.then_some(name))
+        .collect::<Vec<_>>();
+        if names.is_empty() {
+            "disabled".to_owned()
+        } else {
+            format!("enabled ({})", names.join(", "))
+        }
+    }
+}
+
+impl AgentProfile {
+    /// The hooks `allow_hooks` asks for, before checking an API key exists.
+    pub fn requested_hooks(&self) -> EnabledHooks {
+        EnabledHooks {
+            dependency_check: self
+                .allow_hooks
+                .iter()
+                .any(|hook| hook == "dependency_check"),
+            secret_scan: self.allow_hooks.iter().any(|hook| hook == "secret_scan"),
+        }
+    }
 }
 
 /// An MCP endpoint rule. `hosts` and `paths` identify the endpoint, while
@@ -79,6 +129,75 @@ pub struct AgentFilesystemProfile {
     /// Paths the agent must not modify.
     #[serde(default)]
     pub deny_write: Vec<String>,
+}
+
+/// Selects which mechanism enforces filesystem/network isolation for the
+/// agent process tree. `Native` (the default) preserves today's behavior:
+/// Seatbelt on macOS, `systemd-run`/bubblewrap on Linux.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxBackend {
+    #[default]
+    Native,
+    Docker,
+}
+
+impl SandboxBackend {
+    /// Applies a `--docker-sandbox` CLI override on top of this profile's
+    /// declared backend: `Some(true)` forces `Docker`, `Some(false)` forces
+    /// `Native`, `None` (the flag wasn't passed) leaves the profile's own
+    /// setting untouched.
+    pub fn with_cli_override(self, docker_sandbox_flag: Option<bool>) -> Self {
+        match docker_sandbox_flag {
+            Some(true) => Self::Docker,
+            Some(false) => Self::Native,
+            None => self,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentWorkspaceProfile {
+    /// Run the agent inside a fresh git
+    /// worktree on its own `stashbase/<name>` branch instead of the
+    /// current checkout. See `handlers::run::worktree`.
+    #[serde(default)]
+    pub worktree: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSandboxProfile {
+    #[serde(default)]
+    pub backend: SandboxBackend,
+    /// Docker backend only: run this image instead of the built-in default.
+    /// Mutually exclusive with `dockerfile` — see `ensure_profile_is_valid_for_run`.
+    #[serde(default)]
+    pub image: Option<String>,
+    /// Docker backend only: build and run this Dockerfile (path relative to
+    /// the current working directory) instead of the built-in default image.
+    /// Mutually exclusive with `image`.
+    #[serde(default)]
+    pub dockerfile: Option<String>,
+    /// Docker backend only: cap the agent container's memory, passed
+    /// straight through to `docker run --memory` (e.g. "2g", "512m"). No
+    /// cap by default — this is opt-in, since an automatic default could
+    /// silently break a legitimately memory-hungry task with no warning.
+    #[serde(default)]
+    pub memory: Option<String>,
+    /// Docker backend only: cap the agent container's CPU allocation,
+    /// passed straight through to `docker run --cpus` (e.g. "1.5", "2").
+    /// No cap by default, for the same reason as `memory`.
+    #[serde(default)]
+    pub cpus: Option<String>,
+    /// Docker backend only: directories (relative to the working directory,
+    /// e.g. "node_modules") that get their own per-repo Docker volume
+    /// inside the container instead of the host's copy — so a macOS host
+    /// and the Linux container never overwrite each other's
+    /// platform-specific installs.
+    #[serde(default)]
+    pub isolated_paths: Vec<String>,
 }
 
 /// Project/environment-backed secret bindings. Personal credentials deliberately
@@ -166,4 +285,128 @@ pub struct AgentHttpRule {
 pub enum AgentHttpRuleEffect {
     Allow,
     Deny,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worktree_lives_under_workspace_not_sandbox() {
+        let profile: super::AgentProfile =
+            toml::from_str("[workspace]\nworktree = true\n").unwrap();
+        assert!(profile.workspace.worktree);
+        let empty: super::AgentProfile = toml::from_str("").unwrap();
+        assert!(!empty.workspace.worktree, "off unless the profile opts in");
+
+        let error = toml::from_str::<super::AgentProfile>("[sandbox]\nworktree = true\n")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("worktree"), "{error}");
+    }
+
+    #[test]
+    fn parses_env_rename_alongside_project_and_environment_fields() {
+        let toml = r#"
+egress_hosts = ["api.github.com", "*"]
+
+[sandbox]
+backend = "docker"
+
+[secrets]
+project = "project"
+environment = "api-development"
+
+[secrets.GH_TOKEN]
+env = "GITHUB_PAT_TOKEN"
+
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET", "POST"]
+paths = ["*"]
+"#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.secrets.project.as_deref(), Some("project"));
+        assert_eq!(
+            profile.secrets.environment.as_deref(),
+            Some("api-development")
+        );
+        let binding = profile
+            .secrets
+            .bindings
+            .get("GH_TOKEN")
+            .expect("GH_TOKEN binding should be parsed");
+        assert_eq!(binding.env.as_deref(), Some("GITHUB_PAT_TOKEN"));
+        assert_eq!(binding.rules.len(), 1);
+    }
+
+    #[test]
+    fn cli_override_forces_docker_regardless_of_profile() {
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(Some(true)),
+            SandboxBackend::Docker
+        );
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(Some(true)),
+            SandboxBackend::Docker
+        );
+    }
+
+    #[test]
+    fn cli_override_forces_native_regardless_of_profile() {
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(Some(false)),
+            SandboxBackend::Native
+        );
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(Some(false)),
+            SandboxBackend::Native
+        );
+    }
+
+    #[test]
+    fn cli_override_absent_keeps_profile_setting() {
+        assert_eq!(
+            SandboxBackend::Docker.with_cli_override(None),
+            SandboxBackend::Docker
+        );
+        assert_eq!(
+            SandboxBackend::Native.with_cli_override(None),
+            SandboxBackend::Native
+        );
+    }
+
+    #[test]
+    fn sandbox_defaults_to_native_when_omitted() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+        "#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.sandbox.backend, SandboxBackend::Native);
+    }
+
+    #[test]
+    fn sandbox_backend_docker_parses() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+
+            [sandbox]
+            backend = "docker"
+        "#;
+        let profile: AgentProfile = toml::from_str(toml).unwrap();
+        assert_eq!(profile.sandbox.backend, SandboxBackend::Docker);
+    }
+
+    #[test]
+    fn sandbox_rejects_unknown_backend() {
+        let toml = r#"
+            egress_hosts = ["api.github.com"]
+
+            [sandbox]
+            backend = "vm"
+        "#;
+        let result: Result<AgentProfile, _> = toml::from_str(toml);
+        assert!(result.is_err());
+    }
 }

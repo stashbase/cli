@@ -19,21 +19,23 @@ const WORDS: &[&str] = &[
     "willow", "wind", "winter", "wood", "zenith",
 ];
 
+/// `words` random words from `WORDS` joined by `separator`, e.g.
+/// "amber-river-storm". Also used to name agent worktrees.
+pub fn generate_passphrase(words: u8, separator: &str) -> String {
+    let mut rng = rng();
+    (0..words)
+        .map(|_| WORDS[rng.random_range(0..WORDS.len())])
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
 pub fn handle_generate_passphrase(
     words: u8,
     separator: String,
     json_format: bool,
     uppercase: bool,
 ) {
-    let mut rng = rng();
-    let mut selected_words: Vec<&str> = Vec::with_capacity(words as usize);
-
-    for _ in 0..words {
-        let idx = rng.random_range(0..WORDS.len());
-        selected_words.push(WORDS[idx]);
-    }
-
-    let passphrase = selected_words.join(&separator);
+    let passphrase = generate_passphrase(words, &separator);
     let output = if uppercase {
         passphrase.to_uppercase()
     } else {

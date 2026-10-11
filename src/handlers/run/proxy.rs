@@ -40,9 +40,11 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use log::debug;
-use rcgen::{BasicConstraints, Certificate, CertificateParams, DnType, IsCa, KeyUsagePurpose};
+use rcgen::{
+    BasicConstraints, CertificateParams, CertifiedIssuer, DnType, IsCa, KeyPair, KeyUsagePurpose,
+};
 use rustls::{
-    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
+    pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
     ClientConfig, ServerConfig,
 };
 use rustls_platform_verifier::BuilderVerifierExt;
@@ -59,14 +61,15 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 use uuid::Uuid;
 
 use crate::{
-    handlers::agent_policy::{
+    handlers::agent::policy::{
         evaluate_secret_authorization, host_matches, normalize_secret_http_policy,
         SecretAuthorizationDecision, SecretHttpPolicy,
     },
-    models::agent::{AgentHttpRuleEffect, AgentMcpRule},
+    models::agent::{AgentHttpRuleEffect, AgentMcpRule, SandboxBackend},
     REQUEST_TIMEOUT_SECS,
 };
 
+use super::routing::{RemoteMode, RemoteRouting};
 #[cfg(test)]
 use crate::models::agent::AgentHttpRule;
 
@@ -81,6 +84,84 @@ const AUDIT_LOG_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const AUDIT_LOG_MAX_FILES: usize = 1_000;
 const MCP_INSPECTION_HEADER: &str = "x-stashbase-mcp-inspection";
 const DEPENDENCY_HOOK_PATH: &str = "/__stashbase/dependency-check";
+const SECRET_SCAN_HOOK_PATH: &str = "/__stashbase/scan";
+/// Where a sandboxed git hook asks the proxy to run `stashbase scan` on the host.
+pub const SCAN_BROKER_URL_ENV: &str = "STASHBASE_SCAN_BROKER_URL";
+const SECRET_SCAN_BODY_LIMIT: usize = 1024 * 1024;
+const AGENT_HOOK_PATH: &str = "/__stashbase/agent-hook";
+/// Where the `stashbase` stand-in in the Docker sandbox sends agent hook
+/// payloads, so `stashbase agent hooks` runs on the host.
+pub const AGENT_HOOK_URL_ENV: &str = "STASHBASE_AGENT_HOOK_URL";
+const AGENT_HOOK_BODY_LIMIT: usize = 1024 * 1024;
+
+/// Authenticated hooks the proxy serves on the parent's behalf, so the child
+/// never holds the Stashbase API key.
+pub struct HookBrokerConfig {
+    pub api_key: String,
+    pub dependency_check: bool,
+    /// Enables the secret-scan route.
+    pub secret_scan: Option<SecretScanConfig>,
+    /// Enables the route that runs `stashbase agent hooks` on the host, for
+    /// a sandbox without the CLI. Only served with `dependency_check`.
+    pub agent_hook: Option<SecretScanConfig>,
+}
+
+pub struct SecretScanConfig {
+    /// The run's working directory, scanned on the host.
+    pub workdir: PathBuf,
+    pub timeout: Duration,
+    pub isolation: ScanIsolation,
+}
+
+pub enum ScanIsolation {
+    /// The scan reads an agent-controlled repository, so it runs with roughly
+    /// the agent's own view of the host filesystem.
+    Confined(super::scan_sandbox::ScanConfinement),
+    /// Runs `exe` directly, for tests of the route itself.
+    #[cfg(test)]
+    Unconfined { exe: PathBuf },
+}
+
+/// An empty home for one scan, so it reads none of the user's dotfiles
+/// (git's global config, the CLI's own config) and can still write.
+struct ScratchHome(PathBuf);
+
+impl ScratchHome {
+    fn create() -> std::io::Result<Self> {
+        let path = std::env::temp_dir().join(format!("stashbase-scan-home-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&path)?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for ScratchHome {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+struct HookBroker {
+    token: String,
+    client: reqwest::Client,
+    api_key: String,
+    dependency_check: bool,
+    secret_scan: Option<SecretScanConfig>,
+    agent_hook: Option<SecretScanConfig>,
+    // One scan at a time: concurrent hooks would race on the same index.
+    scan_lock: tokio::sync::Mutex<()>,
+}
+
+impl HookBroker {
+    fn authorized(&self, request: &Request<Incoming>) -> bool {
+        request.method() == Method::POST
+            && request.uri().query().is_none()
+            && request
+                .headers()
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value == format!("Bearer {}", self.token))
+    }
+}
 
 /// One metadata-only event emitted by the local proxy audit log.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
@@ -102,6 +183,12 @@ pub struct ProxyAuditLogEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_file_sha256: Option<String>,
     pub action: String,
+    /// Present only on `session_started` for remote sessions: `credential` or `full`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_mode: Option<String>,
+    /// How a remote session carried this destination: `remote` or `direct`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
     pub destination_host: Option<String>,
     /// Present only for filesystem-policy events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -173,6 +260,7 @@ pub struct ProxyAuditLog {
     policy_fingerprint: String,
     profile_provenance: Option<ProfileAuditProvenance>,
     binding_sources: Arc<HashMap<String, String>>,
+    routing: Option<Arc<RwLock<RemoteRouting>>>,
     path: Arc<PathBuf>,
     file: Arc<Mutex<std::fs::File>>,
 }
@@ -239,6 +327,7 @@ impl ProxyAuditLog {
             policy_fingerprint,
             profile_provenance: None,
             binding_sources: Arc::new(HashMap::new()),
+            routing: None,
             path: Arc::new(path),
             file: Arc::new(Mutex::new(file)),
         })
@@ -286,6 +375,13 @@ impl ProxyAuditLog {
         self
     }
 
+    /// Records the routing of a remote session: its mode on `session_started`
+    /// and, for each event with a destination, whether it went remote or direct.
+    pub fn with_routing(mut self, routing: Arc<RwLock<RemoteRouting>>) -> Self {
+        self.routing = Some(routing);
+        self
+    }
+
     fn record(
         &self,
         action: &str,
@@ -328,6 +424,9 @@ impl ProxyAuditLog {
         operation: Option<&str>,
         mcp_tool: Option<&str>,
     ) {
+        // Every audit event, including streamed request outcomes, passes
+        // through here. Only the action kind is counted, never its details.
+        crate::telemetry::count_action(action);
         let event = ProxyAuditLogEvent {
             timestamp: Utc::now().to_rfc3339(),
             session_id: self.session_id.clone(),
@@ -358,6 +457,28 @@ impl ProxyAuditLog {
                 })
                 .flatten(),
             action: action.to_owned(),
+            routing_mode: (action == "session_started")
+                .then(|| {
+                    self.routing
+                        .as_ref()
+                        .and_then(|routing| routing.read().ok())
+                        .map(|routing| routing.mode.as_str().to_owned())
+                })
+                .flatten(),
+            route: (action != "filesystem_denied")
+                .then(|| {
+                    let host = host?;
+                    let routing = self.routing.as_ref()?.read().ok()?;
+                    Some(
+                        if routing.is_remote(host) {
+                            "remote"
+                        } else {
+                            "direct"
+                        }
+                        .to_owned(),
+                    )
+                })
+                .flatten(),
             destination_host: (action != "filesystem_denied")
                 .then(|| host)
                 .flatten()
@@ -664,6 +785,30 @@ pub struct ProxyPolicy {
     pub egress_hosts_configured: bool,
     pub strict_deny: bool,
     pub mcp_rules: Vec<AgentMcpRule>,
+    /// Selects which enforcement backend the sandboxed child runs under.
+    pub backend: SandboxBackend,
+    /// Docker backend only: a custom image reference to run instead of the
+    /// built-in default. Takes priority over `sandbox_dockerfile` if both
+    /// are somehow set (profile loading rejects setting both).
+    pub sandbox_image: Option<String>,
+    /// Docker backend only: path to a custom Dockerfile to build and run
+    /// instead of the built-in default image.
+    pub sandbox_dockerfile: Option<String>,
+    /// Docker backend only: `docker run --memory` value, e.g. "2g". No cap
+    /// when unset.
+    pub sandbox_memory: Option<String>,
+    /// Docker backend only: `docker run --cpus` value, e.g. "1.5". No cap
+    /// when unset.
+    pub sandbox_cpus: Option<String>,
+    /// Run inside a per-session git worktree.
+    pub worktree: bool,
+    /// With `worktree`: continue this earlier run's worktree (`--resume`)
+    /// instead of creating a new one. Where the agent works, not what it
+    /// may do — so not part of the fingerprint.
+    pub worktree_resume: Option<String>,
+    /// Docker backend only: repo-relative directories backed by a per-repo
+    /// volume instead of the host's copy (see `append_isolated_path_mounts`).
+    pub sandbox_isolated_paths: Vec<String>,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -686,6 +831,9 @@ pub struct RemoteProxyConfig {
     /// Key-ID-specific public CA cached from the session response. It is pinned
     /// for this child run so a later CA rotation cannot overwrite its trust file.
     pub ca_file: Option<PathBuf>,
+    /// Which hosts use the remote proxy. Replaced atomically on session
+    /// rotation; the child cannot influence it.
+    pub routing: Arc<RwLock<RemoteRouting>>,
 }
 
 /// The currently usable remote session. The rotation task replaces this atomically
@@ -709,6 +857,24 @@ impl std::fmt::Debug for RemoteProxySessionState {
 }
 
 impl RemoteProxyConfig {
+    /// Whether traffic to `host` goes through the remote proxy. A missing host
+    /// or an unreadable table fails toward the remote proxy, never toward a
+    /// direct connection.
+    fn routes_remotely(&self, host: Option<&str>) -> bool {
+        match (self.routing.read(), host) {
+            (Ok(routing), Some(host)) => routing.is_remote(host),
+            (Ok(routing), None) => routing.mode == RemoteMode::Full,
+            (Err(_), _) => true,
+        }
+    }
+
+    pub fn routing_mode(&self) -> RemoteMode {
+        self.routing
+            .read()
+            .map(|routing| routing.mode)
+            .unwrap_or(RemoteMode::Full)
+    }
+
     /// Never call this for an already-open stream: session rotation only applies
     /// to new HTTP requests and CONNECT handshakes.
     fn token_for_new_connection(&self) -> Result<String> {
@@ -738,6 +904,7 @@ impl std::fmt::Debug for RemoteProxyConfig {
             .field("child_env", &self.child_env)
             .field("protocol", &self.protocol)
             .field("ca_file", &self.ca_file)
+            .field("routing_mode", &self.routing_mode())
             .finish()
     }
 }
@@ -758,6 +925,14 @@ impl SecretInjection {
 }
 
 impl ProxyPolicy {
+    /// What kind of agent worktree this run wants, if any.
+    pub(crate) fn worktree_request(&self) -> Option<super::worktree::WorktreeRequest> {
+        self.worktree.then(|| match &self.worktree_resume {
+            Some(name) => super::worktree::WorktreeRequest::Resume(name.clone()),
+            None => super::worktree::WorktreeRequest::New,
+        })
+    }
+
     pub fn permissive() -> Self {
         Self {
             secret_policies: HashMap::new(),
@@ -770,6 +945,14 @@ impl ProxyPolicy {
             egress_hosts_configured: false,
             strict_deny: false,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -780,6 +963,34 @@ impl ProxyPolicy {
             format!("egress_configured={}", self.egress_hosts_configured),
             format!("strict_deny={}", self.strict_deny),
             format!("allow_network_listeners={}", self.allow_network_listeners),
+            // The sandbox backend and its Docker-specific settings are part
+            // of the effective enforcement, not just the egress/secret
+            // policy — switching a profile from native to Docker, or
+            // swapping its custom image, must change the fingerprint, or
+            // an audit record can't tell those materially different runs
+            // apart.
+            format!("backend={:?}", self.backend),
+            format!(
+                "sandbox_image={}",
+                self.sandbox_image.as_deref().unwrap_or("")
+            ),
+            format!(
+                "sandbox_dockerfile={}",
+                self.sandbox_dockerfile.as_deref().unwrap_or("")
+            ),
+            format!(
+                "sandbox_memory={}",
+                self.sandbox_memory.as_deref().unwrap_or("")
+            ),
+            format!(
+                "sandbox_cpus={}",
+                self.sandbox_cpus.as_deref().unwrap_or("")
+            ),
+            format!("worktree={}", self.worktree),
+            format!(
+                "sandbox_isolated_paths={}",
+                self.sandbox_isolated_paths.join(",")
+            ),
         ];
         let mut egress = normalize_hosts(self.allowed_egress_hosts.clone())
             .into_iter()
@@ -876,14 +1087,24 @@ struct ProxyState {
     policy: ProxyPolicy,
     client: reqwest::Client,
     remote_ca: Option<reqwest::Certificate>,
-    certificate_authority: Arc<Certificate>,
+    certificate_authority: Arc<CertifiedIssuer<'static, KeyPair>>,
     audit_log: Option<ProxyAuditLog>,
     connections: Arc<ActiveConnections>,
     remote: Option<RemoteProxyConfig>,
     mcp_inspection_token: String,
-    dependency_hook_token: Option<String>,
-    dependency_hook_client: Option<reqwest::Client>,
+    hook_broker: Option<Arc<HookBroker>>,
     revocation_path: Arc<RwLock<Option<PathBuf>>>,
+}
+
+impl ProxyState {
+    /// The remote proxy config when this destination must go remote; `None`
+    /// for a local session or a host that credential routing sends direct.
+    fn remote_for(&self, host: Option<&str>) -> Option<RemoteProxyConfig> {
+        self.remote
+            .as_ref()
+            .filter(|remote| remote.routes_remotely(host))
+            .cloned()
+    }
 }
 
 /// Tracks every accepted proxy and TLS-upgrade task so proxy shutdown closes
@@ -955,7 +1176,17 @@ impl Proxy {
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
     ) -> Result<Self> {
-        Self::start_inner(secrets, policy, audit_log, proxy_port, None, None, false).await
+        Self::start_inner(
+            secrets,
+            policy,
+            audit_log,
+            proxy_port,
+            None,
+            None,
+            false,
+            "127.0.0.1",
+        )
+        .await
     }
 
     pub async fn start_with_hook(
@@ -963,9 +1194,37 @@ impl Proxy {
         policy: ProxyPolicy,
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
-        api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
     ) -> Result<Self> {
-        Self::start_inner(secrets, policy, audit_log, proxy_port, None, api_key, true).await
+        Self::start_inner(
+            secrets,
+            policy,
+            audit_log,
+            proxy_port,
+            None,
+            hooks,
+            true,
+            "127.0.0.1",
+        )
+        .await
+    }
+
+    /// Like `start_with_hook`, but binds the proxy to `bind_host` instead of
+    /// loopback. Used by the Docker sandbox backend, which binds the proxy
+    /// to a per-run Docker network's gateway address so only the sandboxed
+    /// container (not the whole LAN) can reach it.
+    pub async fn start_with_hook_and_bind_host(
+        secrets: HashMap<String, String>,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+        hooks: Option<HookBrokerConfig>,
+        bind_host: &str,
+    ) -> Result<Self> {
+        Self::start_inner(
+            secrets, policy, audit_log, proxy_port, None, hooks, true, bind_host,
+        )
+        .await
     }
 
     pub async fn start_remote_with_port(
@@ -983,6 +1242,7 @@ impl Proxy {
             Some(remote),
             None,
             false,
+            "127.0.0.1",
         )
         .await
     }
@@ -992,7 +1252,7 @@ impl Proxy {
         policy: ProxyPolicy,
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
-        api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
     ) -> Result<Self> {
         let placeholders = remote.placeholders.clone();
         Self::start_inner(
@@ -1001,8 +1261,33 @@ impl Proxy {
             audit_log,
             proxy_port,
             Some(remote),
-            api_key,
+            hooks,
             true,
+            "127.0.0.1",
+        )
+        .await
+    }
+
+    /// Like `start_remote_with_hook`, but binds the proxy to `bind_host`
+    /// instead of loopback. See `start_with_hook_and_bind_host`.
+    pub async fn start_remote_with_hook_and_bind_host(
+        remote: RemoteProxyConfig,
+        policy: ProxyPolicy,
+        audit_log: Option<ProxyAuditLog>,
+        proxy_port: Option<u16>,
+        hooks: Option<HookBrokerConfig>,
+        bind_host: &str,
+    ) -> Result<Self> {
+        let placeholders = remote.placeholders.clone();
+        Self::start_inner(
+            placeholders,
+            policy,
+            audit_log,
+            proxy_port,
+            Some(remote),
+            hooks,
+            true,
+            bind_host,
         )
         .await
     }
@@ -1013,14 +1298,16 @@ impl Proxy {
         audit_log: Option<ProxyAuditLog>,
         proxy_port: Option<u16>,
         remote: Option<RemoteProxyConfig>,
-        hook_api_key: Option<String>,
+        hooks: Option<HookBrokerConfig>,
         hook_mode_set: bool,
+        bind_host: &str,
     ) -> Result<Self> {
         if proxy_port == Some(0) {
             anyhow::bail!("--proxy-port must be between 1 and 65535");
         }
         let (certificate_authority, mut ca_file) = create_certificate_authority()?;
         let mut remove_ca_file = true;
+        let mut remote_ca_file = None;
         if remote
             .as_ref()
             .is_some_and(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
@@ -1029,12 +1316,29 @@ impl Proxy {
                 .as_ref()
                 .and_then(|remote| remote.ca_file.clone())
                 .context("remote forward-proxy session did not provide a cached CA file")?;
-            // The remote listener, not this local relay, presents certificates in
-            // forward-proxy mode. Pass its public CA to the child.
-            ca_file = remote_ca;
-            remove_ca_file = false;
+            if remote
+                .as_ref()
+                .is_some_and(|remote| remote.routing_mode() == RemoteMode::Credential)
+            {
+                // Remote-routed hosts are intercepted by the remote proxy, but
+                // direct hosts are still intercepted by this relay. The child
+                // must trust both CAs, so extend our temporary CA file (which
+                // is removed on shutdown) with the remote proxy's public CA.
+                let mut bundle = fs::read(&ca_file)?;
+                bundle.push(b'\n');
+                bundle.extend(fs::read(&remote_ca)?);
+                fs::write(&ca_file, bundle).context("failed to write the proxy CA bundle")?;
+            } else {
+                // The remote listener, not this local relay, presents
+                // certificates in full forward-proxy mode. Pass its public CA
+                // to the child.
+                let _ = fs::remove_file(&ca_file);
+                ca_file = remote_ca.clone();
+                remove_ca_file = false;
+            }
+            remote_ca_file = Some(remote_ca);
         }
-        let bind_address = format!("127.0.0.1:{}", proxy_port.unwrap_or(0));
+        let bind_address = format!("{bind_host}:{}", proxy_port.unwrap_or(0));
         let listener = TcpListener::bind(&bind_address)
             .await
             .with_context(|| format!("failed to bind credential proxy to {bind_address}"))?;
@@ -1087,11 +1391,8 @@ impl Proxy {
                 REQUEST_TIMEOUT_SECS.get().copied().unwrap_or(30),
             ))
             .redirect(reqwest::redirect::Policy::none());
-        let remote_ca = if remote
-            .as_ref()
-            .is_some_and(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
-        {
-            let remote_ca = reqwest::Certificate::from_pem(&fs::read(&ca_file)?)?;
+        let remote_ca = if let Some(remote_ca_file) = &remote_ca_file {
+            let remote_ca = reqwest::Certificate::from_pem(&fs::read(remote_ca_file)?)?;
             client_builder = client_builder.add_root_certificate(remote_ca.clone());
             Some(remote_ca)
         } else {
@@ -1109,16 +1410,23 @@ impl Proxy {
             connections: connections.clone(),
             remote,
             mcp_inspection_token: Uuid::new_v4().to_string(),
-            dependency_hook_token: hook_api_key.as_ref().map(|_| Uuid::new_v4().to_string()),
-            dependency_hook_client: hook_api_key.as_ref().map(|api_key| {
-                reqwest::Client::builder()
-                    .no_proxy()
-                    .default_headers(reqwest::header::HeaderMap::from_iter([(
-                        reqwest::header::AUTHORIZATION,
-                        format!("Bearer {api_key}").parse().unwrap(),
-                    )]))
-                    .build()
-                    .expect("dependency hook client must build")
+            hook_broker: hooks.map(|hooks| {
+                Arc::new(HookBroker {
+                    token: Uuid::new_v4().to_string(),
+                    client: reqwest::Client::builder()
+                        .no_proxy()
+                        .default_headers(reqwest::header::HeaderMap::from_iter([(
+                            reqwest::header::AUTHORIZATION,
+                            format!("Bearer {}", hooks.api_key).parse().unwrap(),
+                        )]))
+                        .build()
+                        .expect("hook broker client must build"),
+                    api_key: hooks.api_key,
+                    dependency_check: hooks.dependency_check,
+                    secret_scan: hooks.secret_scan,
+                    agent_hook: hooks.agent_hook,
+                    scan_lock: tokio::sync::Mutex::new(()),
+                })
             }),
             revocation_path: revocation_path.clone(),
         };
@@ -1146,6 +1454,10 @@ impl Proxy {
             ("NODE_USE_ENV_PROXY".to_owned(), "1".to_owned()),
             ("NO_PROXY".to_owned(), String::new()),
             ("no_proxy".to_owned(), String::new()),
+            // Marks every agent session (native, Docker and remote) so a
+            // Stashbase CLI run by the agent never sends telemetry, whatever
+            // the profile's egress policy allows.
+            ("STASHBASE_SANDBOX".to_owned(), "1".to_owned()),
         ]);
         for placeholder in state.secrets.keys() {
             let env_name = child_env_name_for_placeholder(
@@ -1158,21 +1470,35 @@ impl Proxy {
         if hook_mode_set {
             child_env.insert(
                 crate::api::dependencies::HOOK_MODE_ENV.to_owned(),
-                if hook_api_key.is_some() {
+                if state.hook_broker.is_some() {
                     "broker"
                 } else {
                     "disabled"
                 }
                 .to_owned(),
             );
-            if let (Some(token), Some(_)) = (&state.dependency_hook_token, &hook_api_key) {
-                child_env.insert(
-                    crate::api::dependencies::HOOK_BROKER_URL_ENV.to_owned(),
-                    format!("http://{address}{DEPENDENCY_HOOK_PATH}"),
-                );
+            if let Some(broker) = &state.hook_broker {
+                if broker.dependency_check {
+                    child_env.insert(
+                        crate::api::dependencies::HOOK_BROKER_URL_ENV.to_owned(),
+                        format!("http://{address}{DEPENDENCY_HOOK_PATH}"),
+                    );
+                }
+                if broker.dependency_check && broker.agent_hook.is_some() {
+                    child_env.insert(
+                        AGENT_HOOK_URL_ENV.to_owned(),
+                        format!("http://{address}{AGENT_HOOK_PATH}"),
+                    );
+                }
+                if broker.secret_scan.is_some() {
+                    child_env.insert(
+                        SCAN_BROKER_URL_ENV.to_owned(),
+                        format!("http://{address}{SECRET_SCAN_HOOK_PATH}"),
+                    );
+                }
                 child_env.insert(
                     crate::api::dependencies::HOOK_BROKER_TOKEN_ENV.to_owned(),
-                    token.clone(),
+                    broker.token.clone(),
                 );
             }
         }
@@ -1275,9 +1601,9 @@ fn child_env_name_for_placeholder(
         .unwrap_or(binding_name)
 }
 
-fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
+fn create_certificate_authority() -> Result<(CertifiedIssuer<'static, KeyPair>, PathBuf)> {
     let subject = format!("Stashbase Proxy {}", Uuid::new_v4());
-    let mut params = CertificateParams::new(vec!["stashbase-proxy.local".to_owned()]);
+    let mut params = CertificateParams::new(vec!["stashbase-proxy.local".to_owned()])?;
     params
         .distinguished_name
         .push(DnType::CommonName, subject.clone());
@@ -1287,9 +1613,9 @@ fn create_certificate_authority() -> Result<(Certificate, PathBuf)> {
         KeyUsagePurpose::DigitalSignature,
         KeyUsagePurpose::KeyEncipherment,
     ];
-    let ca = Certificate::from_params(params)?;
+    let ca = CertifiedIssuer::self_signed(params, KeyPair::generate()?)?;
     let path = std::env::temp_dir().join(format!("stashbase-proxy-ca-{}.pem", Uuid::new_v4()));
-    std::fs::write(&path, ca.serialize_pem()?).context("failed to write temporary proxy CA")?;
+    std::fs::write(&path, ca.pem()).context("failed to write temporary proxy CA")?;
     Ok((ca, path))
 }
 
@@ -1503,7 +1829,8 @@ fn proxy_request(
                     "Agent Proxy policy denied destination",
                 ));
             }
-            if let Some(remote) = &state.remote {
+            let connect_remote = state.remote_for(Some(host_from_authority(&authority)));
+            if let Some(remote) = &connect_remote {
                 if let Err(error) = remote.token_for_new_connection() {
                     state.record_audit(
                         "session_expired",
@@ -1523,31 +1850,31 @@ fn proxy_request(
             // Establish the remote CONNECT before acknowledging the child's CONNECT.
             // Otherwise a rejected or stalled remote proxy produces a misleading local
             // 200 response followed by an unexplained dead tunnel.
-            let remote_tunnel =
-                match state.remote.clone().filter(|remote| {
-                    remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept
-                }) {
-                    Some(remote) => match establish_remote_connect(&authority, &remote).await {
-                        Ok(upstream) => Some(upstream),
-                        Err(error) => {
-                            debug!("remote proxy CONNECT setup failed: {error:#}");
-                            state.record_audit(
-                                "remote_connect_failed",
-                                Some(host_from_authority(&authority)),
-                                Some(&Method::CONNECT),
-                                None,
-                                Some(StatusCode::BAD_GATEWAY),
-                                Some(started.elapsed()),
-                            );
-                            return Ok(proxy_error_response(
-                                StatusCode::BAD_GATEWAY,
-                                "proxy.remote_connect_failed",
-                                "Unable to establish Agent Proxy tunnel",
-                            ));
-                        }
-                    },
-                    None => None,
-                };
+            let remote_tunnel = match connect_remote
+                .clone()
+                .filter(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
+            {
+                Some(remote) => match establish_remote_connect(&authority, &remote).await {
+                    Ok(upstream) => Some(upstream),
+                    Err(error) => {
+                        debug!("remote proxy CONNECT setup failed: {error:#}");
+                        state.record_audit(
+                            "remote_connect_failed",
+                            Some(host_from_authority(&authority)),
+                            Some(&Method::CONNECT),
+                            None,
+                            Some(StatusCode::BAD_GATEWAY),
+                            Some(started.elapsed()),
+                        );
+                        return Ok(proxy_error_response(
+                            StatusCode::BAD_GATEWAY,
+                            "proxy.remote_connect_failed",
+                            "Unable to establish Agent Proxy tunnel",
+                        ));
+                    }
+                },
+                None => None,
+            };
             state.record_audit(
                 "connect_allowed",
                 Some(host_from_authority(&authority)),
@@ -1597,9 +1924,46 @@ fn proxy_request(
         if request.uri().path() == DEPENDENCY_HOOK_PATH {
             return Ok(handle_dependency_hook(request, &state).await);
         }
+        if request.uri().path() == AGENT_HOOK_PATH {
+            return Ok(handle_agent_hook(request, &state, started).await);
+        }
+        if let Some(mode) = request
+            .uri()
+            .path()
+            .strip_prefix(SECRET_SCAN_HOOK_PATH)
+            .map(str::to_owned)
+        {
+            return Ok(handle_secret_scan_hook(request, &mode, &state, started).await);
+        }
 
         let request_id = new_local_request_id();
         let host = request_host(&request, connect_authority.as_deref());
+        // The agent controls its own environment, so the STASHBASE_SANDBOX
+        // marker alone cannot keep telemetry out of an agent session. Every
+        // request of a local session passes through this proxy, so refuse the
+        // CLI's telemetry POST here, ahead of any egress policy.
+        if crate::telemetry::send::is_telemetry_request(
+            crate::telemetry::send::destination_host().as_deref(),
+            host.as_deref(),
+            request.method().as_str(),
+            request.uri().path(),
+        ) {
+            state.record_audit_with_request(
+                &request_id,
+                "telemetry_blocked",
+                host.as_deref(),
+                Some(request.method()),
+                None,
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response_with_id(
+                StatusCode::FORBIDDEN,
+                "proxy.telemetry_not_allowed",
+                "Agent Proxy never forwards Stashbase telemetry from an agent session",
+                Some(&request_id),
+            ));
+        }
         if state.host_is_denied(host.as_deref()) {
             debug!(
                 "proxy denied destination: {}",
@@ -1703,7 +2067,28 @@ fn proxy_request(
                 Some(&request_id),
             ));
         }
-        if let Some(remote) = &state.remote {
+        let remote = state.remote_for(host.as_deref());
+        // Credential routing sends this host direct, so the remote proxy never
+        // sees the request and cannot resolve the placeholder. Refuse instead of
+        // forwarding a placeholder (or a personal credential reference) upstream.
+        if secret_name.is_some() && state.remote.is_some() && remote.is_none() {
+            state.record_audit_with_request(
+                &request_id,
+                "credential_host_not_routed",
+                host.as_deref(),
+                Some(request.method()),
+                secret_name.as_deref(),
+                Some(StatusCode::FORBIDDEN),
+                Some(started.elapsed()),
+            );
+            return Ok(proxy_error_response_with_id(
+                StatusCode::FORBIDDEN,
+                "proxy.credential_host_not_routed",
+                "This destination is not routed through the Agent Proxy, so the credential cannot be applied.",
+                Some(&request_id),
+            ));
+        }
+        if let Some(remote) = &remote {
             if let Err(error) = remote.token_for_new_connection() {
                 state.record_audit_with_request(
                     &request_id,
@@ -1726,7 +2111,7 @@ fn proxy_request(
         // such as Codex use a WSS connection for streaming, so tunnel an upgraded
         // connection after applying the same destination and placeholder checks.
         if is_upgrade_request(&request) {
-            if let Some(remote) = state.remote.clone() {
+            if let Some(remote) = remote.clone() {
                 return forward_remote_upgrade(
                     request,
                     state,
@@ -1850,8 +2235,7 @@ fn proxy_request(
             }))
         };
 
-        let destination_url = if let Some(remote) = state
-            .remote
+        let destination_url = if let Some(remote) = remote
             .as_ref()
             .filter(|remote| remote.protocol == RemoteProxyProtocol::Custom)
         {
@@ -1914,8 +2298,7 @@ fn proxy_request(
         } else {
             url.to_string()
         };
-        let client = match state
-            .remote
+        let client = match remote
             .as_ref()
             .filter(|remote| remote.protocol == RemoteProxyProtocol::ForwardProxyTlsIntercept)
         {
@@ -2075,29 +2458,18 @@ async fn handle_dependency_hook(
     request: Request<Incoming>,
     state: &ProxyState,
 ) -> Response<ProxyBody> {
-    let authorized = request.method() == Method::POST
-        && request.uri().query().is_none()
-        && state.dependency_hook_token.as_ref().is_some_and(|token| {
-            request
-                .headers()
-                .get("authorization")
-                .and_then(|value| value.to_str().ok())
-                .is_some_and(|value| value == format!("Bearer {token}"))
-        });
-    if !authorized {
-        return proxy_error_response(
-            StatusCode::FORBIDDEN,
-            "proxy.dependency_hook_not_allowed",
-            "Dependency hook route is not enabled for this run",
-        );
-    }
-    let Some(client) = &state.dependency_hook_client else {
+    let Some(broker) = state
+        .hook_broker
+        .as_ref()
+        .filter(|broker| broker.dependency_check && broker.authorized(&request))
+    else {
         return proxy_error_response(
             StatusCode::FORBIDDEN,
             "proxy.dependency_hook_not_allowed",
             "Dependency hook route is not enabled for this run",
         );
     };
+    let client = &broker.client;
     let body = match request.into_body().collect().await {
         Ok(body) => body.to_bytes(),
         Err(_) => {
@@ -2144,6 +2516,276 @@ async fn handle_dependency_hook(
         builder = builder.header("content-type", content_type);
     }
     builder.body(full_body(body)).unwrap()
+}
+
+/// Keeps at most `limit` bytes of `reader`, discarding the rest as it
+/// arrives. The scan's output size is agent-controlled, and draining (rather
+/// than stopping) keeps the child from blocking on a full pipe.
+async fn read_capped(mut reader: impl tokio::io::AsyncRead + Unpin, limit: usize) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+
+    let mut kept = Vec::new();
+    let _ = (&mut reader)
+        .take(limit as u64)
+        .read_to_end(&mut kept)
+        .await;
+    let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
+    kept
+}
+
+enum HostCommandError {
+    CouldNotStart,
+    TimedOut,
+}
+
+/// Runs the host's own CLI with `args` for a hook in the sandbox: confined,
+/// with the parent's API key and the run's API URL, a scratch home, and
+/// nothing from the broker's own environment. Commands are serialized, and
+/// both output streams are capped.
+async fn run_host_command(
+    broker: &HookBroker,
+    config: &SecretScanConfig,
+    args: &[&str],
+    stdin: Option<Bytes>,
+    restricted_scan: bool,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), HostCommandError> {
+    let _guard = broker.scan_lock.lock().await;
+    let home = ScratchHome::create().map_err(|_| HostCommandError::CouldNotStart)?;
+    let (program, command_args) = match &config.isolation {
+        ScanIsolation::Confined(confinement) => confinement
+            .wrap(args, &home.0)
+            .map_err(|_| HostCommandError::CouldNotStart)?,
+        #[cfg(test)]
+        ScanIsolation::Unconfined { exe } => (
+            exe.to_string_lossy().into_owned(),
+            args.iter().map(|arg| (*arg).to_owned()).collect(),
+        ),
+    };
+    let mut command = tokio::process::Command::new(program);
+    command
+        .args(command_args)
+        .current_dir(&config.workdir)
+        .env("HOME", &home.0)
+        // The API this run uses, whether it came from the environment or was
+        // built in, so the command never falls back to a different default.
+        .env(
+            crate::api::client::API_URL_ENV_VAR,
+            crate::api::client::get_api_url(),
+        )
+        .env("TMPDIR", &home.0)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_CACHE_HOME")
+        .env_remove("XDG_DATA_HOME")
+        .env_remove("XDG_STATE_HOME")
+        .env("STASHBASE_API_KEY", &broker.api_key)
+        // Keeps the command's telemetry off, like everything else in the session.
+        .env("STASHBASE_SANDBOX", "1")
+        // Calls the API directly instead of looping back into this broker.
+        .env_remove(crate::api::dependencies::HOOK_MODE_ENV)
+        .env_remove(crate::api::dependencies::HOOK_BROKER_URL_ENV)
+        .env_remove(crate::api::dependencies::HOOK_BROKER_TOKEN_ENV)
+        .env_remove(SCAN_BROKER_URL_ENV)
+        .env_remove(AGENT_HOOK_URL_ENV)
+        .stdin(if stdin.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    if restricted_scan {
+        command.env(crate::models::scans::SCAN_RESTRICTED_ENV, "1");
+    }
+
+    let run = async move {
+        use tokio::io::AsyncWriteExt;
+
+        let mut child = command.spawn()?;
+        if let (Some(input), Some(mut pipe)) = (stdin, child.stdin.take()) {
+            // A command that exits without reading its input is not an error.
+            let _ = pipe.write_all(&input).await;
+        }
+        let stdout = child.stdout.take().expect("stdout is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        let (stdout, stderr, status) = tokio::join!(
+            read_capped(stdout, SECRET_SCAN_BODY_LIMIT),
+            read_capped(stderr, SECRET_SCAN_BODY_LIMIT),
+            child.wait(),
+        );
+        status.map(|status| (status, stdout, stderr))
+    };
+    // On timeout `run` is dropped with the child, which `kill_on_drop` ends.
+    match tokio::time::timeout(config.timeout, run).await {
+        Err(_) => Err(HostCommandError::TimedOut),
+        Ok(Err(_)) => Err(HostCommandError::CouldNotStart),
+        Ok(Ok(output)) => Ok(output),
+    }
+}
+
+fn text_response(status: StatusCode, body: Vec<u8>) -> Response<ProxyBody> {
+    Response::builder()
+        .status(status)
+        .header("content-type", "text/plain; charset=utf-8")
+        .body(full_body(Bytes::from(body)))
+        .unwrap()
+}
+
+/// A command killed before printing anything (e.g. by the confinement)
+/// would otherwise leave an empty body.
+fn failure_body(
+    name: &str,
+    exit: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+) -> Vec<u8> {
+    let mut body = stdout;
+    body.extend_from_slice(&stderr);
+    body.extend_from_slice(format!("\n{name} exited with {exit}\n").as_bytes());
+    body.truncate(SECRET_SCAN_BODY_LIMIT);
+    body
+}
+
+/// Runs the host's own `stashbase scan` for a sandboxed git hook. The hook
+/// sends only the mode; what gets scanned, with which key and which config
+/// options, is decided here.
+async fn handle_secret_scan_hook(
+    request: Request<Incoming>,
+    mode: &str,
+    state: &ProxyState,
+    started: Instant,
+) -> Response<ProxyBody> {
+    let request_id = new_local_request_id();
+    let Some((broker, scan)) = state
+        .hook_broker
+        .as_ref()
+        .filter(|broker| broker.authorized(&request))
+        .and_then(|broker| broker.secret_scan.as_ref().map(|scan| (broker, scan)))
+    else {
+        return proxy_error_response(
+            StatusCode::FORBIDDEN,
+            "proxy.secret_scan_not_allowed",
+            "Secret scan hook is not enabled for this run; add \"secret_scan\" to allow_hooks",
+        );
+    };
+    let mode = match mode {
+        "/staged" => "staged",
+        "/unpushed" => "unpushed",
+        _ => {
+            return proxy_error_response(
+                StatusCode::NOT_FOUND,
+                "proxy.secret_scan_unknown_mode",
+                "Unknown scan mode; expected staged or unpushed",
+            )
+        }
+    };
+
+    let args = ["scan", mode, "--json", "--silent"];
+    let response = match run_host_command(broker, scan, &args, None, true).await {
+        Err(HostCommandError::TimedOut) => proxy_error_response(
+            StatusCode::GATEWAY_TIMEOUT,
+            "proxy.secret_scan_timeout",
+            "Secret scan did not finish in time",
+        ),
+        Err(HostCommandError::CouldNotStart) => proxy_error_response(
+            StatusCode::BAD_GATEWAY,
+            "proxy.secret_scan_failed",
+            "Secret scan could not be started",
+        ),
+        Ok((exit, stdout, stderr)) => match exit.code() {
+            Some(code @ (0 | 1)) => {
+                let mut body = stdout;
+                body.extend_from_slice(&stderr);
+                body.truncate(SECRET_SCAN_BODY_LIMIT);
+                let status = if code == 0 {
+                    StatusCode::OK
+                } else {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                };
+                text_response(status, body)
+            }
+            _ => text_response(
+                StatusCode::BAD_GATEWAY,
+                failure_body("stashbase scan", exit, stdout, stderr),
+            ),
+        },
+    };
+    state.record_audit_with_request(
+        &request_id,
+        "secret_scan_hook",
+        None,
+        Some(&Method::POST),
+        None,
+        Some(response.status()),
+        Some(started.elapsed()),
+    );
+    response
+}
+
+/// Runs the host's own `stashbase agent hooks` for an agent hook in the
+/// Docker sandbox, which has no Stashbase CLI. The body is the agent's hook
+/// payload, passed through as the command's stdin; its stdout is the
+/// agent's hook response.
+async fn handle_agent_hook(
+    request: Request<Incoming>,
+    state: &ProxyState,
+    started: Instant,
+) -> Response<ProxyBody> {
+    let request_id = new_local_request_id();
+    let Some((broker, hook)) = state
+        .hook_broker
+        .as_ref()
+        .filter(|broker| broker.dependency_check && broker.authorized(&request))
+        .and_then(|broker| broker.agent_hook.as_ref().map(|hook| (broker, hook)))
+    else {
+        return proxy_error_response(
+            StatusCode::FORBIDDEN,
+            "proxy.agent_hook_not_allowed",
+            "Agent hook is not enabled for this run; add \"dependency_check\" to allow_hooks",
+        );
+    };
+    let payload = match http_body_util::Limited::new(request.into_body(), AGENT_HOOK_BODY_LIMIT)
+        .collect()
+        .await
+    {
+        Ok(body) => body.to_bytes(),
+        Err(_) => {
+            return proxy_error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "proxy.agent_hook_payload_too_large",
+                "Agent hook payload is too large",
+            )
+        }
+    };
+
+    let args = ["agent", "hooks"];
+    let response = match run_host_command(broker, hook, &args, Some(payload), false).await {
+        Err(HostCommandError::TimedOut) => proxy_error_response(
+            StatusCode::GATEWAY_TIMEOUT,
+            "proxy.agent_hook_timeout",
+            "Dependency check did not finish in time",
+        ),
+        Err(HostCommandError::CouldNotStart) => proxy_error_response(
+            StatusCode::BAD_GATEWAY,
+            "proxy.agent_hook_failed",
+            "Dependency check could not be started",
+        ),
+        Ok((exit, stdout, _)) if exit.success() => text_response(StatusCode::OK, stdout),
+        Ok((exit, stdout, stderr)) => text_response(
+            StatusCode::BAD_GATEWAY,
+            failure_body("stashbase agent hooks", exit, stdout, stderr),
+        ),
+    };
+    state.record_audit_with_request(
+        &request_id,
+        "dependency_agent_hook",
+        None,
+        Some(&Method::POST),
+        None,
+        Some(response.status()),
+        Some(started.elapsed()),
+    );
+    response
 }
 
 /// Standard remote-proxy requests are built per request so a new connection
@@ -2754,19 +3396,18 @@ async fn serve_tls_connection(
     state: ProxyState,
 ) -> Result<()> {
     let host = authority.split(':').next().unwrap_or(&authority);
-    let mut params = CertificateParams::new(vec![host.to_owned()]);
+    let mut params = CertificateParams::new(vec![host.to_owned()])?;
     params.key_usages = vec![
         KeyUsagePurpose::DigitalSignature,
         KeyUsagePurpose::KeyEncipherment,
     ];
-    let leaf = Certificate::from_params(params)?;
+    let leaf_key = KeyPair::generate()?;
+    let leaf = params.signed_by(&leaf_key, &state.certificate_authority)?;
     let config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(
-            vec![CertificateDer::from(
-                leaf.serialize_der_with_signer(&state.certificate_authority)?,
-            )],
-            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf.serialize_private_key_der())),
+            vec![leaf.der().clone()],
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(leaf_key.serialize_der())),
         )?;
     let handshake_started = Instant::now();
     let stream = match TlsAcceptor::from(Arc::new(config))
@@ -2807,7 +3448,7 @@ impl ProxyState {
             .read()
             .ok()
             .and_then(|path| path.clone())
-            .is_some_and(|path| crate::handlers::agent_sessions::is_local_session_revoked(&path))
+            .is_some_and(|path| crate::handlers::agent::sessions::is_local_session_revoked(&path))
     }
 
     fn host_is_denied(&self, host: Option<&str>) -> bool {
@@ -3439,6 +4080,14 @@ mod tests {
                     tools: vec!["list_projects".to_owned()],
                 },
             ],
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -3642,6 +4291,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::ForwardProxyTlsIntercept,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
 
         assert!(!format!("{config:?}").contains("do-not-log"));
@@ -3762,6 +4412,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
         let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
             .await
@@ -3797,6 +4448,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
         let policy = ProxyPolicy {
             secret_policies: HashMap::from([(
@@ -3818,6 +4470,14 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -3926,6 +4586,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         }
     }
 
@@ -3944,6 +4605,14 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -3997,6 +4666,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::ForwardProxyTlsIntercept,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
 
         let error = match establish_remote_connect("api.example.com:443", &remote).await {
@@ -4004,6 +4674,160 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("rejected CONNECT"));
+    }
+
+    fn credential_routing(hosts: &[&str]) -> Arc<RwLock<RemoteRouting>> {
+        let hosts = hosts
+            .iter()
+            .map(|host| (*host).to_owned())
+            .collect::<Vec<_>>();
+        Arc::new(RwLock::new(
+            RemoteRouting::resolve(Some(RemoteMode::Credential), Some(&hosts), [], true).unwrap(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn credential_routing_sends_a_listed_host_through_the_remote_proxy() {
+        let (remote_address, target) =
+            start_backend_capturing(HeaderName::from_static("x-stashbase-target")).await;
+        let mut remote = remote_test_config(remote_address);
+        remote.routing = credential_routing(&["original.example"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get("http://original.example/path")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            target.await.unwrap().as_deref(),
+            Some("http://original.example/path")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn credential_routing_sends_an_unlisted_host_direct() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (destination, _) = start_backend().await;
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.routing = credential_routing(&["original.example"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{destination}/"))
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err(),
+            "a direct request must not reach the remote proxy"
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn a_credential_placeholder_is_refused_on_a_direct_host() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let destination = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.routing = credential_routing(&["api.github.com"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{}/", destination.local_addr().unwrap()))
+            .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(response
+            .text()
+            .await
+            .unwrap()
+            .contains("proxy.credential_host_not_routed"));
+        assert!(
+            timeout(Duration::from_millis(100), destination.accept())
+                .await
+                .is_err(),
+            "the placeholder must never be forwarded to a direct destination"
+        );
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err()
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn credential_routing_opens_a_direct_connect_tunnel_without_the_remote_proxy() {
+        // A forward-proxy session must not CONNECT through the remote proxy for
+        // a host that credential routing sends direct.
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.protocol = RemoteProxyProtocol::ForwardProxyTlsIntercept;
+        let (_, ca_path) = create_certificate_authority().unwrap();
+        remote.ca_file = Some(ca_path);
+        remote.routing = credential_routing(&["api.github.com"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+        let address = proxy.child_env()["HTTP_PROXY"]
+            .trim_start_matches("http://")
+            .to_owned();
+
+        let mut stream = tokio::net::TcpStream::connect(&address).await.unwrap();
+        stream
+            .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = [0; 64];
+        let read = timeout(Duration::from_secs(2), stream.read(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(String::from_utf8_lossy(&response[..read]).starts_with("HTTP/1.1 200"));
+        assert!(
+            timeout(Duration::from_millis(100), remote_listener.accept())
+                .await
+                .is_err(),
+            "a direct host must not open a CONNECT to the remote proxy"
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn credential_routing_trusts_both_the_local_and_remote_ca_in_forward_proxy_mode() {
+        let remote_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut remote = remote_test_config(remote_listener.local_addr().unwrap());
+        remote.protocol = RemoteProxyProtocol::ForwardProxyTlsIntercept;
+        let (_, remote_ca_path) = create_certificate_authority().unwrap();
+        remote.ca_file = Some(remote_ca_path.clone());
+        remote.routing = credential_routing(&["api.github.com"]);
+        let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
+            .await
+            .unwrap();
+
+        let bundle = fs::read_to_string(&proxy.child_env()["SSL_CERT_FILE"]).unwrap();
+        assert_eq!(bundle.matches("BEGIN CERTIFICATE").count(), 2);
+        assert!(bundle.contains(fs::read_to_string(&remote_ca_path).unwrap().trim()));
+        proxy.stop().await;
+        let _ = fs::remove_file(remote_ca_path);
     }
 
     #[test]
@@ -4032,6 +4856,7 @@ mod tests {
             child_env: HashMap::new(),
             protocol: RemoteProxyProtocol::Custom,
             ca_file: None,
+            routing: Arc::new(RwLock::new(RemoteRouting::full())),
         };
         let proxy = Proxy::start_remote_with_port(remote, ProxyPolicy::permissive(), None, None)
             .await
@@ -4046,6 +4871,32 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn the_proxy_refuses_stashbase_telemetry_even_when_egress_is_unrestricted() {
+        // A permissive policy allows every host, so only the telemetry rule can
+        // refuse this. It is the boundary an agent cannot switch off by
+        // clearing STASHBASE_SANDBOX in its own environment.
+        let api_host =
+            crate::telemetry::send::destination_host().expect("the destination has a host");
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        let response = proxy_client(&proxy)
+            .post(format!("http://{api_host}/v1/telemetry"))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.bytes().await.unwrap();
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&body).unwrap();
+        assert_eq!(error.error.code, "proxy.telemetry_not_allowed");
         proxy.stop().await;
     }
 
@@ -4138,14 +4989,23 @@ mod tests {
             r#"{"session_id":"ags_test","command":"agent","started_at":"","process_id":0,"process_started_at":"","revoked":true}"#,
         )
         .unwrap();
+        // The proxy drops the existing connection. Depending on timing the
+        // peer sees that as a clean EOF or, on Windows, as a reset (WSAECONNRESET
+        // 10054) — both mean the connection was closed.
         let mut closed = [0; 1];
-        assert_eq!(
-            timeout(Duration::from_secs(2), existing.read(&mut closed))
-                .await
-                .unwrap()
-                .unwrap(),
-            0
-        );
+        match timeout(Duration::from_secs(2), existing.read(&mut closed))
+            .await
+            .expect("existing connection was not closed after revocation")
+        {
+            Ok(count) => assert_eq!(count, 0, "existing connection received data"),
+            Err(error) => assert!(
+                matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ),
+                "unexpected error reading the closed connection: {error}"
+            ),
+        }
 
         let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
         stream
@@ -4178,6 +5038,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn proxy_binds_to_provided_host_instead_of_loopback() {
+        // 0.0.0.0 is used here only to prove the parameter is honored
+        // without depending on a real Docker network gateway in CI.
+        let proxy = Proxy::start_with_hook_and_bind_host(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            None,
+            "0.0.0.0",
+        )
+        .await
+        .unwrap();
+
+        assert!(proxy.child_env()["HTTP_PROXY"].starts_with("http://0.0.0.0:"));
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
     async fn proxy_rejects_port_zero_override() {
         let result =
             Proxy::start_with_port(HashMap::new(), ProxyPolicy::permissive(), None, Some(0)).await;
@@ -4198,6 +5077,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            routing: None,
             binding_sources: Arc::new(HashMap::from([(
                 "EXAMPLE_API_KEY".to_owned(),
                 "personal_credential".to_owned(),
@@ -4249,6 +5129,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            routing: None,
             binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
@@ -4299,6 +5180,53 @@ mod tests {
     }
 
     #[test]
+    fn audit_log_records_the_routing_mode_and_each_events_route() {
+        let path =
+            std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
+        let audit_log = ProxyAuditLog {
+            session_id: "session".to_owned(),
+            profile: "coding".to_owned(),
+            policy_fingerprint: "policy-fingerprint".to_owned(),
+            profile_provenance: None,
+            binding_sources: Arc::new(HashMap::new()),
+            routing: Some(credential_routing(&["api.github.com"])),
+            path: Arc::new(path.clone()),
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .create_new(true)
+                    .append(true)
+                    .open(&path)
+                    .unwrap(),
+            )),
+        };
+
+        audit_log.record("session_started", None, None, None, None, None, None);
+        for host in ["api.github.com", "example.com"] {
+            audit_log.record(
+                "forwarded",
+                Some(host),
+                Some(&Method::GET),
+                None,
+                None,
+                None,
+                None,
+            );
+        }
+
+        let events = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ProxyAuditLogEvent>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(events[0].routing_mode.as_deref(), Some("credential"));
+        assert_eq!(events[0].route, None);
+        assert_eq!(events[1].routing_mode, None);
+        assert_eq!(events[1].route.as_deref(), Some("remote"));
+        assert_eq!(events[2].route.as_deref(), Some("direct"));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn audit_log_records_profile_provenance_only_at_session_start() {
         let path =
             std::env::temp_dir().join(format!("stashbase-audit-test-{}.jsonl", Uuid::new_v4()));
@@ -4312,6 +5240,7 @@ mod tests {
                 sha256: "profile-file-sha256".to_owned(),
             }),
             binding_sources: Arc::new(HashMap::new()),
+            routing: None,
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
                 OpenOptions::new()
@@ -4387,6 +5316,8 @@ mod tests {
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
+            routing_mode: None,
+            route: None,
             action: "injected".to_owned(),
             destination_host: Some("api.github.com".to_owned()),
             path: None,
@@ -4437,6 +5368,14 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -4478,6 +5417,14 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         }
     }
 
@@ -4525,6 +5472,61 @@ mod tests {
 
         assert_eq!(left.fingerprint(), equivalent.fingerprint());
         assert_ne!(left.fingerprint(), different.fingerprint());
+    }
+
+    #[test]
+    fn policy_fingerprint_changes_with_sandbox_backend_and_settings() {
+        // The sandbox backend and its Docker-specific settings are part of
+        // the effective enforcement, not just the egress/secret policy —
+        // an audit record must be able to distinguish a native run from a
+        // Docker one, or one custom image from another, by fingerprint
+        // alone.
+        let native = rule_policy(Vec::new());
+        let mut docker = native.clone();
+        docker.backend = SandboxBackend::Docker;
+        assert_ne!(native.fingerprint(), docker.fingerprint());
+
+        let mut docker_image_a = docker.clone();
+        docker_image_a.sandbox_image = Some("myorg/a:latest".to_owned());
+        let mut docker_image_b = docker.clone();
+        docker_image_b.sandbox_image = Some("myorg/b:latest".to_owned());
+        assert_ne!(docker.fingerprint(), docker_image_a.fingerprint());
+        assert_ne!(docker_image_a.fingerprint(), docker_image_b.fingerprint());
+
+        let mut docker_dockerfile = docker.clone();
+        docker_dockerfile.sandbox_dockerfile = Some("./custom.Dockerfile".to_owned());
+        assert_ne!(docker.fingerprint(), docker_dockerfile.fingerprint());
+
+        let mut docker_memory = docker.clone();
+        docker_memory.sandbox_memory = Some("2g".to_owned());
+        assert_ne!(docker.fingerprint(), docker_memory.fingerprint());
+        let mut docker_worktree = docker.clone();
+        docker_worktree.worktree = true;
+        assert_ne!(docker.fingerprint(), docker_worktree.fingerprint());
+        // Which worktree a run resumes is where it works, not what it may
+        // do: the same policy either way.
+        let mut resumed = docker_worktree.clone();
+        resumed.worktree_resume = Some("amber-river-storm".to_owned());
+        assert_eq!(docker_worktree.fingerprint(), resumed.fingerprint());
+        assert_eq!(docker.worktree_request(), None);
+        assert_eq!(
+            docker_worktree.worktree_request(),
+            Some(super::super::worktree::WorktreeRequest::New)
+        );
+        assert_eq!(
+            resumed.worktree_request(),
+            Some(super::super::worktree::WorktreeRequest::Resume(
+                "amber-river-storm".to_owned()
+            ))
+        );
+
+        let mut docker_cpus = docker.clone();
+        docker_cpus.sandbox_cpus = Some("1.5".to_owned());
+        assert_ne!(docker.fingerprint(), docker_cpus.fingerprint());
+
+        let mut docker_isolated = docker.clone();
+        docker_isolated.sandbox_isolated_paths = vec!["node_modules".to_owned()];
+        assert_ne!(docker.fingerprint(), docker_isolated.fingerprint());
     }
 
     #[test]
@@ -4610,6 +5612,14 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         assert!(secret_allows_request(
             &policy,
@@ -4627,7 +5637,12 @@ mod tests {
             ProxyPolicy::permissive(),
             None,
             None,
-            Some("parent-api-key".to_owned()),
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check: true,
+                secret_scan: None,
+                agent_hook: None,
+            }),
         )
         .await
         .unwrap();
@@ -4657,6 +5672,392 @@ mod tests {
         disabled.stop().await;
     }
 
+    #[cfg(unix)]
+    fn scan_test_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("stashbase-scan-hook-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    #[cfg(unix)]
+    fn fake_scan_exe(dir: &std::path::Path, exit_code: i32, sleep_secs: u32) -> PathBuf {
+        let path = dir.join("fake-stashbase");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nsleep {sleep_secs}\n\
+                 echo \"args=$*\"\necho \"cwd=$(pwd -P)\"\n\
+                 echo \"key=$STASHBASE_API_KEY\"\necho \"api_url=$STASHBASE_API_URL\"\necho \"restricted=$STASHBASE_SCAN_RESTRICTED\"\n\
+                 echo \"hook_token=${{STASHBASE_HOOK_BROKER_TOKEN:-unset}}\"\n\
+                 echo 'finding on stderr' >&2\nexit {exit_code}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    async fn start_scan_proxy(exe: PathBuf, workdir: PathBuf, timeout: Duration) -> Proxy {
+        Proxy::start_with_hook(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check: false,
+                secret_scan: Some(SecretScanConfig {
+                    workdir,
+                    timeout,
+                    isolation: ScanIsolation::Unconfined { exe },
+                }),
+                agent_hook: None,
+            }),
+        )
+        .await
+        .unwrap()
+    }
+
+    fn hook_token(proxy: &Proxy) -> String {
+        proxy.child_env()[crate::api::dependencies::HOOK_BROKER_TOKEN_ENV].clone()
+    }
+
+    async fn post_to(url: String, token: Option<&str>) -> (u16, String) {
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let mut request = client.post(url);
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().await.unwrap();
+        (response.status().as_u16(), response.text().await.unwrap())
+    }
+
+    #[cfg(unix)]
+    async fn post_scan(proxy: &Proxy, mode: &str, token: Option<&str>) -> (u16, String) {
+        let url = format!("{}/{mode}", proxy.child_env()[SCAN_BROKER_URL_ENV]);
+        post_to(url, token).await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_runs_host_scan_in_workdir_with_parent_key_restricted() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+
+        let (status, body) = post_scan(&proxy, "staged", Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("args=scan staged --json --silent"), "{body}");
+        assert!(body.contains(&format!("cwd={}", dir.display())), "{body}");
+        assert!(body.contains("key=parent-api-key"), "{body}");
+        assert!(
+            body.contains(&format!("api_url={}", crate::api::client::get_api_url())),
+            "{body}"
+        );
+        assert!(body.contains("restricted=1"), "{body}");
+        assert!(body.contains("hook_token=unset"), "{body}");
+        assert!(body.contains("finding on stderr"), "{body}");
+        assert!(!proxy.child_env().contains_key("STASHBASE_API_KEY"));
+        assert!(!proxy
+            .child_env()
+            .contains_key(crate::api::dependencies::HOOK_BROKER_URL_ENV));
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_maps_findings_to_422_and_supports_unpushed() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 1, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+
+        let (status, body) = post_scan(&proxy, "unpushed", Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 422, "{body}");
+        assert!(
+            body.contains("args=scan unpushed --json --silent"),
+            "{body}"
+        );
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_rejects_bad_token_and_unknown_mode() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+        let token = hook_token(&proxy);
+
+        assert_eq!(post_scan(&proxy, "staged", None).await.0, 403);
+        assert_eq!(post_scan(&proxy, "staged", Some("wrong")).await.0, 403);
+        assert_eq!(post_scan(&proxy, "changes", Some(&token)).await.0, 404);
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn secret_scan_route_is_not_served_when_only_dependency_check_is_allowed() {
+        let proxy = Proxy::start_with_hook(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check: true,
+                secret_scan: None,
+                agent_hook: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(!proxy.child_env().contains_key(SCAN_BROKER_URL_ENV));
+        let url = proxy.child_env()[crate::api::dependencies::HOOK_BROKER_URL_ENV].replace(
+            DEPENDENCY_HOOK_PATH,
+            &format!("{SECRET_SCAN_HOOK_PATH}/staged"),
+        );
+
+        let (status, _) = post_to(url, Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 403);
+        proxy.stop().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dependency_route_is_not_served_when_only_secret_scan_is_allowed() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 0),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+        let url = proxy.child_env()[SCAN_BROKER_URL_ENV]
+            .replace(SECRET_SCAN_HOOK_PATH, DEPENDENCY_HOOK_PATH);
+
+        let (status, _) = post_to(url, Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 403);
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_times_out_with_504() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 5),
+            dir.clone(),
+            Duration::from_millis(300),
+        )
+        .await;
+
+        let (status, body) = post_scan(&proxy, "staged", Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 504, "{body}");
+        assert!(body.contains("proxy.secret_scan_timeout"), "{body}");
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hook_caps_huge_output_and_still_finishes() {
+        let dir = scan_test_dir();
+        let exe = dir.join("loud-stashbase");
+        std::fs::write(
+            &exe,
+            "#!/bin/sh\nhead -c 5242880 /dev/zero | tr '\\0' a\nhead -c 5242880 /dev/zero | tr '\\0' b >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let proxy = start_scan_proxy(exe, dir.clone(), Duration::from_secs(10)).await;
+
+        let (status, body) = post_scan(&proxy, "staged", Some(&hook_token(&proxy))).await;
+
+        // 422 rather than 504: the excess was drained, so the scan exited.
+        assert_eq!(status, 422);
+        assert!(body.len() <= SECRET_SCAN_BODY_LIMIT, "{}", body.len());
+        assert!(body.starts_with('a'));
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn secret_scan_hooks_are_serialized() {
+        let dir = scan_test_dir();
+        let proxy = start_scan_proxy(
+            fake_scan_exe(&dir, 0, 1),
+            dir.clone(),
+            Duration::from_secs(10),
+        )
+        .await;
+        let token = hook_token(&proxy);
+
+        let started = std::time::Instant::now();
+        let (a, b) = tokio::join!(
+            post_scan(&proxy, "staged", Some(&token)),
+            post_scan(&proxy, "staged", Some(&token)),
+        );
+
+        assert_eq!((a.0, b.0), (200, 200));
+        assert!(
+            started.elapsed() >= Duration::from_secs(2),
+            "scans ran concurrently"
+        );
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    fn fake_hook_exe(dir: &std::path::Path, exit_code: i32) -> PathBuf {
+        let path = dir.join("fake-stashbase-hooks");
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"args=$*\"\necho \"stdin=$(cat)\"\n\
+                 echo \"key=$STASHBASE_API_KEY\"\n\
+                 echo \"hook_mode=${{STASHBASE_HOOK_MODE:-unset}}\"\nexit {exit_code}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    async fn start_agent_hook_proxy(
+        exe: PathBuf,
+        workdir: PathBuf,
+        dependency_check: bool,
+    ) -> Proxy {
+        Proxy::start_with_hook(
+            HashMap::new(),
+            ProxyPolicy::permissive(),
+            None,
+            None,
+            Some(HookBrokerConfig {
+                api_key: "parent-api-key".to_owned(),
+                dependency_check,
+                secret_scan: None,
+                agent_hook: Some(SecretScanConfig {
+                    workdir,
+                    timeout: Duration::from_secs(10),
+                    isolation: ScanIsolation::Unconfined { exe },
+                }),
+            }),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    async fn post_agent_hook(proxy: &Proxy, body: Vec<u8>) -> (u16, String) {
+        let url = proxy.child_env()[AGENT_HOOK_URL_ENV].clone();
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap()
+            .post(url)
+            .bearer_auth(hook_token(proxy))
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        (response.status().as_u16(), response.text().await.unwrap())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_runs_the_host_cli_with_the_payload_as_stdin() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 0), dir.clone(), true).await;
+
+        let (status, body) = post_agent_hook(
+            &proxy,
+            br#"{"tool_input":{"command":"npm i left-pad"}}"#.to_vec(),
+        )
+        .await;
+
+        assert_eq!(status, 200, "{body}");
+        assert!(body.contains("args=agent hooks"), "{body}");
+        assert!(
+            body.contains(r#"stdin={"tool_input":{"command":"npm i left-pad"}}"#),
+            "{body}"
+        );
+        assert!(body.contains("key=parent-api-key"), "{body}");
+        // Calls the API directly rather than looping back into the broker.
+        assert!(body.contains("hook_mode=unset"), "{body}");
+        assert!(!proxy.child_env().contains_key("STASHBASE_API_KEY"));
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_reports_how_a_failed_hook_exited() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 3), dir.clone(), true).await;
+
+        let (status, body) = post_agent_hook(&proxy, b"{}".to_vec()).await;
+
+        assert_eq!(status, 502, "{body}");
+        assert!(body.contains("stashbase agent hooks exited with"), "{body}");
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_rejects_an_oversized_payload() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 0), dir.clone(), true).await;
+
+        let (status, _) = post_agent_hook(&proxy, vec![b'a'; AGENT_HOOK_BODY_LIMIT + 1]).await;
+
+        assert_eq!(status, 413);
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn agent_hook_is_not_served_without_dependency_check() {
+        let dir = scan_test_dir();
+        let proxy = start_agent_hook_proxy(fake_hook_exe(&dir, 0), dir.clone(), false).await;
+        assert!(!proxy.child_env().contains_key(AGENT_HOOK_URL_ENV));
+        let url = format!(
+            "{}{AGENT_HOOK_PATH}",
+            proxy.child_env()["HTTP_PROXY"].trim_end_matches('/')
+        );
+
+        let (status, _) = post_to(url, Some(&hook_token(&proxy))).await;
+
+        assert_eq!(status, 403);
+        proxy.stop().await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[tokio::test]
     async fn child_environment_uses_the_binding_name_for_its_default_placeholder() {
         let proxy = Proxy::start(
@@ -4670,6 +6071,24 @@ mod tests {
         assert_eq!(
             proxy.child_env().get("GITHUB_TOKEN").map(String::as_str),
             Some("**STASHBASE_GITHUB_TOKEN**")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn child_environment_marks_the_session_so_telemetry_stays_off() {
+        // A Stashbase CLI run by the agent must never send telemetry, even if
+        // the profile's egress policy would allow the API host.
+        let proxy = Proxy::start(HashMap::new(), ProxyPolicy::permissive(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            proxy
+                .child_env()
+                .get("STASHBASE_SANDBOX")
+                .map(String::as_str),
+            Some("1")
         );
         proxy.stop().await;
     }
@@ -4732,6 +6151,14 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -4772,6 +6199,14 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -4798,6 +6233,14 @@ mod tests {
             egress_hosts_configured: true,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -4805,14 +6248,17 @@ mod tests {
             client: reqwest::Client::new(),
             remote_ca: None,
             certificate_authority: Arc::new(
-                Certificate::from_params(CertificateParams::default()).unwrap(),
+                CertifiedIssuer::self_signed(
+                    CertificateParams::default(),
+                    KeyPair::generate().unwrap(),
+                )
+                .unwrap(),
             ),
             audit_log: None,
             connections: Arc::new(ActiveConnections::default()),
             remote: None,
             mcp_inspection_token: "inspection-token".to_owned(),
-            dependency_hook_token: None,
-            dependency_hook_client: None,
+            hook_broker: None,
             revocation_path: Arc::new(RwLock::new(None)),
         };
 
@@ -4847,6 +6293,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rewrites_a_placeholder_when_the_binding_is_renamed_via_env() {
+        // Mirrors an agent profile binding `[secrets.GH_TOKEN]` with
+        // `env = "GITHUB_PAT_TOKEN"`: the secret is fetched under the
+        // source name `GH_TOKEN`, but both the child-visible env var and
+        // the policy/secret map are keyed by the renamed target name, the
+        // same way `secret_child_name` renames both in root.rs.
+        let (address, authorization) = start_backend().await;
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_PAT_TOKEN".to_owned(),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["127.0.0.1".to_owned()])),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["*".to_owned()]),
+            denied_hosts: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
+            allow_network_listeners: false,
+            egress_hosts_configured: true,
+            strict_deny: true,
+            mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_PAT_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            proxy
+                .child_env()
+                .get("GITHUB_PAT_TOKEN")
+                .map(String::as_str),
+            Some("**STASHBASE_GITHUB_PAT_TOKEN**")
+        );
+        assert!(!proxy.child_env().contains_key("GH_TOKEN"));
+
+        let response = proxy_client(&proxy)
+            .get(format!("http://{address}/"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GITHUB_PAT_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            authorization.await.unwrap().as_deref(),
+            Some("Bearer real-token")
+        );
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
     async fn secret_hosts_do_not_grant_ordinary_egress() {
         let (address, authorization) = start_backend().await;
         let policy = ProxyPolicy {
@@ -4863,6 +6372,14 @@ mod tests {
             egress_hosts_configured: false,
             strict_deny: true,
             mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -5165,6 +6682,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            routing: None,
             binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
             file: Arc::new(Mutex::new(
@@ -5225,6 +6743,14 @@ mod tests {
                 egress_hosts_configured: false,
                 strict_deny: true,
                 mcp_rules: Vec::new(),
+                backend: SandboxBackend::Native,
+                sandbox_image: None,
+                sandbox_dockerfile: None,
+                sandbox_memory: None,
+                sandbox_cpus: None,
+                worktree: false,
+                worktree_resume: None,
+                sandbox_isolated_paths: Vec::new(),
             },
             None,
         )
@@ -5262,6 +6788,14 @@ mod tests {
                 egress_hosts_configured: false,
                 strict_deny: true,
                 mcp_rules: Vec::new(),
+                backend: SandboxBackend::Native,
+                sandbox_image: None,
+                sandbox_dockerfile: None,
+                sandbox_memory: None,
+                sandbox_cpus: None,
+                worktree: false,
+                worktree_resume: None,
+                sandbox_isolated_paths: Vec::new(),
             },
             None,
         )
@@ -5300,6 +6834,14 @@ mod tests {
                 egress_hosts_configured: true,
                 strict_deny: true,
                 mcp_rules: Vec::new(),
+                backend: SandboxBackend::Native,
+                sandbox_image: None,
+                sandbox_dockerfile: None,
+                sandbox_memory: None,
+                sandbox_cpus: None,
+                worktree: false,
+                worktree_resume: None,
+                sandbox_isolated_paths: Vec::new(),
             },
             None,
         )

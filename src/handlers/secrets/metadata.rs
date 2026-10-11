@@ -13,6 +13,7 @@ use crate::{
         validation::InputValidationError,
     },
     utils::{
+        human_datetime::display_utc_timestamp,
         output::{get_formatted_json_string, ColorizeIfColoredOutput},
         spinner::request_spinner,
         tables::build::build_table,
@@ -257,7 +258,8 @@ fn print_secret_metadata_list(secret_metadata: Vec<SecretMetadata>, format: &Sec
                 .iter()
                 .map(|s| {
                     let comment = s.comment.clone().unwrap_or_default();
-                    let last_accessed_at = s.last_accessed_at.clone().unwrap_or_default();
+                    let last_accessed_at =
+                        display_utc_timestamp(&s.last_accessed_at.clone().unwrap_or_default());
 
                     format!(
                         "{}\n{} {}\n{} {}\n{} {}\n{} {}\n{} {}\n{} {}",
@@ -269,9 +271,9 @@ fn print_secret_metadata_list(secret_metadata: Vec<SecretMetadata>, format: &Sec
                         "has_value:".blue_if_tty(),
                         s.has_value,
                         "created_at:".blue_if_tty(),
-                        s.created_at,
+                        display_utc_timestamp(&s.created_at),
                         "updated_at:".blue_if_tty(),
-                        s.updated_at,
+                        display_utc_timestamp(&s.updated_at),
                         "last_accessed_at:".blue_if_tty(),
                         last_accessed_at,
                     )
@@ -317,7 +319,8 @@ fn print_secret_metadata(secret_metadata: SecretMetadata, format: &SecretsOutput
         }
         SecretsOutputFormat::Plain | SecretsOutputFormat::Dotenv => {
             let comment = secret_metadata.comment.unwrap_or_default();
-            let last_accessed_at = secret_metadata.last_accessed_at.unwrap_or_default();
+            let last_accessed_at =
+                display_utc_timestamp(&secret_metadata.last_accessed_at.unwrap_or_default());
 
             println!(
                 "{}\n{} {}\n{} {}\n{} {}\n{} {}\n{} {}\n{} {}",
@@ -329,9 +332,9 @@ fn print_secret_metadata(secret_metadata: SecretMetadata, format: &SecretsOutput
                 "has_value:".blue_if_tty(),
                 secret_metadata.has_value,
                 "created_at:".blue_if_tty(),
-                secret_metadata.created_at,
+                display_utc_timestamp(&secret_metadata.created_at),
                 "updated_at:".blue_if_tty(),
-                secret_metadata.updated_at,
+                display_utc_timestamp(&secret_metadata.updated_at),
                 "last_accessed_at:".blue_if_tty(),
                 last_accessed_at,
             );

@@ -126,6 +126,10 @@ impl EntityType {
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Logs(_),
             }) => false,
+            // Local git only.
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Worktrees { .. },
+            }) => false,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Doctor(_),
             }) => false,
@@ -137,6 +141,15 @@ impl EntityType {
             }) => false,
             EntityType::Agent(AgentCommand {
                 subcommand: AgentSubcommand::Policy(_),
+            }) => false,
+            // Reads local profile files and the local config only.
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Profiles(_),
+            }) => false,
+            // Local Docker only: images, networks, containers and the
+            // persistent home volume. `build --profile` reads a local profile.
+            EntityType::Agent(AgentCommand {
+                subcommand: AgentSubcommand::Docker(_),
             }) => false,
             // File-only agent profiles require no Stashbase authentication.
             // Remote fallback is validated after the profile and local overrides
@@ -202,6 +215,32 @@ mod tests {
                 ["stashbase", "agent", "hooks", "deps", action, "claude",]
             )
             .is_ok());
+        }
+    }
+
+    #[test]
+    fn agent_profiles_commands_do_not_require_an_api_key() {
+        for args in [
+            vec!["stashbase", "agent", "profiles", "list"],
+            vec!["stashbase", "agent", "profiles", "show", "demo"],
+        ] {
+            let cli = Cli::try_parse_from(&args).unwrap();
+            assert!(!cli.entity_type.requires_api_key(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn agent_docker_commands_do_not_require_an_api_key() {
+        for args in [
+            vec!["stashbase", "agent", "docker", "build"],
+            vec!["stashbase", "agent", "docker", "build", "--profile", "demo"],
+            vec!["stashbase", "agent", "docker", "status"],
+            vec!["stashbase", "agent", "docker", "cleanup"],
+            vec!["stashbase", "agent", "docker", "doctor"],
+            vec!["stashbase", "agent", "docker", "shell"],
+        ] {
+            let cli = Cli::try_parse_from(&args).unwrap();
+            assert!(!cli.entity_type.requires_api_key(), "{args:?}");
         }
     }
 }

@@ -19,7 +19,7 @@ use crate::models::api_client::{
 use crate::{REQUEST_ABORTED, REQUEST_TIMEOUT_SECS};
 
 const DEFAULT_API_URL: &str = "https://api.stashbase.dev";
-const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
+pub(crate) const API_URL_ENV_VAR: &str = "STASHBASE_API_URL";
 const BUILD_TIME_API_URL: Option<&str> = option_env!("STASHBASE_API_URL");
 pub const CLI_USER_AGENT: &str = concat!("stashbase/cli/", env!("CARGO_PKG_VERSION"));
 
@@ -34,6 +34,13 @@ pub fn get_api_url() -> String {
                 .filter(|v| !v.is_empty())
         })
         .unwrap_or_else(|| DEFAULT_API_URL.to_string())
+}
+
+/// Whether the API URL is Stashbase's own service, as opposed to a
+/// self-hosted or staging server set through `STASHBASE_API_URL` (or baked
+/// in at build time).
+pub fn is_default_api_url() -> bool {
+    get_api_url().eq_ignore_ascii_case(DEFAULT_API_URL)
 }
 
 /// Hostname used for the current API endpoint, including local development
