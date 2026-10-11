@@ -228,43 +228,70 @@ struct InputModes {
 }
 
 impl InputModes {
+    /// Tracks DECSET/DECRST (`ESC [ ? Pm h|l`, `Pm` being `;`-separated
+    /// mode numbers) and DECKPAM/DECKPNM (`ESC =`/`ESC >`). A sequence cut
+    /// off at the end of `bytes` is kept in `tail` and finished by the next
+    /// call.
     fn process(&mut self, bytes: &[u8]) {
-        self.tail.extend_from_slice(bytes);
-        for index in 0..self.tail.len() {
-            let remaining = &self.tail[index..];
-            if remaining.starts_with(b"\x1b=") {
-                self.application_keypad = true;
-            } else if remaining.starts_with(b"\x1b>") {
-                self.application_keypad = false;
+        let mut tail = std::mem::take(&mut self.tail);
+        tail.extend_from_slice(bytes);
+        let mut index = 0;
+        let mut consumed = 0;
+        while index < tail.len() {
+            if tail[index] != b'\x1b' {
+                index += 1;
+                consumed = index;
+                continue;
             }
-            for (prefix, target) in [
-                (b"\x1b[?1".as_slice(), 1),
-                (b"\x1b[?2004".as_slice(), 2004),
-                (b"\x1b[?1000".as_slice(), 1000),
-                (b"\x1b[?1002".as_slice(), 1002),
-                (b"\x1b[?1003".as_slice(), 1003),
-                (b"\x1b[?1006".as_slice(), 1006),
-                (b"\x1b[?1007".as_slice(), 1007),
-            ] {
-                let Some(enabled) = remaining.get(prefix.len()).and_then(|byte| match byte {
-                    b'h' => Some(true),
-                    b'l' => Some(false),
-                    _ => None,
-                }) else {
-                    continue;
-                };
-                match target {
-                    1 => self.application_cursor = enabled,
-                    2004 => self.bracketed_paste = enabled,
-                    1000 | 1002 | 1003 => self.mouse = enabled,
-                    1006 => self.mouse_sgr = enabled,
-                    1007 => self.alternate_scroll = enabled,
-                    _ => unreachable!(),
-                }
+            let remaining = &tail[index..];
+            match remaining.get(1) {
+                None => break,
+                Some(b'=') => self.application_keypad = true,
+                Some(b'>') => self.application_keypad = false,
+                Some(b'[') => match remaining.get(2) {
+                    None => break,
+                    Some(b'?') => {
+                        let params = &remaining[3..];
+                        let Some(end) = params
+                            .iter()
+                            .position(|byte| !byte.is_ascii_digit() && *byte != b';')
+                        else {
+                            // Still inside the parameters: wait for more input.
+                            break;
+                        };
+                        let enabled = match params[end] {
+                            b'h' => Some(true),
+                            b'l' => Some(false),
+                            _ => None,
+                        };
+                        if let Some(enabled) = enabled {
+                            for mode in params[..end].split(|byte| *byte == b';') {
+                                self.set_mode(mode, enabled);
+                            }
+                        }
+                        index += 3 + end + 1;
+                        consumed = index;
+                        continue;
+                    }
+                    Some(_) => {}
+                },
+                Some(_) => {}
             }
+            index += 1;
+            consumed = index;
         }
-        if self.tail.len() > 8 {
-            self.tail.drain(..self.tail.len() - 8);
+        tail.drain(..consumed);
+        self.tail = tail;
+    }
+
+    fn set_mode(&mut self, mode: &[u8], enabled: bool) {
+        match mode {
+            b"1" => self.application_cursor = enabled,
+            b"2004" => self.bracketed_paste = enabled,
+            b"1000" | b"1002" | b"1003" => self.mouse = enabled,
+            b"1006" => self.mouse_sgr = enabled,
+            b"1007" => self.alternate_scroll = enabled,
+            _ => {}
         }
     }
 
@@ -352,6 +379,40 @@ mod tests {
         assert!(screen.alternate_scroll());
         screen.process(b"\x1b[?1007l");
         assert!(!screen.alternate_scroll());
+    }
+
+    #[test]
+    fn unrelated_dec_modes_do_not_toggle_input_modes() {
+        let mut screen = AgentScreen::new(1, 1);
+        // Cursor show/hide, bracketed paste, focus events and synchronized
+        // output, as Claude Code emits them on every redraw.
+        screen.process(b"\x1b7\x1b[r\x1b8\x1b[?25h\x1b[?25l\x1b[?2004h\x1b[?2031h\x1b[?1004h");
+        screen.process(b"\x1b[?2026h\x1b[?25l\x1b[?2026l\x1b[?25h");
+        assert!(!screen.captures_mouse());
+        assert!(!screen.alternate_scroll());
+        let modes = screen.input_mode_formatted();
+        assert!(modes.windows(5).any(|mode| mode == b"\x1b[?1l"));
+        assert!(modes.windows(8).any(|mode| mode == b"\x1b[?2004h"));
+    }
+
+    #[test]
+    fn tracks_combined_dec_mode_parameters() {
+        let mut screen = AgentScreen::new(1, 1);
+        screen.process(b"\x1b[?1000;1006;1007h");
+        assert!(screen.captures_mouse());
+        assert!(screen.alternate_scroll());
+        screen.process(b"\x1b[?1000;1007l");
+        assert!(!screen.captures_mouse());
+        assert!(!screen.alternate_scroll());
+    }
+
+    #[test]
+    fn tracks_mouse_mode_split_across_chunks() {
+        let mut screen = AgentScreen::new(1, 1);
+        screen.process(b"\x1b[?25h\x1b[?100");
+        assert!(!screen.captures_mouse());
+        screen.process(b"0h");
+        assert!(screen.captures_mouse());
     }
 
     #[test]
