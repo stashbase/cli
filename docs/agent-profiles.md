@@ -112,7 +112,7 @@ DATABASE_URL = "postgres://app@localhost:5432/app"
 - `[config_env]` values take precedence over variables inherited from your shell. They can't replace anything the sandbox sets: proxy and CA variables, `HOME`, `TMPDIR`, `FORCE_COLOR` and anything starting with `STASHBASE_` are rejected. `PATH`, `LD_*` and `DYLD_*` are rejected too, because they control which programs and libraries start the sandbox.
 - Each `NAME=value` can be up to 64 KiB, and the whole table up to 256 KiB. That keeps `[config_env]` well within what the operating system accepts when starting the agent. Values can't contain NUL bytes. Keep larger content in a file in the workspace.
 - A name that a `[secrets]` or `[personal_credentials]` binding already provides (its `env` name, or a renamed `from` source) is rejected.
-- Credentials don't belong here. Stashbase checks every value: a credential-like name (`*TOKEN*`, `*PASSWORD*`, `*API_KEY*`, …), a known token format, a URL containing a password, or a long random-looking string triggers a warning in `agent validate`. `agent run` then asks for confirmation before starting, and fails when it can't ask (non-interactive or `--silent`). Values are never printed.
+- Credentials don't belong here. Stashbase checks every value: a credential-like name (`*TOKEN*`, `*PASSWORD*`, `*API_KEY*`, …), a known token format, a URL containing a password, or a long random-looking string triggers a warning in `agent validate`. `agent run` then asks for confirmation before starting, and fails when it can't ask (non-interactive or `--silent`). Flagged values are never printed: `agent profiles show` displays them as `<hidden: looks like a credential>`.
 - If a flagged value really isn't secret, acknowledge it so the check skips it:
 
   ```toml

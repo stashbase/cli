@@ -4,7 +4,7 @@
 
 use std::io::IsTerminal;
 
-use crate::models::agent::AgentProfile;
+use crate::models::agent::{AgentEnvScalar, AgentEnvValue, AgentProfile};
 
 /// Variables the sandbox itself sets or strips. Letting a profile set one
 /// would break the session or weaken its containment (proxy routing, CA
@@ -209,6 +209,21 @@ pub(crate) fn flagged_config_env(profile: &AgentProfile) -> Vec<(String, &'stati
             secret_likeness(name, &value.value()).map(|reason| (name.clone(), reason))
         })
         .collect()
+}
+
+/// Shown in place of a `[config_env]` value that looks like a credential.
+pub(crate) const MASKED_CONFIG_ENV_VALUE: &str = "<hidden: looks like a credential>";
+
+/// Replaces each flagged, unacknowledged `[config_env]` value with
+/// [`MASKED_CONFIG_ENV_VALUE`], so printing a profile doesn't show what the
+/// check exists to keep from being passed around unnoticed.
+pub(crate) fn mask_flagged_config_env(profile: &mut AgentProfile) {
+    for (name, _) in flagged_config_env(profile) {
+        profile.config_env.insert(
+            name,
+            AgentEnvValue::Plain(AgentEnvScalar::String(MASKED_CONFIG_ENV_VALUE.to_owned())),
+        );
+    }
 }
 
 pub(crate) const NOT_SECRET_HINT: &str =
@@ -461,5 +476,25 @@ mod tests {
         assert!(profile.config_env["LEGACY"].acknowledged());
 
         assert!(toml::from_str::<AgentProfile>("[config_env]\nLIST = [1, 2]\n").is_err());
+    }
+
+    #[test]
+    fn masks_only_flagged_unacknowledged_values() {
+        let mut profile: AgentProfile = toml::from_str(
+            "[config_env]\nNODE_ENV = \"development\"\nGH_PAT = \"ghp_abc\"\nBUILD = { value = \"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b\", not_secret = true }\n",
+        )
+        .unwrap();
+
+        mask_flagged_config_env(&mut profile);
+
+        assert_eq!(profile.config_env["NODE_ENV"].value(), "development");
+        assert_eq!(
+            profile.config_env["GH_PAT"].value(),
+            MASKED_CONFIG_ENV_VALUE
+        );
+        assert_eq!(
+            profile.config_env["BUILD"].value(),
+            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b"
+        );
     }
 }

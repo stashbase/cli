@@ -121,10 +121,11 @@ fn handle_show(
             silent,
         ));
     };
-    let profile = command
+    let mut profile = command
         .effective
         .then(|| effective_profile(profile))
         .unwrap_or_else(|| profile.clone());
+    crate::handlers::agent::env_check::mask_flagged_config_env(&mut profile);
     let report = ProfileDetails {
         name: command.profile,
         source: source.clone(),
