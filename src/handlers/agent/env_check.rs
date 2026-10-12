@@ -87,7 +87,9 @@ pub(crate) fn conflicting_binding(profile: &AgentProfile, name: &str) -> Option<
             let binding = &bindings[binding_name];
             let env = binding.env.as_deref().unwrap_or(binding_name);
             let from = binding.from.as_deref().unwrap_or(binding_name);
-            if env == name || from == name {
+            // Case-insensitive: Windows treats `github_token` and
+            // `GITHUB_TOKEN` as the same variable.
+            if env.eq_ignore_ascii_case(name) || from.eq_ignore_ascii_case(name) {
                 return Some(format!("[{table}.{binding_name}]"));
             }
         }
@@ -395,6 +397,10 @@ mod tests {
         assert_eq!(
             conflicting_binding(&profile, "LINEAR_API_KEY").as_deref(),
             Some("[personal_credentials.LINEAR]")
+        );
+        assert_eq!(
+            conflicting_binding(&profile, "github_token").as_deref(),
+            Some("[secrets.GITHUB_TOKEN]")
         );
         assert_eq!(conflicting_binding(&profile, "NODE_ENV"), None);
     }
