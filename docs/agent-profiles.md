@@ -98,6 +98,29 @@ worktree = true
 
 Or per run: `stashbase agent run --profile coding --worktree -- claude` (`--worktree=false` skips it when the profile turns it on). Works with the native backend and, on macOS/Linux, the Docker backend. Review and merge the agent's work from your checkout with `stashbase agent worktrees list`, `merge <name>` and `clean` — see **[Worktrees](sandboxing.md#worktrees)**.
 
+## Config Environment Variables
+
+Set non-sensitive configuration for the agent with `[config_env]`. Values are stored in plaintext in the profile, and both sandbox backends apply them. A value can be a string, a number or a boolean (`PORT = 3000` and `DEBUG = true` work without quotes), and the agent always receives it as a string. The Docker backend otherwise starts the container with an empty environment.
+
+```toml
+[config_env]
+NODE_ENV = "development"
+RUST_LOG = "info"
+DATABASE_URL = "postgres://app@localhost:5432/app"
+```
+
+- `[config_env]` values take precedence over variables inherited from your shell. They can't replace anything the sandbox sets: proxy and CA variables, `HOME`, `TMPDIR`, `FORCE_COLOR` and anything starting with `STASHBASE_` are rejected.
+- A name that a `[secrets]` or `[personal_credentials]` binding already provides (its `env` name, or a renamed `from` source) is rejected.
+- Credentials don't belong here. Stashbase checks every value: a credential-like name (`*TOKEN*`, `*PASSWORD*`, `*API_KEY*`, …), a known token format, a URL containing a password, or a long random-looking string triggers a warning in `agent validate`. `agent run` then asks for confirmation before starting, and fails when it can't ask (non-interactive or `--silent`). Values are never printed.
+- If a flagged value really isn't secret, acknowledge it so the check skips it:
+
+  ```toml
+  [config_env]
+  BUILD_HASH = { value = "9f86d081884c7d659a2feaa0c55ad015", not_secret = true }
+  ```
+
+A complete example profile is in [examples/config-env.toml](agent-profiles/examples/config-env.toml). It includes commented-out lines that show the warning and the validation errors.
+
 ## Network Access and HTTP Rules
 
 By default, the proxy denies all connections. Allow specific destinations:

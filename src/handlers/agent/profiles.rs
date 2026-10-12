@@ -371,6 +371,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let effective = effective_profile(&profile);
@@ -411,6 +412,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let secret = &effective_profile(&profile).secrets.bindings["API_KEY"];
@@ -442,6 +444,7 @@ mod tests {
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert_eq!(binding_count(&profile), 2);

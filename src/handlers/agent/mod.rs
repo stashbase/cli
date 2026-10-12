@@ -1,5 +1,6 @@
 pub mod docker;
 pub mod doctor;
+pub mod env_check;
 pub mod explain;
 pub mod init;
 pub mod mcp;

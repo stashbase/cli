@@ -849,6 +849,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         }
                     }
                     crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
+                    crate::handlers::agent::env_check::confirm_config_env(&profile, silent)?;
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
                     // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is
@@ -1040,6 +1041,11 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         worktree: profile.workspace.worktree,
                         worktree_resume: agent_run.resume.clone(),
                         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
+                        config_env: profile
+                            .config_env
+                            .iter()
+                            .map(|(name, value)| (name.clone(), value.value()))
+                            .collect(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -2669,6 +2675,7 @@ mod tests {
             )]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let bindings = remote_bindings(&profile);

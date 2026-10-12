@@ -219,6 +219,18 @@ deny_hosts = ["api.stashbase.dev"]
 
 Stashbase will warn when starting this mode.
 
+#### Config environment variables
+
+Pass non-sensitive config to the agent with `[config_env]`. The values are plaintext and work with both sandbox backends:
+
+```toml
+[config_env]
+NODE_ENV = "development"
+RUST_LOG = "info"
+```
+
+Values that look like credentials are flagged: `agent run` asks before starting and fails when it can't ask. Credentials belong in `[secrets]`. See [Config Environment Variables](docs/agent-profiles.md#config-environment-variables) for the rules and an [example profile](docs/agent-profiles/examples/config-env.toml).
+
 ### Filesystem and Network Containment
 
 #### Read and write restrictions

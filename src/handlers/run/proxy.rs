@@ -11,7 +11,7 @@
 //! proxy or isolation boundary.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     fs::{self, OpenOptions},
     future::Future,
@@ -809,6 +809,10 @@ pub struct ProxyPolicy {
     /// Docker backend only: repo-relative directories backed by a per-repo
     /// volume instead of the host's copy (see `append_isolated_path_mounts`).
     pub sandbox_isolated_paths: Vec<String>,
+    /// The profile's plaintext `[config_env]`, added to the child's
+    /// environment underneath everything the sandbox sets. Configuration the
+    /// agent sees, not what it may do — so not part of the fingerprint.
+    pub config_env: BTreeMap<String, String>,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -953,6 +957,7 @@ impl ProxyPolicy {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -4089,6 +4094,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -4479,6 +4485,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -4614,6 +4621,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -5377,6 +5385,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -5426,6 +5435,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -5621,6 +5631,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         assert!(secret_allows_request(
             &policy,
@@ -6160,6 +6171,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -6208,6 +6220,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -6242,6 +6255,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -6323,6 +6337,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_PAT_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -6381,6 +6396,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -6752,6 +6768,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                config_env: Default::default(),
             },
             None,
         )
@@ -6797,6 +6814,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                config_env: Default::default(),
             },
             None,
         )
@@ -6843,6 +6861,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                config_env: Default::default(),
             },
             None,
         )

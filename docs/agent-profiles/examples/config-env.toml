@@ -1,0 +1,27 @@
+# Plaintext, non-sensitive config for the agent via [config_env].
+# Egress-only (no secrets), so it runs without a Stashbase project:
+#   cp docs/agent-profiles/examples/config-env.toml .stashbase/agents/
+#   stashbase agent validate --profile config-env
+#   stashbase agent run --profile config-env -- env
+egress_hosts = ["api.anthropic.com", "registry.npmjs.org"]
+
+# Uncomment to check the Docker backend, which starts from an empty env.
+# [sandbox]
+# backend = "docker"
+
+[config_env]
+NODE_ENV = "development"
+RUST_LOG = "info,stashbase=debug"
+# No password in the URL, so it isn't flagged.
+DATABASE_URL = "postgres://app@localhost:5432/app"
+# Long hex looks like a key; not_secret = true skips the check.
+BUILD_HASH = { value = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b", not_secret = true }
+
+# Uncomment to see the check: validate warns, and run asks for confirmation
+# (or fails when non-interactive / --silent).
+# UPLOAD_URL = "https://deploy:hunter2@uploads.example.com"
+# DEPLOY_TOKEN = "abc"
+
+# Uncomment to see hard failures:
+# HTTPS_PROXY = "http://elsewhere:8080"   # owned by the sandbox
+# STASHBASE_API_KEY = "x"                 # STASHBASE_* is reserved

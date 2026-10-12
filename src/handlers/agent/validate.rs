@@ -18,6 +18,7 @@ use serde::Serialize;
 use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
+    handlers::agent::env_check,
     models::{
         agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile},
         config::Config,
@@ -119,6 +120,7 @@ pub async fn handle_agent_validate_command(
 
     checks.extend(validate_profile(&profile));
     checks.extend(validate_hook_capabilities(&profile));
+    checks.extend(validate_config_env(&profile));
     checks.extend(validate_runtime_requirements(&profile));
     if command.remote {
         checks.extend(validate_remote_profile(&profile));
@@ -133,6 +135,7 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
     let failures = validate_profile(profile)
         .into_iter()
         .chain(validate_hook_capabilities(profile))
+        .chain(validate_config_env(profile))
         .chain(validate_runtime_requirements(profile))
         .filter(|check| check.status == Status::Fail)
         .map(|check| format!("{}: {}", check.name, check.message))
@@ -727,6 +730,61 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
     )]
 }
 
+/// `[config_env]` names must be valid, unowned by the sandbox and unused by a
+/// binding. Values that look like credentials only warn here: `agent run`
+/// asks before passing them (see `env_check::confirm_config_env`).
+fn validate_config_env(profile: &AgentProfile) -> Vec<Check> {
+    if profile.config_env.is_empty() {
+        return Vec::new();
+    }
+    let mut checks = Vec::new();
+    for name in profile.config_env.keys() {
+        if !valid_environment_name(name) {
+            checks.push(fail(
+                "Config env",
+                format!("[config_env] {name} is not a valid environment variable name."),
+            ));
+        } else if env_check::reserved_env_name(name) {
+            checks.push(fail(
+                "Config env",
+                format!(
+                    "[config_env] {name} is set by the Stashbase sandbox and can't be overridden."
+                ),
+            ));
+        } else if let Some(binding) = env_check::conflicting_binding(profile, name) {
+            checks.push(fail(
+                "Config env",
+                format!("[config_env] {name} is already provided by {binding}; remove it from [config_env]."),
+            ));
+        }
+    }
+    for (name, reason) in env_check::flagged_config_env(profile) {
+        checks.push(warn(
+            "Config env",
+            format!(
+                "[config_env] {name}: {reason}. {}",
+                env_check::NOT_SECRET_HINT
+            ),
+        ));
+    }
+    if checks.is_empty() {
+        checks.push(ok(
+            "Config env",
+            format!(
+                "{} plaintext variable(s): {}.",
+                profile.config_env.len(),
+                profile
+                    .config_env
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
+    }
+    checks
+}
+
 fn valid_filesystem_path(path: &str) -> bool {
     !path.is_empty() && path == path.trim() && !path.contains(['\r', '\n'])
 }
@@ -1129,6 +1187,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: vec!["anything_else".to_owned()],
+            config_env: Default::default(),
         };
 
         assert!(validate_hook_capabilities(&profile)
@@ -1155,6 +1214,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: vec!["dependency_check".to_owned(), "secret_scan".to_owned()],
+            config_env: Default::default(),
         };
 
         let checks = validate_hook_capabilities(&profile);
@@ -1185,6 +1245,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
 
@@ -1214,6 +1275,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.workspace.worktree = true;
         profile.sandbox.backend = backend;
@@ -1252,6 +1314,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.image = Some("myorg/img:tag".to_owned());
         profile.sandbox.dockerfile = Some("./Cargo.toml".to_owned());
@@ -1278,6 +1341,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.dockerfile = Some("./does-not-exist.Dockerfile".to_owned());
 
@@ -1333,6 +1397,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.memory = Some("not-a-memory-value".to_owned());
         profile.sandbox.cpus = Some("not-a-number".to_owned());
@@ -1449,6 +1514,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         assert!(validate_profile(&profile)
             .iter()
@@ -1485,6 +1551,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(validate_profile(&profile)
@@ -1507,6 +1574,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(validate_profile(&profile).iter().any(|check| {
@@ -1540,6 +1608,7 @@ mod tests {
             )]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(!validate_profile(&profile)
@@ -1594,6 +1663,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
@@ -1630,6 +1700,7 @@ mod tests {
             personal_credentials: HashMap::from([("API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
@@ -1695,5 +1766,62 @@ mod tests {
         assert!(!filesystem_checks(&plain)
             .iter()
             .any(|check| check.name == "Filesystem patterns"));
+    }
+
+    fn config_env_profile(toml_source: &str) -> AgentProfile {
+        toml::from_str(toml_source).unwrap()
+    }
+
+    fn config_env_statuses(profile: &AgentProfile) -> Vec<(Status, String)> {
+        validate_config_env(profile)
+            .into_iter()
+            .map(|check| (check.status, check.message))
+            .collect()
+    }
+
+    #[test]
+    fn config_env_rejects_reserved_invalid_and_bound_names() {
+        let profile = config_env_profile(
+            "[config_env]\nHTTPS_PROXY = \"http://evil\"\n\"1BAD\" = \"x\"\nGITHUB_TOKEN = \"x\"\n\n[secrets]\nproject = \"p\"\nenvironment = \"e\"\n[secrets.GITHUB_TOKEN]\n",
+        );
+        let checks = config_env_statuses(&profile);
+        let failures = checks
+            .iter()
+            .filter(|(status, _)| *status == Status::Fail)
+            .map(|(_, message)| message.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 3, "{checks:?}");
+        assert!(failures
+            .iter()
+            .any(|m| m.contains("HTTPS_PROXY is set by the Stashbase sandbox")));
+        assert!(failures.iter().any(|m| m.contains("1BAD is not a valid")));
+        assert!(failures
+            .iter()
+            .any(|m| m.contains("GITHUB_TOKEN is already provided by [secrets.GITHUB_TOKEN]")));
+        assert!(ensure_profile_is_valid_for_run(&profile)
+            .unwrap_err()
+            .to_string()
+            .contains("is already provided by"));
+    }
+
+    #[test]
+    fn config_env_warns_on_secret_looking_values_without_printing_them() {
+        let profile = config_env_profile(
+            "[config_env]\nNODE_ENV = \"development\"\nUPLOAD_URL = \"https://u:hunter2@example.com\"\nBUILD = { value = \"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b\", not_secret = true }\n",
+        );
+        let checks = config_env_statuses(&profile);
+        assert_eq!(checks.len(), 1, "{checks:?}");
+        assert_eq!(checks[0].0, Status::Warn);
+        assert!(checks[0].1.contains("UPLOAD_URL"));
+        assert!(!checks[0].1.contains("hunter2"));
+    }
+
+    #[test]
+    fn config_env_reports_plain_variables_ok() {
+        let profile = config_env_profile("[config_env]\nNODE_ENV = \"development\"\n");
+        let checks = config_env_statuses(&profile);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].0, Status::Ok);
+        assert!(config_env_statuses(&config_env_profile("")).is_empty());
     }
 }
