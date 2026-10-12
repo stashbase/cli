@@ -763,13 +763,8 @@ fn validate_config_env(profile: &AgentProfile) -> Vec<Check> {
                 "Config env",
                 format!("[config_env] {name} is not a valid environment variable name."),
             ));
-        } else if env_check::reserved_env_name(name) {
-            checks.push(fail(
-                "Config env",
-                format!(
-                    "[config_env] {name} is set by the Stashbase sandbox and can't be overridden."
-                ),
-            ));
+        } else if let Some(reason) = env_check::reserved_env_reason(name) {
+            checks.push(fail("Config env", format!("[config_env] {name} {reason}.")));
         } else if let Some(binding) = env_check::conflicting_binding(profile, name) {
             checks.push(fail(
                 "Config env",

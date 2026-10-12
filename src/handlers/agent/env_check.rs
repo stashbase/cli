@@ -46,12 +46,29 @@ pub(crate) fn config_env_entry_bytes(name: &str, value: &str) -> usize {
     name.len() + 1 + value.len()
 }
 
-/// Whether the sandbox owns `name`, so `[config_env]` must not set it.
-pub(crate) fn reserved_env_name(name: &str) -> bool {
-    name.to_ascii_uppercase().starts_with("STASHBASE_")
+/// Why `[config_env]` must not set `name`, or `None` when it may.
+///
+/// Besides names the sandbox owns, this rejects names that change which
+/// program or libraries the native launcher loads. `[config_env]` is applied
+/// to the launcher process (`bwrap`, `systemd-run`) before any confinement
+/// exists, and the launcher is found through the child's `PATH`, so a
+/// repository profile setting `PATH` or `LD_PRELOAD` would run its own code
+/// outside the sandbox.
+pub(crate) fn reserved_env_reason(name: &str) -> Option<&'static str> {
+    let upper = name.to_ascii_uppercase();
+    if upper.starts_with("STASHBASE_")
         || RESERVED_CHILD_ENV
             .iter()
             .any(|reserved| reserved.eq_ignore_ascii_case(name))
+    {
+        return Some("is set by the Stashbase sandbox and can't be overridden");
+    }
+    if upper == "PATH" || upper.starts_with("LD_") || upper.starts_with("DYLD_") {
+        return Some(
+            "controls which programs and libraries start the sandbox, so a profile can't set it",
+        );
+    }
+    None
 }
 
 /// The binding that already provides `name` to the child, as a
@@ -302,9 +319,36 @@ mod tests {
             "STASHBASE_API_KEY",
             "stashbase_sandbox",
         ] {
-            assert!(reserved_env_name(name), "{name}");
+            assert_eq!(
+                reserved_env_reason(name),
+                Some("is set by the Stashbase sandbox and can't be overridden"),
+                "{name}"
+            );
         }
-        assert!(!reserved_env_name("NODE_ENV"));
+        assert_eq!(reserved_env_reason("NODE_ENV"), None);
+    }
+
+    #[test]
+    fn reserves_names_that_change_how_the_launcher_starts() {
+        for name in [
+            "PATH",
+            "path",
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+            "LD_AUDIT",
+            "ld_preload",
+            "DYLD_INSERT_LIBRARIES",
+            "DYLD_LIBRARY_PATH",
+        ] {
+            assert!(
+                reserved_env_reason(name)
+                    .is_some_and(|reason| reason.contains("start the sandbox")),
+                "{name}"
+            );
+        }
+        for name in ["PATHS", "MY_PATH", "OLD_PATH", "COLD_START"] {
+            assert_eq!(reserved_env_reason(name), None, "{name}");
+        }
     }
 
     fn profile_with(

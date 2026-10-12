@@ -1990,13 +1990,17 @@ async fn handle_run(
 }
 
 /// Adds the profile's `[config_env]` to the child environment. Validation
-/// already rejects names the sandbox owns; keeping any value the sandbox set
-/// is the backstop, so a profile can never replace the proxy or CA settings.
+/// already rejects reserved names; skipping them here and keeping any value
+/// the sandbox set is the backstop, so a profile can never replace the proxy
+/// or CA settings or change how the launcher starts.
 fn apply_config_env(
     child_env: &mut HashMap<String, String>,
     config_env: &std::collections::BTreeMap<String, String>,
 ) {
     for (name, value) in config_env {
+        if crate::handlers::agent::env_check::reserved_env_reason(name).is_some() {
+            continue;
+        }
         child_env
             .entry(name.clone())
             .or_insert_with(|| value.clone());
@@ -2121,12 +2125,16 @@ mod tests {
         let config_env = std::collections::BTreeMap::from([
             ("NODE_ENV".to_owned(), "development".to_owned()),
             ("HTTPS_PROXY".to_owned(), "http://elsewhere".to_owned()),
+            ("LD_PRELOAD".to_owned(), "./evil.so".to_owned()),
+            ("PATH".to_owned(), "./evil:/usr/bin".to_owned()),
         ]);
 
         apply_config_env(&mut child_env, &config_env);
 
         assert_eq!(child_env["NODE_ENV"], "development");
         assert_eq!(child_env["HTTPS_PROXY"], "http://127.0.0.1:1234");
+        assert!(!child_env.contains_key("LD_PRELOAD"));
+        assert!(!child_env.contains_key("PATH"));
     }
 
     #[test]
