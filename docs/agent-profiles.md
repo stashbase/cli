@@ -120,6 +120,14 @@ DATABASE_URL = "postgres://app@localhost:5432/app"
   BUILD_HASH = { value = "9f86d081884c7d659a2feaa0c55ad015", not_secret = true }
   ```
 
+To set or override a variable for one run without editing the profile, pass `--config-env NAME=VALUE` (repeatable):
+
+```bash
+stashbase agent run --profile coding --config-env NODE_ENV=test --config-env PORT=4000 -- claude
+```
+
+Flag values go through the same name and size checks as the profile's. The credential check is skipped for them, because they're typed by the person running the agent rather than committed to a shared profile.
+
 A complete example profile is in [examples/config-env.toml](agent-profiles/examples/config-env.toml). It includes commented-out lines that show the warning and the validation errors.
 
 ## Network Access and HTTP Rules

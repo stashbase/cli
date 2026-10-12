@@ -848,6 +848,21 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             profile.sandbox.isolated_paths.push(path.clone());
                         }
                     }
+                    // Typed by the person running the agent, not committed to a
+                    // shared profile, so the credential check doesn't apply.
+                    for (name, value) in &agent_run.config_env {
+                        profile.config_env.insert(
+                            name.clone(),
+                            crate::models::agent::AgentEnvValue::Detailed(
+                                crate::models::agent::AgentEnvValueDetails {
+                                    value: crate::models::agent::AgentEnvScalar::String(
+                                        value.clone(),
+                                    ),
+                                    not_secret: true,
+                                },
+                            ),
+                        );
+                    }
                     crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
                     crate::handlers::agent::env_check::confirm_config_env(&profile, silent)?;
                     // Egress policy is meaningful only when the child cannot opt out of

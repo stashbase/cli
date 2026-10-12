@@ -378,6 +378,13 @@ pub struct AgentRunCommand {
     #[arg(long, value_name = "PATHS", value_delimiter = ',')]
     pub docker_isolated_paths: Vec<String>,
 
+    /// Set a `[config_env]` variable for this run only, overriding the
+    /// profile's value. Repeatable: `--config-env NODE_ENV=test --config-env
+    /// PORT=4000`. Checked like the profile's own values, except that the
+    /// credential check is skipped because you typed it yourself.
+    #[arg(long, value_name = "NAME=VALUE", value_parser = parse_config_env_arg)]
+    pub config_env: Vec<(String, String)>,
+
     /// Store metadata-only proxy audit events locally
     #[arg(
         long,
@@ -711,6 +718,15 @@ pub enum AgentProfileSource {
     Auto,
 }
 
+/// Parses `--config-env NAME=VALUE`, splitting at the first `=` so the value
+/// may itself contain `=`. The name is validated with the profile.
+fn parse_config_env_arg(arg: &str) -> Result<(String, String), String> {
+    match arg.split_once('=') {
+        Some((name, value)) if !name.is_empty() => Ok((name.to_owned(), value.to_owned())),
+        _ => Err(format!("expected NAME=VALUE, got '{arg}'")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use clap::ValueEnum;
@@ -735,6 +751,55 @@ mod tests {
             AgentAuditGroupBy::from_str("secret", true),
             Ok(AgentAuditGroupBy::Binding)
         );
+    }
+
+    #[test]
+    fn config_env_flag_takes_repeatable_name_value_pairs() {
+        use super::{AgentCommand, AgentSubcommand};
+        use crate::cmd::root::{Cli, EntityType};
+        use clap::Parser;
+
+        let parse = |args: &[&str]| {
+            let mut argv = vec!["stashbase", "agent", "run", "--profile", "p"];
+            argv.extend_from_slice(args);
+            match Cli::try_parse_from(argv).expect("parses").entity_type {
+                EntityType::Agent(AgentCommand {
+                    subcommand: AgentSubcommand::Run(run),
+                }) => run,
+                _ => panic!("expected `agent run`"),
+            }
+        };
+        let env = parse(&[
+            "--config-env",
+            "NODE_ENV=test",
+            "--config-env",
+            "QUERY=a=b",
+            "--config-env",
+            "EMPTY=",
+            "claude",
+        ]);
+        assert_eq!(
+            env.config_env,
+            vec![
+                ("NODE_ENV".to_owned(), "test".to_owned()),
+                ("QUERY".to_owned(), "a=b".to_owned()),
+                ("EMPTY".to_owned(), String::new()),
+            ]
+        );
+        assert_eq!(env.command, vec!["claude".to_owned()]);
+        for bad in ["NOVALUE", "=value"] {
+            let argv = [
+                "stashbase",
+                "agent",
+                "run",
+                "--profile",
+                "p",
+                "--config-env",
+                bad,
+                "claude",
+            ];
+            assert!(Cli::try_parse_from(argv).is_err(), "{bad}");
+        }
     }
 
     #[test]
