@@ -848,7 +848,18 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             profile.sandbox.isolated_paths.push(path.clone());
                         }
                     }
+                    // Flag values get the same checks as the profile's, credential
+                    // check included: they still reach the agent in plaintext.
+                    for (name, value) in &agent_run.config_env {
+                        profile.config_env.insert(
+                            name.clone(),
+                            crate::models::agent::AgentEnvValue::Plain(
+                                crate::models::agent::AgentEnvScalar::String(value.clone()),
+                            ),
+                        );
+                    }
                     crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
+                    crate::handlers::agent::env_check::confirm_config_env(&profile, silent)?;
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
                     // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is
@@ -1040,6 +1051,11 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         worktree: profile.workspace.worktree,
                         worktree_resume: agent_run.resume.clone(),
                         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
+                        config_env: profile
+                            .config_env
+                            .iter()
+                            .map(|(name, value)| (name.clone(), value.value()))
+                            .collect(),
                     };
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
@@ -1079,7 +1095,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                                     local_session_id.clone(),
                                     policy_fingerprint.clone(),
                                 )
-                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
+                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone())
+.with_config_env_names(profile.config_env.keys().cloned().collect()))
                             })
                         })
                         .flatten()
@@ -1200,6 +1217,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                                 .map(|audit_log| {
                                     audit_log
                                         .with_profile_provenance(profile_provenance.clone())
+.with_config_env_names(profile.config_env.keys().cloned().collect())
                                         .with_binding_sources(binding_sources)
                                         .with_routing(routing.clone())
                                 })
@@ -2669,6 +2687,7 @@ mod tests {
             )]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let bindings = remote_bindings(&profile);
@@ -2820,6 +2839,7 @@ mod tests {
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
+            config_env_names: None,
             routing_mode: None,
             route: None,
             action: action.to_owned(),
@@ -2872,6 +2892,7 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                config_env_names: None,
                 routing_mode: None,
                 route: Some("remote".to_owned()),
                 action: "injected".to_owned(),
@@ -2896,6 +2917,7 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                config_env_names: None,
                 routing_mode: None,
                 route: Some("direct".to_owned()),
                 action: "forwarded".to_owned(),

@@ -98,6 +98,40 @@ worktree = true
 
 Or per run: `stashbase agent run --profile coding --worktree -- claude` (`--worktree=false` skips it when the profile turns it on). Works with the native backend and, on macOS/Linux, the Docker backend. Review and merge the agent's work from your checkout with `stashbase agent worktrees list`, `merge <name>` and `clean` — see **[Worktrees](sandboxing.md#worktrees)**.
 
+## Config Environment Variables
+
+Set non-sensitive configuration for the agent with `[config_env]`. Values are stored in plaintext in the profile, and both sandbox backends apply them. The Docker backend otherwise starts the container with an empty environment. A value can be a string, a number or a boolean (`PORT = 3000` and `DEBUG = true` work without quotes), and the agent always receives it as a string.
+
+```toml
+[config_env]
+NODE_ENV = "development"
+RUST_LOG = "info"
+DATABASE_URL = "postgres://app@localhost:5432/app"
+```
+
+- `[config_env]` values take precedence over variables inherited from your shell. They can't replace anything the sandbox sets: proxy and CA variables, `HOME`, `TMPDIR`, `FORCE_COLOR` and anything starting with `STASHBASE_` are rejected. `PATH`, `LD_*` and `DYLD_*` are rejected too, because they control which programs and libraries start the sandbox.
+- Each `NAME=value` can be up to 64 KiB, and the whole table up to 256 KiB. That keeps `[config_env]` well within what the operating system accepts when starting the agent. Values can't contain NUL bytes. Keep larger content in a file in the workspace.
+- A name that a `[secrets]` or `[personal_credentials]` binding already provides (its `env` name, or a renamed `from` source) is rejected.
+- Credentials don't belong here. Stashbase checks every value: a credential-like name (`*TOKEN*`, `*PASSWORD*`, `*API_KEY*`, …), a known token format, a URL containing a password, or a long random-looking string triggers a warning in `agent validate`. `agent run` then asks for confirmation before starting, and fails when it can't ask (non-interactive or `--silent`). Flagged values are never printed: `agent profiles show` displays them as `<hidden: looks like a credential>`.
+- If a flagged value really isn't secret, acknowledge it so the check skips it:
+
+  ```toml
+  [config_env]
+  BUILD_HASH = { value = "9f86d081884c7d659a2feaa0c55ad015", not_secret = true }
+  ```
+
+To set or override a variable for one run without editing the profile, pass `--config-env NAME=VALUE` (repeatable):
+
+```bash
+stashbase agent run --profile coding --config-env NODE_ENV=test --config-env PORT=4000 -- claude
+```
+
+Flag values go through the same checks as the profile's, including the credential check: a value that looks like a credential asks for confirmation, or fails the run when it can't ask.
+
+The audit log's `session_started` event lists the names of the variables set for the run (`config_env_names`), never their values.
+
+A complete example profile is in [examples/config-env.toml](agent-profiles/examples/config-env.toml). It includes commented-out lines that show the warning and the validation errors.
+
 ## Network Access and HTTP Rules
 
 By default, the proxy denies all connections. Allow specific destinations:

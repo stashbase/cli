@@ -474,6 +474,7 @@ pub async fn handle_remote_agent_run(
     let mut denied_write_paths = policy.denied_write_paths.clone();
     let allow_network_listeners = policy.allow_network_listeners;
     let backend = policy.backend;
+    let config_env = policy.config_env.clone();
     ensure_hooks_can_be_confined(hooks, backend)?;
     let agent_image_source = super::docker_sandbox::AgentImageSource::from_profile(
         policy.sandbox_image.as_deref(),
@@ -598,6 +599,7 @@ pub async fn handle_remote_agent_run(
     } else {
         proxy.child_env().clone()
     };
+    apply_config_env(&mut child_env, &config_env);
     let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
         crate::utils::spinner::new_spinner(
             "Starting network namespace holder and firewall...",
@@ -1749,6 +1751,10 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.sandbox_isolated_paths.clone())
         .unwrap_or_default();
+    let config_env = proxy_policy
+        .as_ref()
+        .map(|policy| policy.config_env.clone())
+        .unwrap_or_default();
 
     // Proxy mode gives the child placeholders, never the loaded secret values.
     // The temporary proxy owns the placeholder-to-secret mapping until the command exits.
@@ -1873,6 +1879,7 @@ async fn handle_run(
         } else {
             proxy.child_env().clone()
         };
+        apply_config_env(&mut child_env, &config_env);
         let mut setup_spinner = (!silent && docker_network.is_some()).then(|| {
             crate::utils::spinner::new_spinner(
                 "Starting network namespace holder and firewall...",
@@ -1982,6 +1989,24 @@ async fn handle_run(
     Ok(())
 }
 
+/// Adds the profile's `[config_env]` to the child environment. Validation
+/// already rejects reserved names; skipping them here and keeping any value
+/// the sandbox set is the backstop, so a profile can never replace the proxy
+/// or CA settings or change how the launcher starts.
+fn apply_config_env(
+    child_env: &mut HashMap<String, String>,
+    config_env: &std::collections::BTreeMap<String, String>,
+) {
+    for (name, value) in config_env {
+        if crate::handlers::agent::env_check::reserved_env_reason(name).is_some() {
+            continue;
+        }
+        child_env
+            .entry(name.clone())
+            .or_insert_with(|| value.clone());
+    }
+}
+
 fn apply_secret_bindings(
     secrets: &mut Vec<SecretWithoutComment>,
     bindings: &HashMap<String, String>,
@@ -2079,10 +2104,11 @@ fn missing_secret_labels(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_secret_bindings, can_prompt_for_image_build, declined_image_build_error,
-        hook_broker_config, load_run_secrets_from_file, loaded_message, loading_message,
-        merge_remote_and_local_secrets, missing_image_build_command, missing_image_error,
-        missing_secret_labels, needs_remote_fetch, prepare_local_run_secrets, shell_quote,
+        apply_config_env, apply_secret_bindings, can_prompt_for_image_build,
+        declined_image_build_error, hook_broker_config, load_run_secrets_from_file, loaded_message,
+        loading_message, merge_remote_and_local_secrets, missing_image_build_command,
+        missing_image_error, missing_secret_labels, needs_remote_fetch, prepare_local_run_secrets,
+        shell_quote,
     };
     use crate::models::{agent::EnabledHooks, secrets::SecretWithoutComment};
     use std::{
@@ -2091,6 +2117,25 @@ mod tests {
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn config_env_is_added_without_replacing_sandbox_values() {
+        let mut child_env =
+            HashMap::from([("HTTPS_PROXY".to_owned(), "http://127.0.0.1:1234".to_owned())]);
+        let config_env = std::collections::BTreeMap::from([
+            ("NODE_ENV".to_owned(), "development".to_owned()),
+            ("HTTPS_PROXY".to_owned(), "http://elsewhere".to_owned()),
+            ("LD_PRELOAD".to_owned(), "./evil.so".to_owned()),
+            ("PATH".to_owned(), "./evil:/usr/bin".to_owned()),
+        ]);
+
+        apply_config_env(&mut child_env, &config_env);
+
+        assert_eq!(child_env["NODE_ENV"], "development");
+        assert_eq!(child_env["HTTPS_PROXY"], "http://127.0.0.1:1234");
+        assert!(!child_env.contains_key("LD_PRELOAD"));
+        assert!(!child_env.contains_key("PATH"));
+    }
 
     #[test]
     fn hook_broker_config_scans_the_run_workdir() {

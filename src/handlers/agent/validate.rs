@@ -18,6 +18,7 @@ use serde::Serialize;
 use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
+    handlers::agent::env_check,
     models::{
         agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile},
         config::Config,
@@ -119,6 +120,7 @@ pub async fn handle_agent_validate_command(
 
     checks.extend(validate_profile(&profile));
     checks.extend(validate_hook_capabilities(&profile));
+    checks.extend(validate_config_env(&profile));
     checks.extend(validate_runtime_requirements(&profile));
     if command.remote {
         checks.extend(validate_remote_profile(&profile));
@@ -133,6 +135,7 @@ pub fn ensure_profile_is_valid_for_run(profile: &AgentProfile) -> Result<()> {
     let failures = validate_profile(profile)
         .into_iter()
         .chain(validate_hook_capabilities(profile))
+        .chain(validate_config_env(profile))
         .chain(validate_runtime_requirements(profile))
         .filter(|check| check.status == Status::Fail)
         .map(|check| format!("{}: {}", check.name, check.message))
@@ -727,6 +730,84 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
     )]
 }
 
+/// `[config_env]` names must be valid, unowned by the sandbox and unused by a
+/// binding. Values that look like credentials only warn here: `agent run`
+/// asks before passing them (see `env_check::confirm_config_env`).
+fn validate_config_env(profile: &AgentProfile) -> Vec<Check> {
+    if profile.config_env.is_empty() {
+        return Vec::new();
+    }
+    let mut checks = Vec::new();
+    let mut total_bytes = 0;
+    for (name, value) in &profile.config_env {
+        let value = value.value();
+        let entry_bytes = env_check::config_env_entry_bytes(name, &value);
+        total_bytes += entry_bytes;
+        if value.contains('\0') {
+            checks.push(fail(
+                "Config env",
+                format!("[config_env] {name} contains a NUL byte, which an environment variable can't hold."),
+            ));
+        }
+        if entry_bytes > env_check::MAX_CONFIG_ENV_ENTRY_BYTES {
+            checks.push(fail(
+                "Config env",
+                format!(
+                    "[config_env] {name} is {entry_bytes} bytes; the limit is {} bytes per variable. Keep large content in a file in the workspace.",
+                    env_check::MAX_CONFIG_ENV_ENTRY_BYTES
+                ),
+            ));
+        }
+        if !valid_environment_name(name) {
+            checks.push(fail(
+                "Config env",
+                format!("[config_env] {name} is not a valid environment variable name."),
+            ));
+        } else if let Some(reason) = env_check::reserved_env_reason(name) {
+            checks.push(fail("Config env", format!("[config_env] {name} {reason}.")));
+        } else if let Some(binding) = env_check::conflicting_binding(profile, name) {
+            checks.push(fail(
+                "Config env",
+                format!("[config_env] {name} is already provided by {binding}; remove it from [config_env]."),
+            ));
+        }
+    }
+    if total_bytes > env_check::MAX_CONFIG_ENV_TOTAL_BYTES {
+        checks.push(fail(
+            "Config env",
+            format!(
+                "[config_env] totals {total_bytes} bytes; the limit is {} bytes.",
+                env_check::MAX_CONFIG_ENV_TOTAL_BYTES
+            ),
+        ));
+    }
+    for (name, reason) in env_check::flagged_config_env(profile) {
+        checks.push(warn(
+            "Config env",
+            format!(
+                "[config_env] {name}: {reason}. {}",
+                env_check::NOT_SECRET_HINT
+            ),
+        ));
+    }
+    if checks.is_empty() {
+        checks.push(ok(
+            "Config env",
+            format!(
+                "{} plaintext variable(s): {}.",
+                profile.config_env.len(),
+                profile
+                    .config_env
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
+    }
+    checks
+}
+
 fn valid_filesystem_path(path: &str) -> bool {
     !path.is_empty() && path == path.trim() && !path.contains(['\r', '\n'])
 }
@@ -1129,6 +1210,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: vec!["anything_else".to_owned()],
+            config_env: Default::default(),
         };
 
         assert!(validate_hook_capabilities(&profile)
@@ -1155,6 +1237,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: vec!["dependency_check".to_owned(), "secret_scan".to_owned()],
+            config_env: Default::default(),
         };
 
         let checks = validate_hook_capabilities(&profile);
@@ -1185,6 +1268,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.backend = crate::models::agent::SandboxBackend::Docker;
 
@@ -1214,6 +1298,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.workspace.worktree = true;
         profile.sandbox.backend = backend;
@@ -1252,6 +1337,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.image = Some("myorg/img:tag".to_owned());
         profile.sandbox.dockerfile = Some("./Cargo.toml".to_owned());
@@ -1278,6 +1364,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.dockerfile = Some("./does-not-exist.Dockerfile".to_owned());
 
@@ -1333,6 +1420,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         profile.sandbox.memory = Some("not-a-memory-value".to_owned());
         profile.sandbox.cpus = Some("not-a-number".to_owned());
@@ -1449,6 +1537,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
         assert!(validate_profile(&profile)
             .iter()
@@ -1485,6 +1574,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(validate_profile(&profile)
@@ -1507,6 +1597,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(validate_profile(&profile).iter().any(|check| {
@@ -1540,6 +1631,7 @@ mod tests {
             )]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(!validate_profile(&profile)
@@ -1594,6 +1686,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
@@ -1630,6 +1723,7 @@ mod tests {
             personal_credentials: HashMap::from([("API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let error = ensure_profile_is_valid_for_run(&profile).unwrap_err();
@@ -1695,5 +1789,119 @@ mod tests {
         assert!(!filesystem_checks(&plain)
             .iter()
             .any(|check| check.name == "Filesystem patterns"));
+    }
+
+    fn config_env_profile(toml_source: &str) -> AgentProfile {
+        toml::from_str(toml_source).unwrap()
+    }
+
+    fn config_env_statuses(profile: &AgentProfile) -> Vec<(Status, String)> {
+        validate_config_env(profile)
+            .into_iter()
+            .map(|check| (check.status, check.message))
+            .collect()
+    }
+
+    #[test]
+    fn config_env_rejects_reserved_invalid_and_bound_names() {
+        let profile = config_env_profile(
+            "[config_env]\nHTTPS_PROXY = \"http://evil\"\n\"1BAD\" = \"x\"\nGITHUB_TOKEN = \"x\"\n\n[secrets]\nproject = \"p\"\nenvironment = \"e\"\n[secrets.GITHUB_TOKEN]\n",
+        );
+        let checks = config_env_statuses(&profile);
+        let failures = checks
+            .iter()
+            .filter(|(status, _)| *status == Status::Fail)
+            .map(|(_, message)| message.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(failures.len(), 3, "{checks:?}");
+        assert!(failures
+            .iter()
+            .any(|m| m.contains("HTTPS_PROXY is set by the Stashbase sandbox")));
+        assert!(failures.iter().any(|m| m.contains("1BAD is not a valid")));
+        assert!(failures
+            .iter()
+            .any(|m| m.contains("GITHUB_TOKEN is already provided by [secrets.GITHUB_TOKEN]")));
+        assert!(ensure_profile_is_valid_for_run(&profile)
+            .unwrap_err()
+            .to_string()
+            .contains("is already provided by"));
+    }
+
+    #[test]
+    fn config_env_warns_on_secret_looking_values_without_printing_them() {
+        let profile = config_env_profile(
+            "[config_env]\nNODE_ENV = \"development\"\nUPLOAD_URL = \"https://u:hunter2@example.com\"\nBUILD = { value = \"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b\", not_secret = true }\n",
+        );
+        let checks = config_env_statuses(&profile);
+        assert_eq!(checks.len(), 1, "{checks:?}");
+        assert_eq!(checks[0].0, Status::Warn);
+        assert!(checks[0].1.contains("UPLOAD_URL"));
+        assert!(!checks[0].1.contains("hunter2"));
+    }
+
+    #[test]
+    fn config_env_reports_plain_variables_ok() {
+        let profile = config_env_profile("[config_env]\nNODE_ENV = \"development\"\n");
+        let checks = config_env_statuses(&profile);
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].0, Status::Ok);
+        assert!(config_env_statuses(&config_env_profile("")).is_empty());
+    }
+
+    fn config_env_failures(profile: &AgentProfile) -> Vec<String> {
+        config_env_statuses(profile)
+            .into_iter()
+            .filter(|(status, _)| *status == Status::Fail)
+            .map(|(_, message)| message)
+            .collect()
+    }
+
+    #[test]
+    fn config_env_rejects_nul_bytes() {
+        let profile = config_env_profile("[config_env]\nGREETING = \"hi\\u0000there\"\n");
+        let failures = config_env_failures(&profile);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("GREETING contains a NUL byte"));
+        assert!(!failures[0].contains("there"));
+    }
+
+    #[test]
+    fn config_env_limits_each_value_size() {
+        let at_limit = "a".repeat(env_check::MAX_CONFIG_ENV_ENTRY_BYTES - "BLOB=".len());
+        let mut profile = config_env_profile("");
+        profile.config_env.insert(
+            "BLOB".to_owned(),
+            crate::models::agent::AgentEnvValue::Plain(
+                crate::models::agent::AgentEnvScalar::String(at_limit.clone()),
+            ),
+        );
+        assert!(config_env_failures(&profile).is_empty());
+
+        profile.config_env.insert(
+            "BLOB".to_owned(),
+            crate::models::agent::AgentEnvValue::Plain(
+                crate::models::agent::AgentEnvScalar::String(at_limit + "a"),
+            ),
+        );
+        let failures = config_env_failures(&profile);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("BLOB is 65537 bytes; the limit is 65536 bytes per variable"));
+    }
+
+    #[test]
+    fn config_env_limits_total_size() {
+        let value = "a".repeat(60 * 1024);
+        let mut profile = config_env_profile("");
+        for index in 0..5 {
+            profile.config_env.insert(
+                format!("PART_{index}"),
+                crate::models::agent::AgentEnvValue::Plain(
+                    crate::models::agent::AgentEnvScalar::String(value.clone()),
+                ),
+            );
+        }
+        let failures = config_env_failures(&profile);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("the limit is 262144 bytes"));
     }
 }

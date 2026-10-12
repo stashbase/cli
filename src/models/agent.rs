@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +40,65 @@ pub struct AgentProfile {
     /// Capabilities the agent may use through the local run broker.
     #[serde(default)]
     pub allow_hooks: Vec<String>,
+    /// Non-sensitive variables set in the agent's environment. Values are
+    /// stored in plaintext in the profile; credentials belong in `[secrets]`.
+    #[serde(default)]
+    pub config_env: BTreeMap<String, AgentEnvValue>,
+}
+
+/// A `[config_env]` value: a plain scalar, or a table that acknowledges a
+/// value the secret-likeness check would otherwise flag.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentEnvValue {
+    Plain(AgentEnvScalar),
+    Detailed(AgentEnvValueDetails),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEnvValueDetails {
+    pub value: AgentEnvScalar,
+    /// Confirms the value is not a credential, silencing the check.
+    #[serde(default)]
+    pub not_secret: bool,
+}
+
+/// TOML scalars accepted as an environment value, so `PORT = 3000` and
+/// `DEBUG = true` work without quoting. The child always receives a string.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentEnvScalar {
+    String(String),
+    Integer(i64),
+    Float(f64),
+    Boolean(bool),
+}
+
+impl std::fmt::Display for AgentEnvScalar {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::String(value) => formatter.write_str(value),
+            Self::Integer(value) => write!(formatter, "{value}"),
+            // `{:?}` keeps the fractional part, so `1.0` stays "1.0".
+            Self::Float(value) => write!(formatter, "{value:?}"),
+            Self::Boolean(value) => write!(formatter, "{value}"),
+        }
+    }
+}
+
+impl AgentEnvValue {
+    /// The string the child receives.
+    pub fn value(&self) -> String {
+        match self {
+            Self::Plain(value) => value.to_string(),
+            Self::Detailed(details) => details.value.to_string(),
+        }
+    }
+
+    pub fn acknowledged(&self) -> bool {
+        matches!(self, Self::Detailed(details) if details.not_secret)
+    }
 }
 
 /// Authenticated hooks the run broker serves on the agent's behalf.

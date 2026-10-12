@@ -26,6 +26,12 @@ egress_hosts = []
 # deny_read = ["~/.ssh", "~/.aws", ".env"]
 # deny_write = ["~/.ssh", "~/.aws", ".git"]
 
+# Optional: non-sensitive config for the agent, stored in plaintext.
+# Credentials belong in [secrets]; values that look like one are flagged.
+# [config_env]
+# NODE_ENV = "development"
+# PORT = 3000
+
 # Replace SECRET_NAME with the Stashbase secret to grant.
 [secrets.SECRET_NAME]
 
@@ -131,6 +137,18 @@ mod tests {
         );
         assert!(PROFILE_TEMPLATE.contains("[secrets.SECRET_NAME]"));
         assert!(PROFILE_TEMPLATE.contains("[[secrets.SECRET_NAME.rules]]"));
+    }
+
+    #[test]
+    fn template_config_env_example_is_valid_when_uncommented() {
+        assert!(PROFILE_TEMPLATE.contains("# [config_env]"));
+        let uncommented = PROFILE_TEMPLATE
+            .replace("# [config_env]", "[config_env]")
+            .replace("# NODE_ENV = ", "NODE_ENV = ")
+            .replace("# PORT = ", "PORT = ");
+        let profile: crate::models::agent::AgentProfile = toml::from_str(&uncommented).unwrap();
+        assert_eq!(profile.config_env["NODE_ENV"].value(), "development");
+        assert_eq!(profile.config_env["PORT"].value(), "3000");
     }
 
     #[test]

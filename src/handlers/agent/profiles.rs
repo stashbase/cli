@@ -121,10 +121,11 @@ fn handle_show(
             silent,
         ));
     };
-    let profile = command
+    let mut profile = command
         .effective
         .then(|| effective_profile(profile))
         .unwrap_or_else(|| profile.clone());
+    crate::handlers::agent::env_check::mask_flagged_config_env(&mut profile);
     let report = ProfileDetails {
         name: command.profile,
         source: source.clone(),
@@ -371,6 +372,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let effective = effective_profile(&profile);
@@ -411,6 +413,7 @@ mod tests {
             personal_credentials: HashMap::new(),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         let secret = &effective_profile(&profile).secrets.bindings["API_KEY"];
@@ -442,6 +445,7 @@ mod tests {
             personal_credentials: HashMap::from([("LINEAR_API_KEY".to_owned(), binding)]),
             policy_tests: Vec::new(),
             allow_hooks: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert_eq!(binding_count(&profile), 2);

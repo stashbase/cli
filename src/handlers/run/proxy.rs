@@ -11,7 +11,7 @@
 //! proxy or isolation boundary.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     fs::{self, OpenOptions},
     future::Future,
@@ -182,6 +182,10 @@ pub struct ProxyAuditLogEvent {
     /// SHA-256 of the selected profile file at startup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_file_sha256: Option<String>,
+    /// Present only on `session_started` when `[config_env]` sets variables:
+    /// their names, never their values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_env_names: Option<Vec<String>>,
     pub action: String,
     /// Present only on `session_started` for remote sessions: `credential` or `full`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -259,6 +263,8 @@ pub struct ProxyAuditLog {
     profile: String,
     policy_fingerprint: String,
     profile_provenance: Option<ProfileAuditProvenance>,
+    /// `[config_env]` variable names (never values), recorded on `session_started`.
+    config_env_names: Arc<Vec<String>>,
     binding_sources: Arc<HashMap<String, String>>,
     routing: Option<Arc<RwLock<RemoteRouting>>>,
     path: Arc<PathBuf>,
@@ -326,6 +332,7 @@ impl ProxyAuditLog {
             profile: profile.to_owned(),
             policy_fingerprint,
             profile_provenance: None,
+            config_env_names: Arc::new(Vec::new()),
             binding_sources: Arc::new(HashMap::new()),
             routing: None,
             path: Arc::new(path),
@@ -366,6 +373,14 @@ impl ProxyAuditLog {
 
     pub fn with_profile_provenance(mut self, profile_provenance: ProfileAuditProvenance) -> Self {
         self.profile_provenance = Some(profile_provenance);
+        self
+    }
+
+    /// Records the session's `[config_env]` variable names on
+    /// `session_started`, so runs that differ only in env can be told apart.
+    /// Names only: values may be configuration the user considers private.
+    pub fn with_config_env_names(mut self, names: Vec<String>) -> Self {
+        self.config_env_names = Arc::new(names);
         self
     }
 
@@ -456,6 +471,8 @@ impl ProxyAuditLog {
                         .map(|provenance| provenance.sha256.clone())
                 })
                 .flatten(),
+            config_env_names: (action == "session_started" && !self.config_env_names.is_empty())
+                .then(|| self.config_env_names.to_vec()),
             action: action.to_owned(),
             routing_mode: (action == "session_started")
                 .then(|| {
@@ -809,6 +826,10 @@ pub struct ProxyPolicy {
     /// Docker backend only: repo-relative directories backed by a per-repo
     /// volume instead of the host's copy (see `append_isolated_path_mounts`).
     pub sandbox_isolated_paths: Vec<String>,
+    /// The profile's plaintext `[config_env]`, added to the child's
+    /// environment underneath everything the sandbox sets. Configuration the
+    /// agent sees, not what it may do — so not part of the fingerprint.
+    pub config_env: BTreeMap<String, String>,
 }
 
 /// How a placeholder is represented in a child request and rewritten by the proxy.
@@ -953,6 +974,7 @@ impl ProxyPolicy {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -4089,6 +4111,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -4479,6 +4502,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
             .await
@@ -4614,6 +4638,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -5078,6 +5103,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            config_env_names: Arc::new(Vec::new()),
             routing: None,
             binding_sources: Arc::new(HashMap::from([(
                 "EXAMPLE_API_KEY".to_owned(),
@@ -5130,6 +5156,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            config_env_names: Arc::new(Vec::new()),
             routing: None,
             binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
@@ -5189,6 +5216,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            config_env_names: Arc::new(Vec::new()),
             binding_sources: Arc::new(HashMap::new()),
             routing: Some(credential_routing(&["api.github.com"])),
             path: Arc::new(path.clone()),
@@ -5240,6 +5268,7 @@ mod tests {
                 modified_at: "2026-08-12T00:00:00+00:00".to_owned(),
                 sha256: "profile-file-sha256".to_owned(),
             }),
+            config_env_names: Arc::new(vec!["NODE_ENV".to_owned(), "PORT".to_owned()]),
             binding_sources: Arc::new(HashMap::new()),
             routing: None,
             path: Arc::new(path.clone()),
@@ -5278,9 +5307,14 @@ mod tests {
             events[0].profile_file_sha256.as_deref(),
             Some("profile-file-sha256")
         );
+        assert_eq!(
+            events[0].config_env_names,
+            Some(vec!["NODE_ENV".to_owned(), "PORT".to_owned()])
+        );
         assert!(events[1].profile_source.is_none());
         assert!(events[1].profile_file_modified_at.is_none());
         assert!(events[1].profile_file_sha256.is_none());
+        assert!(events[1].config_env_names.is_none());
         fs::remove_file(path).unwrap();
     }
 
@@ -5317,6 +5351,7 @@ mod tests {
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
+            config_env_names: None,
             routing_mode: None,
             route: None,
             action: "injected".to_owned(),
@@ -5377,6 +5412,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(policy_allows_connect(&policy, "api.github.com"));
@@ -5426,6 +5462,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         }
     }
 
@@ -5621,6 +5658,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         assert!(secret_allows_request(
             &policy,
@@ -6160,6 +6198,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -6208,6 +6247,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
 
         assert!(policy_allows_egress(&policy, "example.com"));
@@ -6242,6 +6282,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let state = ProxyState {
             secrets: Arc::new(HashMap::new()),
@@ -6323,6 +6364,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GITHUB_PAT_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -6381,6 +6423,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
         };
         let proxy = Proxy::start(
             HashMap::from([("GH_TOKEN".to_owned(), "real-token".to_owned())]),
@@ -6683,6 +6726,7 @@ mod tests {
             profile: "coding".to_owned(),
             policy_fingerprint: "policy-fingerprint".to_owned(),
             profile_provenance: None,
+            config_env_names: Arc::new(Vec::new()),
             routing: None,
             binding_sources: Arc::new(HashMap::new()),
             path: Arc::new(path.clone()),
@@ -6752,6 +6796,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                config_env: Default::default(),
             },
             None,
         )
@@ -6797,6 +6842,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                config_env: Default::default(),
             },
             None,
         )
@@ -6843,6 +6889,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                config_env: Default::default(),
             },
             None,
         )
