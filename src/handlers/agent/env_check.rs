@@ -212,6 +212,8 @@ pub fn confirm_config_env(profile: &AgentProfile, silent: bool) -> anyhow::Resul
     if !proceed {
         anyhow::bail!("agent run cancelled: [config_env] values were not confirmed");
     }
+    // Separate the answered prompt from the session output that follows.
+    eprintln!();
     Ok(())
 }
 
