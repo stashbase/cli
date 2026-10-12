@@ -738,7 +738,26 @@ fn validate_config_env(profile: &AgentProfile) -> Vec<Check> {
         return Vec::new();
     }
     let mut checks = Vec::new();
-    for name in profile.config_env.keys() {
+    let mut total_bytes = 0;
+    for (name, value) in &profile.config_env {
+        let value = value.value();
+        let entry_bytes = env_check::config_env_entry_bytes(name, &value);
+        total_bytes += entry_bytes;
+        if value.contains('\0') {
+            checks.push(fail(
+                "Config env",
+                format!("[config_env] {name} contains a NUL byte, which an environment variable can't hold."),
+            ));
+        }
+        if entry_bytes > env_check::MAX_CONFIG_ENV_ENTRY_BYTES {
+            checks.push(fail(
+                "Config env",
+                format!(
+                    "[config_env] {name} is {entry_bytes} bytes; the limit is {} bytes per variable. Keep large content in a file in the workspace.",
+                    env_check::MAX_CONFIG_ENV_ENTRY_BYTES
+                ),
+            ));
+        }
         if !valid_environment_name(name) {
             checks.push(fail(
                 "Config env",
@@ -757,6 +776,15 @@ fn validate_config_env(profile: &AgentProfile) -> Vec<Check> {
                 format!("[config_env] {name} is already provided by {binding}; remove it from [config_env]."),
             ));
         }
+    }
+    if total_bytes > env_check::MAX_CONFIG_ENV_TOTAL_BYTES {
+        checks.push(fail(
+            "Config env",
+            format!(
+                "[config_env] totals {total_bytes} bytes; the limit is {} bytes.",
+                env_check::MAX_CONFIG_ENV_TOTAL_BYTES
+            ),
+        ));
     }
     for (name, reason) in env_check::flagged_config_env(profile) {
         checks.push(warn(
@@ -1823,5 +1851,62 @@ mod tests {
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].0, Status::Ok);
         assert!(config_env_statuses(&config_env_profile("")).is_empty());
+    }
+
+    fn config_env_failures(profile: &AgentProfile) -> Vec<String> {
+        config_env_statuses(profile)
+            .into_iter()
+            .filter(|(status, _)| *status == Status::Fail)
+            .map(|(_, message)| message)
+            .collect()
+    }
+
+    #[test]
+    fn config_env_rejects_nul_bytes() {
+        let profile = config_env_profile("[config_env]\nGREETING = \"hi\\u0000there\"\n");
+        let failures = config_env_failures(&profile);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("GREETING contains a NUL byte"));
+        assert!(!failures[0].contains("there"));
+    }
+
+    #[test]
+    fn config_env_limits_each_value_size() {
+        let at_limit = "a".repeat(env_check::MAX_CONFIG_ENV_ENTRY_BYTES - "BLOB=".len());
+        let mut profile = config_env_profile("");
+        profile.config_env.insert(
+            "BLOB".to_owned(),
+            crate::models::agent::AgentEnvValue::Plain(
+                crate::models::agent::AgentEnvScalar::String(at_limit.clone()),
+            ),
+        );
+        assert!(config_env_failures(&profile).is_empty());
+
+        profile.config_env.insert(
+            "BLOB".to_owned(),
+            crate::models::agent::AgentEnvValue::Plain(
+                crate::models::agent::AgentEnvScalar::String(at_limit + "a"),
+            ),
+        );
+        let failures = config_env_failures(&profile);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("BLOB is 65537 bytes; the limit is 65536 bytes per variable"));
+    }
+
+    #[test]
+    fn config_env_limits_total_size() {
+        let value = "a".repeat(60 * 1024);
+        let mut profile = config_env_profile("");
+        for index in 0..5 {
+            profile.config_env.insert(
+                format!("PART_{index}"),
+                crate::models::agent::AgentEnvValue::Plain(
+                    crate::models::agent::AgentEnvScalar::String(value.clone()),
+                ),
+            );
+        }
+        let failures = config_env_failures(&profile);
+        assert_eq!(failures.len(), 1, "{failures:?}");
+        assert!(failures[0].contains("the limit is 262144 bytes"));
     }
 }

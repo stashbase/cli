@@ -32,6 +32,20 @@ const RESERVED_CHILD_ENV: &[&str] = &[
     "CODEX_CA_CERTIFICATE",
 ];
 
+/// Largest `NAME=value` entry `[config_env]` accepts. Linux rejects any
+/// single environment string over 128 KiB at spawn (`E2BIG`); config is far
+/// smaller, and anything this big is a file that belongs in the workspace.
+pub(crate) const MAX_CONFIG_ENV_ENTRY_BYTES: usize = 64 * 1024;
+/// Largest `[config_env]` in total. Arguments and the whole environment share
+/// one spawn limit (about 1 MB on macOS, 2 MB on Linux), and the Docker
+/// backend also passes every value on the `docker` command line.
+pub(crate) const MAX_CONFIG_ENV_TOTAL_BYTES: usize = 256 * 1024;
+
+/// Size of the `NAME=value` string the child's environment holds.
+pub(crate) fn config_env_entry_bytes(name: &str, value: &str) -> usize {
+    name.len() + 1 + value.len()
+}
+
 /// Whether the sandbox owns `name`, so `[config_env]` must not set it.
 pub(crate) fn reserved_env_name(name: &str) -> bool {
     name.to_ascii_uppercase().starts_with("STASHBASE_")
