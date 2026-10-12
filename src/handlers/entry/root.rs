@@ -1100,7 +1100,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                                     local_session_id.clone(),
                                     policy_fingerprint.clone(),
                                 )
-                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone()))
+                                .map(|audit_log| audit_log.with_profile_provenance(profile_provenance.clone())
+.with_config_env_names(profile.config_env.keys().cloned().collect()))
                             })
                         })
                         .flatten()
@@ -1221,6 +1222,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                                 .map(|audit_log| {
                                     audit_log
                                         .with_profile_provenance(profile_provenance.clone())
+.with_config_env_names(profile.config_env.keys().cloned().collect())
                                         .with_binding_sources(binding_sources)
                                         .with_routing(routing.clone())
                                 })
@@ -2842,6 +2844,7 @@ mod tests {
             profile_source: None,
             profile_file_modified_at: None,
             profile_file_sha256: None,
+            config_env_names: None,
             routing_mode: None,
             route: None,
             action: action.to_owned(),
@@ -2894,6 +2897,7 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                config_env_names: None,
                 routing_mode: None,
                 route: Some("remote".to_owned()),
                 action: "injected".to_owned(),
@@ -2918,6 +2922,7 @@ mod tests {
                 profile_source: None,
                 profile_file_modified_at: None,
                 profile_file_sha256: None,
+                config_env_names: None,
                 routing_mode: None,
                 route: Some("direct".to_owned()),
                 action: "forwarded".to_owned(),

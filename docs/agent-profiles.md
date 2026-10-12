@@ -128,6 +128,8 @@ stashbase agent run --profile coding --config-env NODE_ENV=test --config-env POR
 
 Flag values go through the same name and size checks as the profile's. The credential check is skipped for them, because they're typed by the person running the agent rather than committed to a shared profile.
 
+The audit log's `session_started` event lists the names of the variables set for the run (`config_env_names`), never their values.
+
 A complete example profile is in [examples/config-env.toml](agent-profiles/examples/config-env.toml). It includes commented-out lines that show the warning and the validation errors.
 
 ## Network Access and HTTP Rules
