@@ -380,8 +380,8 @@ pub struct AgentRunCommand {
 
     /// Set a `[config_env]` variable for this run only, overriding the
     /// profile's value. Repeatable: `--config-env NODE_ENV=test --config-env
-    /// PORT=4000`. Checked like the profile's own values, except that the
-    /// credential check is skipped because you typed it yourself.
+    /// PORT=4000`. Checked like the profile's own values, including the
+    /// credential check.
     #[arg(long, value_name = "NAME=VALUE", value_parser = parse_config_env_arg)]
     pub config_env: Vec<(String, String)>,
 

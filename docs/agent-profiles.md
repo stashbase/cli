@@ -126,7 +126,7 @@ To set or override a variable for one run without editing the profile, pass `--c
 stashbase agent run --profile coding --config-env NODE_ENV=test --config-env PORT=4000 -- claude
 ```
 
-Flag values go through the same name and size checks as the profile's. The credential check is skipped for them, because they're typed by the person running the agent rather than committed to a shared profile.
+Flag values go through the same checks as the profile's, including the credential check: a value that looks like a credential asks for confirmation, or fails the run when it can't ask.
 
 The audit log's `session_started` event lists the names of the variables set for the run (`config_env_names`), never their values.
 

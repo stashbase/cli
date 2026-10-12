@@ -848,18 +848,13 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             profile.sandbox.isolated_paths.push(path.clone());
                         }
                     }
-                    // Typed by the person running the agent, not committed to a
-                    // shared profile, so the credential check doesn't apply.
+                    // Flag values get the same checks as the profile's, credential
+                    // check included: they still reach the agent in plaintext.
                     for (name, value) in &agent_run.config_env {
                         profile.config_env.insert(
                             name.clone(),
-                            crate::models::agent::AgentEnvValue::Detailed(
-                                crate::models::agent::AgentEnvValueDetails {
-                                    value: crate::models::agent::AgentEnvScalar::String(
-                                        value.clone(),
-                                    ),
-                                    not_secret: true,
-                                },
+                            crate::models::agent::AgentEnvValue::Plain(
+                                crate::models::agent::AgentEnvScalar::String(value.clone()),
                             ),
                         );
                     }
