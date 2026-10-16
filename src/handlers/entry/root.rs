@@ -848,7 +848,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             profile.sandbox.isolated_paths.push(path.clone());
                         }
                     }
-                    // Flag values get the same checks as the profile's, credential
+                    // Flag values get the same checks as the profile's, sensitive-value
                     // check included: they still reach the agent in plaintext.
                     for (name, value) in &agent_run.config_env {
                         profile.config_env.insert(
