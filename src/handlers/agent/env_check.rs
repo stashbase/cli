@@ -1,5 +1,5 @@
 //! Checks for `[config_env]`, the profile's plaintext environment for the
-//! agent: which names it may not set, and which values look like credentials
+//! agent: which names it may not set, and which values look sensitive
 //! that belong in `[secrets]` instead.
 
 use std::io::IsTerminal;
@@ -124,16 +124,16 @@ const CREDENTIAL_PREFIXES: &[&str] = &[
     "-----BEGIN",
 ];
 
-/// Why `value` (set as `name`) looks like a credential, or `None` when it
+/// Why `value` (set as `name`) looks sensitive, or `None` when it
 /// looks like ordinary config. A heuristic: it errs toward flagging, and a
-/// profile acknowledges a false positive with `not_secret = true`.
+/// profile acknowledges a false positive with `not_sensitive = true`.
 pub(crate) fn secret_likeness(name: &str, value: &str) -> Option<&'static str> {
     let upper_name = name.to_ascii_uppercase();
     if CREDENTIAL_NAME_PARTS
         .iter()
         .any(|part| upper_name.contains(part))
     {
-        return Some("its name looks like a credential");
+        return Some("its name looks sensitive");
     }
     let value = value.trim();
     if CREDENTIAL_PREFIXES
@@ -198,8 +198,8 @@ fn shannon_entropy(value: &str) -> f64 {
         .sum()
 }
 
-/// `[config_env]` entries that look like credentials and have not been
-/// acknowledged with `not_secret = true`, as `(name, reason)` in name order.
+/// `[config_env]` entries that look sensitive and have not been
+/// acknowledged with `not_sensitive = true`, as `(name, reason)` in name order.
 pub(crate) fn flagged_config_env(profile: &AgentProfile) -> Vec<(String, &'static str)> {
     profile
         .config_env
@@ -211,8 +211,8 @@ pub(crate) fn flagged_config_env(profile: &AgentProfile) -> Vec<(String, &'stati
         .collect()
 }
 
-/// Shown in place of a `[config_env]` value that looks like a credential.
-pub(crate) const MASKED_CONFIG_ENV_VALUE: &str = "<hidden: looks like a credential>";
+/// Shown in place of a `[config_env]` value that looks sensitive.
+pub(crate) const MASKED_CONFIG_ENV_VALUE: &str = "<hidden: looks sensitive>";
 
 /// Replaces each flagged, unacknowledged `[config_env]` value with
 /// [`MASKED_CONFIG_ENV_VALUE`], so printing a profile doesn't show what the
@@ -226,11 +226,11 @@ pub(crate) fn mask_flagged_config_env(profile: &mut AgentProfile) {
     }
 }
 
-pub(crate) const NOT_SECRET_HINT: &str =
-    "Move credentials to [secrets], or confirm a value is safe with `NAME = { value = \"...\", not_secret = true }`.";
+pub(crate) const NOT_SENSITIVE_HINT: &str =
+    "Move sensitive values to [secrets], or confirm a value is safe with `NAME = { value = \"...\", not_sensitive = true }`.";
 
 /// Before a session starts, asks the user to confirm `[config_env]` values
-/// that look like credentials. They would be handed to the agent in
+/// that look sensitive. They would be handed to the agent in
 /// plaintext, so a run that can't ask (CI, piped stdin, `--silent`) fails
 /// instead. Values are never printed.
 pub fn confirm_config_env(profile: &AgentProfile, silent: bool) -> anyhow::Result<()> {
@@ -245,11 +245,9 @@ pub fn confirm_config_env(profile: &AgentProfile, silent: bool) -> anyhow::Resul
         .join("\n");
     let interactive = !silent && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
     if !interactive {
-        anyhow::bail!(
-            "[config_env] has values that look like credentials:\n{list}\n{NOT_SECRET_HINT}"
-        );
+        anyhow::bail!("[config_env] has values that look sensitive:\n{list}\n{NOT_SENSITIVE_HINT}");
     }
-    eprintln!("[config_env] has values that look like credentials:\n{list}\n{NOT_SECRET_HINT}");
+    eprintln!("[config_env] has values that look sensitive:\n{list}\n{NOT_SENSITIVE_HINT}");
     let proceed = crate::utils::interaction::confirm_opt(
         "Pass these values to the agent in plaintext anyway?",
     )
@@ -429,7 +427,7 @@ mod tests {
                 value: AgentEnvScalar::String(
                     "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b".to_owned(),
                 ),
-                not_secret: true,
+                not_sensitive: true,
             }),
         );
         profile.config_env.insert(
@@ -438,17 +436,14 @@ mod tests {
         );
         assert_eq!(
             flagged_config_env(&profile),
-            vec![(
-                "DEPLOY_TOKEN".to_owned(),
-                "its name looks like a credential"
-            )]
+            vec![("DEPLOY_TOKEN".to_owned(), "its name looks sensitive")]
         );
     }
 
     #[test]
     fn parses_both_value_forms_and_rejects_unknown_fields() {
         let profile: AgentProfile = toml::from_str(
-            "[config_env]\nNODE_ENV = \"development\"\nBUILD = { value = \"abc\", not_secret = true }\n",
+            "[config_env]\nNODE_ENV = \"development\"\nBUILD = { value = \"abc\", not_sensitive = true }\n",
         )
         .unwrap();
         assert_eq!(profile.config_env["NODE_ENV"].value(), "development");
@@ -465,7 +460,7 @@ mod tests {
     #[test]
     fn accepts_toml_scalars_as_strings() {
         let profile: AgentProfile = toml::from_str(
-            "[config_env]\nPORT = 3000\nDEBUG = true\nRATIO = 1.0\nSCALE = 0.25\nLEGACY = { value = 8080, not_secret = true }\n",
+            "[config_env]\nPORT = 3000\nDEBUG = true\nRATIO = 1.0\nSCALE = 0.25\nLEGACY = { value = 8080, not_sensitive = true }\n",
         )
         .unwrap();
         assert_eq!(profile.config_env["PORT"].value(), "3000");
@@ -481,7 +476,7 @@ mod tests {
     #[test]
     fn masks_only_flagged_unacknowledged_values() {
         let mut profile: AgentProfile = toml::from_str(
-            "[config_env]\nNODE_ENV = \"development\"\nGH_PAT = \"ghp_abc\"\nBUILD = { value = \"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b\", not_secret = true }\n",
+            "[config_env]\nNODE_ENV = \"development\"\nGH_PAT = \"ghp_abc\"\nBUILD = { value = \"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b\", not_sensitive = true }\n",
         )
         .unwrap();
 

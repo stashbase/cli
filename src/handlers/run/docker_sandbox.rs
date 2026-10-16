@@ -1494,13 +1494,22 @@ pub(crate) fn blocked_shadow_file_path() -> Result<String, String> {
 /// 000. Split out from `blocked_shadow_file_path` so tests can exercise it
 /// on their own file instead of the shared one other tests rely on.
 fn ensure_blocked_file(path: &Path) -> Result<(), String> {
-    if !path.exists() {
-        std::fs::write(path, []).map_err(|error| {
-            format!(
+    // `create_new` rather than check-then-write: another caller (a parallel
+    // test, a second run) may create the file and set its mode to 000 in
+    // between, and writing to it then fails with "Permission denied".
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(format!(
                 "failed to create the blocked shadow file at {}: {error}",
                 path.display()
-            )
-        })?;
+            ))
+        }
     }
     #[cfg(unix)]
     {

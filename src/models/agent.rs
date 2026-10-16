@@ -61,7 +61,7 @@ pub struct AgentEnvValueDetails {
     pub value: AgentEnvScalar,
     /// Confirms the value is not a credential, silencing the check.
     #[serde(default)]
-    pub not_secret: bool,
+    pub not_sensitive: bool,
 }
 
 /// TOML scalars accepted as an environment value, so `PORT = 3000` and
@@ -97,7 +97,7 @@ impl AgentEnvValue {
     }
 
     pub fn acknowledged(&self) -> bool {
-        matches!(self, Self::Detailed(details) if details.not_secret)
+        matches!(self, Self::Detailed(details) if details.not_sensitive)
     }
 }
 

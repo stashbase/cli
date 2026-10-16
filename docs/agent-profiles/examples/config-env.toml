@@ -14,8 +14,8 @@ NODE_ENV = "development"
 RUST_LOG = "info,stashbase=debug"
 # No password in the URL, so it isn't flagged.
 DATABASE_URL = "postgres://app@localhost:5432/app"
-# Long hex looks like a key; not_secret = true skips the check.
-BUILD_HASH = { value = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b", not_secret = true }
+# Long hex looks like a key; not_sensitive = true skips the check.
+BUILD_HASH = { value = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b", not_sensitive = true }
 
 # Uncomment to see the check: validate warns, and run asks for confirmation
 # (or fails when non-interactive / --silent).

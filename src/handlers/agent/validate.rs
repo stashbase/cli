@@ -731,7 +731,7 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
 }
 
 /// `[config_env]` names must be valid, unowned by the sandbox and unused by a
-/// binding. Values that look like credentials only warn here: `agent run`
+/// binding. Values that look sensitive only warn here: `agent run`
 /// asks before passing them (see `env_check::confirm_config_env`).
 fn validate_config_env(profile: &AgentProfile) -> Vec<Check> {
     if profile.config_env.is_empty() {
@@ -786,7 +786,7 @@ fn validate_config_env(profile: &AgentProfile) -> Vec<Check> {
             "Config env",
             format!(
                 "[config_env] {name}: {reason}. {}",
-                env_check::NOT_SECRET_HINT
+                env_check::NOT_SENSITIVE_HINT
             ),
         ));
     }
@@ -1828,9 +1828,9 @@ mod tests {
     }
 
     #[test]
-    fn config_env_warns_on_secret_looking_values_without_printing_them() {
+    fn config_env_warns_on_sensitive_looking_values_without_printing_them() {
         let profile = config_env_profile(
-            "[config_env]\nNODE_ENV = \"development\"\nUPLOAD_URL = \"https://u:hunter2@example.com\"\nBUILD = { value = \"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b\", not_secret = true }\n",
+            "[config_env]\nNODE_ENV = \"development\"\nUPLOAD_URL = \"https://u:hunter2@example.com\"\nBUILD = { value = \"9f86d081884c7d659a2feaa0c55ad015a3bf4f1b\", not_sensitive = true }\n",
         );
         let checks = config_env_statuses(&profile);
         assert_eq!(checks.len(), 1, "{checks:?}");

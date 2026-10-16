@@ -229,7 +229,7 @@ NODE_ENV = "development"
 RUST_LOG = "info"
 ```
 
-Set or override one for a single run with `--config-env NAME=VALUE`. Values that look like credentials are flagged: `agent run` asks before starting and fails when it can't ask. Credentials belong in `[secrets]`. See [Config Environment Variables](docs/agent-profiles.md#config-environment-variables) for the rules and an [example profile](docs/agent-profiles/examples/config-env.toml).
+Set or override one for a single run with `--config-env NAME=VALUE`. Values that look sensitive are flagged: `agent run` asks before starting and fails when it can't ask. Credentials belong in `[secrets]`. See [Config Environment Variables](docs/agent-profiles.md#config-environment-variables) for the rules and an [example profile](docs/agent-profiles/examples/config-env.toml).
 
 ### Filesystem and Network Containment
 
