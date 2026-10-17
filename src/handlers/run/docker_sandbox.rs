@@ -2903,7 +2903,13 @@ mod tests {
         std::fs::create_dir_all(&repo).unwrap();
         git(&repo, &["init", "-q"]);
         // `gitdir:` matches the resolved path, so canonicalize to survive
-        // a symlinked temp dir (macOS /var -> /private/var).
+        // a symlinked temp dir (macOS /var -> /private/var) or a Windows
+        // 8.3 short name. Gitconfig values read backslashes as escapes, so
+        // hand git forward slashes and no `\\?\` verbatim prefix.
+        let gitconfig_path = |path: &Path| {
+            let path = path.to_string_lossy().replace('\\', "/");
+            path.strip_prefix("//?/").map(str::to_owned).unwrap_or(path)
+        };
         let work = std::fs::canonicalize(base.join("work")).unwrap();
         let include = base.join("work.gitconfig");
         std::fs::write(&include, "[user]\n\temail = work@example.invalid\n").unwrap();
@@ -2912,9 +2918,9 @@ mod tests {
             "user.email",
             &format!(
                 "[user]\n\temail = personal@example.invalid\n\
-                 [includeIf \"gitdir:{}/\"]\n\tpath = {}\n",
-                work.display(),
-                include.display()
+                 [includeIf \"gitdir/i:{}/\"]\n\tpath = {}\n",
+                gitconfig_path(&work),
+                gitconfig_path(&include)
             ),
         );
         std::fs::remove_dir_all(&base).unwrap();
