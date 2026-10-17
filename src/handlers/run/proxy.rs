@@ -6226,6 +6226,71 @@ mod tests {
         proxy.stop().await;
     }
 
+    #[tokio::test]
+    async fn secret_rule_host_outside_configured_egress_is_reachable_only_with_its_secret() {
+        let (address, authorization) = start_backend().await;
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                SecretHttpPolicy::Rules(vec![AgentHttpRule {
+                    effect: AgentHttpRuleEffect::Allow,
+                    hosts: vec!["127.0.0.1".to_owned()],
+                    methods: vec!["GET".to_owned()],
+                    paths: vec!["/mcp".to_owned()],
+                }]),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["chatgpt.com".to_owned()]),
+            denied_hosts: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
+            allow_network_listeners: false,
+            egress_hosts_configured: true,
+            strict_deny: true,
+            mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+        let client = proxy_client(&proxy);
+
+        let without_secret = client
+            .get(format!("http://{address}/mcp"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(without_secret.status(), StatusCode::FORBIDDEN);
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&without_secret.bytes().await.unwrap()).unwrap();
+        assert_eq!(error.error.code, "proxy.host_not_allowed");
+
+        let with_secret = client
+            .get(format!("http://{address}/mcp"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GITHUB_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(with_secret.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            authorization.await.unwrap().as_deref(),
+            Some("Bearer real-token")
+        );
+        proxy.stop().await;
+    }
+
     #[test]
     fn egress_wildcard_allows_any_destination_without_widening_secret_hosts() {
         let policy = ProxyPolicy {
