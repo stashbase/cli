@@ -2007,10 +2007,12 @@ fn proxy_request(
                 Some(&request_id),
             ));
         }
+        // Secret-rule hosts pass here even when absent from `egress_hosts`; the
+        // check after placeholder resolution still requires that secret.
         if state.policy.egress_hosts_configured
             && !host
                 .as_deref()
-                .is_some_and(|host| policy_allows_egress(&state.policy, host))
+                .is_some_and(|host| policy_allows_connect(&state.policy, host))
         {
             state.record_audit_with_request(
                 &request_id,
@@ -3483,8 +3485,8 @@ impl ProxyState {
             return !self.policy.strict_deny;
         };
         !policy_denies_host(&self.policy, host)
-            && (!self.policy.egress_hosts_configured || policy_allows_egress(&self.policy, host))
-            && (!self.policy.strict_deny || policy_allows_connect(&self.policy, host))
+            && (!(self.policy.strict_deny || self.policy.egress_hosts_configured)
+                || policy_allows_connect(&self.policy, host))
     }
 
     fn host_allowed_for_ordinary_request(&self, host: Option<&str>) -> bool {
@@ -3492,7 +3494,8 @@ impl ProxyState {
             return !self.policy.strict_deny;
         };
         !policy_denies_host(&self.policy, host)
-            && (!self.policy.strict_deny || policy_allows_egress(&self.policy, host))
+            && (!(self.policy.strict_deny || self.policy.egress_hosts_configured)
+                || policy_allows_egress(&self.policy, host))
     }
 
     fn record_audit(
@@ -6223,6 +6226,71 @@ mod tests {
         proxy.stop().await;
     }
 
+    #[tokio::test]
+    async fn secret_rule_host_outside_configured_egress_is_reachable_only_with_its_secret() {
+        let (address, authorization) = start_backend().await;
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "GITHUB_TOKEN".to_owned(),
+                SecretHttpPolicy::Rules(vec![AgentHttpRule {
+                    effect: AgentHttpRuleEffect::Allow,
+                    hosts: vec!["127.0.0.1".to_owned()],
+                    methods: vec!["GET".to_owned()],
+                    paths: vec!["/mcp".to_owned()],
+                }]),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["chatgpt.com".to_owned()]),
+            denied_hosts: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
+            allow_network_listeners: false,
+            egress_hosts_configured: true,
+            strict_deny: true,
+            mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("GITHUB_TOKEN".to_owned(), "real-token".to_owned())]),
+            policy,
+            None,
+        )
+        .await
+        .unwrap();
+        let client = proxy_client(&proxy);
+
+        let without_secret = client
+            .get(format!("http://{address}/mcp"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(without_secret.status(), StatusCode::FORBIDDEN);
+        let error: crate::models::api_client::ApiErrorResponse =
+            serde_json::from_slice(&without_secret.bytes().await.unwrap()).unwrap();
+        assert_eq!(error.error.code, "proxy.host_not_allowed");
+
+        let with_secret = client
+            .get(format!("http://{address}/mcp"))
+            .header(AUTHORIZATION, "Bearer **STASHBASE_GITHUB_TOKEN**")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(with_secret.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            authorization.await.unwrap().as_deref(),
+            Some("Bearer real-token")
+        );
+        proxy.stop().await;
+    }
+
     #[test]
     fn egress_wildcard_allows_any_destination_without_widening_secret_hosts() {
         let policy = ProxyPolicy {
@@ -6306,6 +6374,60 @@ mod tests {
 
         assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
         assert!(!state.host_allowed_for_connect(Some("api.stashbase.dev")));
+    }
+
+    #[test]
+    fn secret_hosts_do_not_need_configured_egress() {
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "**STASHBASE_CONTEXT7_API_KEY**".to_owned(),
+                SecretHttpPolicy::LegacyHosts(HashSet::from(["mcp.context7.com".to_owned()])),
+            )]),
+            secret_injections: HashMap::new(),
+            allowed_egress_hosts: HashSet::from(["chatgpt.com".to_owned()]),
+            denied_hosts: HashSet::new(),
+            denied_read_paths: Vec::new(),
+            denied_write_paths: Vec::new(),
+            allow_network_listeners: false,
+            egress_hosts_configured: true,
+            strict_deny: true,
+            mcp_rules: Vec::new(),
+            backend: SandboxBackend::Native,
+            sandbox_image: None,
+            sandbox_dockerfile: None,
+            sandbox_memory: None,
+            sandbox_cpus: None,
+            worktree: false,
+            worktree_resume: None,
+            sandbox_isolated_paths: Vec::new(),
+            config_env: Default::default(),
+        };
+        let state = ProxyState {
+            secrets: Arc::new(HashMap::new()),
+            policy,
+            client: reqwest::Client::new(),
+            remote_ca: None,
+            certificate_authority: Arc::new(
+                CertifiedIssuer::self_signed(
+                    CertificateParams::default(),
+                    KeyPair::generate().unwrap(),
+                )
+                .unwrap(),
+            ),
+            audit_log: None,
+            connections: Arc::new(ActiveConnections::default()),
+            remote: None,
+            mcp_inspection_token: "inspection-token".to_owned(),
+            hook_broker: None,
+            revocation_path: Arc::new(RwLock::new(None)),
+        };
+
+        assert!(state.host_allowed_for_connect(Some("mcp.context7.com")));
+        assert!(state.host_allowed_for_connect(Some("chatgpt.com")));
+        assert!(!state.host_allowed_for_connect(Some("example.com")));
+        // Without the secret, a secret-only host is still not ordinary egress.
+        assert!(!state.host_allowed_for_ordinary_request(Some("mcp.context7.com")));
+        assert!(state.host_allowed_for_ordinary_request(Some("chatgpt.com")));
     }
 
     #[tokio::test]

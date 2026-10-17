@@ -94,46 +94,25 @@ pub fn handle_agent_explain_command(
         verbose: command.verbose.then(|| ExplainVerboseRequest {
             normalized_path: normalized_path.clone(),
         }),
-        connection: ConnectionDecision::NoEgressRestriction,
+        connection: ConnectionDecision::DeniedByEgressHosts,
+        egress_hosts_configured: profile.egress_hosts.is_some(),
         credentials: Vec::new(),
+        reachable_hosts: reachable_hosts(&profile),
         filesystem_backend: filesystem_backend_for_policy(
             &profile.filesystem.deny_read,
             &profile.filesystem.deny_write,
         ),
         filesystem_patterns: filesystem_patterns(&profile),
     };
-    if profile.deny_hosts.as_deref().is_some_and(|hosts| {
-        hosts
-            .iter()
-            .any(|denied| denied == "*" || configured_host_matches(denied, &report.request.host))
-    }) {
-        report.connection = ConnectionDecision::DeniedByDenyHosts;
-    } else if let Some(egress_hosts) = &profile.egress_hosts {
-        report.connection = if egress_hosts
-            .iter()
-            .any(|allowed| allowed == "*" || configured_host_matches(allowed, &report.request.host))
-        {
-            ConnectionDecision::AllowedByEgressHosts
-        } else {
-            ConnectionDecision::DeniedByEgressHosts
-        };
-    }
-
-    if matches!(
-        report.connection,
-        ConnectionDecision::AllowedByEgressHosts | ConnectionDecision::NoEgressRestriction
-    ) {
+    let denied_by_deny_hosts = host_listed(profile.deny_hosts.as_deref(), &report.request.host);
+    if !denied_by_deny_hosts {
         for (name, secret) in profile
             .secrets
             .bindings
             .iter()
             .chain(profile.personal_credentials.iter())
         {
-            let secret_policy = if secret.rules.is_empty() {
-                SecretHttpPolicy::LegacyHosts(secret.hosts.iter().cloned().collect::<HashSet<_>>())
-            } else {
-                SecretHttpPolicy::Rules(secret.rules.clone())
-            };
+            let secret_policy = binding_policy(secret);
             let decision = evaluate_secret_authorization(
                 &secret_policy,
                 &report.request.host,
@@ -171,6 +150,10 @@ pub fn handle_agent_explain_command(
             });
         }
     }
+    report
+        .credentials
+        .sort_by(|left, right| left.name.cmp(&right.name));
+    report.connection = connection_decision(&profile, &report.request.host, &report.credentials);
 
     if !silent {
         println!();
@@ -183,13 +166,87 @@ pub fn handle_agent_explain_command(
     Ok(())
 }
 
+/// Mirrors the proxy: deny_hosts wins, egress_hosts admits any request, and a
+/// credential's own hosts admit only requests carrying that credential.
+fn connection_decision(
+    profile: &crate::models::agent::AgentProfile,
+    host: &str,
+    credentials: &[ExplainCredential],
+) -> ConnectionDecision {
+    if host_listed(profile.deny_hosts.as_deref(), host) {
+        ConnectionDecision::DeniedByDenyHosts
+    } else if host_listed(profile.egress_hosts.as_deref(), host) {
+        ConnectionDecision::AllowedByEgressHosts
+    } else if credentials.iter().any(|credential| {
+        matches!(
+            credential.decision,
+            ExplainCredentialDecision::EligibleLegacyHost | ExplainCredentialDecision::EligibleRule
+        )
+    }) {
+        ConnectionDecision::AllowedWithCredential
+    } else {
+        ConnectionDecision::DeniedByEgressHosts
+    }
+}
+
+fn host_listed(hosts: Option<&[String]>, host: &str) -> bool {
+    hosts.is_some_and(|hosts| {
+        hosts
+            .iter()
+            .any(|listed| listed == "*" || configured_host_matches(listed, host))
+    })
+}
+
+fn binding_policy(secret: &crate::models::agent::AgentBindingProfile) -> SecretHttpPolicy {
+    if secret.rules.is_empty() {
+        SecretHttpPolicy::LegacyHosts(secret.hosts.iter().cloned().collect::<HashSet<_>>())
+    } else {
+        SecretHttpPolicy::Rules(secret.rules.clone())
+    }
+}
+
+/// Every destination the profile can reach, independent of the evaluated
+/// request: `egress_hosts` alone does not list credential destinations.
+fn reachable_hosts(profile: &crate::models::agent::AgentProfile) -> ExplainReachableHosts {
+    let mut credentials = profile
+        .secrets
+        .bindings
+        .iter()
+        .chain(profile.personal_credentials.iter())
+        .map(|(name, secret)| {
+            let mut hosts = match binding_policy(secret) {
+                SecretHttpPolicy::LegacyHosts(hosts) => hosts.into_iter().collect::<Vec<_>>(),
+                SecretHttpPolicy::Rules(rules) => rules
+                    .into_iter()
+                    .filter(|rule| rule.effect == crate::models::agent::AgentHttpRuleEffect::Allow)
+                    .flat_map(|rule| rule.hosts)
+                    .collect(),
+            };
+            hosts.sort();
+            hosts.dedup();
+            ExplainCredentialHosts {
+                name: name.clone(),
+                hosts,
+            }
+        })
+        .collect::<Vec<_>>();
+    credentials.sort_by(|left, right| left.name.cmp(&right.name));
+    ExplainReachableHosts {
+        egress: profile.egress_hosts.clone().unwrap_or_default(),
+        credentials,
+        denied: profile.deny_hosts.clone().unwrap_or_default(),
+    }
+}
+
 #[derive(Serialize)]
 struct ExplainReport {
     profile: String,
     source: String,
     request: ExplainRequest,
     connection: ConnectionDecision,
+    egress_hosts_configured: bool,
     credentials: Vec<ExplainCredential>,
+    reachable_hosts: ExplainReachableHosts,
     filesystem_backend: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     filesystem_patterns: Vec<ExplainFilesystemPattern>,
@@ -248,9 +305,27 @@ struct ExplainRequest {
 #[serde(rename_all = "snake_case")]
 enum ConnectionDecision {
     DeniedByDenyHosts,
+    /// Not in `egress_hosts`, and no credential is eligible for this request.
     DeniedByEgressHosts,
     AllowedByEgressHosts,
-    NoEgressRestriction,
+    /// Not in `egress_hosts`; allowed only when the request carries an
+    /// eligible credential.
+    AllowedWithCredential,
+}
+
+#[derive(Serialize)]
+struct ExplainReachableHosts {
+    /// Reachable by any request.
+    egress: Vec<String>,
+    /// Reachable only by requests carrying that credential.
+    credentials: Vec<ExplainCredentialHosts>,
+    denied: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ExplainCredentialHosts {
+    name: String,
+    hosts: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -308,22 +383,26 @@ fn print_human_report(report: &ExplainReport) {
         "Request: {} https://{}{}",
         report.request.method, report.request.host, report.request.path
     );
+    let not_egress = if report.egress_hosts_configured {
+        "not in egress_hosts"
+    } else {
+        "no egress_hosts configured"
+    };
     match report.connection {
         ConnectionDecision::DeniedByDenyHosts => println!("Connection: denied by deny_hosts"),
-        ConnectionDecision::DeniedByEgressHosts => println!("Connection: denied by egress_hosts"),
+        ConnectionDecision::DeniedByEgressHosts => println!(
+            "Connection: denied ({not_egress}, and no credential is eligible for this request)"
+        ),
         ConnectionDecision::AllowedByEgressHosts => println!("Connection: allowed by egress_hosts"),
-        ConnectionDecision::NoEgressRestriction => {
-            println!("Connection: no egress_hosts restriction configured")
+        ConnectionDecision::AllowedWithCredential => {
+            println!("Connection: allowed only with an eligible credential below ({not_egress})")
         }
     }
     if let Some(verbose) = &report.verbose {
         println!("Normalized path: {}", verbose.normalized_path);
     }
     if report.credentials.is_empty()
-        && matches!(
-            report.connection,
-            ConnectionDecision::AllowedByEgressHosts | ConnectionDecision::NoEgressRestriction
-        )
+        && !matches!(report.connection, ConnectionDecision::DeniedByDenyHosts)
     {
         println!("Credentials: no bindings are configured");
     }
@@ -352,6 +431,30 @@ fn print_human_report(report: &ExplainReport) {
             println!("  matched {effect} rule #{}", rule.index);
         }
     }
+
+    let reachable = &report.reachable_hosts;
+    println!("Reachable hosts:");
+    if reachable.egress.is_empty() {
+        let reason = if report.egress_hosts_configured {
+            "egress_hosts is empty"
+        } else {
+            "no egress_hosts configured"
+        };
+        println!("  any request: none ({reason})");
+    } else {
+        println!("  any request: {}", reachable.egress.join(", "));
+    }
+    for credential in &reachable.credentials {
+        let hosts = if credential.hosts.is_empty() {
+            "none".to_owned()
+        } else {
+            credential.hosts.join(", ")
+        };
+        println!("  with {}: {hosts}", credential.name);
+    }
+    if !reachable.denied.is_empty() {
+        println!("  denied: {}", reachable.denied.join(", "));
+    }
 }
 
 fn source_label(source: AgentProfileSource) -> &'static str {
@@ -359,5 +462,96 @@ fn source_label(source: AgentProfileSource) -> &'static str {
         AgentProfileSource::Global => "global",
         AgentProfileSource::Directory => "directory",
         AgentProfileSource::Auto => "global or directory",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::agent::AgentProfile;
+
+    fn profile(egress: &str) -> AgentProfile {
+        toml::from_str(&format!(
+            r#"
+{egress}
+deny_hosts = ["api.stashbase.dev"]
+
+[secrets.CONTEXT7_API_KEY]
+
+[[secrets.CONTEXT7_API_KEY.rules]]
+effect = "allow"
+hosts = ["mcp.context7.com"]
+methods = ["POST"]
+paths = ["/mcp"]
+
+[[secrets.CONTEXT7_API_KEY.rules]]
+effect = "deny"
+hosts = ["admin.context7.com"]
+methods = ["GET"]
+paths = ["*"]
+"#
+        ))
+        .unwrap()
+    }
+
+    fn credential(decision: ExplainCredentialDecision) -> ExplainCredential {
+        ExplainCredential {
+            name: "CONTEXT7_API_KEY".to_owned(),
+            decision,
+            matched_rule: None,
+        }
+    }
+
+    #[test]
+    fn a_credential_host_outside_egress_is_allowed_only_with_that_credential() {
+        let profile = profile(r#"egress_hosts = ["chatgpt.com"]"#);
+        let eligible = [credential(ExplainCredentialDecision::EligibleRule)];
+        let ineligible = [credential(ExplainCredentialDecision::NoMatchingAllowRule)];
+
+        assert!(matches!(
+            connection_decision(&profile, "mcp.context7.com", &eligible),
+            ConnectionDecision::AllowedWithCredential
+        ));
+        assert!(matches!(
+            connection_decision(&profile, "mcp.context7.com", &ineligible),
+            ConnectionDecision::DeniedByEgressHosts
+        ));
+        assert!(matches!(
+            connection_decision(&profile, "chatgpt.com", &ineligible),
+            ConnectionDecision::AllowedByEgressHosts
+        ));
+        assert!(matches!(
+            connection_decision(&profile, "api.stashbase.dev", &eligible),
+            ConnectionDecision::DeniedByDenyHosts
+        ));
+    }
+
+    #[test]
+    fn without_egress_hosts_only_credential_requests_are_allowed() {
+        let profile = profile("");
+        assert!(matches!(
+            connection_decision(
+                &profile,
+                "mcp.context7.com",
+                &[credential(ExplainCredentialDecision::EligibleRule)]
+            ),
+            ConnectionDecision::AllowedWithCredential
+        ));
+        assert!(matches!(
+            connection_decision(&profile, "example.com", &[]),
+            ConnectionDecision::DeniedByEgressHosts
+        ));
+    }
+
+    #[test]
+    fn reachable_hosts_list_credential_allow_destinations_separately_from_egress() {
+        let reachable = reachable_hosts(&profile(r#"egress_hosts = ["chatgpt.com"]"#));
+
+        assert_eq!(reachable.egress, vec!["chatgpt.com"]);
+        assert_eq!(reachable.credentials.len(), 1);
+        assert_eq!(reachable.credentials[0].name, "CONTEXT7_API_KEY");
+        // Deny rules never make a host reachable.
+        assert_eq!(reachable.credentials[0].hosts, vec!["mcp.context7.com"]);
+        assert_eq!(reachable.denied, vec!["api.stashbase.dev"]);
     }
 }

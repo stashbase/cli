@@ -122,7 +122,8 @@ A profile is a TOML file at `.stashbase/agents/<name>.toml`. Use `stashbase agen
 #### Egress and credential hosts
 
 ```toml
-# All HTTP(S) destinations the agent is allowed to reach
+# HTTP(S) destinations any request may reach. A secret rule's hosts don't
+# need to be listed here; they accept only requests carrying that secret.
 egress_hosts = ["api.github.com", "registry.npmjs.org"]
 
 # (Optional) Block specific destinations even if egress_hosts is wide

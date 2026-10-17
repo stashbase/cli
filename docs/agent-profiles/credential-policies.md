@@ -69,10 +69,12 @@ egress_hosts = ["api.github.com", "registry.npmjs.org"]
 deny_hosts = ["api.stashbase.dev"]
 ```
 
-- `egress_hosts`: Hosts the agent may connect to (applies to all credentials and egress-only traffic).
-- `deny_hosts`: Hosts the agent may not connect to, even if `egress_hosts` includes them or uses `"*"`.
+- `egress_hosts`: Hosts the agent may reach without a credential.
+- `deny_hosts`: Hosts the agent may not connect to, even if `egress_hosts` includes them, uses `"*"`, or a credential rule names them.
 
-Credential rules do not widen egress—a secret with rules for `api.example.com` does not allow the agent to connect there unless `egress_hosts` explicitly allows it.
+A credential rule's hosts do not need to be listed in `egress_hosts`. A secret with rules for `api.example.com` lets the agent reach `api.example.com` only with requests that carry that secret and match its rules; other requests to that host still need `egress_hosts`.
+
+`stashbase agent explain` prints the full set under **Reachable hosts**: hosts any request may reach (`egress_hosts`), the hosts each credential unlocks, and `deny_hosts`.
 
 ## Custom Headers and Value Templates
 
