@@ -1048,12 +1048,13 @@ pub(crate) fn docker_run_command(
     // credentials are, so unlike everything else outside the working
     // directory it's worth forwarding — without it, `git commit` inside
     // the container fails outright with no identity configured, since the
-    // container never sees the host's real ~/.gitconfig. Env vars only
-    // (not the .gitconfig file itself), so unrelated host git config
-    // (aliases, signing setup pointing at host paths, etc.) doesn't leak
-    // in. Caller-provided env vars win if a profile already sets one of
-    // these explicitly.
-    for (key, value) in host_git_identity_env_vars() {
+    // container never sees the host's real ~/.gitconfig. Resolved against
+    // the working directory, so a repo-local identity wins over the global
+    // one. Env vars only (not the .gitconfig file itself), so unrelated
+    // host git config (aliases, signing setup pointing at host paths,
+    // etc.) doesn't leak in. Caller-provided env vars win if a profile
+    // already sets one of these explicitly.
+    for (key, value) in host_git_identity_env_vars(workdir) {
         if !env_vars.contains_key(&key) {
             args.push("-e".to_owned());
             args.push(format!("{key}={value}"));
@@ -1548,9 +1549,14 @@ const CA_BUNDLE_ENV_KEYS: &[&str] = &[
     "CODEX_CA_CERTIFICATE",
 ];
 
-fn host_git_config(key: &str) -> Option<String> {
+/// Reads `key` as git itself resolves it from `dir` — worktree, then
+/// repo-local, then global (including `includeIf` sections whose
+/// conditions match `dir`), then system config.
+fn host_git_config(dir: &Path, key: &str) -> Option<String> {
     let output = std::process::Command::new("git")
-        .args(["config", "--global", key])
+        .arg("-C")
+        .arg(dir)
+        .args(["config", "--get", key])
         .output()
         .ok()?;
     if !output.status.success() {
@@ -1564,11 +1570,6 @@ fn host_git_config(key: &str) -> Option<String> {
     }
 }
 
-/// Reads the host's global git identity (`user.name`/`user.email`) and
-/// maps it to the env vars git itself honors for both authoring and
-/// committing. Returns an empty map if the host has neither configured —
-/// this is a convenience, not a requirement, and the container works
-/// fine without it (git commands that don't need an identity still run).
 /// Host env vars that tell a TUI which terminal it is running in.
 ///
 /// `TERM`/`COLORTERM` drive capability detection (truecolor support, theme
@@ -1608,13 +1609,23 @@ fn terminal_identity_env_args(
     args
 }
 
-fn host_git_identity_env_vars() -> std::collections::HashMap<String, String> {
+/// Reads the host's effective git identity (`user.name`/`user.email`) for
+/// `workdir` — so a repo-local identity wins over the global one, just as
+/// it would for `git commit` on the host — and maps it to the env vars git
+/// itself honors for both authoring and committing. Those env vars take
+/// precedence over every config file inside the container, which is why
+/// the identity has to be resolved against the repo here rather than read
+/// from global config alone. Returns an empty map if neither is
+/// configured — this is a convenience, not a requirement, and the
+/// container works fine without it (git commands that don't need an
+/// identity still run).
+fn host_git_identity_env_vars(workdir: &Path) -> std::collections::HashMap<String, String> {
     let mut vars = std::collections::HashMap::new();
-    if let Some(name) = host_git_config("user.name") {
+    if let Some(name) = host_git_config(workdir, "user.name") {
         vars.insert("GIT_AUTHOR_NAME".to_owned(), name.clone());
         vars.insert("GIT_COMMITTER_NAME".to_owned(), name);
     }
-    if let Some(email) = host_git_config("user.email") {
+    if let Some(email) = host_git_config(workdir, "user.email") {
         vars.insert("GIT_AUTHOR_EMAIL".to_owned(), email.clone());
         vars.insert("GIT_COMMITTER_EMAIL".to_owned(), email);
     }
@@ -2814,12 +2825,27 @@ mod tests {
         assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 2);
     }
 
+    /// A throwaway repo under the system temp dir with its own repo-local
+    /// git identity, distinct from anything a host's global config sets.
+    fn repo_with_local_git_identity() -> std::path::PathBuf {
+        use crate::handlers::run::worktree::test_support::git;
+        let repo = std::env::temp_dir().join(format!(
+            "stashbase-identity-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["config", "user.name", "Repo Local Name"]);
+        git(
+            &repo,
+            &["config", "user.email", "repo-local@example.invalid"],
+        );
+        repo
+    }
+
     #[test]
-    fn docker_run_command_forwards_host_git_identity_when_configured() {
-        let Some(name) = host_git_config("user.name") else {
-            eprintln!("skipping: host has no global git user.name configured");
-            return;
-        };
+    fn docker_run_command_forwards_repo_local_git_identity_over_global() {
+        let repo = repo_with_local_git_identity();
         let network = DockerRunNetwork {
             name: "n".to_owned(),
             gateway_ip: "172.30.0.1".to_owned(),
@@ -2827,7 +2853,7 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
-            &std::env::current_dir().unwrap(),
+            &repo,
             None,
             &[],
             &[],
@@ -2839,16 +2865,16 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert!(args.contains(&format!("GIT_AUTHOR_NAME={name}")));
-        assert!(args.contains(&format!("GIT_COMMITTER_NAME={name}")));
+        std::fs::remove_dir_all(&repo).unwrap();
+        assert!(args.contains(&"GIT_AUTHOR_NAME=Repo Local Name".to_owned()));
+        assert!(args.contains(&"GIT_COMMITTER_NAME=Repo Local Name".to_owned()));
+        assert!(args.contains(&"GIT_AUTHOR_EMAIL=repo-local@example.invalid".to_owned()));
+        assert!(args.contains(&"GIT_COMMITTER_EMAIL=repo-local@example.invalid".to_owned()));
     }
 
     #[test]
     fn docker_run_command_lets_caller_env_vars_override_host_git_identity() {
-        if host_git_config("user.name").is_none() {
-            eprintln!("skipping: host has no global git user.name configured");
-            return;
-        }
+        let repo = repo_with_local_git_identity();
         let network = DockerRunNetwork {
             name: "n".to_owned(),
             gateway_ip: "172.30.0.1".to_owned(),
@@ -2858,7 +2884,7 @@ mod tests {
         let (_, args) = docker_run_command(
             "claude",
             &network,
-            &std::env::current_dir().unwrap(),
+            &repo,
             None,
             &[],
             &[],
@@ -2870,6 +2896,7 @@ mod tests {
             &[],
         )
         .unwrap();
+        std::fs::remove_dir_all(&repo).unwrap();
         assert!(args.contains(&"GIT_AUTHOR_NAME=Explicit Override".to_owned()));
         assert_eq!(
             args.iter()
