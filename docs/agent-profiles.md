@@ -151,6 +151,17 @@ egress_hosts = ["*"]
 deny_hosts = ["api.stashbase.dev"]
 ```
 
+### Credentials your tools hold themselves
+
+The proxy recognizes a credential only by its Stashbase placeholder. Any other credential a tool uses is forwarded like a request without one: wherever `egress_hosts` allows the host (everywhere with `"*"`), with no secret rules and no secret named in the audit log. Where such credentials come from:
+
+- **Docker:** only from inside the sandbox — a login saved in the [sandbox home](sandboxing.md#login-persistence) (`gh auth login`, `aws configure`), a custom image, or files in the working directory. Your host's environment and home directory aren't passed in.
+- **Native:** also from your machine — exported shell variables (`GH_TOKEN`, `AWS_*`, …), credential files in your home directory (`~/.config/gh`, `~/.aws`) unless listed in `deny_read`, and your keychain (`gh` on macOS). SSH keys don't go through the proxy at all; deny `~/.ssh` to keep them out.
+
+The coding agents' own logins work this way too, which is why Claude Code and Codex need their API and login hosts in `egress_hosts` (see [Codex and subscription login](sandboxing.md#codex-and-subscription-login)).
+
+To keep a tool's access under the profile, bind its credential as a secret (e.g. `GH_TOKEN` for `gh`), and prefer the Docker backend for a clean environment.
+
 ## HTTP Credential Rules
 
 Define which hosts, methods, and paths may receive each credential:

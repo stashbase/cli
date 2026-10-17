@@ -131,6 +131,8 @@ None of this needs the apps' own hook integrations (`herdr integration install`,
 
 Agent login/config state (e.g. Claude Code's `~/.claude`, Codex's `~/.codex`) is kept in a Docker-managed named volume, not a bind mount of your real home directory, so it survives across `agent run` invocations without exposing anything else on the host. This volume is shared across every profile, project, *and image* using the Docker backend on this machine — logging in once covers all of them, even after switching to a completely different custom image or Dockerfile, since the volume is mounted at the same container path (`/home/agent`) regardless of which image runs.
 
+Everything saved in that home persists, not just the agents' logins, whether you or the agent saved it: other tools' logins too (`gh auth login` → `~/.config/gh`, `aws configure` → `~/.aws`, a git credential helper, a token in `~/.npmrc`). A saved tool login then works in every later Docker run, in every project and profile, wherever the profile's `egress_hosts` allows its host — the proxy doesn't treat it as a profile secret (see [Credentials your tools hold themselves](agent-profiles.md#credentials-your-tools-hold-themselves)). Give tools their credentials as profile secrets instead, and to remove a saved login, log out inside `agent docker shell` (`gh auth logout`) or delete its files there.
+
 ### Admin shell and installing tools
 
 ```bash
@@ -230,7 +232,7 @@ Checks whether the Docker sandbox backend can actually run here — the `docker`
 ### Docker backend limitations
 
 - Two containers run per invocation (the network namespace holder plus the agent container itself), not one — slightly more setup overhead per run than a single-container approach, in exchange for the firewall being enforced by capability separation rather than a privilege drop inside the agent container.
-- The persistent home volume is shared across every profile and project — chat history and config from one profile's sandboxed sessions are visible to another profile's sandboxed sessions on the same machine. This is a privacy boundary, not a security one: it never grants access beyond what each run's own profile allows, since egress/credential policy is enforced per-run regardless of what's in the shared volume.
+- The persistent home volume is shared across every profile and project — chat history and config from one profile's sandboxed sessions are visible to another profile's sandboxed sessions on the same machine. It isn't a credential boundary either: a tool login saved there in one profile's session works in every other profile's runs wherever their `egress_hosts` allow the host (see [Login persistence](#login-persistence)). Secret rules are still enforced per run.
 
 This backend is opt-in only and does not change the default behavior of existing profiles.
 
