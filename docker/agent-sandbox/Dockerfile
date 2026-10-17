@@ -70,9 +70,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash \
     && ln -s /root/.local/bin/claude /usr/local/bin/claude \
     && ln -s /root/.local/bin/codex /usr/local/bin/codex
 
-# A persistent volume is mounted here (see docker_sandbox.rs) so login
-# state (e.g. Claude Code's ~/.claude, ~/.claude.json) survives across
-# runs instead of vanishing with each --rm'd container. World-writable
+# The sandboxed process's HOME. Only agent login/config (~/.claude,
+# ~/.codex, ...) and the user-level install dirs below are mounted from a
+# persistent volume (PERSISTENT_HOME_PATHS in docker_sandbox.rs); the rest
+# lives in each --rm'd container and is discarded with it. World-writable
 # because the container may run as an arbitrary host uid (see the --user
 # flag set on Linux in docker_run_command) with no matching passwd entry,
 # so a named volume freshly created by Docker would otherwise be

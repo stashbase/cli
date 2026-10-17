@@ -544,10 +544,33 @@ pub(crate) fn rewrite_proxy_urls_for_container(
 
 pub(crate) const DEFAULT_SANDBOX_IMAGE: &str = "stashbase/agent-sandbox:latest";
 
-/// Named Docker volume holding the sandboxed agent's persistent home
-/// directory (login state, config) across runs. Shared by every profile
-/// and every run on this machine — see `docker_run_command`'s doc comment.
+/// Named Docker volume holding the sandboxed agent's persistent state
+/// (login, config, user-level tool installs) across runs. Shared by every
+/// profile and every run on this machine. Only `PERSISTENT_HOME_PATHS` of it
+/// are ever mounted into a run — see `persistent_home_args`.
 const PERSISTENT_HOME_VOLUME: &str = "stashbase-agent-home";
+
+/// The only paths under `CONTAINER_HOME` that persist across runs, each
+/// mounted from the same-named subpath of `PERSISTENT_HOME_VOLUME`. The rest
+/// of the home lives in the container's own `--rm`'d layer, so a credential
+/// some tool saves there (`gh auth login` → `~/.config/gh/hosts.yml`, a git
+/// credential helper in `~/.gitconfig`, `~/.npmrc`) is gone when the run
+/// ends instead of silently authenticating every later run, in every repo
+/// and profile, past the profile's own secret bindings. The agents' own
+/// login state is the one deliberate exception: without it every run would
+/// start logged out. Tool credentials belong in profile secrets instead.
+const PERSISTENT_HOME_PATHS: &[&str] = &[
+    // Claude Code; `~/.claude.json` lives in here too (`CLAUDE_CONFIG_DIR`).
+    ".claude",
+    ".codex",
+    ".cursor",
+    ".config/cursor",
+    // User-level installs from `agent docker shell` (see the Dockerfile's
+    // NPM_CONFIG_PREFIX/PATH): `npm i -g` and `pip install --user`.
+    ".npm-global",
+    ".local/bin",
+    ".local/lib",
+];
 
 /// The container-side path `PERSISTENT_HOME_VOLUME` is mounted at, and the
 /// `HOME` the sandboxed process runs with. Fixed rather than derived from
@@ -766,9 +789,76 @@ pub(crate) fn read_persistent_home_file(image: &str, relative_path: &str) -> Opt
     String::from_utf8(output.stdout).ok()
 }
 
+/// Mounts each of `PERSISTENT_HOME_PATHS` from its subpath of the persistent
+/// home volume and points `HOME` at `CONTAINER_HOME`, which otherwise stays
+/// the image's own (per-container, discarded) directory. Needs Docker Engine
+/// 26+ for `volume-subpath`, and the subpaths must already exist — see
+/// `prepare_persistent_home`.
+fn persistent_home_args() -> Vec<String> {
+    let mut args = Vec::new();
+    for path in PERSISTENT_HOME_PATHS {
+        args.extend([
+            "--mount".to_owned(),
+            format!(
+                "type=volume,src={PERSISTENT_HOME_VOLUME},dst={CONTAINER_HOME}/{path},volume-subpath={path}"
+            ),
+        ]);
+    }
+    args.extend(["-e".to_owned(), format!("HOME={CONTAINER_HOME}")]);
+    args
+}
+
+/// Claude Code keeps `~/.claude.json` (onboarding, account, per-project
+/// state) beside `~/.claude`, not in it, and a file can't be mounted from a
+/// volume subpath the way a directory can. Pointing `CLAUDE_CONFIG_DIR` at
+/// `~/.claude` moves it inside the persisted directory.
+fn claude_config_dir_env() -> String {
+    format!("CLAUDE_CONFIG_DIR={CONTAINER_HOME}/.claude")
+}
+
+/// Creates any of `PERSISTENT_HOME_PATHS` missing from the persistent home
+/// volume (`docker run --mount volume-subpath=` refuses a subpath that
+/// doesn't exist), world-writable like the image's own home so the agent
+/// can write them when it runs as the host uid (Linux). Also copies a
+/// `~/.claude.json` left at the volume root by earlier versions, which
+/// persisted the whole home, to where `CLAUDE_CONFIG_DIR` now looks for it.
+/// Runs as root in a short-lived, network-less container from `image`,
+/// which only needs `/bin/sh`.
+pub(crate) fn prepare_persistent_home(image: &str) -> Result<(), String> {
+    let mut args = vec![
+        "run".to_owned(),
+        "--rm".to_owned(),
+        "--network".to_owned(),
+        "none".to_owned(),
+        "--user".to_owned(),
+        "0".to_owned(),
+        "-v".to_owned(),
+        format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
+        "--entrypoint".to_owned(),
+        "/bin/sh".to_owned(),
+        image.to_owned(),
+        "-c".to_owned(),
+        format!(
+            r#"cd {CONTAINER_HOME} || exit 1
+for d in "$@"; do [ -d "$d" ] || {{ mkdir -p "$d" && chmod 0777 "$d"; }} || exit 1; done
+if [ -f .claude.json ] && [ ! -e .claude/.claude.json ]; then cp -p .claude.json .claude/.claude.json || exit 1; fi"#
+        ),
+        "sh".to_owned(),
+    ];
+    args.extend(PERSISTENT_HOME_PATHS.iter().map(|path| (*path).to_owned()));
+    let output = std::process::Command::new("docker")
+        .args(&args)
+        .output()
+        .map_err(|error| format!("failed to run `docker run`: {error}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    Ok(())
+}
+
 /// Builds the `docker run` args for `agent docker shell`: an interactive
-/// admin shell in `image` with the persistent home volume mounted exactly
-/// as agent runs mount it. Deliberately none of a run's sandboxing (no
+/// admin shell in `image` with the persistent home mounted exactly as
+/// agent runs mount it, so it shows what persists and nothing more. Deliberately none of a run's sandboxing (no
 /// per-run network/firewall, no working-directory mount) — it's for
 /// maintaining the shared home (logins, config, tools installed under
 /// $HOME), not for doing work. Runs as the same user agent runs do unless
@@ -786,11 +876,10 @@ pub(crate) fn docker_shell_command_args(
     if !as_root {
         args.extend(docker_run_user_flag_args());
     }
+    args.extend(persistent_home_args());
     args.extend([
-        "-v".to_owned(),
-        format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
         "-e".to_owned(),
-        format!("HOME={CONTAINER_HOME}"),
+        claude_config_dir_env(),
         "-e".to_owned(),
         "STASHBASE_SANDBOX=1".to_owned(),
         "-w".to_owned(),
@@ -1027,20 +1116,19 @@ pub(crate) fn docker_run_command(
     append_agent_hook_shim_mount(&mut args, env_vars)?;
 
     // A named Docker volume, not a bind mount of the real host home
-    // directory, persists login/config state (e.g. Claude Code's
+    // directory, persists agent login/config state (e.g. Claude Code's
     // ~/.claude) across runs. Named volumes are Docker-managed storage —
     // they don't expose any other host path to the container — so this
     // doesn't reopen the filesystem allow-list `append_filesystem_mounts`
     // exists to provide. Shared across all profiles/runs by design: log
-    // in once, every docker-backend run on this machine reuses it.
-    args.extend([
-        "-v".to_owned(),
-        format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}"),
-        "-e".to_owned(),
-        format!("HOME={CONTAINER_HOME}"),
-        "-e".to_owned(),
-        "STASHBASE_SANDBOX=1".to_owned(),
-    ]);
+    // in once, every docker-backend run on this machine reuses it. Only
+    // `PERSISTENT_HOME_PATHS` are mounted; the rest of the home starts
+    // empty every run.
+    args.extend(persistent_home_args());
+    if !env_vars.contains_key("CLAUDE_CONFIG_DIR") {
+        args.extend(["-e".to_owned(), claude_config_dir_env()]);
+    }
+    args.extend(["-e".to_owned(), "STASHBASE_SANDBOX=1".to_owned()]);
 
     args.extend(["-w".to_owned(), cwd_str]);
 
@@ -2825,9 +2913,9 @@ mod tests {
         .unwrap();
         let mount_index = args.iter().position(|arg| arg == "-v").unwrap();
         assert_eq!(args[mount_index + 1], format!("{cwd}:{cwd}:ro"));
-        // The cwd mount plus the persistent home volume mount — no extra
+        // Only the cwd mount (the persistent home uses `--mount`) — no extra
         // shadow mount, since the cwd mount itself is already read-only.
-        assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 2);
+        assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 1);
     }
 
     /// A throwaway repo under the system temp dir with its own repo-local
@@ -3256,9 +3344,73 @@ mod tests {
             &[],
         )
         .unwrap();
-        assert!(args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
+        assert!(args.contains(&format!(
+            "type=volume,src={PERSISTENT_HOME_VOLUME},dst={CONTAINER_HOME}/.claude,volume-subpath=.claude"
+        )));
         assert!(args.contains(&format!("HOME={CONTAINER_HOME}")));
+        assert!(args.contains(&format!("CLAUDE_CONFIG_DIR={CONTAINER_HOME}/.claude")));
         assert!(args.contains(&"STASHBASE_SANDBOX=1".to_owned()));
+    }
+
+    #[test]
+    fn docker_run_command_persists_only_allowlisted_home_paths() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        // The whole home is never mounted, so tool logins saved outside the
+        // allowlist (`gh auth login` → ~/.config/gh) don't outlive the run.
+        assert!(!args.contains(&format!("{PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
+        let home_mounts: Vec<&String> = args
+            .iter()
+            .filter(|arg| arg.contains(&format!("src={PERSISTENT_HOME_VOLUME},")))
+            .collect();
+        assert_eq!(home_mounts.len(), PERSISTENT_HOME_PATHS.len());
+        assert!(!home_mounts.iter().any(|mount| mount.contains(".config/gh")));
+    }
+
+    #[test]
+    fn docker_run_command_keeps_caller_claude_config_dir() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let env_vars = std::collections::HashMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            "/elsewhere".to_owned(),
+        )]);
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[],
+            &[],
+            &env_vars,
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        assert!(args.contains(&"CLAUDE_CONFIG_DIR=/elsewhere".to_owned()));
+        assert!(!args.contains(&format!("CLAUDE_CONFIG_DIR={CONTAINER_HOME}/.claude")));
     }
 
     #[test]
@@ -3358,8 +3510,12 @@ mod tests {
         let args = docker_shell_command_args("my/image:tag", false, true);
         let joined = args.join(" ");
         assert!(joined.starts_with("run --rm -i -t "));
-        assert!(joined.contains(&format!("-v {PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
+        assert!(joined.contains(&format!(
+            "--mount type=volume,src={PERSISTENT_HOME_VOLUME},dst={CONTAINER_HOME}/.codex,volume-subpath=.codex"
+        )));
+        assert!(!joined.contains(&format!("-v {PERSISTENT_HOME_VOLUME}:{CONTAINER_HOME}")));
         assert!(joined.contains(&format!("-e HOME={CONTAINER_HOME}")));
+        assert!(joined.contains(&format!("-e CLAUDE_CONFIG_DIR={CONTAINER_HOME}/.claude")));
         assert!(joined.contains("-e STASHBASE_SANDBOX=1"));
         assert!(joined.contains(&format!("-w {CONTAINER_HOME}")));
         assert!(joined.ends_with("--entrypoint bash my/image:tag"));
@@ -3584,10 +3740,10 @@ mod tests {
             &[],
         )
         .unwrap();
-        // Only the cwd mount and the persistent home volume mount should
-        // exist; no extra mount for a CA path that's already inside the
-        // working directory.
-        assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 2);
+        // Only the cwd mount should exist (the persistent home uses
+        // `--mount`); no extra mount for a CA path that's already inside
+        // the working directory.
+        assert_eq!(args.iter().filter(|arg| *arg == "-v").count(), 1);
     }
 
     fn git_mount_fixture() -> (PathBuf, GitMounts) {

@@ -576,7 +576,8 @@ pub async fn handle_docker_shell_command(
     use std::io::IsTerminal;
 
     use crate::handlers::run::docker_sandbox::{
-        docker_enforcement_error, docker_shell_command_args, sandbox_image_exists, AgentImageSource,
+        docker_enforcement_error, docker_shell_command_args, prepare_persistent_home,
+        sandbox_image_exists, AgentImageSource,
     };
 
     if let Some(error) = docker_enforcement_error() {
@@ -600,9 +601,12 @@ pub async fn handle_docker_shell_command(
 
     eprintln!(
         "{}",
-        "Only $HOME (/home/agent) persists after exit — system packages (apt) belong in a custom sandbox Dockerfile."
+        "Only agent login/config (~/.claude, ~/.codex, ~/.cursor) and user-level installs (~/.npm-global, ~/.local/bin, ~/.local/lib) persist after exit — anything else in $HOME, including other tools' logins, is discarded. System packages (apt) belong in a custom sandbox Dockerfile."
             .yellow_if_tty()
     );
+
+    prepare_persistent_home(&source.image_tag())
+        .map_err(|error| anyhow::anyhow!("failed to prepare the Docker sandbox home: {error}"))?;
 
     let args = docker_shell_command_args(
         &source.image_tag(),

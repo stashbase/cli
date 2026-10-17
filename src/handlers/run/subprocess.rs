@@ -153,6 +153,13 @@ pub async fn run_command_with_filesystem_policy_and_network(
         let network =
             docker_network.context("Docker sandbox backend selected without a per-run network")?;
         let args = codex_args_forcing_full_access(command, args);
+        // The default image, not `agent_image`: it always exists for a
+        // Docker run (the netns holder uses it), a custom image may not
+        // have `/bin/sh`.
+        super::docker_sandbox::prepare_persistent_home(
+            super::docker_sandbox::DEFAULT_SANDBOX_IMAGE,
+        )
+        .map_err(|error| anyhow::anyhow!("failed to prepare the Docker sandbox home: {error}"))?;
         let cwd = current_dir.to_string_lossy();
         for path in sandbox_isolated_paths {
             let created =

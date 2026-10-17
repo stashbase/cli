@@ -129,7 +129,16 @@ None of this needs the apps' own hook integrations (`herdr integration install`,
 
 ### Login persistence
 
-Agent login/config state (e.g. Claude Code's `~/.claude`, Codex's `~/.codex`) is kept in a Docker-managed named volume, not a bind mount of your real home directory, so it survives across `agent run` invocations without exposing anything else on the host. This volume is shared across every profile, project, *and image* using the Docker backend on this machine — logging in once covers all of them, even after switching to a completely different custom image or Dockerfile, since the volume is mounted at the same container path (`/home/agent`) regardless of which image runs.
+Agent login/config state is kept in a Docker-managed named volume (`stashbase-agent-home`), not a bind mount of your real home directory, so it survives across `agent run` invocations without exposing anything else on the host. This volume is shared across every profile, project, *and image* using the Docker backend on this machine — logging in once covers all of them, even after switching to a completely different custom image or Dockerfile.
+
+Only these paths under `/home/agent` persist:
+
+- `~/.claude` (Claude Code; `CLAUDE_CONFIG_DIR` points here, so `~/.claude.json` lives inside it), `~/.codex`, `~/.cursor`, `~/.config/cursor`: the agents' own login and config.
+- `~/.npm-global`, `~/.local/bin`, `~/.local/lib`: user-level tool installs (see below).
+
+Everything else in the home starts empty on every run and is discarded when it ends. That's deliberate: a credential a tool saves in its home — `gh auth login` (`~/.config/gh`), a git credential helper in `~/.gitconfig`, `~/.npmrc`, `~/.aws` — would otherwise authenticate every later sandboxed run, in every project and profile, without the profile granting it. Give tools their credentials through [profile secrets](agent-profiles.md) instead (e.g. `GH_TOKEN` for `gh`), so the proxy injects and audits them.
+
+Persisting only these paths needs Docker Engine 26 or newer (`volume-subpath` mounts).
 
 ### Admin shell and installing tools
 
@@ -137,9 +146,9 @@ Agent login/config state (e.g. Claude Code's `~/.claude`, Codex's `~/.codex`) is
 stashbase agent docker shell
 ```
 
-This opens an interactive `bash` in the default sandbox image (`--image <ref>` for another one) with the persistent home volume mounted and `/home/agent` as the working directory. No profile is needed. None of a run's sandboxing applies: there's no per-run network or firewall and no working-directory mount. Use it to log in, edit agent config, install tools, or inspect what the sandbox sees. It runs as the same user agent runs do (your uid on Linux, root on macOS), so files it creates stay writable for them. `--root` forces root on Linux.
+This opens an interactive `bash` in the default sandbox image (`--image <ref>` for another one) with the persistent home mounted exactly as runs see it and `/home/agent` as the working directory. No profile is needed. None of a run's sandboxing applies: there's no per-run network or firewall and no working-directory mount. Use it to log in, edit agent config, install tools, or inspect what the sandbox sees. It runs as the same user agent runs do (your uid on Linux, root on macOS), so files it creates stay writable for them. `--root` forces root on Linux.
 
-Only `$HOME` persists after the shell exits. The image points user-level installs there, so these are kept and available to every sandboxed run, in every repo and profile:
+Only the persisted paths above survive the shell's exit; logging in to other tools here (`gh auth login`) doesn't carry over to runs. The image points user-level installs into persisted paths, so these are kept and available to every sandboxed run, in every repo and profile:
 
 ```bash
 npm i -g bun          # → ~/.npm-global/bin (on PATH)
@@ -230,7 +239,7 @@ Checks whether the Docker sandbox backend can actually run here — the `docker`
 ### Docker backend limitations
 
 - Two containers run per invocation (the network namespace holder plus the agent container itself), not one — slightly more setup overhead per run than a single-container approach, in exchange for the firewall being enforced by capability separation rather than a privilege drop inside the agent container.
-- The persistent home volume is shared across every profile and project — chat history and config from one profile's sandboxed sessions are visible to another profile's sandboxed sessions on the same machine. This is a privacy boundary, not a security one: it never grants access beyond what each run's own profile allows, since egress/credential policy is enforced per-run regardless of what's in the shared volume.
+- The persistent home volume is shared across every profile and project — chat history and config from one profile's sandboxed sessions are visible to another profile's sandboxed sessions on the same machine. Only agent login/config and user-level installs persist there (see [Login persistence](#login-persistence)), so other tools' saved credentials don't carry from one run to the next. The agents' own logins do: an agent in one project can use the account logged in from another.
 
 This backend is opt-in only and does not change the default behavior of existing profiles.
 
