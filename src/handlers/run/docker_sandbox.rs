@@ -1553,12 +1553,17 @@ const CA_BUNDLE_ENV_KEYS: &[&str] = &[
 /// repo-local, then global (including `includeIf` sections whose
 /// conditions match `dir`), then system config.
 fn host_git_config(dir: &Path, key: &str) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["config", "--get", key])
-        .output()
-        .ok()?;
+    read_git_config(git_config_command(dir, key))
+}
+
+fn git_config_command(dir: &Path, key: &str) -> std::process::Command {
+    let mut command = std::process::Command::new("git");
+    command.arg("-C").arg(dir).args(["config", "--get", key]);
+    command
+}
+
+fn read_git_config(mut command: std::process::Command) -> Option<String> {
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -2841,6 +2846,124 @@ mod tests {
             &["config", "user.email", "repo-local@example.invalid"],
         );
         repo
+    }
+
+    /// Runs [`git_config_command`] against `global_config` as the global
+    /// config file with system config disabled, so the result never depends
+    /// on the machine's real ~/.gitconfig or /etc/gitconfig.
+    fn git_config_with_global(dir: &Path, key: &str, global_config: &str) -> Option<String> {
+        let global = std::env::temp_dir().join(format!(
+            "stashbase-identity-gitconfig-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::write(&global, global_config).unwrap();
+        let mut command = git_config_command(dir, key);
+        command
+            .env("GIT_CONFIG_GLOBAL", &global)
+            .env("GIT_CONFIG_NOSYSTEM", "1");
+        let value = read_git_config(command);
+        std::fs::remove_file(&global).unwrap();
+        value
+    }
+
+    #[test]
+    fn git_config_prefers_repo_local_value_over_global() {
+        let repo = repo_with_local_git_identity();
+        let value = git_config_with_global(&repo, "user.name", "[user]\n\tname = Global Name\n");
+        std::fs::remove_dir_all(&repo).unwrap();
+        assert_eq!(value.as_deref(), Some("Repo Local Name"));
+    }
+
+    #[test]
+    fn git_config_falls_back_to_global_without_repo_local_value() {
+        use crate::handlers::run::worktree::test_support::git;
+        let repo = std::env::temp_dir().join(format!(
+            "stashbase-identity-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        let value = git_config_with_global(
+            &repo,
+            "user.email",
+            "[user]\n\temail = global@example.invalid\n",
+        );
+        std::fs::remove_dir_all(&repo).unwrap();
+        assert_eq!(value.as_deref(), Some("global@example.invalid"));
+    }
+
+    #[test]
+    fn git_config_applies_global_include_if_matching_workdir() {
+        use crate::handlers::run::worktree::test_support::git;
+        let base = std::env::temp_dir().join(format!(
+            "stashbase-identity-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let repo = base.join("work").join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        // `gitdir:` matches the resolved path, so canonicalize to survive
+        // a symlinked temp dir (macOS /var -> /private/var).
+        let work = std::fs::canonicalize(base.join("work")).unwrap();
+        let include = base.join("work.gitconfig");
+        std::fs::write(&include, "[user]\n\temail = work@example.invalid\n").unwrap();
+        let value = git_config_with_global(
+            &repo,
+            "user.email",
+            &format!(
+                "[user]\n\temail = personal@example.invalid\n\
+                 [includeIf \"gitdir:{}/\"]\n\tpath = {}\n",
+                work.display(),
+                include.display()
+            ),
+        );
+        std::fs::remove_dir_all(&base).unwrap();
+        assert_eq!(value.as_deref(), Some("work@example.invalid"));
+    }
+
+    #[test]
+    fn git_config_returns_none_when_unset_everywhere() {
+        let dir = std::env::temp_dir().join(format!(
+            "stashbase-identity-test-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let value = git_config_with_global(&dir, "user.name", "");
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(value, None);
+    }
+
+    #[test]
+    fn host_git_identity_reads_main_repo_identity_from_worktree() {
+        use crate::handlers::run::worktree::test_support::git;
+        let repo = repo_with_local_git_identity();
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"]);
+        let worktree = repo.with_file_name(format!(
+            "{}-wt",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                &worktree.to_string_lossy(),
+                "-b",
+                "wt",
+            ],
+        );
+        let vars = host_git_identity_env_vars(&worktree);
+        std::fs::remove_dir_all(&worktree).unwrap();
+        std::fs::remove_dir_all(&repo).unwrap();
+        assert_eq!(
+            vars.get("GIT_AUTHOR_NAME").map(String::as_str),
+            Some("Repo Local Name")
+        );
+        assert_eq!(
+            vars.get("GIT_COMMITTER_EMAIL").map(String::as_str),
+            Some("repo-local@example.invalid")
+        );
     }
 
     #[test]
