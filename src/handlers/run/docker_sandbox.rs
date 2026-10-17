@@ -786,8 +786,9 @@ fn parse_agent_cli_versions(output: &str) -> AgentCliVersions {
 }
 
 /// Reads a file at `relative_path` (relative to `CONTAINER_HOME`) out of the
-/// persistent home volume — the same volume `docker_run_command` mounts as
-/// the sandboxed agent's `HOME` — without starting a full agent run. Used to
+/// persistent home volume — the volume `docker_run_command` mounts
+/// `PERSISTENT_HOME_PATHS` of into the sandboxed agent's `HOME`, so only a
+/// file under one of those is what a run sees — without starting a full agent run. Used to
 /// inspect config (e.g. Codex's `~/.codex/config.toml`) as it actually exists
 /// *inside* the sandbox, which the docker backend's named volume keeps
 /// entirely separate from the host's own home directory. Returns `None` if

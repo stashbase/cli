@@ -140,7 +140,7 @@ pub enum AgentDockerSubcommand {
     Build(AgentDockerBuildCommand),
     /// Check whether the Docker sandbox backend can run on this machine
     Doctor(AgentDockerDoctorCommand),
-    /// Open an interactive shell in the sandbox image with the persistent agent home mounted (e.g. to log in or install tools under $HOME)
+    /// Open an interactive shell in the sandbox image with the persistent agent home mounted as runs see it (e.g. to log in to an agent or `npm i -g`/`pip install --user` tools); only agent login/config and those installs persist
     Shell(AgentDockerShellCommand),
 }
 
