@@ -140,6 +140,8 @@ By default, the proxy denies all connections. Allow specific destinations:
 egress_hosts = ["api.github.com", "registry.npmjs.org"]
 ```
 
+`egress_hosts` covers requests that don't carry a credential. A host named in a secret's [credential rules](#http-credential-rules) doesn't need to be listed: the proxy lets through requests that carry that secret and match its rules, and blocks other requests to the host. List a credential host in `egress_hosts` too only when the tool also calls it without the credential.
+
 Use `"*"` for unrestricted internet (but this does not bypass credential rules—each secret still honors its own policy).
 
 Optional: block specific hosts even when egress is broad:
