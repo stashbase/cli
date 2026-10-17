@@ -24,12 +24,19 @@ pub(crate) fn docker_daemon_version() -> Result<String, String> {
 /// every run needs to mount the persistent home (`persistent_home_args`).
 pub(crate) const MIN_DOCKER_ENGINE_MAJOR: u32 = 26;
 
+/// The major version of a daemon reporting `version`, or `None` when it
+/// isn't `<major>.…` (a source build's `dev`, a non-Docker daemon behind
+/// the `docker` CLI).
+pub(crate) fn docker_engine_major(version: &str) -> Option<u32> {
+    version.trim().split('.').next()?.parse().ok()
+}
+
 /// Why a daemon reporting `version` can't run the sandbox, or `None` if it
-/// can. A version that doesn't parse as `<major>.…` (a non-Docker daemon
-/// behind the `docker` CLI) passes: if it lacks the feature, the run still
-/// fails at container start with Docker's own error.
+/// can. An unrecognized version passes: one without `volume-subpath` still
+/// can't run anything unsandboxed, since `docker run` rejects the mount and
+/// the run fails at container start with Docker's own error.
 pub(crate) fn docker_engine_version_error(version: &str) -> Option<String> {
-    let major: u32 = version.trim().split('.').next()?.parse().ok()?;
+    let major = docker_engine_major(version)?;
     (major < MIN_DOCKER_ENGINE_MAJOR).then(|| {
         format!(
             "the Docker sandbox backend requires Docker Engine {MIN_DOCKER_ENGINE_MAJOR} or newer (the daemon reports {}); upgrade Docker",
@@ -3378,6 +3385,15 @@ mod tests {
         assert!(docker_engine_version_error("29.8.2").is_none());
         assert!(docker_engine_version_error("").is_none());
         assert!(docker_engine_version_error("dev").is_none());
+    }
+
+    #[test]
+    fn docker_engine_major_parses_only_numeric_majors() {
+        assert_eq!(docker_engine_major("29.8.2\n"), Some(29));
+        assert_eq!(docker_engine_major("25"), Some(25));
+        assert_eq!(docker_engine_major("dev"), None);
+        assert_eq!(docker_engine_major("master-dockerproject-2026-01-01"), None);
+        assert_eq!(docker_engine_major(""), None);
     }
 
     #[test]

@@ -498,6 +498,12 @@ pub async fn handle_docker_doctor_command(
     let version_error = daemon_version.as_ref().ok().and_then(|version| {
         crate::handlers::run::docker_sandbox::docker_engine_version_error(version)
     });
+    // `None` when the daemon's version isn't recognized: runs are allowed
+    // (see `docker_engine_version_error`), but 26+ can't be confirmed.
+    let version_supported = daemon_version.as_ref().ok().and_then(|version| {
+        crate::handlers::run::docker_sandbox::docker_engine_major(version)
+            .map(|_| version_error.is_none())
+    });
     let all_ok = binary_available && daemon_version.is_ok() && version_error.is_none();
 
     if raw_output {
@@ -506,7 +512,7 @@ pub async fn handle_docker_doctor_command(
             "daemon_reachable": daemon_version.is_ok(),
             "daemon_version": daemon_version.as_ref().ok(),
             "daemon_error": daemon_version.as_ref().err(),
-            "daemon_version_supported": daemon_version.is_ok() && version_error.is_none(),
+            "daemon_version_supported": version_supported,
             "default_image_built": image_built,
             "default_image_created_at": image_created_at.map(|created_at| created_at.to_rfc3339()),
             "default_image_stale": stale_hint.is_some(),
@@ -533,13 +539,18 @@ pub async fn handle_docker_doctor_command(
         ),
         Err(error) => println!("{} Docker daemon reachable: {error}", "✗".red_if_tty()),
     }
-    if daemon_version.is_ok() {
+    if let Ok(version) = &daemon_version {
         let minimum = crate::handlers::run::docker_sandbox::MIN_DOCKER_ENGINE_MAJOR;
-        match &version_error {
-            None => println!("{} Docker Engine {minimum} or newer", "✓".green_if_tty()),
-            Some(error) => println!(
+        match (version_supported, &version_error) {
+            (_, Some(error)) => println!(
                 "{} Docker Engine {minimum} or newer: {error}",
                 "✗".red_if_tty()
+            ),
+            (Some(_), None) => println!("{} Docker Engine {minimum} or newer", "✓".green_if_tty()),
+            (None, None) => println!(
+                "{} Docker Engine version unrecognized ({:?}), can't confirm {minimum} or newer",
+                "○".yellow_if_tty(),
+                version.trim()
             ),
         }
     }
