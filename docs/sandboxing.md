@@ -138,7 +138,7 @@ Only these paths under `/home/agent` persist:
 
 Everything else in the home starts empty on every run and is discarded when it ends. That's deliberate: a credential a tool saves in its home — `gh auth login` (`~/.config/gh`), a git credential helper in `~/.gitconfig`, `~/.npmrc`, `~/.aws` — would otherwise authenticate every later sandboxed run, in every project and profile, without the profile granting it. Give tools their credentials through [profile secrets](agent-profiles.md) instead (e.g. `GH_TOKEN` for `gh`), so the proxy injects and audits them.
 
-Persisting only these paths needs Docker Engine 26 or newer (`volume-subpath` mounts).
+Persisting only these paths needs Docker Engine 26 or newer (`volume-subpath` mounts); on an older engine `agent run` refuses to start and `agent docker doctor` reports it.
 
 ### Admin shell and installing tools
 
@@ -234,7 +234,7 @@ Add `--profile <name>` to target that profile's own `sandbox.image`/`sandbox.doc
 stashbase agent docker doctor
 ```
 
-Checks whether the Docker sandbox backend can actually run here — the `docker` CLI on PATH, the daemon reachable (and its version), and whether the default image is already built (with how old it is and the Claude Code/Codex versions inside it) — without starting a real sandboxed run to find out. Exits non-zero if anything's not ready; pass `--json` for machine-readable output. Useful for onboarding or CI setup scripts that want to fail fast with a clear reason, rather than discovering a missing Docker install only when a real `agent run` fails.
+Checks whether the Docker sandbox backend can actually run here — the `docker` CLI on PATH, the daemon reachable and at least Docker Engine 26, and whether the default image is already built (with how old it is and the Claude Code/Codex versions inside it) — without starting a real sandboxed run to find out. Exits non-zero if anything's not ready; pass `--json` for machine-readable output. Useful for onboarding or CI setup scripts that want to fail fast with a clear reason, rather than discovering a missing Docker install only when a real `agent run` fails.
 
 ### Docker backend limitations
 

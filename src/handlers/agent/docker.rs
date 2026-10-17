@@ -464,7 +464,7 @@ fn cleanup_isolated_path_volumes(yes: bool, raw_output: bool, silent: bool) -> R
 /// Checks whether the Docker sandbox backend can actually run on this
 /// machine, without starting a real sandboxed run to find out. Reports
 /// each check independently (the `docker` CLI on PATH, the daemon
-/// reachable, its version, and whether the default image is already
+/// reachable, its version and whether it's new enough, and whether the default image is already
 /// built) rather than the single combined error message
 /// `docker_enforcement_error` gives a real `agent run` failing closed,
 /// since a standalone diagnostic is exactly where naming which part
@@ -495,7 +495,10 @@ pub async fn handle_docker_doctor_command(
     let stale_hint = image_created_at.and_then(|created_at| {
         crate::handlers::run::docker_sandbox::stale_default_image_hint(created_at, now)
     });
-    let all_ok = binary_available && daemon_version.is_ok();
+    let version_error = daemon_version.as_ref().ok().and_then(|version| {
+        crate::handlers::run::docker_sandbox::docker_engine_version_error(version)
+    });
+    let all_ok = binary_available && daemon_version.is_ok() && version_error.is_none();
 
     if raw_output {
         let json = serde_json::json!({
@@ -503,6 +506,7 @@ pub async fn handle_docker_doctor_command(
             "daemon_reachable": daemon_version.is_ok(),
             "daemon_version": daemon_version.as_ref().ok(),
             "daemon_error": daemon_version.as_ref().err(),
+            "daemon_version_supported": daemon_version.is_ok() && version_error.is_none(),
             "default_image_built": image_built,
             "default_image_created_at": image_created_at.map(|created_at| created_at.to_rfc3339()),
             "default_image_stale": stale_hint.is_some(),
@@ -528,6 +532,16 @@ pub async fn handle_docker_doctor_command(
             "✓".green_if_tty()
         ),
         Err(error) => println!("{} Docker daemon reachable: {error}", "✗".red_if_tty()),
+    }
+    if daemon_version.is_ok() {
+        let minimum = crate::handlers::run::docker_sandbox::MIN_DOCKER_ENGINE_MAJOR;
+        match &version_error {
+            None => println!("{} Docker Engine {minimum} or newer", "✓".green_if_tty()),
+            Some(error) => println!(
+                "{} Docker Engine {minimum} or newer: {error}",
+                "✗".red_if_tty()
+            ),
+        }
     }
     match image_created_at {
         Some(created_at) => {

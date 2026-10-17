@@ -20,8 +20,26 @@ pub(crate) fn docker_daemon_version() -> Result<String, String> {
     }
 }
 
+/// Oldest Docker Engine whose `--mount` supports `volume-subpath`, which
+/// every run needs to mount the persistent home (`persistent_home_args`).
+pub(crate) const MIN_DOCKER_ENGINE_MAJOR: u32 = 26;
+
+/// Why a daemon reporting `version` can't run the sandbox, or `None` if it
+/// can. A version that doesn't parse as `<major>.…` (a non-Docker daemon
+/// behind the `docker` CLI) passes: if it lacks the feature, the run still
+/// fails at container start with Docker's own error.
+pub(crate) fn docker_engine_version_error(version: &str) -> Option<String> {
+    let major: u32 = version.trim().split('.').next()?.parse().ok()?;
+    (major < MIN_DOCKER_ENGINE_MAJOR).then(|| {
+        format!(
+            "the Docker sandbox backend requires Docker Engine {MIN_DOCKER_ENGINE_MAJOR} or newer (the daemon reports {}); upgrade Docker",
+            version.trim()
+        )
+    })
+}
+
 /// Checks whether the Docker sandbox backend can run here. Returns `None`
-/// when Docker is installed and the daemon is reachable, `Some(message)`
+/// when Docker is installed, the daemon is reachable and new enough, `Some(message)`
 /// otherwise. Callers must fail the run closed on `Some` — never fall back
 /// to an unsandboxed execution path.
 pub(crate) fn docker_enforcement_error() -> Option<String> {
@@ -32,7 +50,7 @@ pub(crate) fn docker_enforcement_error() -> Option<String> {
         );
     }
     match docker_daemon_version() {
-        Ok(_) => None,
+        Ok(version) => docker_engine_version_error(&version),
         Err(detail) => Some(format!(
             "the Docker sandbox backend requires a reachable Docker daemon: {detail}"
         )),
@@ -3350,6 +3368,16 @@ mod tests {
         assert!(args.contains(&format!("HOME={CONTAINER_HOME}")));
         assert!(args.contains(&format!("CLAUDE_CONFIG_DIR={CONTAINER_HOME}/.claude")));
         assert!(args.contains(&"STASHBASE_SANDBOX=1".to_owned()));
+    }
+
+    #[test]
+    fn docker_engine_version_error_rejects_engines_without_volume_subpath() {
+        assert!(docker_engine_version_error("25.0.5").is_some());
+        assert!(docker_engine_version_error("20.10.24\n").is_some());
+        assert!(docker_engine_version_error("26.0.0").is_none());
+        assert!(docker_engine_version_error("29.8.2").is_none());
+        assert!(docker_engine_version_error("").is_none());
+        assert!(docker_engine_version_error("dev").is_none());
     }
 
     #[test]
