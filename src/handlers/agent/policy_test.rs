@@ -187,12 +187,8 @@ fn evaluate_case(
             .iter()
             .any(|denied| denied == "*" || configured_host_matches(denied, &host))
     });
-    let denied_by_egress_hosts = !denied_by_global_hosts
-        && profile.egress_hosts.as_deref().is_some_and(|hosts| {
-            hosts
-                .iter()
-                .all(|allowed| allowed != "*" && !configured_host_matches(allowed, &host))
-        });
+    // egress_hosts does not gate a credential: its own rules admit requests
+    // that carry it, whether or not the host is ordinary egress.
     let policy = if secret.rules.is_empty() {
         SecretHttpPolicy::LegacyHosts(secret.hosts.iter().cloned().collect::<HashSet<_>>())
     } else {
@@ -204,11 +200,6 @@ fn evaluate_case(
         (
             AgentPolicyTestExpectation::Deny,
             PolicyTestReason::DeniedByDenyHosts,
-        )
-    } else if denied_by_egress_hosts {
-        (
-            AgentPolicyTestExpectation::Deny,
-            PolicyTestReason::DeniedByEgressHosts,
         )
     } else {
         match credential_decision {
@@ -281,7 +272,6 @@ struct PolicyTestResult {
 #[serde(rename_all = "snake_case")]
 enum PolicyTestReason {
     DeniedByDenyHosts,
-    DeniedByEgressHosts,
     AllowedLegacyHost,
     AllowedRule,
     DeniedLegacyHost,
@@ -293,7 +283,6 @@ impl std::fmt::Display for PolicyTestReason {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::DeniedByDenyHosts => "connection denied by deny_hosts",
-            Self::DeniedByEgressHosts => "connection denied by egress_hosts",
             Self::AllowedLegacyHost => "legacy credential host matches",
             Self::AllowedRule => "credential allow rule matches",
             Self::DeniedLegacyHost => "legacy credential hosts do not match",
@@ -413,26 +402,25 @@ mod tests {
     }
 
     #[test]
-    fn reports_egress_legacy_and_explicit_rule_decisions() {
-        let mut egress_denied = profile();
-        egress_denied.egress_hosts = Some(vec!["registry.npmjs.org".to_owned()]);
+    fn reports_credential_rule_decisions_regardless_of_egress() {
+        // A credential's own rule admits its host even when it is not egress.
+        let mut not_egress = profile();
+        not_egress.egress_hosts = Some(vec!["registry.npmjs.org".to_owned()]);
         let result = evaluate_case(
-            &egress_denied,
+            &not_egress,
             &AgentPolicyTestCase {
                 name: None,
                 secret: "GITHUB_TOKEN".to_owned(),
                 method: "GET".to_owned(),
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
-                expect: AgentPolicyTestExpectation::Deny,
+                expect: AgentPolicyTestExpectation::Allow,
             },
             1,
         )
         .unwrap();
-        assert!(matches!(
-            result.reason,
-            PolicyTestReason::DeniedByEgressHosts
-        ));
+        assert!(result.passed);
+        assert!(matches!(result.reason, PolicyTestReason::AllowedRule));
 
         let mut legacy = profile();
         legacy

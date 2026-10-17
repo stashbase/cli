@@ -74,6 +74,8 @@ deny_hosts = ["api.stashbase.dev"]
 
 A credential rule's hosts do not need to be listed in `egress_hosts`. A secret with rules for `api.example.com` lets the agent reach `api.example.com` only with requests that carry that secret and match its rules; other requests to that host still need `egress_hosts`.
 
+`stashbase agent explain` prints the full set under **Reachable hosts**: hosts any request may reach (`egress_hosts`), the hosts each credential unlocks, and `deny_hosts`.
+
 ## Custom Headers and Value Templates
 
 By default, credentials are injected as `Authorization: Bearer <value>`. Customize for different auth schemes:
