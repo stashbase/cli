@@ -39,6 +39,7 @@ use crate::{
             AgentMcpServer, AgentProfile, AgentScalar,
         },
         config::Config,
+        validation::{AgentSessionInputValidationError, InputValidationError},
     },
     utils::{
         output::{get_formatted_json_string, is_color_enabled},
@@ -46,6 +47,29 @@ use crate::{
         spinner::{request_spinner, Spinner},
     },
 };
+
+/// Agent input errors print as `{"error": ...}` under --json, like a missing
+/// profile does.
+fn agent_input_error(error: AgentSessionInputValidationError, json: bool) -> anyhow::Error {
+    let error = InputValidationError::AgentSession(error);
+    let fallback = error.to_string();
+    anyhow::anyhow!(error.format_error_output(json).unwrap_or(fallback))
+}
+
+fn mcp_server<'a>(
+    profile: &'a AgentProfile,
+    server: &str,
+    json: bool,
+) -> Result<&'a AgentMcpServer> {
+    profile.mcp_servers.get(server).ok_or_else(|| {
+        agent_input_error(
+            AgentSessionInputValidationError::McpServerNotFound {
+                server: server.to_owned(),
+            },
+            json,
+        )
+    })
+}
 
 pub async fn handle_agent_mcp_tools_command(
     command: AgentMcpToolsCommand,
@@ -101,10 +125,7 @@ pub async fn handle_agent_mcp_tools_command(
                 })?,
         }
     };
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, json_format)?;
     let url = mcp_url(server)?;
     let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
@@ -140,10 +161,13 @@ pub async fn handle_agent_mcp_tools_command(
         let tool = tools
             .iter()
             .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
-            .with_context(|| {
-                format!(
-                    "MCP server '{}' does not offer a tool named '{name}'. Run without --tool to list its tools.",
-                    command.server
+            .ok_or_else(|| {
+                agent_input_error(
+                    AgentSessionInputValidationError::McpToolNotFound {
+                        server: command.server.clone(),
+                        tool: name.to_owned(),
+                    },
+                    json_format,
                 )
             })?;
         return print_tool_details(&command.server, server, tool, &warnings, json_format);
@@ -760,11 +784,7 @@ pub async fn handle_agent_mcp_configure_command(
     silent: bool,
 ) -> Result<()> {
     let (profile, profile_path) = load_mcp_profile_for_edit(&command, global_config)?;
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .cloned()
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, false)?.clone();
     let url = mcp_url(&server)?;
     let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
@@ -1077,10 +1097,7 @@ pub async fn handle_agent_mcp_verify_command(
                 })?,
         }
     };
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, json_format)?;
     let url = mcp_url(server)?;
     let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
@@ -1784,10 +1801,7 @@ pub fn handle_agent_mcp_check_command(
                 })?,
         }
     };
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, json_format)?;
     let (allowed, reason) = tool_decision(server, &command.tool);
     let report = json!({
         "schema_version": 1,
@@ -1865,11 +1879,15 @@ mod tests {
     use std::{collections::HashMap, fs};
 
     use super::{
-        binding_source_name, configure_item_label, first_sentence, format_conditions,
-        local_binding_value, mcp_tools_page, render_rule_lines, replace_mcp_allow_tools,
-        tool_arguments, tool_decision, tool_rule_lines, tool_rule_warnings, truncate, Paint,
+        agent_input_error, binding_source_name, configure_item_label, first_sentence,
+        format_conditions, local_binding_value, mcp_tools_page, render_rule_lines,
+        replace_mcp_allow_tools, tool_arguments, tool_decision, tool_rule_lines,
+        tool_rule_warnings, truncate, Paint,
     };
-    use crate::models::agent::{AgentBindingProfile, AgentMcpServer};
+    use crate::models::{
+        agent::{AgentBindingProfile, AgentMcpServer},
+        validation::AgentSessionInputValidationError,
+    };
     use uuid::Uuid;
 
     fn server(allow_tools: &[&str], deny_tools: &[&str]) -> AgentMcpServer {
@@ -2119,6 +2137,37 @@ rules = [
         assert!(tool_rule_warnings(&server, &[save_issue_tool()])
             .iter()
             .any(|warning| warning.contains("'save_issue' have no effect")));
+    }
+
+    #[test]
+    fn not_found_errors_are_json_under_json_output() {
+        let error = agent_input_error(
+            AgentSessionInputValidationError::McpToolNotFound {
+                server: "linear".to_owned(),
+                tool: "list_projectss".to_owned(),
+            },
+            true,
+        );
+        let value: serde_json::Value = serde_json::from_str(&error.to_string()).unwrap();
+        assert_eq!(value["error"]["type"], "input_validation_error");
+        assert_eq!(
+            value["error"]["message"],
+            "MCP tool was not found on the server."
+        );
+        assert!(value["error"]["hint"]
+            .as_str()
+            .unwrap()
+            .contains("'linear' does not offer a tool named 'list_projectss'"));
+
+        let text = agent_input_error(
+            AgentSessionInputValidationError::McpServerNotFound {
+                server: "lineer".to_owned(),
+            },
+            false,
+        )
+        .to_string();
+        assert!(text.contains("MCP server was not found in the profile."));
+        assert!(text.contains("[mcp_servers.lineer]"));
     }
 
     #[test]
