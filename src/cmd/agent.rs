@@ -434,6 +434,11 @@ pub struct AgentMcpToolsCommand {
     /// Resolve MCP bindings through a short-lived remote Agent Proxy session
     #[arg(long)]
     pub remote: bool,
+
+    /// Show one tool's arguments, the profile's rules for it, and rule fields
+    /// the tool does not declare
+    #[arg(long, value_name = "NAME")]
+    pub tool: Option<String>,
 }
 
 #[derive(Debug, Args)]
