@@ -226,11 +226,13 @@ pub struct ProxyAuditLogEvent {
     pub reason: Option<String>,
 }
 
-/// Exact-match filters for the local audit-log viewer.
+/// Filters for the local audit-log viewer: exact matches, except that a bare
+/// `reason` code also matches its field-specific variants.
 #[derive(Debug, Clone, Default)]
 pub struct ProxyAuditLogFilter {
     pub profile: Option<String>,
     pub action: Option<String>,
+    pub reason: Option<String>,
     pub host: Option<String>,
     pub session: Option<String>,
     pub id: Option<String>,
@@ -245,6 +247,12 @@ impl ProxyAuditLogFilter {
                 .action
                 .as_ref()
                 .is_none_or(|value| value == &event.action)
+            && self.reason.as_ref().is_none_or(|value| {
+                event
+                    .reason
+                    .as_ref()
+                    .is_some_and(|reason| reason_matches(value, reason))
+            })
             && self.host.as_ref().is_none_or(|value| {
                 event
                     .destination_host
@@ -260,6 +268,15 @@ impl ProxyAuditLogFilter {
                 .as_ref()
                 .is_none_or(|value| value == &event.event_id)
     }
+}
+
+/// `allow_condition_failed` matches `allow_condition_failed:arguments.team`
+/// as well as itself; a full reason matches only exactly.
+fn reason_matches(filter: &str, reason: &str) -> bool {
+    reason == filter
+        || reason
+            .strip_prefix(filter)
+            .is_some_and(|rest| rest.starts_with(':'))
 }
 
 /// Private, metadata-only audit log for one proxy session.
@@ -5751,10 +5768,31 @@ mod tests {
             host: Some("api.github.com".to_owned()),
             session: Some("session-1".to_owned()),
             id: Some("evt_test".to_owned()),
+            ..Default::default()
         }
         .matches(&event));
         assert!(!ProxyAuditLogFilter {
             host: Some("example.com".to_owned()),
+            ..Default::default()
+        }
+        .matches(&event));
+        let mut denied = event.clone();
+        denied.reason = Some("allow_condition_failed:arguments.team".to_owned());
+        for (filter, expected) in [
+            ("allow_condition_failed", true),
+            ("allow_condition_failed:arguments.team", true),
+            ("allow_condition_failed:arguments", false),
+            ("allow_condition", false),
+            ("tool_denied", false),
+        ] {
+            let filter = ProxyAuditLogFilter {
+                reason: Some(filter.to_owned()),
+                ..Default::default()
+            };
+            assert_eq!(filter.matches(&denied), expected, "{filter:?}");
+        }
+        assert!(!ProxyAuditLogFilter {
+            reason: Some("tool_denied".to_owned()),
             ..Default::default()
         }
         .matches(&event));

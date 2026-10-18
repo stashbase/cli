@@ -605,6 +605,11 @@ pub struct AgentLogsCommand {
     #[arg(long)]
     pub action: Option<String>,
 
+    /// Only show events with this denial reason; a code alone (for example:
+    /// allow_condition_failed) also matches its field-specific variants
+    #[arg(long)]
+    pub reason: Option<String>,
+
     /// Only show events for this destination host
     #[arg(long)]
     pub host: Option<String>,
@@ -648,6 +653,11 @@ pub struct AgentLogsListCommand {
     #[arg(long)]
     pub action: Option<String>,
 
+    /// Only show events with this denial reason; a code alone (for example:
+    /// allow_condition_failed) also matches its field-specific variants
+    #[arg(long)]
+    pub reason: Option<String>,
+
     /// Only show events for this destination host
     #[arg(long)]
     pub host: Option<String>,
@@ -682,6 +692,11 @@ pub struct AgentLogsSummaryCommand {
     /// Only include events with this proxy action
     #[arg(long)]
     pub action: Option<String>,
+
+    /// Only show events with this denial reason; a code alone (for example:
+    /// allow_condition_failed) also matches its field-specific variants
+    #[arg(long)]
+    pub reason: Option<String>,
 
     /// Only include events for this destination host
     #[arg(long)]

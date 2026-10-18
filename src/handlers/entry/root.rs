@@ -1671,6 +1671,7 @@ async fn handle_agent_logs(command: AgentLogsCommand, json: bool) -> anyhow::Res
     let filter = ProxyAuditLogFilter {
         profile: command.profile,
         action: command.action,
+        reason: command.reason,
         host: command.host,
         session: command.session,
         id: command.id,
@@ -1712,6 +1713,7 @@ impl From<AgentLogsListCommand> for AgentLogsCommand {
             since: command.since,
             profile: command.profile,
             action: command.action,
+            reason: command.reason,
             host: command.host,
             session: command.session,
             id: command.id,
@@ -1736,6 +1738,7 @@ fn handle_agent_logs_summary(
     let filter = ProxyAuditLogFilter {
         profile: command.profile,
         action: command.action,
+        reason: command.reason,
         host: command.host,
         session: command.session,
         id: command.id,
