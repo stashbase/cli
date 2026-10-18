@@ -153,6 +153,59 @@ pub struct AgentMcpRule {
     pub paths: Vec<String>,
     #[serde(default)]
     pub tools: Vec<String>,
+    /// Conditions on `params.arguments` of a `tools/call`. Empty means the rule
+    /// applies to every call of a matching tool.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub arguments: BTreeMap<String, AgentFieldCondition>,
+}
+
+/// A user-facing MCP tool rule. `allow_tools` and `deny_tools` are shorthand
+/// for tool rules without argument conditions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentMcpToolRule {
+    pub effect: AgentHttpRuleEffect,
+    pub tools: Vec<String>,
+    /// Dotted field paths under `params.arguments`, each with one condition.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub arguments: BTreeMap<String, AgentFieldCondition>,
+}
+
+/// A condition on one JSON field. A scalar must equal the field, a list must
+/// contain it (or every element of a non-empty array field), a range bounds a
+/// number inclusively, and `{ absent = true }` requires the field to be
+/// missing or null.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentFieldCondition {
+    Equals(AgentScalar),
+    OneOf(Vec<AgentScalar>),
+    Range(AgentNumberRange),
+    Absent(AgentAbsent),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentScalar {
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentAbsent {
+    pub absent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentNumberRange {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
 }
 
 /// User-facing MCP server policy. The endpoint and binding association are
@@ -177,6 +230,8 @@ pub struct AgentMcpServer {
     pub allow_tools: Vec<String>,
     #[serde(default)]
     pub deny_tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_rules: Vec<AgentMcpToolRule>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -644,13 +644,24 @@ async fn proxied_client(
         hosts: vec![host.clone()],
         paths: vec![path.clone()],
         tools: server.allow_tools.clone(),
+        arguments: Default::default(),
     }];
     if !server.deny_tools.is_empty() {
         mcp_rules.push(AgentMcpRule {
             effect: AgentHttpRuleEffect::Deny,
             hosts: vec![host.clone()],
-            paths: vec![path],
+            paths: vec![path.clone()],
             tools: server.deny_tools.clone(),
+            arguments: Default::default(),
+        });
+    }
+    for rule in &server.tool_rules {
+        mcp_rules.push(AgentMcpRule {
+            effect: rule.effect.clone(),
+            hosts: vec![host.clone()],
+            paths: vec![path.clone()],
+            tools: rule.tools.clone(),
+            arguments: rule.arguments.clone(),
         });
     }
     let (secrets, secret_policies, secret_injections, auth) =
@@ -839,6 +850,7 @@ async fn remote_proxied_client(
                 hosts: rule.hosts.clone(),
                 paths: rule.paths.clone(),
                 tools: rule.tools.clone(),
+                arguments: Default::default(),
             })
             .collect(),
         backend: profile.sandbox.backend,
@@ -1218,25 +1230,45 @@ pub fn handle_agent_mcp_check_command(
 }
 
 fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
-    if server
-        .deny_tools
-        .iter()
-        .any(|tool| tool == "*" || tool == name)
-    {
+    let names_tool = |tools: &[String]| tools.iter().any(|tool| tool == "*" || tool == name);
+    let tool_rules = |effect: AgentHttpRuleEffect, conditioned: bool| {
+        server.tool_rules.iter().any(|rule| {
+            rule.effect == effect
+                && rule.arguments.is_empty() != conditioned
+                && names_tool(&rule.tools)
+        })
+    };
+    if names_tool(&server.deny_tools) {
         return (false, "matched deny_tools");
     }
-    if server.allow_tools.is_empty() {
-        return (false, "allow_tools is empty; no tools are allowed");
+    if tool_rules(AgentHttpRuleEffect::Deny, false) {
+        return (false, "matched a deny tool rule");
     }
-    if server
-        .allow_tools
-        .iter()
-        .any(|tool| tool == "*" || tool == name)
-    {
+    let (allowed, reason) = if names_tool(&server.allow_tools) {
         (true, "matched allow_tools")
-    } else {
+    } else if tool_rules(AgentHttpRuleEffect::Allow, false) {
+        (true, "matched an allow tool rule")
+    } else if tool_rules(AgentHttpRuleEffect::Allow, true) {
+        (
+            true,
+            "allowed only when an allow tool rule's argument conditions hold",
+        )
+    } else if server.allow_tools.is_empty() && server.tool_rules.is_empty() {
+        (false, "allow_tools is empty; no tools are allowed")
+    } else if server.tool_rules.is_empty() {
         (false, "not present in allow_tools")
+    } else {
+        (false, "not present in allow_tools or an allow tool rule")
+    };
+    if allowed && tool_rules(AgentHttpRuleEffect::Deny, true) {
+        let reason = if reason.starts_with("allowed only") {
+            "allowed only when an allow tool rule's argument conditions hold, except calls whose arguments match a deny tool rule"
+        } else {
+            "allowed, except calls whose arguments match a deny tool rule"
+        };
+        return (true, reason);
     }
+    (allowed, reason)
 }
 
 #[cfg(test)]
@@ -1258,6 +1290,7 @@ mod tests {
             value_template: None,
             allow_tools: allow_tools.iter().map(|tool| (*tool).to_owned()).collect(),
             deny_tools: deny_tools.iter().map(|tool| (*tool).to_owned()).collect(),
+            tool_rules: Vec::new(),
         }
     }
 
@@ -1286,6 +1319,45 @@ mod tests {
         assert_eq!(
             tool_decision(&server(&["read_file"], &[]), "write_file"),
             (false, "not present in allow_tools")
+        );
+    }
+
+    #[test]
+    fn tool_decision_reports_tool_rules() {
+        let mut server = server(&["search"], &[]);
+        server.tool_rules = toml::from_str::<std::collections::HashMap<String, Vec<_>>>(
+            r#"
+rules = [
+  { effect = "allow", tools = ["send_message"], arguments = { mode = "draft" } },
+  { effect = "deny", tools = ["search"], arguments = { scope = "all" } },
+  { effect = "deny", tools = ["delete_message"] },
+]
+"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        assert_eq!(
+            tool_decision(&server, "send_message"),
+            (
+                true,
+                "allowed only when an allow tool rule's argument conditions hold"
+            )
+        );
+        assert_eq!(
+            tool_decision(&server, "search"),
+            (
+                true,
+                "allowed, except calls whose arguments match a deny tool rule"
+            )
+        );
+        assert_eq!(
+            tool_decision(&server, "delete_message"),
+            (false, "matched a deny tool rule")
+        );
+        assert_eq!(
+            tool_decision(&server, "other"),
+            (false, "not present in allow_tools or an allow tool rule")
         );
     }
 

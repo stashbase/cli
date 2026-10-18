@@ -5,7 +5,7 @@
 //! access to any credential source.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     net::IpAddr,
     path::Path,
@@ -20,7 +20,10 @@ use crate::{
     config::config,
     handlers::agent::env_check,
     models::{
-        agent::{AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile},
+        agent::{
+            AgentFieldCondition, AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile,
+            AgentScalar,
+        },
         config::Config,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
@@ -925,6 +928,88 @@ fn validate_mcp_server(
     }
     validate_mcp_server_tools(&label, "allow_tools", &server.allow_tools, checks);
     validate_mcp_server_tools(&label, "deny_tools", &server.deny_tools, checks);
+    for (index, rule) in server.tool_rules.iter().enumerate() {
+        let rule_label = format!("{label} tool rule {}", index + 1);
+        if rule.tools.is_empty() {
+            checks.push(fail(
+                rule_label.clone(),
+                "Must name at least one tool in 'tools'.".to_owned(),
+            ));
+        }
+        validate_mcp_server_tools(&rule_label, "tools", &rule.tools, checks);
+        validate_field_conditions(&rule_label, &rule.arguments, checks);
+        if rule.effect == AgentHttpRuleEffect::Deny && !rule.arguments.is_empty() {
+            checks.push(warn(
+                rule_label,
+                "Deny rules with argument conditions are best-effort: an agent may reach the same result with other arguments. Prefer allow rules with conditions.".to_owned(),
+            ));
+        }
+    }
+}
+
+/// Largest integer every JSON parser represents exactly as an f64.
+const MAX_EXACT_NUMBER: f64 = 9_007_199_254_740_992.0;
+
+fn validate_field_conditions(
+    label: &str,
+    conditions: &BTreeMap<String, AgentFieldCondition>,
+    checks: &mut Vec<Check>,
+) {
+    let exact = |number: f64| number.is_finite() && number.abs() <= MAX_EXACT_NUMBER;
+    let scalar_kind = |scalar: &AgentScalar| match scalar {
+        AgentScalar::Bool(_) => "bool",
+        AgentScalar::Integer(_) | AgentScalar::Float(_) => "number",
+        AgentScalar::String(_) => "string",
+    };
+    let scalar_exact = |scalar: &AgentScalar| match scalar {
+        AgentScalar::Integer(number) => exact(*number as f64),
+        AgentScalar::Float(number) => exact(*number),
+        AgentScalar::Bool(_) | AgentScalar::String(_) => true,
+    };
+    for (path, condition) in conditions {
+        let field_label = format!("{label} arguments.{path}");
+        if path.split('.').any(|segment| segment.trim().is_empty()) {
+            checks.push(fail(
+                field_label.clone(),
+                "Field paths are dot-separated object keys and cannot have empty segments."
+                    .to_owned(),
+            ));
+        }
+        let problem = match condition {
+            AgentFieldCondition::Equals(scalar) => {
+                (!scalar_exact(scalar)).then_some("Numbers must be within ±2^53.")
+            }
+            AgentFieldCondition::OneOf(list) if list.is_empty() => {
+                Some("A list must contain at least one value.")
+            }
+            AgentFieldCondition::OneOf(list)
+                if list
+                    .iter()
+                    .any(|scalar| scalar_kind(scalar) != scalar_kind(&list[0])) =>
+            {
+                Some("A list must contain values of one type.")
+            }
+            AgentFieldCondition::OneOf(list) => {
+                (!list.iter().all(scalar_exact)).then_some("Numbers must be within ±2^53.")
+            }
+            AgentFieldCondition::Range(range) => match (range.min, range.max) {
+                (None, None) => Some("A range needs 'min', 'max', or both."),
+                (Some(min), Some(max)) if min > max => {
+                    Some("'min' is greater than 'max', so the condition never holds.")
+                }
+                (min, max) if !min.into_iter().chain(max).all(exact) => {
+                    Some("Numbers must be within ±2^53.")
+                }
+                _ => None,
+            },
+            AgentFieldCondition::Absent(absent) => (!absent.absent).then_some(
+                "Only 'absent = true' is supported; every other condition already requires the field.",
+            ),
+        };
+        if let Some(problem) = problem {
+            checks.push(fail(field_label, problem.to_owned()));
+        }
+    }
 }
 
 fn validate_mcp_server_tools(label: &str, field: &str, tools: &[String], checks: &mut Vec<Check>) {
@@ -1789,6 +1874,60 @@ mod tests {
         assert!(!filesystem_checks(&plain)
             .iter()
             .any(|check| check.name == "Filesystem patterns"));
+    }
+
+    #[test]
+    fn mcp_tool_rules_validate_argument_conditions() {
+        let profile: AgentProfile = toml::from_str(
+            r#"
+[mcp_servers.mail]
+url = "https://mcp.mail.example/mcp"
+
+[[mcp_servers.mail.tool_rules]]
+effect = "allow"
+tools = ["send_message"]
+arguments = { mode = "draft", to = ["support@acme.com"], amount = { min = 1, max = 5000 }, id = { absent = true } }
+
+[[mcp_servers.mail.tool_rules]]
+effect = "allow"
+tools = []
+arguments = { "a..b" = 1, kinds = ["a", 1], empty = [], range = {}, backwards = { min = 5, max = 1 }, huge = 1e300, present = { absent = false } }
+
+[[mcp_servers.mail.tool_rules]]
+effect = "deny"
+tools = ["send_message"]
+arguments = { priority = "urgent" }
+"#,
+        )
+        .unwrap();
+        let checks = validate_profile(&profile);
+        let messages = |status: Status, label: &str| {
+            checks
+                .iter()
+                .filter(|check| check.status == status && check.name.starts_with(label))
+                .map(|check| check.message.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert!(messages(Status::Fail, "MCP server 'mail' tool rule 1").is_empty());
+        let failures = messages(Status::Fail, "MCP server 'mail' tool rule 2");
+        for expected in [
+            "Must name at least one tool",
+            "cannot have empty segments",
+            "values of one type",
+            "at least one value",
+            "needs 'min', 'max', or both",
+            "never holds",
+            "within ±2^53",
+            "Only 'absent = true'",
+        ] {
+            assert!(
+                failures.iter().any(|message| message.contains(expected)),
+                "missing '{expected}' in {failures:?}"
+            );
+        }
+        assert!(messages(Status::Warn, "MCP server 'mail' tool rule 3")
+            .iter()
+            .any(|message| message.contains("best-effort")));
     }
 
     fn config_env_profile(toml_source: &str) -> AgentProfile {

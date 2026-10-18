@@ -320,13 +320,24 @@ pub(crate) fn compiled_mcp_rules(
             hosts: vec![host.clone()],
             paths: vec![path.clone()],
             tools: server.allow_tools.clone(),
+            arguments: Default::default(),
         });
         if !server.deny_tools.is_empty() {
             rules.push(crate::models::agent::AgentMcpRule {
                 effect: crate::models::agent::AgentHttpRuleEffect::Deny,
-                hosts: vec![host],
-                paths: vec![path],
+                hosts: vec![host.clone()],
+                paths: vec![path.clone()],
                 tools: server.deny_tools.clone(),
+                arguments: Default::default(),
+            });
+        }
+        for rule in &server.tool_rules {
+            rules.push(crate::models::agent::AgentMcpRule {
+                effect: rule.effect.clone(),
+                hosts: vec![host.clone()],
+                paths: vec![path.clone()],
+                tools: rule.tools.clone(),
+                arguments: rule.arguments.clone(),
             });
         }
     }
@@ -1138,7 +1149,13 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
                         let bindings = remote_bindings(&profile);
-                        let mcp_rules = compiled_mcp_rules(&profile)
+                        let mcp_rules = compiled_mcp_rules(&profile);
+                        if mcp_rules.iter().any(|rule| !rule.arguments.is_empty()) {
+                            anyhow::bail!(
+                                "--remote does not support MCP tool_rules with 'arguments' yet; argument conditions are enforced only by the local proxy."
+                            );
+                        }
+                        let mcp_rules = mcp_rules
                             .into_iter()
                             .map(|rule| crate::api::remote_proxy::RemoteMcpRule {
                                 effect: rule.effect,
@@ -2097,15 +2114,21 @@ fn print_audit_event(event: &ProxyAuditLogEvent, json: bool) -> anyhow::Result<(
         .response_bytes
         .map(format_bytes)
         .unwrap_or_else(|| "-".to_owned());
+    // `reason` is appended only when set, so existing lines keep their shape.
+    let reason = event
+        .reason
+        .as_deref()
+        .map(|reason| format!(" reason={reason}"))
+        .unwrap_or_default();
     println!(
-        "{}  session_id={} event_id={} profile={} profile_source={} routing_mode={} action={} host={} route={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}",
+        "{}  session_id={} event_id={} profile={} profile_source={} routing_mode={} action={} host={} route={} path={} mcp_tool={} binding={} binding_source={} status={} duration={} request_bytes={} response_bytes={}{}",
         event.timestamp, event.session_id, event.event_id, event.profile,
         event.profile_source.as_deref().unwrap_or("-"),
         event.routing_mode.as_deref().unwrap_or("-"), event.action, host,
         event.route.as_deref().unwrap_or("-"),
         event.path.as_deref().unwrap_or("-"), mcp_tool, binding,
         event.binding_source.as_deref().unwrap_or("-"), status, duration,
-        request_bytes, response_bytes
+        request_bytes, response_bytes, reason
     );
     Ok(())
 }
@@ -2422,6 +2445,30 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         git2::Repository::init(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn compiled_mcp_rules_include_tool_rules_with_arguments() {
+        let profile: crate::models::agent::AgentProfile = toml::from_str(
+            r#"
+[mcp_servers.mail]
+url = "https://mcp.mail.example/mcp"
+allow_tools = ["search"]
+
+[[mcp_servers.mail.tool_rules]]
+effect = "allow"
+tools = ["send_message"]
+arguments = { mode = "draft" }
+"#,
+        )
+        .unwrap();
+        let rules = super::compiled_mcp_rules(&profile);
+        assert_eq!(rules.len(), 2);
+        assert!(rules[0].arguments.is_empty());
+        assert_eq!(rules[1].tools, vec!["send_message"]);
+        assert_eq!(rules[1].hosts, vec!["mcp.mail.example"]);
+        assert_eq!(rules[1].paths, vec!["/mcp"]);
+        assert!(rules[1].arguments.contains_key("mode"));
     }
 
     #[test]
@@ -2854,6 +2901,7 @@ mod tests {
             duration_ms: Some(1),
             request_bytes: Some(10),
             response_bytes: Some(20),
+            reason: None,
         };
         let report = summarize_audit_events(
             vec![
@@ -2907,6 +2955,7 @@ mod tests {
                 duration_ms: Some(1),
                 request_bytes: Some(10),
                 response_bytes: Some(100),
+                reason: None,
             },
             ProxyAuditLogEvent {
                 timestamp: "2026-01-01T00:00:00Z".to_owned(),
@@ -2932,6 +2981,7 @@ mod tests {
                 duration_ms: Some(1),
                 request_bytes: Some(2),
                 response_bytes: Some(200),
+                reason: None,
             },
         ];
 
