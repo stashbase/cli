@@ -339,6 +339,12 @@ fn tool_rule_warnings(server: &AgentMcpServer, tools: &[Value]) -> Vec<String> {
             ));
         }
     }
+    for (rule, tool) in server.shadowed_tool_conditions() {
+        warnings.push(format!(
+            "Tool rule {rule}: {}",
+            crate::handlers::agent::validate::shadowed_condition_message(&tool)
+        ));
+    }
     for (index, rule) in server.tool_rules.iter().enumerate() {
         for name in rule.tools.iter().filter(|name| *name != "*") {
             let Some(tool) = find(name) else {
@@ -830,9 +836,13 @@ pub async fn handle_agent_mcp_configure_command(
             .iter()
             .map(|name| current_tools.contains(name))
             .collect::<Vec<_>>();
+        let labels = names
+            .iter()
+            .map(|name| configure_item_label(&server, name))
+            .collect::<Vec<_>>();
         let selected = MultiSelect::with_theme(&McpMultiSelectTheme::default())
-            .with_prompt("Select allowed tools")
-            .items(&names)
+            .with_prompt("Select tools to allow with any arguments")
+            .items(&labels)
             .defaults(&defaults)
             .interact()?;
         selected
@@ -851,9 +861,18 @@ pub async fn handle_agent_mcp_configure_command(
             if selected.len() == 1 { "" } else { "s" }
         )
     };
+    // allow_tools allows every call of a tool, so selecting a tool that a
+    // conditioned tool rule covers would quietly stop enforcing the rule.
+    let shadowed = crate::models::agent::shadowed_tool_conditions(&selected, &server.tool_rules);
+    for (rule, tool) in &shadowed {
+        eprintln!(
+            "Warning: tool rule {rule}: {}",
+            crate::handlers::agent::validate::shadowed_condition_message(tool)
+        );
+    }
     if !Confirm::with_theme(&ColorfulTheme::default())
         .with_prompt(format!("Save {summary} to the profile?"))
-        .default(true)
+        .default(shadowed.is_empty())
         .interact()?
     {
         bail!("MCP profile was not changed.");
@@ -870,6 +889,34 @@ pub async fn handle_agent_mcp_configure_command(
     })?;
     println!("Updated MCP tools in {}.", profile_path.display());
     Ok(())
+}
+
+/// A picker item: the tool name, plus a note when tool rules already decide
+/// its calls, so it isn't selected (and its conditions bypassed) by mistake.
+fn configure_item_label(server: &AgentMcpServer, name: &str) -> String {
+    let rules = server
+        .tool_rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.tools.iter().any(|tool| tool == name))
+        .map(|(index, rule)| {
+            let effect = match rule.effect {
+                AgentHttpRuleEffect::Allow => "allow",
+                AgentHttpRuleEffect::Deny => "deny",
+            };
+            let conditions = if rule.arguments.is_empty() {
+                ""
+            } else {
+                " with conditions"
+            };
+            format!("rule {} {effect}{conditions}", index + 1)
+        })
+        .collect::<Vec<_>>();
+    if rules.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{name}  (tool {})", rules.join(", "))
+    }
 }
 
 fn load_mcp_profile_for_edit(
@@ -1777,7 +1824,16 @@ fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
     if tool_rules(AgentHttpRuleEffect::Deny, false) {
         return (false, "matched a deny tool rule");
     }
-    let (allowed, reason) = if names_tool(&server.allow_tools) {
+    let shadowed = server
+        .shadowed_tool_conditions()
+        .iter()
+        .any(|(_, tool)| tool == "*" || tool == name);
+    let (allowed, reason) = if shadowed {
+        (
+            true,
+            "allowed with any arguments; tool rule conditions have no effect because allow_tools or a rule without arguments also allows it",
+        )
+    } else if names_tool(&server.allow_tools) {
         (true, "matched allow_tools")
     } else if tool_rules(AgentHttpRuleEffect::Allow, false) {
         (true, "matched an allow tool rule")
@@ -1809,9 +1865,9 @@ mod tests {
     use std::{collections::HashMap, fs};
 
     use super::{
-        binding_source_name, first_sentence, format_conditions, local_binding_value,
-        mcp_tools_page, render_rule_lines, replace_mcp_allow_tools, tool_arguments, tool_decision,
-        tool_rule_lines, tool_rule_warnings, truncate, Paint,
+        binding_source_name, configure_item_label, first_sentence, format_conditions,
+        local_binding_value, mcp_tools_page, render_rule_lines, replace_mcp_allow_tools,
+        tool_arguments, tool_decision, tool_rule_lines, tool_rule_warnings, truncate, Paint,
     };
     use crate::models::agent::{AgentBindingProfile, AgentMcpServer};
     use uuid::Uuid;
@@ -1963,6 +2019,7 @@ rules = [
             tool_rule_warnings(&server, &[save_issue_tool()]),
             vec![
                 "allow_tools names 'list_issues', which the server does not offer.",
+                "Tool rule 1: Argument conditions for 'save_issue' have no effect: allow_tools or a tool rule without arguments already allows every call. Remove 'save_issue' from those to enforce the conditions.",
                 "Tool rule 1: arguments.teem is not an argument of 'save_issue'.",
                 "Tool rule 2 names 'save_isue', which the server does not offer.",
             ]
@@ -2019,6 +2076,49 @@ rules = [
         assert_eq!(truncate("Team name or ID", 40), "Team name or ID");
         assert_eq!(truncate("Team name or ID", 10), "Team name…");
         assert_eq!(truncate("Team name", 1), "");
+    }
+
+    #[test]
+    fn configure_labels_tools_that_tool_rules_decide() {
+        let mut server = server(&[], &[]);
+        server.tool_rules = toml::from_str::<HashMap<String, Vec<_>>>(
+            r#"
+rules = [
+  { effect = "allow", tools = ["save_issue"], arguments = { team = "ENG" } },
+  { effect = "deny", tools = ["save_issue"], arguments = { priority = 1 } },
+  { effect = "deny", tools = ["delete_issue"] },
+]
+"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        assert_eq!(
+            configure_item_label(&server, "save_issue"),
+            "save_issue  (tool rule 1 allow with conditions, rule 2 deny with conditions)"
+        );
+        assert_eq!(
+            configure_item_label(&server, "delete_issue"),
+            "delete_issue  (tool rule 3 deny)"
+        );
+        assert_eq!(configure_item_label(&server, "list_issues"), "list_issues");
+    }
+
+    #[test]
+    fn tool_decision_reports_shadowed_conditions() {
+        let mut server = server(&["*"], &[]);
+        server.tool_rules = toml::from_str::<HashMap<String, Vec<_>>>(
+            r#"rules = [{ effect = "allow", tools = ["save_issue"], arguments = { team = "ENG" } }]"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        let (allowed, reason) = tool_decision(&server, "save_issue");
+        assert!(allowed);
+        assert!(reason.contains("conditions have no effect"), "{reason}");
+        assert!(tool_rule_warnings(&server, &[save_issue_tool()])
+            .iter()
+            .any(|warning| warning.contains("'save_issue' have no effect")));
     }
 
     #[test]

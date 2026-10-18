@@ -945,6 +945,19 @@ fn validate_mcp_server(
             ));
         }
     }
+    for (rule, tool) in server.shadowed_tool_conditions() {
+        checks.push(warn(
+            format!("{label} tool rule {rule}"),
+            shadowed_condition_message(&tool),
+        ));
+    }
+}
+
+/// Shared with `agent mcp` so every command explains a shadowed rule alike.
+pub(crate) fn shadowed_condition_message(tool: &str) -> String {
+    format!(
+        "Argument conditions for '{tool}' have no effect: allow_tools or a tool rule without arguments already allows every call. Remove '{tool}' from those to enforce the conditions."
+    )
 }
 
 /// Largest integer every JSON parser represents exactly as an f64.
@@ -1928,6 +1941,33 @@ arguments = { priority = "urgent" }
         assert!(messages(Status::Warn, "MCP server 'mail' tool rule 3")
             .iter()
             .any(|message| message.contains("best-effort")));
+        assert!(
+            !checks
+                .iter()
+                .any(|check| check.message.contains("have no effect")),
+            "nothing allows send_message without conditions"
+        );
+    }
+
+    #[test]
+    fn mcp_tool_rules_warn_when_allow_tools_makes_conditions_moot() {
+        let profile: AgentProfile = toml::from_str(
+            r#"
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+allow_tools = ["*"]
+
+[[mcp_servers.linear.tool_rules]]
+effect = "allow"
+tools = ["save_issue"]
+arguments = { team = ["Engineering"] }
+"#,
+        )
+        .unwrap();
+        let checks = validate_profile(&profile);
+        assert!(checks.iter().any(|check| check.status == Status::Warn
+            && check.name == "MCP server 'linear' tool rule 1"
+            && check.message.contains("'save_issue' have no effect")));
     }
 
     fn config_env_profile(toml_source: &str) -> AgentProfile {
