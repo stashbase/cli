@@ -356,6 +356,7 @@ mod tests {
                 AgentBindingProfile {
                     hosts: Vec::new(),
                     rules: vec![AgentHttpRule {
+                        body: Default::default(),
                         effect: AgentHttpRuleEffect::Allow,
                         hosts: vec!["API.GITHUB.COM.".to_owned()],
                         methods: vec!["get".to_owned()],

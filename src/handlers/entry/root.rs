@@ -307,6 +307,22 @@ pub(crate) fn remote_bindings(
         .collect()
 }
 
+/// The remote proxy does not enforce body conditions yet, and would apply a
+/// conditioned allow to every request, so remote sessions refuse them.
+pub(crate) fn reject_remote_body_rules(
+    bindings: &[crate::api::remote_proxy::RemoteBinding],
+) -> anyhow::Result<()> {
+    if bindings
+        .iter()
+        .any(|binding| binding.rules.iter().any(|rule| !rule.body.is_empty()))
+    {
+        anyhow::bail!(
+            "--remote does not support HTTP rules with 'body' yet; body conditions are enforced only by the local proxy."
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn compiled_mcp_rules(
     profile: &crate::models::agent::AgentProfile,
 ) -> Vec<crate::models::agent::AgentMcpRule> {
@@ -1127,6 +1143,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
                         let bindings = remote_bindings(&profile);
+                        reject_remote_body_rules(&bindings)?;
                         let mcp_rules = compiled_mcp_rules(&profile)
                             .into_iter()
                             .map(crate::api::remote_proxy::RemoteMcpRule::from)
@@ -2415,6 +2432,26 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         git2::Repository::init(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn remote_sessions_refuse_http_rules_with_body_conditions() {
+        let profile: crate::models::agent::AgentProfile = toml::from_str(
+            r#"
+[secrets.MAIL_KEY]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+body = { send = false }
+"#,
+        )
+        .unwrap();
+        let error = super::reject_remote_body_rules(&super::remote_bindings(&profile)).unwrap_err();
+        assert!(error.to_string().contains("'body'"), "{error}");
+        assert!(super::reject_remote_body_rules(&[]).is_ok());
     }
 
     #[test]

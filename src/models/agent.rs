@@ -437,11 +437,16 @@ pub struct AgentBindingProfile {
 
 /// An HTTP action rule applied before a secret is injected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentHttpRule {
     pub effect: AgentHttpRuleEffect,
     pub hosts: Vec<String>,
     pub methods: Vec<String>,
     pub paths: Vec<String>,
+    /// Conditions on dotted fields of a JSON request body. Empty means the
+    /// rule matches on host, method and path alone, and the body is not read.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub body: BTreeMap<String, AgentFieldCondition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

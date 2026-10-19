@@ -10,8 +10,9 @@ use crate::{
     config::config,
     handlers::{
         agent::policy::{
-            configured_host_matches, evaluate_secret_authorization, matching_rule_indices,
-            normalize_request_path, SecretAuthorizationDecision, SecretHttpPolicy,
+            configured_host_matches, could_allow_with_body, evaluate_secret_authorization,
+            matching_rule_indices, normalize_request_path, secret_policy_needs_body,
+            SecretAuthorizationDecision, SecretHttpPolicy,
         },
         agent::validate::{ensure_profile_is_valid_for_run, uses_live_pattern_matching},
         run::{fs_rules::is_pattern_entry, subprocess::filesystem_backend_for_policy},
@@ -119,6 +120,21 @@ pub fn handle_agent_explain_command(
                 &report.request.method,
                 &report.request.path,
             );
+            let conditional = !matches!(
+                decision,
+                SecretAuthorizationDecision::AllowedLegacyHost
+                    | SecretAuthorizationDecision::AllowedRule
+            ) && secret_policy_needs_body(
+                &secret_policy,
+                &report.request.host,
+                &report.request.method,
+                &report.request.path,
+            ) && could_allow_with_body(
+                &secret_policy,
+                &report.request.host,
+                &report.request.method,
+                &report.request.path,
+            );
             let matched_rule = command
                 .verbose
                 .then(|| {
@@ -145,7 +161,11 @@ pub fn handle_agent_explain_command(
                 .flatten();
             report.credentials.push(ExplainCredential {
                 name: name.clone(),
-                decision: decision.into(),
+                decision: if conditional {
+                    ExplainCredentialDecision::EligibleIfBody
+                } else {
+                    decision.into()
+                },
                 matched_rule,
             });
         }
@@ -180,7 +200,9 @@ fn connection_decision(
     } else if credentials.iter().any(|credential| {
         matches!(
             credential.decision,
-            ExplainCredentialDecision::EligibleLegacyHost | ExplainCredentialDecision::EligibleRule
+            ExplainCredentialDecision::EligibleLegacyHost
+                | ExplainCredentialDecision::EligibleRule
+                | ExplainCredentialDecision::EligibleIfBody
         )
     }) {
         ConnectionDecision::AllowedWithCredential
@@ -347,6 +369,8 @@ struct ExplainMatchedRule {
 enum ExplainCredentialDecision {
     EligibleLegacyHost,
     EligibleRule,
+    /// Only body conditions decide, and explain sees no body.
+    EligibleIfBody,
     DeniedLegacyHost,
     DeniedRule,
     NoMatchingAllowRule,
@@ -416,6 +440,9 @@ fn print_human_report(report: &ExplainReport) {
             }
             ExplainCredentialDecision::DeniedLegacyHost => {
                 "not eligible (legacy hosts do not match)"
+            }
+            ExplainCredentialDecision::EligibleIfBody => {
+                "eligible only if the request body meets the rule's body conditions"
             }
             ExplainCredentialDecision::DeniedRule => "not eligible (a deny rule matches)",
             ExplainCredentialDecision::NoMatchingAllowRule => {
