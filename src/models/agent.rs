@@ -6,10 +6,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentProfile {
-    /// Oldest CLI version that enforces this profile. CLIs from before this
-    /// key existed reject it as unknown, so they refuse the profile instead of
-    /// silently dropping newer rule fields such as `body`.
-    pub min_cli_version: Option<String>,
     pub file: Option<String>,
     pub egress_hosts: Option<Vec<String>>,
     /// On macOS, allows a sandboxed child to bind a test or worker listener.

@@ -10,9 +10,6 @@
 # httpbin echoes "Authorization: Bearer test-key-123" when the credential was
 # injected; a refused request gets a 403 from the proxy naming the rule and field.
 
-# Older CLIs ignore 'body' and 'allow_fields'; this key makes them refuse the profile.
-min_cli_version = "0.22.0"
-
 file = ".stashbase/http-body-conditions.env"
 egress_hosts = ["httpbin.org"]
 

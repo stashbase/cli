@@ -14,8 +14,6 @@ Both use the same conditions and the same `allow_fields`. Everything below appli
 ## Quick example
 
 ```toml
-min_cli_version = "0.22.0"
-
 [secrets.MAIL_KEY]
 env = "MAIL_KEY"
 
@@ -39,10 +37,6 @@ allow_fields = ["subject", "text"]
 | `{"to": ["support@acme.com"]}` | refused | `send` is missing |
 | `{"send": false, "to": ["support@acme.com"], "bcc": ["x@evil.com"]}` | refused | `bcc` is not listed anywhere |
 | `send=false&to=support@acme.com` (form body) | refused | only JSON bodies are read |
-
-## `min_cli_version`
-
-A profile with `body` or `allow_fields` on an HTTP rule must set `min_cli_version = "0.22.0"` (or newer) at the top. CLIs before 0.22.0 ignore those keys, so they would apply the rule to every request it names. They reject `min_cli_version` as an unknown key, so they refuse the profile instead. `stashbase agent validate` tells you when the key is missing. MCP rules don't need it, because older CLIs already reject unknown keys in `tool_rules`.
 
 ## Conditions
 

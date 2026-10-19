@@ -7,8 +7,6 @@
 # Then ask the agent to use curl with "Authorization: Bearer $GH_TOKEN" (the gh
 # CLI sends "token ...", which this profile's placeholder does not match).
 
-min_cli_version = "0.22.0"
-
 file = ".stashbase/github-body-conditions.env"
 
 [secrets.GH_TOKEN]

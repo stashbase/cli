@@ -197,8 +197,6 @@ See [request-conditions.md](./agent-profiles/request-conditions.md) for the full
 The same `POST` can save a draft or send to a customer. An optional `body` on a rule matches JSON request bodies, with the same conditions as [MCP argument conditions](#argument-conditions):
 
 ```toml
-min_cli_version = "0.22.0"
-
 [[secrets.MAIL_KEY.rules]]
 effect = "allow"
 hosts = ["api.mail.example"]
@@ -213,8 +211,6 @@ methods = ["POST"]
 paths = ["/v1/payouts"]
 body = { currency = "usd", amount = { min = 1, max = 5000 }, "destination.type" = "bank" }
 ```
-
-A profile that uses `body` must set `min_cli_version = "0.22.0"` (or newer) at the top. Older CLIs ignore `body` and would allow every request the rule names; they reject `min_cli_version` as an unknown key, so they refuse the profile instead. A CLI older than the `min_cli_version` it reads also refuses the profile.
 
 `allow_fields` works the same way as for MCP rules: with it set, the body may contain only fields named in `body` or `allow_fields`, and others are refused with `reason=unlisted_field:body.<field>`. A rule with only `allow_fields` also reads the body.
 

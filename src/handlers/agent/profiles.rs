@@ -343,7 +343,6 @@ mod tests {
     #[test]
     fn effective_profile_resolves_defaults_and_normalizes_rules() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: Some(vec!["API.GITHUB.COM.".to_owned()]),
             allow_network_listeners: false,
@@ -392,7 +391,6 @@ mod tests {
     #[test]
     fn effective_profile_uses_plain_value_default_for_non_authorization_headers() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -437,7 +435,6 @@ mod tests {
             value_template: None,
         };
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,

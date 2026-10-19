@@ -289,65 +289,8 @@ fn print_report(profile: String, checks: Vec<Check>, json_format: bool) -> Resul
     Ok(report.status == Status::Fail)
 }
 
-/// The first release that enforces HTTP `body` conditions.
-const BODY_CONDITIONS_CLI_VERSION: &str = "0.22.0";
-
-fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = version.trim().trim_start_matches('v').splitn(3, '.');
-    let mut next = || parts.next()?.parse().ok();
-    Some((next()?, next()?, next()?))
-}
-
-/// Older CLIs silently ignore `body` on credential rules and would apply a
-/// conditioned allow to every request. Requiring `min_cli_version` makes them
-/// reject the profile, because it is an unknown top-level key to them.
-fn validate_min_cli_version(profile: &AgentProfile, checks: &mut Vec<Check>) {
-    let required = profile.min_cli_version.as_deref();
-    let parsed = required.map(parse_version);
-    if let (Some(value), Some(None)) = (required, parsed) {
-        checks.push(fail(
-            "min_cli_version".to_owned(),
-            format!("'{value}' is not a version like \"{BODY_CONDITIONS_CLI_VERSION}\"."),
-        ));
-        return;
-    }
-    let required = parsed.flatten();
-    if let Some(required) = required {
-        // This build enforces body conditions even before the version bump
-        // that releases them.
-        let current = parse_version(env!("CARGO_PKG_VERSION"))
-            .max(parse_version(BODY_CONDITIONS_CLI_VERSION));
-        if current.is_some_and(|current| current < required) {
-            checks.push(fail(
-                "min_cli_version".to_owned(),
-                format!(
-                    "This profile requires Stashbase CLI {} or newer; this is {}. Upgrade the CLI.",
-                    profile.min_cli_version.as_deref().unwrap_or_default(),
-                    env!("CARGO_PKG_VERSION")
-                ),
-            ));
-        }
-    }
-    let uses_body = profile
-        .secrets
-        .bindings
-        .values()
-        .chain(profile.personal_credentials.values())
-        .any(|binding| binding.rules.iter().any(|rule| rule.has_conditions()));
-    let body_version = parse_version(BODY_CONDITIONS_CLI_VERSION);
-    if uses_body && required.is_none_or(|required| Some(required) < body_version) {
-        checks.push(fail(
-            "min_cli_version".to_owned(),
-            format!(
-                "Rules with 'body' need min_cli_version = \"{BODY_CONDITIONS_CLI_VERSION}\" (or newer) at the top of the profile, so older CLIs refuse it instead of ignoring the conditions."
-            ),
-        ));
-    }
-}
-
 fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     let mut checks = Vec::new();
-    validate_min_cli_version(profile, &mut checks);
     let egress_only =
         profile.secrets.bindings.is_empty() && profile.personal_credentials.is_empty();
     let personal_credentials_only =
@@ -1419,7 +1362,6 @@ mod tests {
     #[test]
     fn rejects_unsupported_hook_capabilities_in_validate_and_run() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1447,7 +1389,6 @@ mod tests {
     #[test]
     fn secret_scan_is_a_known_hook() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1479,7 +1420,6 @@ mod tests {
         // platform where only those native mechanisms are unavailable
         // (e.g. Windows) — it should get a Docker-specific check instead.
         let mut profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1510,7 +1450,6 @@ mod tests {
 
     fn worktree_test_profile(backend: crate::models::agent::SandboxBackend) -> AgentProfile {
         let mut profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1550,7 +1489,6 @@ mod tests {
     #[test]
     fn rejects_sandbox_image_and_dockerfile_set_together() {
         let mut profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1578,7 +1516,6 @@ mod tests {
     #[test]
     fn rejects_a_missing_sandbox_dockerfile() {
         let mut profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1635,7 +1572,6 @@ mod tests {
     #[test]
     fn rejects_a_malformed_sandbox_memory_or_cpus_value() {
         let mut profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1744,7 +1680,6 @@ mod tests {
     #[test]
     fn requires_templates_to_contain_the_value_marker() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1782,7 +1717,6 @@ mod tests {
     #[test]
     fn rejects_legacy_secret_template_marker() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1821,7 +1755,6 @@ mod tests {
     #[test]
     fn rejects_an_egress_only_profile_with_a_secret_source() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: Some(".env.agent".to_owned()),
             egress_hosts: Some(vec!["chatgpt.com".to_owned()]),
             allow_network_listeners: false,
@@ -1845,7 +1778,6 @@ mod tests {
     #[test]
     fn accepts_personal_credential_only_profile_without_project_environment_or_file() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1883,7 +1815,6 @@ mod tests {
     #[test]
     fn run_validation_rejects_duplicate_remote_placeholders() {
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -1946,7 +1877,6 @@ mod tests {
             value_template: None,
         };
         let profile = AgentProfile {
-            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,
@@ -2095,8 +2025,6 @@ arguments = { priority = "urgent" }
     fn http_rules_validate_body_conditions() {
         let profile: AgentProfile = toml::from_str(
             r#"
-min_cli_version = "0.22.0"
-
 [secrets.PAYMENTS_KEY]
 
 [[secrets.PAYMENTS_KEY.rules]]
@@ -2172,46 +2100,7 @@ body = { send = false }
     }
 
     #[test]
-    fn body_conditions_require_min_cli_version() {
-        let profile = |header: &str| {
-            toml::from_str::<AgentProfile>(&format!(
-                r#"{header}
-[secrets.MAIL_KEY]
-
-[[secrets.MAIL_KEY.rules]]
-effect = "allow"
-hosts = ["api.mail.example"]
-methods = ["POST"]
-paths = ["/v1/messages"]
-body = {{ send = false }}
-"#
-            ))
-            .unwrap()
-        };
-        let failures = |profile: &AgentProfile| {
-            validate_profile(profile)
-                .into_iter()
-                .filter(|check| check.status == Status::Fail && check.name == "min_cli_version")
-                .map(|check| check.message)
-                .collect::<Vec<_>>()
-        };
-        let missing = failures(&profile(""));
-        assert!(
-            missing[0].contains("need min_cli_version = \"0.22.0\""),
-            "{missing:?}"
-        );
-        assert!(!failures(&profile("min_cli_version = \"0.21.0\"")).is_empty());
-        assert!(failures(&profile("min_cli_version = \"0.22.0\"")).is_empty());
-        assert!(failures(&profile("min_cli_version = \"0.22\""))[0].contains("not a version"));
-        let too_new = failures(&profile("min_cli_version = \"99.0.0\""));
-        assert!(
-            too_new[0].contains("requires Stashbase CLI 99.0.0"),
-            "{too_new:?}"
-        );
-    }
-
-    #[test]
-    fn allow_fields_are_for_allow_rules_and_need_min_cli_version() {
+    fn allow_fields_are_for_allow_rules_only() {
         let profile: AgentProfile = toml::from_str(
             r#"
 [secrets.MAIL_KEY]
@@ -2260,7 +2149,6 @@ allow_fields = ["to"]
             "MCP server 'mail' tool rule 1 allow_fields",
             "allow rules only"
         ));
-        assert!(failed("min_cli_version", "need min_cli_version"));
     }
 
     #[test]
