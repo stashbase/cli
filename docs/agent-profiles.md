@@ -228,7 +228,7 @@ body = '{"send": true, "to": ["support@acme.com"]}'
 expect = "deny"
 ```
 
-The body is read as JSON. A case without `body` is evaluated like a request without one, so it never meets body conditions.
+The body is read as JSON. A case without `body` is evaluated like a request without one, so it never meets body conditions. See [examples/http-body-conditions.toml](./agent-profiles/examples/http-body-conditions.toml) for a profile you can run against httpbin.org without a real key.
 
 A rule without `body` behaves as before, and the proxy streams the request without reading it. When a credential has a rule with `body` that matches the host, method and path, the proxy reads the body before injecting the credential and forwards exactly the bytes it checked.
 
