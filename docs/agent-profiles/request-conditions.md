@@ -229,4 +229,5 @@ Other tools:
 - **Single requests only.** Conditions don't limit totals: an agent allowed 5000 per payout can make several payouts.
 - **JSON only.** Form-encoded and multipart bodies are unreadable, and query strings are not checked.
 - **No array element conditions**, such as "every `items[].amount` is at most 100".
+- **GraphQL needs care.** A GraphQL request's operation lives inside its `query` string, which conditions treat as plain text. `operationName` is chosen by the client and `variables` don't say which operation runs, so neither is safe alone. Allow exact queries instead, with `query = ["<exact query text>"]` and `allow_fields = ["variables", "operationName"]`, plus conditions on `variables.*` if needed. Any other query text is refused, even with different whitespace. Where an API also offers REST endpoints, such as GitHub for issues, rules on those are simpler.
 - **`--remote`:** the remote proxy enforces the same conditions, for MCP `arguments` and HTTP `body`, with the same messages and audit reasons.
