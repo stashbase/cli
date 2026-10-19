@@ -424,11 +424,16 @@ pub fn first_unlisted_field(
             if !listed.iter().any(|listed| listed.starts_with(&parent)) {
                 return Some(path);
             }
-            // A non-object here fails the nested condition instead.
-            if let Value::Object(nested) = value {
-                if let Some(unlisted) = walk(nested, &path, listed) {
-                    return Some(unlisted);
+            // Only paths below this field are allowed, so it must be an object
+            // (or null). An array or scalar would carry unlisted content.
+            match value {
+                Value::Object(nested) => {
+                    if let Some(unlisted) = walk(nested, &path, listed) {
+                        return Some(unlisted);
+                    }
                 }
+                Value::Null => {}
+                _ => return Some(path),
             }
         }
         None
@@ -848,6 +853,20 @@ mod tests {
             unlisted(r#"{"project":{"id":"P","owner":"x"}}"#).as_deref(),
             Some("project.owner")
         );
+        // Only paths below `project` are listed, so it must be an object.
+        let nested_only = ["project.id".to_owned()];
+        let unlisted_nested =
+            |json: &str| first_unlisted_field(&Default::default(), &nested_only, &value(json));
+        assert_eq!(
+            unlisted_nested(r#"{"project":[{"owner":"attacker"}]}"#).as_deref(),
+            Some("project")
+        );
+        assert_eq!(
+            unlisted_nested(r#"{"project":"x"}"#).as_deref(),
+            Some("project")
+        );
+        assert_eq!(unlisted_nested(r#"{"project":null}"#), None);
+        assert_eq!(unlisted_nested(r#"{"project":{"id":1}}"#), None);
 
         let policy = SecretHttpPolicy::Rules(vec![AgentHttpRule {
             effect: AgentHttpRuleEffect::Allow,
