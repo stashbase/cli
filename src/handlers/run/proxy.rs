@@ -62,10 +62,10 @@ use uuid::Uuid;
 
 use crate::{
     handlers::agent::policy::{
-        authorize_secret_request, first_unlisted_field, first_unmet_condition, host_matches,
-        normalize_secret_http_policy, parse_json_with_unique_keys, read_request_body,
-        secret_policy_needs_body, RequestBody, SecretAuthorization, SecretAuthorizationDecision,
-        SecretHttpPolicy,
+        authorize_secret_request, could_allow_with_body, first_unlisted_field,
+        first_unmet_condition, host_matches, normalize_secret_http_policy,
+        parse_json_with_unique_keys, read_request_body, secret_policy_needs_body, RequestBody,
+        SecretAuthorization, SecretAuthorizationDecision, SecretHttpPolicy,
     },
     models::agent::{AgentHttpRuleEffect, AgentMcpRule, SandboxBackend},
     REQUEST_TIMEOUT_SECS,
@@ -4043,23 +4043,16 @@ fn replace_placeholder(
         }
 
         let secret_name = secret_name_from_placeholder(placeholder);
+        let secret_policy = state.policy.secret_policies.get(placeholder);
+        let method = request.method().as_str();
+        let path = request.uri().path();
+        let body_dependent = host.is_some_and(|host| {
+            secret_policy.is_some_and(|policy| secret_policy_needs_body(policy, host, method, path))
+        });
         let needs_body = state.policy.strict_deny
+            && body_dependent
             && state.remote.is_none()
-            && !is_upgrade_request(request)
-            && host.is_some_and(|host| {
-                state
-                    .policy
-                    .secret_policies
-                    .get(placeholder)
-                    .is_some_and(|policy| {
-                        secret_policy_needs_body(
-                            policy,
-                            host,
-                            request.method().as_str(),
-                            request.uri().path(),
-                        )
-                    })
-            });
+            && !is_upgrade_request(request);
         if needs_body {
             let value = injection.value_template.replace("{value}", secret);
             let Ok(value) = HeaderValue::from_str(&value) else {
@@ -4077,7 +4070,21 @@ fn replace_placeholder(
                 }),
             }));
         }
-        if state.policy.strict_deny {
+        // The remote proxy reads the body and enforces body conditions itself.
+        // Locally, refuse only what no body could allow.
+        if state.policy.strict_deny && state.remote.is_some() && body_dependent {
+            let possible = host.is_some_and(|host| {
+                secret_policy
+                    .is_some_and(|policy| could_allow_with_body(policy, host, method, path))
+            });
+            if !possible {
+                return Err(CredentialDenial {
+                    secret_name,
+                    audit_action: credential_denial_action(&state.policy, placeholder),
+                    detail: None,
+                });
+            }
+        } else if state.policy.strict_deny {
             let authorization = secret_authorization(
                 &state.policy,
                 placeholder,
@@ -5233,6 +5240,52 @@ mod tests {
                 .is_err()
         );
         denied_proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn remote_relay_leaves_body_conditions_to_the_remote_proxy() {
+        let rules = vec![
+            AgentHttpRule {
+                allow_fields: Some(vec!["title".to_owned()]),
+                body: toml::from_str(r#"labels = ["agent"]"#).unwrap(),
+                effect: AgentHttpRuleEffect::Allow,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["POST".to_owned()],
+                paths: vec!["/repos/acme/widget/issues".to_owned()],
+            },
+            AgentHttpRule {
+                allow_fields: None,
+                body: Default::default(),
+                effect: AgentHttpRuleEffect::Deny,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["POST".to_owned()],
+                paths: vec!["/repos/acme/private/issues".to_owned()],
+            },
+        ];
+        let (address, _authorization) = start_backend().await;
+        let proxy = Proxy::start_remote_with_port(
+            remote_test_config(address),
+            remote_rule_policy(rules),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let post = |path: &str| {
+            proxy_client(&proxy)
+                .post(format!("http://api.github.com{path}"))
+                .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+                .header(CONTENT_TYPE, "application/json")
+                .body(r#"{"title":"x","labels":["agent"]}"#)
+                .send()
+        };
+        // Body-conditioned: forwarded for the remote proxy to decide.
+        let forwarded = post("/repos/acme/widget/issues").await.unwrap();
+        assert_eq!(forwarded.status(), StatusCode::NO_CONTENT);
+        // Nothing allows this path, so the relay still refuses it locally.
+        let denied = post("/repos/acme/private/issues").await.unwrap();
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        proxy.stop().await;
     }
 
     fn remote_test_config(address: std::net::SocketAddr) -> RemoteProxyConfig {
