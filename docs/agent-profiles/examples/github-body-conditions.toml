@@ -1,0 +1,121 @@
+# HTTP body conditions against the real GitHub REST API. Use a throwaway repo:
+# replace OWNER/REPO below with it (e.g. gh repo create agent-sandbox --private).
+#   cp docs/agent-profiles/examples/github-body-conditions.toml .stashbase/agents/
+#   printf 'GH_TOKEN=%s\n' "$(gh auth token)" > .stashbase/github-body-conditions.env
+#   stashbase agent policy test --profile github-body-conditions
+#   stashbase agent run --profile github-body-conditions -- claude
+# Then ask the agent to use curl with "Authorization: Bearer $GH_TOKEN" (the gh
+# CLI sends "token ...", which this profile's placeholder does not match).
+
+min_cli_version = "0.22.0"
+
+file = ".stashbase/github-body-conditions.env"
+
+[secrets.GH_TOKEN]
+env = "GH_TOKEN"
+
+# Read anything in the repo.
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["GET"]
+paths = ["/repos/OWNER/REPO", "/repos/OWNER/REPO/*"]
+
+# Open issues only with the agent label, and set nothing but title and body:
+# no assignees, milestones or other labels.
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["POST"]
+paths = ["/repos/OWNER/REPO/issues"]
+body = { labels = ["agent"] }
+allow_fields = ["title", "body"]
+
+# Edit an issue's title or text, but never close, lock or reassign it:
+# 'state' and everything else is refused because allow_fields lists only these.
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["PATCH"]
+paths = ["/repos/OWNER/REPO/issues/*"]
+allow_fields = ["title", "body"]
+
+# Comment on issues.
+[[secrets.GH_TOKEN.rules]]
+effect = "allow"
+hosts = ["api.github.com"]
+methods = ["POST"]
+paths = ["/repos/OWNER/REPO/issues/*/comments"]
+allow_fields = ["body"]
+
+[[policy_tests]]
+name = "open an agent issue"
+secret = "GH_TOKEN"
+method = "POST"
+host = "api.github.com"
+path = "/repos/OWNER/REPO/issues"
+body = '{"title": "Test from the agent", "body": "Hello", "labels": ["agent"]}'
+expect = "allow"
+
+[[policy_tests]]
+name = "issue without the agent label"
+secret = "GH_TOKEN"
+method = "POST"
+host = "api.github.com"
+path = "/repos/OWNER/REPO/issues"
+body = '{"title": "No label"}'
+expect = "deny"
+
+[[policy_tests]]
+name = "issue with another label"
+secret = "GH_TOKEN"
+method = "POST"
+host = "api.github.com"
+path = "/repos/OWNER/REPO/issues"
+body = '{"title": "x", "labels": ["agent", "urgent"]}'
+expect = "deny"
+
+[[policy_tests]]
+name = "issue that assigns someone"
+secret = "GH_TOKEN"
+method = "POST"
+host = "api.github.com"
+path = "/repos/OWNER/REPO/issues"
+body = '{"title": "x", "labels": ["agent"], "assignees": ["someone"]}'
+expect = "deny"
+
+[[policy_tests]]
+name = "edit an issue title"
+secret = "GH_TOKEN"
+method = "PATCH"
+host = "api.github.com"
+path = "/repos/OWNER/REPO/issues/1"
+body = '{"title": "Better title"}'
+expect = "allow"
+
+[[policy_tests]]
+name = "closing an issue"
+secret = "GH_TOKEN"
+method = "PATCH"
+host = "api.github.com"
+path = "/repos/OWNER/REPO/issues/1"
+body = '{"state": "closed"}'
+expect = "deny"
+
+[[policy_tests]]
+name = "comment"
+secret = "GH_TOKEN"
+method = "POST"
+host = "api.github.com"
+path = "/repos/OWNER/REPO/issues/1/comments"
+body = '{"body": "Looks good"}'
+expect = "allow"
+
+[[policy_tests]]
+name = "another repo"
+secret = "GH_TOKEN"
+method = "POST"
+host = "api.github.com"
+path = "/repos/OWNER/OTHER/issues"
+body = '{"title": "x", "labels": ["agent"]}'
+expect = "deny"
