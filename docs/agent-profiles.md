@@ -195,6 +195,8 @@ See [credential-policies.md](./agent-profiles/credential-policies.md) for detail
 The same `POST` can save a draft or send to a customer. An optional `body` on a rule matches JSON request bodies, with the same conditions as [MCP argument conditions](#argument-conditions):
 
 ```toml
+min_cli_version = "0.22.0"
+
 [[secrets.MAIL_KEY.rules]]
 effect = "allow"
 hosts = ["api.mail.example"]
@@ -209,6 +211,8 @@ methods = ["POST"]
 paths = ["/v1/payouts"]
 body = { currency = "usd", amount = { min = 1, max = 5000 }, "destination.type" = "bank" }
 ```
+
+A profile that uses `body` must set `min_cli_version = "0.22.0"` (or newer) at the top. Older CLIs ignore `body` and would allow every request the rule names; they reject `min_cli_version` as an unknown key, so they refuse the profile instead. A CLI older than the `min_cli_version` it reads also refuses the profile.
 
 A rule without `body` behaves as before, and the proxy streams the request without reading it. When a credential has a rule with `body` that matches the host, method and path, the proxy reads the body before injecting the credential and forwards exactly the bytes it checked.
 

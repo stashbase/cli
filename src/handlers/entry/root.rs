@@ -2722,6 +2722,7 @@ arguments = { mode = "draft" }
             value_template: None,
         };
         let profile = AgentProfile {
+            min_cli_version: None,
             file: None,
             egress_hosts: None,
             allow_network_listeners: false,

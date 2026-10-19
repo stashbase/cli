@@ -313,6 +313,7 @@ mod tests {
 
     fn profile() -> AgentProfile {
         AgentProfile {
+            min_cli_version: None,
             file: None,
             egress_hosts: Some(vec!["api.github.com".to_owned()]),
             allow_network_listeners: false,
