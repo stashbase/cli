@@ -1076,11 +1076,12 @@ impl ProxyPolicy {
                             methods.sort();
                             paths.sort();
                             format!(
-                                "{:?};{};{};{}",
+                                "{:?};{};{};{};{}",
                                 rule.effect,
                                 hosts.join(","),
                                 methods.join(","),
-                                paths.join(",")
+                                paths.join(","),
+                                fingerprint_conditions(&rule.body, rule.allow_fields.as_deref())
                             )
                         })
                         .collect::<Vec<_>>();
@@ -1122,7 +1123,7 @@ impl ProxyPolicy {
                     hosts.join(","),
                     paths.join(","),
                     tools.join(","),
-                    serde_json::to_string(&rule.arguments).unwrap_or_default()
+                    fingerprint_conditions(&rule.arguments, rule.allow_fields.as_deref())
                 )
             })
             .collect::<Vec<_>>();
@@ -3974,6 +3975,20 @@ fn filter_mcp_tools_list_sse_response(
     Ok(Bytes::from(output))
 }
 
+/// Body or argument conditions plus allowed fields, in a stable order, so
+/// policies that differ only in their conditions get different fingerprints.
+fn fingerprint_conditions(
+    conditions: &std::collections::BTreeMap<String, crate::models::agent::AgentFieldCondition>,
+    allow_fields: Option<&[String]>,
+) -> String {
+    let allow_fields = allow_fields.map(|fields| {
+        let mut fields = fields.to_vec();
+        fields.sort();
+        fields
+    });
+    serde_json::to_string(&(conditions, allow_fields)).unwrap_or_default()
+}
+
 fn policy_denies_host(policy: &ProxyPolicy, host: &str) -> bool {
     policy
         .denied_hosts
@@ -6135,6 +6150,51 @@ mod tests {
 
         assert_eq!(left.fingerprint(), right.fingerprint());
         assert_eq!(left.fingerprint().len(), 64);
+    }
+
+    #[test]
+    fn policy_fingerprint_changes_with_body_and_argument_conditions() {
+        let base = rule(
+            AgentHttpRuleEffect::Allow,
+            &["POST"],
+            &["/repos/*/*/issues"],
+        );
+        let with = |body: &str, allow_fields: Option<&[&str]>| {
+            rule_policy(vec![AgentHttpRule {
+                body: toml::from_str(body).unwrap(),
+                allow_fields: allow_fields
+                    .map(|fields| fields.iter().map(|field| (*field).to_owned()).collect()),
+                ..base.clone()
+            }])
+            .fingerprint()
+        };
+        let plain = rule_policy(vec![base.clone()]).fingerprint();
+        let labeled = with(r#"labels = ["agent"]"#, None);
+        assert_ne!(plain, labeled);
+        assert_ne!(labeled, with(r#"labels = ["urgent"]"#, None));
+        assert_ne!(labeled, with(r#"labels = ["agent"]"#, Some(&["title"])));
+        assert_ne!(
+            with(r#"labels = ["agent"]"#, Some(&[])),
+            with(r#"labels = ["agent"]"#, None)
+        );
+        assert_eq!(
+            with(r#"labels = ["agent"]"#, Some(&["title", "body"])),
+            with(r#"labels = ["agent"]"#, Some(&["body", "title"]))
+        );
+
+        let mcp = |allow_fields: Option<Vec<String>>| {
+            let mut policy = rule_policy(Vec::new());
+            policy.mcp_rules = vec![AgentMcpRule {
+                effect: AgentHttpRuleEffect::Allow,
+                hosts: vec!["mcp.example.com".to_owned()],
+                paths: vec!["/mcp".to_owned()],
+                tools: vec!["save_issue".to_owned()],
+                arguments: toml::from_str(r#"team = "ENG""#).unwrap(),
+                allow_fields,
+            }];
+            policy.fingerprint()
+        };
+        assert_ne!(mcp(None), mcp(Some(vec!["title".to_owned()])));
     }
 
     #[test]
