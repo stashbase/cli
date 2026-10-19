@@ -235,4 +235,4 @@ Other tools:
 - **Single requests only.** Conditions don't limit totals: an agent allowed 5000 per payout can make several payouts.
 - **JSON only.** Form-encoded and multipart bodies are unreadable, and query strings are not checked.
 - **No array element conditions**, such as "every `items[].amount` is at most 100".
-- **`--remote`:** MCP `arguments` and `allow_fields` are enforced by the remote proxy. HTTP `body` and `allow_fields` are local-only for now, and `--remote` refuses profiles that use them.
+- **`--remote`:** the remote proxy enforces the same conditions, for MCP `arguments` and HTTP `body`, with the same messages and audit reasons.

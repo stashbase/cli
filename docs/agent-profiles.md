@@ -236,7 +236,7 @@ A rule without `body` behaves as before, and the proxy streams the request witho
 
 The body is readable only when `Content-Type` is `application/json` or `application/*+json`, there is no `Content-Encoding`, it is at most 1 MiB, and it is a JSON object without repeated keys. Any other body, including no body, fails closed: allow rules with `body` don't match and deny rules with `body` do.
 
-A refused request returns 403 naming the rule and field, for example `The supplied credential is not allowed for this request (rule 1: body.send)`, and the audit log records `reason=allow_condition_failed:body.send` (or `deny_condition_matched:…`, `body_unreadable:encoding`), never the values. `stashbase agent validate` warns when an allow rule without `body` makes body conditions moot and that deny rules with `body` are best-effort. `stashbase agent explain` reports a request decided only by body conditions as eligible only if the body meets them. `--remote` refuses profiles with `body` for now; body conditions are enforced by the local proxy only.
+A refused request returns 403 naming the rule and field, for example `The supplied credential is not allowed for this request (rule 1: body.send)`, and the audit log records `reason=allow_condition_failed:body.send` (or `deny_condition_matched:…`, `body_unreadable:encoding`), never the values. `stashbase agent validate` warns when an allow rule without `body` makes body conditions moot and that deny rules with `body` are best-effort. `stashbase agent explain` reports a request decided only by body conditions as eligible only if the body meets them. The remote proxy (`--remote`) enforces the same conditions.
 
 ## MCP Tool Restrictions
 

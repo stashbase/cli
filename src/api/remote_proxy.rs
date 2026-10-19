@@ -866,6 +866,37 @@ mod tests {
     }
 
     #[test]
+    fn session_request_serializes_binding_body_conditions() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        let mut rule: crate::models::agent::AgentHttpRule = toml::from_str(
+            "effect = \"allow\"\nhosts = [\"api.github.com\"]\nmethods = [\"POST\"]\npaths = [\"/repos/*/*/issues\"]\nbody = { labels = [\"agent\"] }\nallow_fields = [\"title\"]",
+        )
+        .unwrap();
+        rule.methods = vec!["POST".to_owned()];
+        session.bindings = vec![RemoteBinding {
+            name: "GH_TOKEN".to_owned(),
+            source: RemoteBindingSource::Secret,
+            source_name: "GH_TOKEN".to_owned(),
+            hosts: Vec::new(),
+            rules: vec![rule],
+            header: "Authorization".to_owned(),
+            placeholder: "${GH_TOKEN}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
+        }];
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+
+        let rule = &body["bindings"][0]["rules"][0];
+        assert_eq!(rule["body"], serde_json::json!({ "labels": ["agent"] }));
+        assert_eq!(rule["allow_fields"], serde_json::json!(["title"]));
+    }
+
+    #[test]
     fn personal_credential_only_session_omits_project_and_environment() {
         let client = reqwest::Client::new();
         let mut session = session_request(None);

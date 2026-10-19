@@ -1368,7 +1368,6 @@ async fn remote_proxied_client(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    crate::handlers::entry::root::reject_remote_body_rules(&bindings)?;
     let mcp_rules = server_mcp_rules(server, &host, &path);
     let request = crate::api::remote_proxy::RemoteProxySessionRequest {
         api_key: api_key.to_owned(),
