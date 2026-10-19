@@ -190,6 +190,50 @@ paths = ["*"]
 
 See [credential-policies.md](./agent-profiles/credential-policies.md) for detailed rule syntax.
 
+### Body conditions
+
+See [request-conditions.md](./agent-profiles/request-conditions.md) for the full guide to body and argument conditions, with examples.
+
+The same `POST` can save a draft or send to a customer. An optional `body` on a rule matches JSON request bodies, with the same conditions as [MCP argument conditions](#argument-conditions):
+
+```toml
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+body = { send = false, to = ["support@acme.com", "ops@acme.com"] }
+
+[[secrets.PAYMENTS_KEY.rules]]
+effect = "allow"
+hosts = ["api.example.com"]
+methods = ["POST"]
+paths = ["/v1/payouts"]
+body = { currency = "usd", amount = { min = 1, max = 5000 }, "destination.type" = "bank" }
+```
+
+`allow_fields` works the same way as for MCP rules: with it set, the body may contain only fields named in `body` or `allow_fields`, and others are refused with `reason=unlisted_field:body.<field>`. A rule with only `allow_fields` also reads the body.
+
+Policy tests can send a body, so these rules can be checked without a request:
+
+```toml
+[[policy_tests]]
+secret = "MAIL_KEY"
+method = "POST"
+host = "api.mail.example"
+path = "/v1/messages"
+body = '{"send": true, "to": ["support@acme.com"]}'
+expect = "deny"
+```
+
+The body is read as JSON. A case without `body` is evaluated like a request without one, so it never meets body conditions. See [examples/http-body-conditions.toml](./agent-profiles/examples/http-body-conditions.toml) for a profile you can run against httpbin.org without a real key.
+
+A rule without `body` behaves as before, and the proxy streams the request without reading it. When a credential has a rule with `body` that matches the host, method and path, the proxy reads the body before injecting the credential and forwards exactly the bytes it checked.
+
+The body is readable only when `Content-Type` is `application/json` or `application/*+json`, there is no `Content-Encoding`, it is at most 1 MiB, and it is a JSON object without repeated keys. Any other body, including no body, fails closed: allow rules with `body` don't match and deny rules with `body` do.
+
+A refused request returns 403 naming the rule and field, for example `The supplied credential is not allowed for this request (rule 1: body.send)`, and the audit log records `reason=allow_condition_failed:body.send` (or `deny_condition_matched:…`, `body_unreadable:encoding`), never the values. `stashbase agent validate` warns when an allow rule without `body` makes body conditions moot and that deny rules with `body` are best-effort. `stashbase agent explain` reports a request decided only by body conditions as eligible only if the body meets them. The remote proxy (`--remote`) enforces the same conditions.
+
 ## MCP Tool Restrictions
 
 HTTP-based MCP servers can be configured with tool-level access control:
@@ -213,6 +257,8 @@ allow_tools = ["list_issues", "get_issue"]
 The HTTP rule controls credential injection at the endpoint. The MCP rule controls which tools the agent may call. Omit `allow_tools` or leave it empty to deny all tools by default. Use `allow_tools = ["*"]` to allow all tools (a matching `deny_tools` still takes precedence).
 
 ### Argument conditions
+
+See [request-conditions.md](./agent-profiles/request-conditions.md) for the full guide, shared with HTTP body conditions.
 
 A tool name often isn't enough: the same tool can draft or send, create or update. `[[mcp_servers.*.tool_rules]]` allows or denies a tool only when its call arguments match:
 
@@ -241,6 +287,18 @@ Each key under `arguments` is a field of the call's `params.arguments`, with dot
 All conditions in a rule must hold, separate rules are alternatives, and a matching deny always wins. `allow_tools` and `deny_tools` are tool rules without conditions, so a tool listed in `allow_tools` (or covered by `allow_tools = ["*"]`) is allowed with any arguments and its conditioned allow rules have no effect. `stashbase agent validate`, `agent mcp tools` and `agent mcp configure` warn when that happens. A field that is missing, `null` or of another type fails every condition except `absent`.
 
 Arguments that aren't a JSON object fail closed: allow rules with conditions don't match and deny rules with conditions do. The proxy also rejects JSON-RPC batch requests and request bodies that repeat a key, so it never decides on a different reading of the request than the MCP server.
+
+Conditions only check the fields they name, so other fields pass unchecked. To allow nothing else, list the remaining fields in `allow_fields`; any other field fails the rule (`reason=unlisted_field:arguments.bcc`):
+
+```toml
+[[mcp_servers.mail.tool_rules]]
+effect = "allow"
+tools = ["send_message"]
+arguments = { to = ["support@acme.com"] }
+allow_fields = ["subject", "text"]   # nothing besides to, subject and text
+```
+
+A listed field allows everything under it (`"meta"` allows `meta.anything`). A field that only leads to listed paths may contain just those: with `"project.id"` listed, `project.owner` is refused. `allow_fields = []` allows only the fields with conditions. `allow_fields` is for allow rules; deny rules reject it.
 
 Prefer allow rules with conditions. A deny with conditions is best-effort, because an agent can often reach the same result with other arguments, and `stashbase agent validate` warns about it. Conditions check single calls; they don't limit how many calls the agent makes.
 

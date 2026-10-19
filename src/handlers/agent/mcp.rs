@@ -386,7 +386,11 @@ fn tool_rule_warnings(server: &AgentMcpServer, tools: &[Value]) -> Vec<String> {
                 .into_iter()
                 .map(|argument| argument.path)
                 .collect::<HashSet<_>>();
-            for path in rule.arguments.keys() {
+            for path in rule
+                .arguments
+                .keys()
+                .chain(rule.allow_fields.iter().flatten())
+            {
                 if !declared.contains(path) {
                     warnings.push(format!(
                         "Tool rule {}: arguments.{path} is not an argument of '{name}'.",
@@ -397,6 +401,29 @@ fn tool_rule_warnings(server: &AgentMcpServer, tools: &[Value]) -> Vec<String> {
         }
     }
     warnings
+}
+
+/// Conditions plus, in strict mode, the other fields the rule allows.
+fn format_rule_conditions(
+    arguments: &BTreeMap<String, AgentFieldCondition>,
+    allow_fields: Option<&[String]>,
+) -> String {
+    let conditions = format_conditions(arguments);
+    match allow_fields {
+        None => conditions,
+        Some(fields) => {
+            let only = if fields.is_empty() {
+                "no other fields".to_owned()
+            } else {
+                format!("other fields only {}", fields.join(", "))
+            };
+            [conditions, only]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join("; ")
+        }
+    }
 }
 
 fn format_conditions(arguments: &BTreeMap<String, AgentFieldCondition>) -> String {
@@ -478,10 +505,10 @@ fn tool_rule_lines(server: &AgentMcpServer, name: &str) -> Vec<RuleLine> {
                     AgentHttpRuleEffect::Allow => "allow",
                     AgentHttpRuleEffect::Deny => "deny",
                 },
-                conditions: Some(if rule.arguments.is_empty() {
+                conditions: Some(if !rule.has_conditions() {
                     "any arguments".to_owned()
                 } else {
-                    format_conditions(&rule.arguments)
+                    format_rule_conditions(&rule.arguments, rule.allow_fields.as_deref())
                 }),
             });
         }
@@ -697,14 +724,14 @@ fn print_warnings(warnings: &[String], paint: Paint) {
 /// keys and dimmed secondary text, plus magenta argument types. Plain text when
 /// color is disabled.
 #[derive(Clone, Copy)]
-struct Paint(bool);
+pub(crate) struct Paint(bool);
 
 impl Paint {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(is_color_enabled(true))
     }
 
-    fn header(self, text: &str) -> String {
+    pub(crate) fn header(self, text: &str) -> String {
         self.style(text, |text| text.cyan().bold().to_string())
     }
 
@@ -720,23 +747,23 @@ impl Paint {
         self.style(text, |text| text.magenta().to_string())
     }
 
-    fn dim(self, text: &str) -> String {
+    pub(crate) fn dim(self, text: &str) -> String {
         self.style(text, |text| text.bright_black().to_string())
     }
 
-    fn allowed(self, text: &str) -> String {
+    pub(crate) fn allowed(self, text: &str) -> String {
         self.style(text, |text| text.green().bold().to_string())
     }
 
-    fn denied(self, text: &str) -> String {
+    pub(crate) fn denied(self, text: &str) -> String {
         self.style(text, |text| text.red().bold().to_string())
     }
 
-    fn allowed_soft(self, text: &str) -> String {
+    pub(crate) fn allowed_soft(self, text: &str) -> String {
         self.style(text, |text| text.green().to_string())
     }
 
-    fn denied_soft(self, text: &str) -> String {
+    pub(crate) fn denied_soft(self, text: &str) -> String {
         self.style(text, |text| text.red().to_string())
     }
 
@@ -924,7 +951,7 @@ fn configure_item_label(server: &AgentMcpServer, name: &str) -> String {
                 AgentHttpRuleEffect::Allow => "allow",
                 AgentHttpRuleEffect::Deny => "deny",
             };
-            let conditions = if rule.arguments.is_empty() {
+            let conditions = if !rule.has_conditions() {
                 ""
             } else {
                 " with conditions"
@@ -1283,37 +1310,30 @@ async fn proxied_client(
 }
 
 /// The proxy rules for one MCP server: `allow_tools`, `deny_tools` and every
-/// tool rule with its argument conditions.
+/// tool rule with its argument conditions and allowed fields.
 pub(crate) fn server_mcp_rules(
     server: &AgentMcpServer,
     host: &str,
     path: &str,
 ) -> Vec<AgentMcpRule> {
-    let rule = |effect: AgentHttpRuleEffect, tools: &[String], arguments| AgentMcpRule {
+    let rule = |effect: AgentHttpRuleEffect, tools: &[String]| AgentMcpRule {
         effect,
         hosts: vec![host.to_owned()],
         paths: vec![path.to_owned()],
         tools: tools.to_vec(),
-        arguments,
+        arguments: Default::default(),
+        allow_fields: None,
     };
-    let mut rules = vec![rule(
-        AgentHttpRuleEffect::Allow,
-        &server.allow_tools,
-        Default::default(),
-    )];
+    let mut rules = vec![rule(AgentHttpRuleEffect::Allow, &server.allow_tools)];
     if !server.deny_tools.is_empty() {
-        rules.push(rule(
-            AgentHttpRuleEffect::Deny,
-            &server.deny_tools,
-            Default::default(),
-        ));
+        rules.push(rule(AgentHttpRuleEffect::Deny, &server.deny_tools));
     }
     for tool_rule in &server.tool_rules {
-        rules.push(rule(
-            tool_rule.effect.clone(),
-            &tool_rule.tools,
-            tool_rule.arguments.clone(),
-        ));
+        rules.push(AgentMcpRule {
+            arguments: tool_rule.arguments.clone(),
+            allow_fields: tool_rule.allow_fields.clone(),
+            ..rule(tool_rule.effect.clone(), &tool_rule.tools)
+        });
     }
     rules
 }
@@ -1821,9 +1841,7 @@ fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
     let names_tool = |tools: &[String]| tools.iter().any(|tool| tool == "*" || tool == name);
     let tool_rules = |effect: AgentHttpRuleEffect, conditioned: bool| {
         server.tool_rules.iter().any(|rule| {
-            rule.effect == effect
-                && rule.arguments.is_empty() != conditioned
-                && names_tool(&rule.tools)
+            rule.effect == effect && rule.has_conditions() == conditioned && names_tool(&rule.tools)
         })
     };
     if names_tool(&server.deny_tools) {

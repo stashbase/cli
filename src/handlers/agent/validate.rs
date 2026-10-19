@@ -860,6 +860,20 @@ fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: 
             checks.push(fail(format!("{label} path"), reason));
         }
     }
+    validate_field_conditions(&label, "body", &rule.body, checks);
+    validate_allow_fields(
+        &label,
+        "body",
+        rule.effect.clone(),
+        rule.allow_fields.as_deref(),
+        checks,
+    );
+    if rule.effect == AgentHttpRuleEffect::Deny && !rule.body.is_empty() {
+        checks.push(warn(
+            label,
+            "Deny rules with body conditions are best-effort: an agent may reach the same result with a different body. Prefer allow rules with conditions.".to_owned(),
+        ));
+    }
 }
 
 fn validate_mcp_server(
@@ -937,7 +951,14 @@ fn validate_mcp_server(
             ));
         }
         validate_mcp_server_tools(&rule_label, "tools", &rule.tools, checks);
-        validate_field_conditions(&rule_label, &rule.arguments, checks);
+        validate_field_conditions(&rule_label, "arguments", &rule.arguments, checks);
+        validate_allow_fields(
+            &rule_label,
+            "arguments",
+            rule.effect.clone(),
+            rule.allow_fields.as_deref(),
+            checks,
+        );
         if rule.effect == AgentHttpRuleEffect::Deny && !rule.arguments.is_empty() {
             checks.push(warn(
                 rule_label,
@@ -960,11 +981,37 @@ pub(crate) fn shadowed_condition_message(tool: &str) -> String {
     )
 }
 
+fn validate_allow_fields(
+    label: &str,
+    prefix: &str,
+    effect: AgentHttpRuleEffect,
+    allow_fields: Option<&[String]>,
+    checks: &mut Vec<Check>,
+) {
+    let Some(fields) = allow_fields else { return };
+    if effect == AgentHttpRuleEffect::Deny {
+        checks.push(fail(
+            format!("{label} allow_fields"),
+            "'allow_fields' applies to allow rules only; a deny rule cannot limit which fields a request has.".to_owned(),
+        ));
+    }
+    for field in fields {
+        if field.split('.').any(|segment| segment.trim().is_empty()) {
+            checks.push(fail(
+                format!("{label} allow_fields {prefix}.{field}"),
+                "Field paths are dot-separated object keys and cannot have empty segments."
+                    .to_owned(),
+            ));
+        }
+    }
+}
+
 /// Largest integer every JSON parser represents exactly as an f64.
 const MAX_EXACT_NUMBER: f64 = 9_007_199_254_740_992.0;
 
 fn validate_field_conditions(
     label: &str,
+    prefix: &str,
     conditions: &BTreeMap<String, AgentFieldCondition>,
     checks: &mut Vec<Check>,
 ) {
@@ -980,7 +1027,7 @@ fn validate_field_conditions(
         AgentScalar::Bool(_) | AgentScalar::String(_) => true,
     };
     for (path, condition) in conditions {
-        let field_label = format!("{label} arguments.{path}");
+        let field_label = format!("{label} {prefix}.{path}");
         if path.split('.').any(|segment| segment.trim().is_empty()) {
             checks.push(fail(
                 field_label.clone(),
@@ -1069,8 +1116,21 @@ fn lint_http_rules(target: &str, rules: &[AgentHttpRule], checks: &mut Vec<Check
             && rules.iter().any(|deny| rule_is_fully_denied(rule, deny))
         {
             checks.push(warn(
-                label,
+                label.clone(),
                 "Is fully shadowed by a deny rule and can never inject a credential.".to_owned(),
+            ));
+        }
+        if rule.effect == AgentHttpRuleEffect::Allow
+            && rule.has_conditions()
+            && rules.iter().any(|other| {
+                other.effect == AgentHttpRuleEffect::Allow
+                    && !other.has_conditions()
+                    && rule_covers(other, rule)
+            })
+        {
+            checks.push(warn(
+                label,
+                "Body conditions have no effect: an allow rule without 'body' already allows these hosts, methods and paths.".to_owned(),
             ));
         }
     }
@@ -1092,31 +1152,37 @@ fn rule_fingerprint(rule: &AgentHttpRule) -> String {
     methods.sort();
     paths.sort();
     format!(
-        "{:?}|{}|{}|{}",
+        "{:?}|{}|{}|{}|{:?}",
         rule.effect,
         hosts.join(","),
         methods.join(","),
-        paths.join(",")
+        paths.join(","),
+        rule.body
     )
 }
 
+/// A deny with body conditions blocks only some requests, so it never fully
+/// shadows an allow.
 fn rule_is_fully_denied(allow: &AgentHttpRule, deny: &AgentHttpRule) -> bool {
-    deny.effect == AgentHttpRuleEffect::Deny
-        && allow.hosts.iter().all(|host| {
-            deny.hosts
-                .iter()
-                .any(|denied| host_pattern_covers(denied, host))
-        })
-        && allow.methods.iter().all(|method| {
-            deny.methods
-                .iter()
-                .any(|denied| denied.eq_ignore_ascii_case(method))
-        })
-        && allow.paths.iter().all(|path| {
-            deny.paths
-                .iter()
-                .any(|denied| denied == "*" || denied == path)
-        })
+    deny.effect == AgentHttpRuleEffect::Deny && !deny.has_conditions() && rule_covers(deny, allow)
+}
+
+/// Whether `broad` matches every host, method and path that `narrow` does.
+fn rule_covers(broad: &AgentHttpRule, narrow: &AgentHttpRule) -> bool {
+    let (deny, allow) = (broad, narrow);
+    allow.hosts.iter().all(|host| {
+        deny.hosts
+            .iter()
+            .any(|denied| host_pattern_covers(denied, host))
+    }) && allow.methods.iter().all(|method| {
+        deny.methods
+            .iter()
+            .any(|denied| denied.eq_ignore_ascii_case(method))
+    }) && allow.paths.iter().all(|path| {
+        deny.paths
+            .iter()
+            .any(|denied| denied == "*" || denied == path)
+    })
 }
 
 fn host_pattern_covers(denied: &str, allowed: &str) -> bool {
@@ -1553,6 +1619,8 @@ mod tests {
     #[test]
     fn rejects_malformed_http_action_rules() {
         let rule = AgentHttpRule {
+            allow_fields: None,
+            body: Default::default(),
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: Vec::new(),
             methods: vec!["GET /".to_owned()],
@@ -1579,12 +1647,16 @@ mod tests {
     #[test]
     fn lints_duplicate_broad_and_shadowed_http_rules() {
         let allow = AgentHttpRule {
+            allow_fields: None,
+            body: Default::default(),
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["api.example.com".to_owned()],
             methods: vec!["GET".to_owned()],
             paths: vec!["/repos/*".to_owned()],
         };
         let deny = AgentHttpRule {
+            allow_fields: None,
+            body: Default::default(),
             effect: AgentHttpRuleEffect::Deny,
             hosts: vec!["api.example.com".to_owned()],
             methods: vec!["GET".to_owned()],
@@ -1947,6 +2019,154 @@ arguments = { priority = "urgent" }
                 .any(|check| check.message.contains("have no effect")),
             "nothing allows send_message without conditions"
         );
+    }
+
+    #[test]
+    fn http_rules_validate_body_conditions() {
+        let profile: AgentProfile = toml::from_str(
+            r#"
+[secrets.PAYMENTS_KEY]
+
+[[secrets.PAYMENTS_KEY.rules]]
+effect = "allow"
+hosts = ["api.example.com"]
+methods = ["POST"]
+paths = ["/v1/payouts"]
+body = { currency = "usd", amount = { min = 1, max = 5000 }, "destination.type" = "bank" }
+
+[[secrets.PAYMENTS_KEY.rules]]
+effect = "allow"
+hosts = ["api.example.com"]
+methods = ["POST"]
+paths = ["/v1/refunds"]
+body = { "a..b" = 1, empty = [], backwards = { min = 5, max = 1 } }
+
+[[secrets.PAYMENTS_KEY.rules]]
+effect = "deny"
+hosts = ["api.example.com"]
+methods = ["POST"]
+paths = ["/v1/payouts"]
+body = { "destination.type" = "card" }
+
+[secrets.MAIL_KEY]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+body = { send = false }
+"#,
+        )
+        .unwrap();
+        let checks = validate_profile(&profile);
+        let messages = |status: Status, label: &str| {
+            checks
+                .iter()
+                .filter(|check| check.status == status && check.name.starts_with(label))
+                .map(|check| check.message.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert!(messages(Status::Fail, "Secret 'PAYMENTS_KEY' rule 1").is_empty());
+        let failures = messages(Status::Fail, "Secret 'PAYMENTS_KEY' rule 2");
+        for expected in [
+            "cannot have empty segments",
+            "at least one value",
+            "never holds",
+        ] {
+            assert!(
+                failures.iter().any(|message| message.contains(expected)),
+                "missing '{expected}' in {failures:?}"
+            );
+        }
+        assert!(messages(Status::Warn, "Secret 'PAYMENTS_KEY' rule 3")
+            .iter()
+            .any(|message| message.contains("best-effort")));
+        assert!(
+            !messages(Status::Warn, "Secret 'PAYMENTS_KEY' rule 1")
+                .iter()
+                .any(|message| message.contains("shadowed")),
+            "a deny with body conditions never fully shadows an allow"
+        );
+        assert!(messages(Status::Warn, "Secret 'MAIL_KEY' rule 2")
+            .iter()
+            .any(|message| message.contains("Body conditions have no effect")));
+    }
+
+    #[test]
+    fn allow_fields_are_for_allow_rules_only() {
+        let profile: AgentProfile = toml::from_str(
+            r#"
+[secrets.MAIL_KEY]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+allow_fields = ["to", "subject."]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "deny"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+allow_fields = []
+
+[mcp_servers.mail]
+url = "https://mcp.mail.example/mcp"
+
+[[mcp_servers.mail.tool_rules]]
+effect = "deny"
+tools = ["send_message"]
+allow_fields = ["to"]
+"#,
+        )
+        .unwrap();
+        let checks = validate_profile(&profile);
+        let failed = |name: &str, text: &str| {
+            checks.iter().any(|check| {
+                check.status == Status::Fail
+                    && check.name.starts_with(name)
+                    && check.message.contains(text)
+            })
+        };
+        assert!(failed(
+            "Secret 'MAIL_KEY' rule 1 allow_fields",
+            "empty segments"
+        ));
+        assert!(failed(
+            "Secret 'MAIL_KEY' rule 2 allow_fields",
+            "allow rules only"
+        ));
+        assert!(failed(
+            "MCP server 'mail' tool rule 1 allow_fields",
+            "allow rules only"
+        ));
+    }
+
+    #[test]
+    fn http_rules_reject_unknown_fields() {
+        let error = toml::from_str::<AgentProfile>(
+            r#"
+[secrets.MAIL_KEY]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+bodyy = { send = false }
+"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("bodyy"), "{error}");
     }
 
     #[test]

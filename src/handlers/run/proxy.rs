@@ -62,9 +62,10 @@ use uuid::Uuid;
 
 use crate::{
     handlers::agent::policy::{
-        evaluate_secret_authorization, first_unmet_condition, host_matches,
-        normalize_secret_http_policy, parse_json_with_unique_keys, SecretAuthorizationDecision,
-        SecretHttpPolicy,
+        authorize_secret_request, could_allow_with_body, first_unlisted_field,
+        first_unmet_condition, host_matches, normalize_secret_http_policy,
+        parse_json_with_unique_keys, read_request_body, secret_policy_needs_body, RequestBody,
+        SecretAuthorization, SecretAuthorizationDecision, SecretHttpPolicy,
     },
     models::agent::{AgentHttpRuleEffect, AgentMcpRule, SandboxBackend},
     REQUEST_TIMEOUT_SECS,
@@ -1075,11 +1076,12 @@ impl ProxyPolicy {
                             methods.sort();
                             paths.sort();
                             format!(
-                                "{:?};{};{};{}",
+                                "{:?};{};{};{};{}",
                                 rule.effect,
                                 hosts.join(","),
                                 methods.join(","),
-                                paths.join(",")
+                                paths.join(","),
+                                fingerprint_conditions(&rule.body, rule.allow_fields.as_deref())
                             )
                         })
                         .collect::<Vec<_>>();
@@ -1121,7 +1123,7 @@ impl ProxyPolicy {
                     hosts.join(","),
                     paths.join(","),
                     tools.join(","),
-                    serde_json::to_string(&rule.arguments).unwrap_or_default()
+                    fingerprint_conditions(&rule.arguments, rule.allow_fields.as_deref())
                 )
             })
             .collect::<Vec<_>>();
@@ -2076,30 +2078,32 @@ fn proxy_request(
                 Some(&request_id),
             ));
         }
-        let secret_name = match replace_placeholder(&mut request, &state, host.as_deref()) {
-            Ok(secret_name) => secret_name,
-            Err(denial) => {
-                debug!(
-                    "proxy denied credential injection for destination: {}",
-                    host.as_deref().unwrap_or("unknown")
-                );
-                state.record_audit_with_request(
-                    &request_id,
-                    denial.audit_action,
-                    host.as_deref(),
-                    Some(request.method()),
-                    Some(&denial.secret_name),
-                    Some(StatusCode::FORBIDDEN),
-                    Some(started.elapsed()),
-                );
-                return Ok(proxy_error_response_with_id(
-                    StatusCode::FORBIDDEN,
-                    "proxy.credential_not_allowed",
-                    "The supplied credential is not allowed for this request.",
-                    Some(&request_id),
-                ));
-            }
-        };
+        let (secret_name, pending_credential) =
+            match replace_placeholder(&mut request, &state, host.as_deref()) {
+                Ok(Some(credential)) => (Some(credential.secret_name), credential.pending),
+                Ok(None) => (None, None),
+                Err(denial) => {
+                    debug!(
+                        "proxy denied credential injection for destination: {}",
+                        host.as_deref().unwrap_or("unknown")
+                    );
+                    state.record_audit_with_request(
+                        &request_id,
+                        denial.audit_action,
+                        host.as_deref(),
+                        Some(request.method()),
+                        Some(&denial.secret_name),
+                        Some(StatusCode::FORBIDDEN),
+                        Some(started.elapsed()),
+                    );
+                    return Ok(proxy_error_response_with_id(
+                        StatusCode::FORBIDDEN,
+                        "proxy.credential_not_allowed",
+                        &denial.message(),
+                        Some(&request_id),
+                    ));
+                }
+            };
         // A per-secret host is not general egress. It is permitted only when
         // this request carries that secret's configured placeholder; all other
         // traffic must be explicitly listed in `egress_hosts`.
@@ -2220,61 +2224,136 @@ fn proxy_request(
         // streaming uploads retain their incremental delivery to the upstream.
         let request_bytes = Arc::new(AtomicU64::new(0));
         let request_byte_counter = request_bytes.clone();
-        let body = if mcp_rule.is_some() && method == Method::POST {
-            let bytes = match request.into_body().collect().await {
-                Ok(body) => body.to_bytes(),
-                Err(_) => {
+        let mcp_request = mcp_rule.is_some() && method == Method::POST;
+        // Ok holds a buffered body; Err keeps the body for streaming.
+        let incoming = request.into_body();
+        let buffered: std::result::Result<Bytes, Incoming> =
+            if let Some(pending) = &pending_credential {
+                // Body conditions decide this credential: read the body, bounded,
+                // and evaluate it before the credential header is injected.
+                let bytes = http_body_util::Limited::new(incoming, BODY_CONDITION_MAX_BYTES)
+                    .collect()
+                    .await
+                    .map(|body| body.to_bytes());
+                let mut parsed = None;
+                let body_state = match &bytes {
+                    Ok(bytes) => read_request_body(
+                        header_str(&headers, hyper::header::CONTENT_TYPE),
+                        header_str(&headers, hyper::header::CONTENT_ENCODING),
+                        bytes,
+                        &mut parsed,
+                    ),
+                    Err(_) => RequestBody::Unreadable("size"),
+                };
+                let authorization = secret_authorization(
+                    &state.policy,
+                    &pending.placeholder,
+                    host.as_deref(),
+                    &method,
+                    &mcp_path,
+                    &body_state,
+                );
+                match (bytes, authorization_allows(&authorization)) {
+                    (Ok(bytes), true) => {
+                        headers.insert(pending.header_name.clone(), pending.value.clone());
+                        Ok(bytes)
+                    }
+                    (_, _) => {
+                        let (detail, reason) = authorization
+                            .map(|authorization| (authorization.detail, authorization.reason))
+                            .unwrap_or_default();
+                        let denial = CredentialDenial {
+                            secret_name: secret_name.clone().unwrap_or_default(),
+                            audit_action: "credential_rule_denied",
+                            detail,
+                        };
+                        state.record_mcp_tool_with_request(
+                            &request_id,
+                            denial.audit_action,
+                            None,
+                            host.as_deref(),
+                            Some(&mcp_path),
+                            Some(&method),
+                            Some(&denial.secret_name),
+                            Some(StatusCode::FORBIDDEN),
+                            Some(started.elapsed()),
+                            reason.as_deref(),
+                        );
+                        return Ok(proxy_error_response_with_id(
+                            StatusCode::FORBIDDEN,
+                            "proxy.credential_not_allowed",
+                            &denial.message(),
+                            Some(&request_id),
+                        ));
+                    }
+                }
+            } else if mcp_request {
+                match incoming.collect().await {
+                    Ok(body) => Ok(body.to_bytes()),
+                    Err(_) => {
+                        return Ok(proxy_error_response_with_id(
+                            StatusCode::BAD_REQUEST,
+                            "proxy.mcp_request_invalid",
+                            "Unable to read MCP request body",
+                            Some(&request_id),
+                        ));
+                    }
+                }
+            } else {
+                Err(incoming)
+            };
+        let body = match buffered {
+            Ok(bytes) if mcp_request => {
+                let mcp_tool = mcp_tool_name(&bytes);
+                if let Err(denial) =
+                    authorize_mcp_request(&bytes, &state.policy, host.as_deref(), &mcp_path)
+                {
+                    state.record_mcp_tool_with_request(
+                        &request_id,
+                        "mcp_tool_denied",
+                        mcp_tool.as_deref(),
+                        host.as_deref(),
+                        Some(&mcp_path),
+                        Some(&method),
+                        None,
+                        Some(StatusCode::FORBIDDEN),
+                        Some(started.elapsed()),
+                        Some(&denial.reason),
+                    );
                     return Ok(proxy_error_response_with_id(
-                        StatusCode::BAD_REQUEST,
-                        "proxy.mcp_request_invalid",
-                        "Unable to read MCP request body",
+                        StatusCode::FORBIDDEN,
+                        "proxy.mcp_tool_not_allowed",
+                        &denial.message,
                         Some(&request_id),
                     ));
                 }
-            };
-            let mcp_tool = mcp_tool_name(&bytes);
-            if let Err(denial) =
-                authorize_mcp_request(&bytes, &state.policy, host.as_deref(), &mcp_path)
-            {
-                state.record_mcp_tool_with_request(
-                    &request_id,
-                    "mcp_tool_denied",
-                    mcp_tool.as_deref(),
-                    host.as_deref(),
-                    Some(&mcp_path),
-                    Some(&method),
-                    None,
-                    Some(StatusCode::FORBIDDEN),
-                    Some(started.elapsed()),
-                    Some(&denial.reason),
-                );
-                return Ok(proxy_error_response_with_id(
-                    StatusCode::FORBIDDEN,
-                    "proxy.mcp_tool_not_allowed",
-                    &denial.message,
-                    Some(&request_id),
-                ));
-            }
-            mcp_method = serde_json::from_slice::<serde_json::Value>(&bytes)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("method")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned)
-                });
-            if mcp_method.as_deref() == Some("tools/call") {
-                mcp_tool_for_audit = mcp_tool;
-            }
-            request_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
-            reqwest::Body::from(bytes)
-        } else {
-            reqwest::Body::wrap_stream(request.into_body().into_data_stream().map(move |chunk| {
-                if let Ok(bytes) = &chunk {
-                    request_byte_counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                mcp_method = serde_json::from_slice::<serde_json::Value>(&bytes)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("method")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                    });
+                if mcp_method.as_deref() == Some("tools/call") {
+                    mcp_tool_for_audit = mcp_tool;
                 }
-                chunk
-            }))
+                request_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                reqwest::Body::from(bytes)
+            }
+            Ok(bytes) => {
+                // Forward exactly the bytes that were evaluated.
+                request_bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                reqwest::Body::from(bytes)
+            }
+            Err(incoming) => {
+                reqwest::Body::wrap_stream(incoming.into_data_stream().map(move |chunk| {
+                    if let Ok(bytes) = &chunk {
+                        request_byte_counter.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+                    }
+                    chunk
+                }))
+            }
         };
 
         let destination_url = if let Some(remote) = remote
@@ -3736,9 +3815,12 @@ fn authorize_mcp_request(
     if let Some(rule) = policy.mcp_rules.iter().find(|rule| {
         rule.effect == AgentHttpRuleEffect::Deny
             && tool_matches(rule)
-            && (arguments.is_none() || unmet_mcp_argument(rule, arguments).is_none())
+            && (arguments.is_none()
+                || arguments.is_some_and(|arguments| {
+                    first_unmet_condition(&rule.arguments, arguments).is_none()
+                }))
     }) {
-        if rule.arguments.is_empty() {
+        if !rule.has_conditions() {
             return Err(McpDenial::new(
                 "MCP tool is not allowed by the agent profile",
                 "tool_denied",
@@ -3776,7 +3858,13 @@ fn authorize_mcp_request(
         .find_map(|rule| unmet_mcp_argument(rule, arguments))
     {
         Some(_) if arguments.is_none() => Err(not_object()),
-        Some(field) => Err(McpDenial::new(
+        Some((field, "unlisted_field")) => Err(McpDenial::new(
+            format!(
+                "MCP tool arguments include a field the agent profile does not allow (arguments.{field})"
+            ),
+            format!("unlisted_field:arguments.{field}"),
+        )),
+        Some((field, _)) => Err(McpDenial::new(
             format!("MCP tool arguments are not allowed by the agent profile (arguments.{field})"),
             format!("allow_condition_failed:arguments.{field}"),
         )),
@@ -3787,19 +3875,25 @@ fn authorize_mcp_request(
     }
 }
 
-/// The first argument condition of `rule` that does not hold, or `None` when
-/// the rule has no conditions or all hold. Unreadable arguments meet nothing.
-fn unmet_mcp_argument<'a>(
-    rule: &'a AgentMcpRule,
+/// The first argument condition of `rule` that does not hold, or the first
+/// field `allow_fields` does not list, with its reason code. `None` when the
+/// rule has no conditions or all hold. Unreadable arguments meet nothing.
+fn unmet_mcp_argument(
+    rule: &AgentMcpRule,
     arguments: Option<&serde_json::Value>,
-) -> Option<&'a str> {
-    if rule.arguments.is_empty() {
+) -> Option<(String, &'static str)> {
+    if !rule.has_conditions() {
         return None;
     }
-    match arguments {
-        Some(arguments) => first_unmet_condition(&rule.arguments, arguments),
-        None => Some("arguments"),
+    let Some(arguments) = arguments else {
+        return Some(("arguments".to_owned(), "allow_condition_failed"));
+    };
+    if let Some(field) = first_unmet_condition(&rule.arguments, arguments) {
+        return Some((field.to_owned(), "allow_condition_failed"));
     }
+    let allow_fields = rule.allow_fields.as_deref()?;
+    first_unlisted_field(&rule.arguments, allow_fields, arguments)
+        .map(|field| (field, "unlisted_field"))
 }
 
 fn filter_mcp_tools_list_response(
@@ -3838,7 +3932,7 @@ fn filter_mcp_tools_list_response(
         // stays listed.
         let denied = policy.mcp_rules.iter().any(|rule| {
             rule.effect == AgentHttpRuleEffect::Deny
-                && rule.arguments.is_empty()
+                && !rule.has_conditions()
                 && host.is_some_and(|host| {
                     rule.hosts.iter().any(|allowed| host_matches(allowed, host))
                 })
@@ -3881,6 +3975,20 @@ fn filter_mcp_tools_list_sse_response(
     Ok(Bytes::from(output))
 }
 
+/// Body or argument conditions plus allowed fields, in a stable order, so
+/// policies that differ only in their conditions get different fingerprints.
+fn fingerprint_conditions(
+    conditions: &std::collections::BTreeMap<String, crate::models::agent::AgentFieldCondition>,
+    allow_fields: Option<&[String]>,
+) -> String {
+    let allow_fields = allow_fields.map(|fields| {
+        let mut fields = fields.to_vec();
+        fields.sort();
+        fields
+    });
+    serde_json::to_string(&(conditions, allow_fields)).unwrap_or_default()
+}
+
 fn policy_denies_host(policy: &ProxyPolicy, host: &str) -> bool {
     policy
         .denied_hosts
@@ -3888,11 +3996,32 @@ fn policy_denies_host(policy: &ProxyPolicy, host: &str) -> bool {
         .any(|denied| denied == "*" || host_matches(denied, host))
 }
 
+/// A credential placeholder the request carries. `pending` is set when the
+/// credential's rules have body conditions: the header is injected only after
+/// the body has been read and the conditions hold.
+struct CredentialMatch {
+    secret_name: String,
+    pending: Option<PendingCredential>,
+}
+
+struct PendingCredential {
+    placeholder: String,
+    header_name: HeaderName,
+    value: HeaderValue,
+}
+
+/// Bodies larger than this cannot be evaluated against body conditions.
+const BODY_CONDITION_MAX_BYTES: usize = 1024 * 1024;
+
+fn header_str(headers: &hyper::HeaderMap, name: HeaderName) -> Option<&str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
 fn replace_placeholder(
     request: &mut Request<Incoming>,
     state: &ProxyState,
     host: Option<&str>,
-) -> std::result::Result<Option<String>, CredentialDenial> {
+) -> std::result::Result<Option<CredentialMatch>, CredentialDenial> {
     for (placeholder, secret) in state.secrets.iter() {
         let injection = state
             .policy
@@ -3913,28 +4042,79 @@ fn replace_placeholder(
             continue;
         }
 
-        if state.policy.strict_deny
-            && !secret_allows_request(
+        let secret_name = secret_name_from_placeholder(placeholder);
+        let secret_policy = state.policy.secret_policies.get(placeholder);
+        let method = request.method().as_str();
+        let path = request.uri().path();
+        let body_dependent = host.is_some_and(|host| {
+            secret_policy.is_some_and(|policy| secret_policy_needs_body(policy, host, method, path))
+        });
+        let needs_body = state.policy.strict_deny
+            && body_dependent
+            && state.remote.is_none()
+            && !is_upgrade_request(request);
+        if needs_body {
+            let value = injection.value_template.replace("{value}", secret);
+            let Ok(value) = HeaderValue::from_str(&value) else {
+                return Ok(Some(CredentialMatch {
+                    secret_name,
+                    pending: None,
+                }));
+            };
+            return Ok(Some(CredentialMatch {
+                secret_name,
+                pending: Some(PendingCredential {
+                    placeholder: placeholder.clone(),
+                    header_name,
+                    value,
+                }),
+            }));
+        }
+        // The remote proxy reads the body and enforces body conditions itself.
+        // Locally, refuse only what no body could allow.
+        if state.policy.strict_deny && state.remote.is_some() && body_dependent {
+            let possible = host.is_some_and(|host| {
+                secret_policy
+                    .is_some_and(|policy| could_allow_with_body(policy, host, method, path))
+            });
+            if !possible {
+                return Err(CredentialDenial {
+                    secret_name,
+                    audit_action: credential_denial_action(&state.policy, placeholder),
+                    detail: None,
+                });
+            }
+        } else if state.policy.strict_deny {
+            let authorization = secret_authorization(
                 &state.policy,
                 placeholder,
                 host,
                 request.method(),
                 request.uri().path(),
-            )
-        {
-            return Err(CredentialDenial {
-                secret_name: secret_name_from_placeholder(placeholder),
-                audit_action: credential_denial_action(&state.policy, placeholder),
-            });
+                &RequestBody::NotRead,
+            );
+            if !authorization_allows(&authorization) {
+                return Err(CredentialDenial {
+                    secret_name,
+                    audit_action: credential_denial_action(&state.policy, placeholder),
+                    detail: authorization.and_then(|authorization| authorization.detail),
+                });
+            }
         }
         if state.remote.is_some() {
-            return Ok(Some(secret_name_from_placeholder(placeholder)));
+            return Ok(Some(CredentialMatch {
+                secret_name,
+                pending: None,
+            }));
         }
         let value = injection.value_template.replace("{value}", secret);
         if let Ok(value) = HeaderValue::from_str(&value) {
             request.headers_mut().insert(header_name, value);
         }
-        return Ok(Some(secret_name_from_placeholder(placeholder)));
+        return Ok(Some(CredentialMatch {
+            secret_name,
+            pending: None,
+        }));
     }
 
     Ok(None)
@@ -3945,6 +4125,19 @@ fn replace_placeholder(
 struct CredentialDenial {
     secret_name: String,
     audit_action: &'static str,
+    /// Field-only detail when body conditions decided, e.g. `rule 2: body.amount`.
+    detail: Option<String>,
+}
+
+impl CredentialDenial {
+    fn message(&self) -> String {
+        match &self.detail {
+            Some(detail) => {
+                format!("The supplied credential is not allowed for this request ({detail}).")
+            }
+            None => "The supplied credential is not allowed for this request.".to_owned(),
+        }
+    }
 }
 
 fn credential_denial_action(policy: &ProxyPolicy, placeholder: &str) -> &'static str {
@@ -3954,6 +4147,34 @@ fn credential_denial_action(policy: &ProxyPolicy, placeholder: &str) -> &'static
     }
 }
 
+fn secret_authorization(
+    policy: &ProxyPolicy,
+    placeholder: &str,
+    host: Option<&str>,
+    method: &Method,
+    path: &str,
+    body: &RequestBody<'_>,
+) -> Option<SecretAuthorization> {
+    let host = host?;
+    policy
+        .secret_policies
+        .get(placeholder)
+        .map(|secret_policy| {
+            authorize_secret_request(secret_policy, host, method.as_str(), path, body)
+        })
+}
+
+fn authorization_allows(authorization: &Option<SecretAuthorization>) -> bool {
+    authorization.as_ref().is_some_and(|authorization| {
+        matches!(
+            authorization.decision,
+            SecretAuthorizationDecision::AllowedLegacyHost
+                | SecretAuthorizationDecision::AllowedRule
+        )
+    })
+}
+
+#[cfg(test)]
 fn secret_allows_request(
     policy: &ProxyPolicy,
     placeholder: &str,
@@ -3961,17 +4182,14 @@ fn secret_allows_request(
     method: &Method,
     path: &str,
 ) -> bool {
-    let Some(host) = host else { return false };
-    policy
-        .secret_policies
-        .get(placeholder)
-        .is_some_and(|secret_policy| {
-            matches!(
-                evaluate_secret_authorization(secret_policy, host, method.as_str(), path),
-                SecretAuthorizationDecision::AllowedLegacyHost
-                    | SecretAuthorizationDecision::AllowedRule
-            )
-        })
+    authorization_allows(&secret_authorization(
+        policy,
+        placeholder,
+        host,
+        method,
+        path,
+        &RequestBody::NotRead,
+    ))
 }
 
 /// Reject placeholder-shaped values that do not belong to this session instead
@@ -4131,6 +4349,7 @@ fn full_body(body: Bytes) -> ProxyBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::agent::policy::evaluate_secret_authorization;
     use futures_util::{stream, StreamExt};
     use hyper::header::{AUTHORIZATION, HOST, LOCATION, TRANSFER_ENCODING};
     use tokio::{
@@ -4200,6 +4419,7 @@ mod tests {
             strict_deny: true,
             mcp_rules: vec![
                 AgentMcpRule {
+                    allow_fields: None,
                     effect: AgentHttpRuleEffect::Allow,
                     hosts: vec!["mcp.example.com".to_owned()],
                     paths: vec!["/mcp".to_owned()],
@@ -4207,6 +4427,7 @@ mod tests {
                     arguments: Default::default(),
                 },
                 AgentMcpRule {
+                    allow_fields: None,
                     effect: AgentHttpRuleEffect::Deny,
                     hosts: vec!["mcp.example.com".to_owned()],
                     paths: vec!["/mcp".to_owned()],
@@ -4370,6 +4591,7 @@ mod tests {
 
     fn mcp_argument_policy() -> ProxyPolicy {
         let rule = |effect, tools: &[&str], arguments: &str| AgentMcpRule {
+            allow_fields: None,
             effect,
             hosts: vec!["mcp.example.com".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -4410,6 +4632,32 @@ mod tests {
             "params": {"name": name, "arguments": arguments}
         })
         .to_string()
+    }
+
+    #[test]
+    fn mcp_allow_fields_reject_unlisted_arguments() {
+        let mut policy = mcp_test_policy();
+        policy.mcp_rules = vec![AgentMcpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["mcp.example.com".to_owned()],
+            paths: vec!["/mcp".to_owned()],
+            tools: vec!["send_message".to_owned()],
+            arguments: toml::from_str(r#"to = ["support@acme.com"]"#).unwrap(),
+            allow_fields: Some(vec!["subject".to_owned(), "text".to_owned()]),
+        }];
+        let call = |arguments| {
+            authorize_mcp_request(
+                tools_call("send_message", arguments).as_bytes(),
+                &policy,
+                Some("mcp.example.com"),
+                "/mcp",
+            )
+        };
+        assert!(call(serde_json::json!({"to": "support@acme.com", "subject": "Hi"})).is_ok());
+        let denial =
+            call(serde_json::json!({"to": "support@acme.com", "bcc": "x@evil.com"})).unwrap_err();
+        assert_eq!(denial.reason, "unlisted_field:arguments.bcc");
+        assert!(denial.message.contains("does not allow (arguments.bcc)"));
     }
 
     #[test]
@@ -4563,6 +4811,7 @@ mod tests {
     fn mcp_absent_condition_allows_creates_but_not_updates() {
         let mut policy = mcp_test_policy();
         policy.mcp_rules = vec![AgentMcpRule {
+            allow_fields: None,
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["mcp.example.com".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -4925,12 +5174,16 @@ mod tests {
     async fn remote_relay_decision_matches_agent_explain_evaluator() {
         let rules = vec![
             AgentHttpRule {
+                allow_fields: None,
+                body: Default::default(),
                 effect: AgentHttpRuleEffect::Allow,
                 hosts: vec!["api.github.com".to_owned()],
                 methods: vec!["GET".to_owned()],
                 paths: vec!["/user".to_owned()],
             },
             AgentHttpRule {
+                allow_fields: None,
+                body: Default::default(),
                 effect: AgentHttpRuleEffect::Deny,
                 hosts: vec!["api.github.com".to_owned()],
                 methods: vec!["DELETE".to_owned()],
@@ -4987,6 +5240,52 @@ mod tests {
                 .is_err()
         );
         denied_proxy.stop().await;
+    }
+
+    #[tokio::test]
+    async fn remote_relay_leaves_body_conditions_to_the_remote_proxy() {
+        let rules = vec![
+            AgentHttpRule {
+                allow_fields: Some(vec!["title".to_owned()]),
+                body: toml::from_str(r#"labels = ["agent"]"#).unwrap(),
+                effect: AgentHttpRuleEffect::Allow,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["POST".to_owned()],
+                paths: vec!["/repos/acme/widget/issues".to_owned()],
+            },
+            AgentHttpRule {
+                allow_fields: None,
+                body: Default::default(),
+                effect: AgentHttpRuleEffect::Deny,
+                hosts: vec!["api.github.com".to_owned()],
+                methods: vec!["POST".to_owned()],
+                paths: vec!["/repos/acme/private/issues".to_owned()],
+            },
+        ];
+        let (address, _authorization) = start_backend().await;
+        let proxy = Proxy::start_remote_with_port(
+            remote_test_config(address),
+            remote_rule_policy(rules),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let post = |path: &str| {
+            proxy_client(&proxy)
+                .post(format!("http://api.github.com{path}"))
+                .header(AUTHORIZATION, "Bearer ${STASHBASE_GITHUB_TOKEN}")
+                .header(CONTENT_TYPE, "application/json")
+                .body(r#"{"title":"x","labels":["agent"]}"#)
+                .send()
+        };
+        // Body-conditioned: forwarded for the remote proxy to decide.
+        let forwarded = post("/repos/acme/widget/issues").await.unwrap();
+        assert_eq!(forwarded.status(), StatusCode::NO_CONTENT);
+        // Nothing allows this path, so the relay still refuses it locally.
+        let denied = post("/repos/acme/private/issues").await.unwrap();
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        proxy.stop().await;
     }
 
     fn remote_test_config(address: std::net::SocketAddr) -> RemoteProxyConfig {
@@ -5847,6 +6146,8 @@ mod tests {
 
     fn rule(effect: AgentHttpRuleEffect, methods: &[&str], paths: &[&str]) -> AgentHttpRule {
         AgentHttpRule {
+            allow_fields: None,
+            body: Default::default(),
             effect,
             hosts: vec!["api.github.com".to_owned()],
             methods: methods.iter().map(|method| (*method).to_owned()).collect(),
@@ -5905,9 +6206,55 @@ mod tests {
     }
 
     #[test]
+    fn policy_fingerprint_changes_with_body_and_argument_conditions() {
+        let base = rule(
+            AgentHttpRuleEffect::Allow,
+            &["POST"],
+            &["/repos/*/*/issues"],
+        );
+        let with = |body: &str, allow_fields: Option<&[&str]>| {
+            rule_policy(vec![AgentHttpRule {
+                body: toml::from_str(body).unwrap(),
+                allow_fields: allow_fields
+                    .map(|fields| fields.iter().map(|field| (*field).to_owned()).collect()),
+                ..base.clone()
+            }])
+            .fingerprint()
+        };
+        let plain = rule_policy(vec![base.clone()]).fingerprint();
+        let labeled = with(r#"labels = ["agent"]"#, None);
+        assert_ne!(plain, labeled);
+        assert_ne!(labeled, with(r#"labels = ["urgent"]"#, None));
+        assert_ne!(labeled, with(r#"labels = ["agent"]"#, Some(&["title"])));
+        assert_ne!(
+            with(r#"labels = ["agent"]"#, Some(&[])),
+            with(r#"labels = ["agent"]"#, None)
+        );
+        assert_eq!(
+            with(r#"labels = ["agent"]"#, Some(&["title", "body"])),
+            with(r#"labels = ["agent"]"#, Some(&["body", "title"]))
+        );
+
+        let mcp = |allow_fields: Option<Vec<String>>| {
+            let mut policy = rule_policy(Vec::new());
+            policy.mcp_rules = vec![AgentMcpRule {
+                effect: AgentHttpRuleEffect::Allow,
+                hosts: vec!["mcp.example.com".to_owned()],
+                paths: vec!["/mcp".to_owned()],
+                tools: vec!["save_issue".to_owned()],
+                arguments: toml::from_str(r#"team = "ENG""#).unwrap(),
+                allow_fields,
+            }];
+            policy.fingerprint()
+        };
+        assert_ne!(mcp(None), mcp(Some(vec!["title".to_owned()])));
+    }
+
+    #[test]
     fn policy_fingerprint_includes_normalized_mcp_rules() {
         let mut left = rule_policy(Vec::new());
         left.mcp_rules = vec![AgentMcpRule {
+            allow_fields: None,
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["MCP.EXAMPLE.COM".to_owned(), "other.example.com".to_owned()],
             paths: vec!["/second".to_owned(), "/mcp".to_owned()],
@@ -5916,6 +6263,7 @@ mod tests {
         }];
         let mut equivalent = rule_policy(Vec::new());
         equivalent.mcp_rules = vec![AgentMcpRule {
+            allow_fields: None,
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["other.example.com".to_owned(), "mcp.example.com".to_owned()],
             paths: vec!["/mcp".to_owned(), "/second".to_owned()],
@@ -6585,12 +6933,16 @@ mod tests {
                 "GITHUB_TOKEN".to_owned(),
                 SecretHttpPolicy::Rules(vec![
                     AgentHttpRule {
+                        allow_fields: None,
+                        body: Default::default(),
                         effect: AgentHttpRuleEffect::Allow,
                         hosts: vec!["127.0.0.1".to_owned()],
                         methods: vec!["GET".to_owned()],
                         paths: vec!["/allowed".to_owned()],
                     },
                     AgentHttpRule {
+                        allow_fields: None,
+                        body: Default::default(),
                         effect: AgentHttpRuleEffect::Deny,
                         hosts: vec!["127.0.0.1".to_owned()],
                         methods: vec!["GET".to_owned()],
@@ -6641,12 +6993,163 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn body_conditions_decide_credential_injection_and_forward_exact_bytes() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, mut received) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let sender = sender.clone();
+                tokio::spawn(async move {
+                    let service = service_fn(move |request: Request<Incoming>| {
+                        let sender = sender.clone();
+                        async move {
+                            let authorization = request
+                                .headers()
+                                .get(AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(str::to_owned);
+                            let bytes = request.into_body().collect().await.unwrap().to_bytes();
+                            let _ = sender.send((authorization, bytes));
+                            Ok::<_, Infallible>(
+                                Response::builder()
+                                    .status(StatusCode::NO_CONTENT)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap(),
+                            )
+                        }
+                    });
+                    let _ = http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), service)
+                        .await;
+                });
+            }
+        });
+        let policy = ProxyPolicy {
+            secret_policies: HashMap::from([(
+                "MAIL_KEY".to_owned(),
+                SecretHttpPolicy::Rules(vec![AgentHttpRule {
+                    allow_fields: None,
+                    effect: AgentHttpRuleEffect::Allow,
+                    hosts: vec!["127.0.0.1".to_owned()],
+                    methods: vec!["POST".to_owned()],
+                    paths: vec!["/v1/messages".to_owned()],
+                    body: toml::from_str("send = false\nto = [\"support@acme.com\"]").unwrap(),
+                }]),
+            )]),
+            ..ProxyPolicy::permissive()
+        };
+        let proxy = Proxy::start(
+            HashMap::from([("MAIL_KEY".to_owned(), "real-key".to_owned())]),
+            ProxyPolicy {
+                strict_deny: true,
+                ..policy
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let client = proxy_client(&proxy);
+        let send = |body: &'static str, content_type: &'static str, encoding: Option<&str>| {
+            let mut request = client
+                .post(format!("http://{address}/v1/messages"))
+                .header(AUTHORIZATION, "Bearer **STASHBASE_MAIL_KEY**")
+                .header(CONTENT_TYPE, content_type)
+                .body(body);
+            if let Some(encoding) = encoding {
+                request = request.header("content-encoding", encoding);
+            }
+            request.send()
+        };
+        let denial = |response: reqwest::Response| async move {
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            let error: crate::models::api_client::ApiErrorResponse =
+                serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+            assert_eq!(error.error.code, "proxy.credential_not_allowed");
+            error.error.message.unwrap_or_default()
+        };
+
+        let allowed = "{ \"send\": false,  \"to\": [\"support@acme.com\"] }";
+        let response = send(allowed, "application/json; charset=utf-8", None)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let (authorization, bytes) = received.recv().await.unwrap();
+        assert_eq!(authorization.as_deref(), Some("Bearer real-key"));
+        assert_eq!(bytes, Bytes::from(allowed));
+
+        let message = denial(
+            send(
+                r#"{"send":true,"to":["support@acme.com"]}"#,
+                "application/json",
+                None,
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert!(message.contains("rule 1: body.send"), "{message}");
+        assert!(!message.contains("true"), "{message}");
+        let message = denial(
+            send(
+                r#"{"send":false,"to":["support@acme.com"]}"#,
+                "application/json",
+                Some("gzip"),
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert!(message.contains("body unreadable: encoding"), "{message}");
+        let message = denial(
+            send("send=false", "application/x-www-form-urlencoded", None)
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            message.contains("body unreadable: content_type"),
+            "{message}"
+        );
+        let message = denial(
+            send(
+                r#"{"send":false,"send":true,"to":["support@acme.com"]}"#,
+                "application/json",
+                None,
+            )
+            .await
+            .unwrap(),
+        )
+        .await;
+        assert!(
+            message.contains("body unreadable: duplicate_key"),
+            "{message}"
+        );
+        let oversized: &'static str = Box::leak(
+            format!(
+                r#"{{"send":false,"to":["support@acme.com"],"pad":"{}"}}"#,
+                "x".repeat(BODY_CONDITION_MAX_BYTES)
+            )
+            .into_boxed_str(),
+        );
+        let message = denial(send(oversized, "application/json", None).await.unwrap()).await;
+        assert!(message.contains("body unreadable: size"), "{message}");
+        assert!(timeout(Duration::from_millis(100), received.recv())
+            .await
+            .is_err());
+        proxy.stop().await;
+    }
+
+    #[tokio::test]
     async fn secret_rule_host_outside_configured_egress_is_reachable_only_with_its_secret() {
         let (address, authorization) = start_backend().await;
         let policy = ProxyPolicy {
             secret_policies: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
                 SecretHttpPolicy::Rules(vec![AgentHttpRule {
+                    allow_fields: None,
+                    body: Default::default(),
                     effect: AgentHttpRuleEffect::Allow,
                     hosts: vec!["127.0.0.1".to_owned()],
                     methods: vec!["GET".to_owned()],

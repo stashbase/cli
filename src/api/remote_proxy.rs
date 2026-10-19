@@ -92,6 +92,8 @@ pub struct RemoteMcpRule {
     pub tools: Vec<String>,
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub arguments: std::collections::BTreeMap<String, crate::models::agent::AgentFieldCondition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_fields: Option<Vec<String>>,
 }
 
 impl From<crate::models::agent::AgentMcpRule> for RemoteMcpRule {
@@ -102,6 +104,7 @@ impl From<crate::models::agent::AgentMcpRule> for RemoteMcpRule {
             paths: rule.paths,
             tools: rule.tools,
             arguments: rule.arguments,
+            allow_fields: rule.allow_fields,
         }
     }
 }
@@ -803,6 +806,7 @@ mod tests {
         let mut session = session_request(None);
         session.session_purpose = Some("mcp_inspection".to_owned());
         session.mcp_rules = vec![RemoteMcpRule {
+            allow_fields: None,
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: vec!["mcp.linear.app".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -830,6 +834,7 @@ mod tests {
         let client = reqwest::Client::new();
         let mut session = session_request(None);
         session.mcp_rules = vec![RemoteMcpRule {
+            allow_fields: Some(vec!["title".to_owned()]),
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: vec!["mcp.linear.app".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -854,6 +859,41 @@ mod tests {
                 "team": ["Engineering"],
             })
         );
+        assert_eq!(
+            body["mcp_rules"][0]["allow_fields"],
+            serde_json::json!(["title"])
+        );
+    }
+
+    #[test]
+    fn session_request_serializes_binding_body_conditions() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        let mut rule: crate::models::agent::AgentHttpRule = toml::from_str(
+            "effect = \"allow\"\nhosts = [\"api.github.com\"]\nmethods = [\"POST\"]\npaths = [\"/repos/*/*/issues\"]\nbody = { labels = [\"agent\"] }\nallow_fields = [\"title\"]",
+        )
+        .unwrap();
+        rule.methods = vec!["POST".to_owned()];
+        session.bindings = vec![RemoteBinding {
+            name: "GH_TOKEN".to_owned(),
+            source: RemoteBindingSource::Secret,
+            source_name: "GH_TOKEN".to_owned(),
+            hosts: Vec::new(),
+            rules: vec![rule],
+            header: "Authorization".to_owned(),
+            placeholder: "${GH_TOKEN}".to_owned(),
+            value_template: "Bearer {value}".to_owned(),
+        }];
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+
+        let rule = &body["bindings"][0]["rules"][0];
+        assert_eq!(rule["body"], serde_json::json!({ "labels": ["agent"] }));
+        assert_eq!(rule["allow_fields"], serde_json::json!(["title"]));
     }
 
     #[test]

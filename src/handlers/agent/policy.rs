@@ -67,33 +67,211 @@ pub fn evaluate_secret_authorization(
     method: &str,
     path: &str,
 ) -> SecretAuthorizationDecision {
-    match policy {
+    authorize_secret_request(policy, host, method, path, &RequestBody::NotRead).decision
+}
+
+/// What the proxy knows about a request body when authorizing a credential.
+#[derive(Debug, Clone, Copy)]
+pub enum RequestBody<'a> {
+    /// The body was not read. A rule with `body` conditions fails closed.
+    NotRead,
+    /// A JSON object body, parsed strictly.
+    Readable(&'a Value),
+    /// The body could not be evaluated, for the given reason
+    /// (`content_type`, `encoding`, `size`, `json`, `duplicate_key`).
+    Unreadable(&'static str),
+}
+
+/// A credential decision plus, when body conditions decided it, a field-only
+/// detail such as `rule 2: body.amount`. Never a body value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretAuthorization {
+    pub decision: SecretAuthorizationDecision,
+    pub detail: Option<String>,
+    /// Audit reason code in the MCP style, e.g. `allow_condition_failed:body.amount`.
+    pub reason: Option<String>,
+}
+
+/// Whether any rule that matches host, method and path has body conditions,
+/// so the proxy must read the body before deciding.
+pub fn secret_policy_needs_body(
+    policy: &SecretHttpPolicy,
+    host: &str,
+    method: &str,
+    path: &str,
+) -> bool {
+    matches!(policy, SecretHttpPolicy::Rules(rules) if rules
+        .iter()
+        .any(|rule| rule.has_conditions() && rule_matches(rule, host, method, path)))
+}
+
+/// Whether some request body could make this credential eligible: no deny
+/// without body conditions matches and some allow rule does. Used by
+/// diagnostics, which see no body.
+pub fn could_allow_with_body(
+    policy: &SecretHttpPolicy,
+    host: &str,
+    method: &str,
+    path: &str,
+) -> bool {
+    let SecretHttpPolicy::Rules(rules) = policy else {
+        return false;
+    };
+    let matching = || {
+        rules
+            .iter()
+            .filter(|rule| rule_matches(rule, host, method, path))
+    };
+    !matching().any(|rule| rule.effect == AgentHttpRuleEffect::Deny && !rule.has_conditions())
+        && matching().any(|rule| rule.effect == AgentHttpRuleEffect::Allow)
+}
+
+/// Deny rules win, then any allow rule whose body conditions hold. A body that
+/// cannot be evaluated makes conditioned allow rules not match and
+/// conditioned deny rules match, so it can neither widen an allow nor step
+/// around a deny.
+pub fn authorize_secret_request(
+    policy: &SecretHttpPolicy,
+    host: &str,
+    method: &str,
+    path: &str,
+    body: &RequestBody<'_>,
+) -> SecretAuthorization {
+    let decided = |decision| SecretAuthorization {
+        decision,
+        detail: None,
+        reason: None,
+    };
+    let rules = match policy {
         SecretHttpPolicy::LegacyHosts(hosts) => {
-            if hosts
-                .iter()
-                .any(|allowed| configured_host_matches(allowed, host))
-            {
-                SecretAuthorizationDecision::AllowedLegacyHost
-            } else {
-                SecretAuthorizationDecision::DeniedLegacyHost
-            }
+            return decided(
+                if hosts
+                    .iter()
+                    .any(|allowed| configured_host_matches(allowed, host))
+                {
+                    SecretAuthorizationDecision::AllowedLegacyHost
+                } else {
+                    SecretAuthorizationDecision::DeniedLegacyHost
+                },
+            );
         }
-        SecretHttpPolicy::Rules(rules) => {
-            let matches = |rule: &AgentHttpRule| rule_matches(rule, host, method, path);
-            if rules
+        SecretHttpPolicy::Rules(rules) => rules,
+    };
+    let unreadable = match body {
+        RequestBody::Readable(_) => None,
+        RequestBody::Unreadable(reason) => Some(*reason),
+        RequestBody::NotRead => Some("not_read"),
+    };
+    // (detail for the 403, audit reason code) for a rule decided by its body.
+    let body_outcome = |index: usize, fields: &[&str], code: &str| match unreadable {
+        Some(reason) => (
+            format!("rule {}: body unreadable: {reason}", index + 1),
+            format!("body_unreadable:{reason}"),
+        ),
+        None => {
+            let fields = fields
                 .iter()
-                .any(|rule| rule.effect == AgentHttpRuleEffect::Deny && matches(rule))
-            {
-                SecretAuthorizationDecision::DeniedRule
-            } else if rules
-                .iter()
-                .any(|rule| rule.effect == AgentHttpRuleEffect::Allow && matches(rule))
-            {
-                SecretAuthorizationDecision::AllowedRule
+                .map(|field| format!("body.{field}"))
+                .collect::<Vec<_>>();
+            let unlisted = if code == "unlisted_field" {
+                "unlisted "
             } else {
-                SecretAuthorizationDecision::NoMatchingAllowRule
-            }
+                ""
+            };
+            (
+                format!("rule {}: {unlisted}{}", index + 1, fields.join(", ")),
+                format!("{code}:{}", fields.join(",")),
+            )
         }
+    };
+    let mut first_unmet = None;
+    let mut allowed = false;
+    for (index, rule) in rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule_matches(rule, host, method, path))
+    {
+        let unmet = match (rule.has_conditions(), body) {
+            (false, _) => None,
+            (true, RequestBody::Readable(value)) => first_unmet_condition(&rule.body, value)
+                .map(|field| (field.to_owned(), "allow_condition_failed"))
+                .or_else(|| {
+                    // Deny rules cannot set allow_fields (validation rejects it).
+                    let allow_fields = rule.allow_fields.as_deref()?;
+                    first_unlisted_field(&rule.body, allow_fields, value)
+                        .map(|field| (field, "unlisted_field"))
+                }),
+            (true, _) => Some((String::new(), "allow_condition_failed")),
+        };
+        match rule.effect {
+            AgentHttpRuleEffect::Deny => {
+                if !rule.has_conditions() {
+                    return decided(SecretAuthorizationDecision::DeniedRule);
+                }
+                if unreadable.is_some() || unmet.is_none() {
+                    let fields = rule.body.keys().map(String::as_str).collect::<Vec<_>>();
+                    let (detail, reason) = body_outcome(index, &fields, "deny_condition_matched");
+                    return SecretAuthorization {
+                        decision: SecretAuthorizationDecision::DeniedRule,
+                        detail: Some(detail),
+                        reason: Some(reason),
+                    };
+                }
+            }
+            AgentHttpRuleEffect::Allow => match unmet {
+                None => allowed = true,
+                Some((field, code)) => {
+                    first_unmet.get_or_insert_with(|| body_outcome(index, &[&field], code));
+                }
+            },
+        }
+    }
+    if allowed {
+        decided(SecretAuthorizationDecision::AllowedRule)
+    } else {
+        let (detail, reason) = first_unmet.unzip();
+        SecretAuthorization {
+            decision: SecretAuthorizationDecision::NoMatchingAllowRule,
+            detail,
+            reason,
+        }
+    }
+}
+
+/// Reads a request body for body conditions. Only JSON objects without
+/// compression or repeated keys are readable.
+pub fn read_request_body<'a>(
+    content_type: Option<&str>,
+    content_encoding: Option<&str>,
+    bytes: &[u8],
+    parsed: &'a mut Option<Value>,
+) -> RequestBody<'a> {
+    let json_type = content_type.is_some_and(|value| {
+        let media = value
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        media == "application/json"
+            || media
+                .strip_prefix("application/")
+                .is_some_and(|subtype| subtype.ends_with("+json"))
+    });
+    if !json_type {
+        return RequestBody::Unreadable("content_type");
+    }
+    if content_encoding.is_some_and(|value| !value.trim().eq_ignore_ascii_case("identity")) {
+        return RequestBody::Unreadable("encoding");
+    }
+    if serde_json::from_slice::<Value>(bytes).is_err() {
+        return RequestBody::Unreadable("json");
+    }
+    *parsed = parse_json_with_unique_keys(bytes);
+    match parsed {
+        None => RequestBody::Unreadable("duplicate_key"),
+        Some(value) if value.is_object() => RequestBody::Readable(value),
+        Some(_) => RequestBody::Unreadable("json"),
     }
 }
 
@@ -213,6 +391,54 @@ pub fn first_unmet_condition<'a>(
         .iter()
         .find(|(path, condition)| !condition_holds(condition, lookup(value, path)))
         .map(|(path, _)| path.as_str())
+}
+
+/// The first field of `value` that is neither a condition path nor listed in
+/// `allow_fields`, as a dotted path. A listed path allows its whole subtree; a
+/// field that is only a prefix of listed paths may contain just those paths.
+pub fn first_unlisted_field(
+    conditions: &BTreeMap<String, AgentFieldCondition>,
+    allow_fields: &[String],
+    value: &Value,
+) -> Option<String> {
+    let listed = conditions
+        .keys()
+        .chain(allow_fields)
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    fn walk(
+        object: &serde_json::Map<String, Value>,
+        prefix: &str,
+        listed: &[&str],
+    ) -> Option<String> {
+        for (key, value) in object {
+            let path = if prefix.is_empty() {
+                key.clone()
+            } else {
+                format!("{prefix}.{key}")
+            };
+            if listed.contains(&path.as_str()) {
+                continue;
+            }
+            let parent = format!("{path}.");
+            if !listed.iter().any(|listed| listed.starts_with(&parent)) {
+                return Some(path);
+            }
+            // Only paths below this field are allowed, so it must be an object
+            // (or null). An array or scalar would carry unlisted content.
+            match value {
+                Value::Object(nested) => {
+                    if let Some(unlisted) = walk(nested, &path, listed) {
+                        return Some(unlisted);
+                    }
+                }
+                Value::Null => {}
+                _ => return Some(path),
+            }
+        }
+        None
+    }
+    walk(value.as_object()?, "", &listed)
 }
 
 /// Where a dotted field path leads. `Blocked` means an intermediate segment
@@ -510,15 +736,183 @@ mod tests {
     }
 
     #[test]
+    fn body_conditions_fail_closed_and_name_only_fields() {
+        use super::{
+            authorize_secret_request, read_request_body, RequestBody, SecretAuthorizationDecision,
+        };
+        let rule = |effect, body: &str| AgentHttpRule {
+            allow_fields: None,
+            effect,
+            hosts: vec!["api.example.com".to_owned()],
+            methods: vec!["POST".to_owned()],
+            paths: vec!["/v1/payouts".to_owned()],
+            body: toml::from_str(body).unwrap(),
+        };
+        let policy = SecretHttpPolicy::Rules(vec![
+            rule(
+                AgentHttpRuleEffect::Allow,
+                "currency = \"usd\"\namount = { max = 5000 }",
+            ),
+            rule(
+                AgentHttpRuleEffect::Allow,
+                "currency = \"eur\"\namount = { max = 4000 }",
+            ),
+            rule(AgentHttpRuleEffect::Deny, "\"destination.type\" = \"card\""),
+        ]);
+        let decide = |body: &RequestBody<'_>| {
+            authorize_secret_request(&policy, "api.example.com", "POST", "/v1/payouts", body)
+        };
+        let value = |json: &str| serde_json::from_str::<serde_json::Value>(json).unwrap();
+
+        let usd = value(r#"{"currency":"usd","amount":4500}"#);
+        assert_eq!(
+            decide(&RequestBody::Readable(&usd)).decision,
+            SecretAuthorizationDecision::AllowedRule
+        );
+        let eur = value(r#"{"currency":"eur","amount":4500}"#);
+        let denied = decide(&RequestBody::Readable(&eur));
+        assert_eq!(
+            denied.decision,
+            SecretAuthorizationDecision::NoMatchingAllowRule
+        );
+        assert_eq!(denied.detail.as_deref(), Some("rule 1: body.currency"));
+        assert_eq!(
+            denied.reason.as_deref(),
+            Some("allow_condition_failed:body.currency")
+        );
+        let card = value(r#"{"currency":"usd","amount":1,"destination":{"type":"card"}}"#);
+        let denied = decide(&RequestBody::Readable(&card));
+        assert_eq!(denied.decision, SecretAuthorizationDecision::DeniedRule);
+        assert_eq!(
+            denied.detail.as_deref(),
+            Some("rule 3: body.destination.type")
+        );
+        // Unreadable or unread bodies never satisfy an allow and always meet a deny.
+        for body in [RequestBody::Unreadable("encoding"), RequestBody::NotRead] {
+            assert_eq!(
+                decide(&body).decision,
+                SecretAuthorizationDecision::DeniedRule
+            );
+        }
+
+        let mut parsed = None;
+        assert!(matches!(
+            read_request_body(
+                Some("application/vnd.api+json"),
+                None,
+                br#"{"a":1}"#,
+                &mut parsed
+            ),
+            RequestBody::Readable(_)
+        ));
+        for (content_type, encoding, bytes, reason) in [
+            (Some("text/plain"), None, &br#"{"a":1}"#[..], "content_type"),
+            (None, None, &br#"{"a":1}"#[..], "content_type"),
+            (
+                Some("application/json"),
+                Some("gzip"),
+                &br#"{"a":1}"#[..],
+                "encoding",
+            ),
+            (Some("application/json"), None, &b"[1]"[..], "json"),
+            (Some("application/json"), None, &b"{nope"[..], "json"),
+            (
+                Some("application/json"),
+                None,
+                &br#"{"a":1,"a":2}"#[..],
+                "duplicate_key",
+            ),
+        ] {
+            let mut parsed = None;
+            assert!(
+                matches!(
+                    read_request_body(content_type, encoding, bytes, &mut parsed),
+                    RequestBody::Unreadable(found) if found == reason
+                ),
+                "{reason}"
+            );
+        }
+    }
+
+    #[test]
+    fn allow_fields_list_the_only_fields_a_body_may_have() {
+        use super::{
+            authorize_secret_request, first_unlisted_field, RequestBody,
+            SecretAuthorizationDecision,
+        };
+        let value = |json: &str| serde_json::from_str::<serde_json::Value>(json).unwrap();
+        let conditions = toml::from_str(r#""project.id" = "P""#).unwrap();
+        let fields = ["subject".to_owned(), "meta".to_owned()];
+        let unlisted = |json: &str| first_unlisted_field(&conditions, &fields, &value(json));
+        assert_eq!(
+            unlisted(r#"{"project":{"id":"P"},"subject":"s","meta":{"any":{"x":1}}}"#),
+            None
+        );
+        assert_eq!(unlisted(r#"{"bcc":"x"}"#).as_deref(), Some("bcc"));
+        assert_eq!(
+            unlisted(r#"{"project":{"id":"P","owner":"x"}}"#).as_deref(),
+            Some("project.owner")
+        );
+        // Only paths below `project` are listed, so it must be an object.
+        let nested_only = ["project.id".to_owned()];
+        let unlisted_nested =
+            |json: &str| first_unlisted_field(&Default::default(), &nested_only, &value(json));
+        assert_eq!(
+            unlisted_nested(r#"{"project":[{"owner":"attacker"}]}"#).as_deref(),
+            Some("project")
+        );
+        assert_eq!(
+            unlisted_nested(r#"{"project":"x"}"#).as_deref(),
+            Some("project")
+        );
+        assert_eq!(unlisted_nested(r#"{"project":null}"#), None);
+        assert_eq!(unlisted_nested(r#"{"project":{"id":1}}"#), None);
+
+        let policy = SecretHttpPolicy::Rules(vec![AgentHttpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["api.mail.example".to_owned()],
+            methods: vec!["POST".to_owned()],
+            paths: vec!["/v1/messages".to_owned()],
+            body: toml::from_str("send = false").unwrap(),
+            allow_fields: Some(vec!["to".to_owned()]),
+        }]);
+        let decide = |json: &str| {
+            let body = value(json);
+            authorize_secret_request(
+                &policy,
+                "api.mail.example",
+                "POST",
+                "/v1/messages",
+                &RequestBody::Readable(&body),
+            )
+        };
+        assert_eq!(
+            decide(r#"{"send":false,"to":"a"}"#).decision,
+            SecretAuthorizationDecision::AllowedRule
+        );
+        let denied = decide(r#"{"send":false,"to":"a","bcc":"b"}"#);
+        assert_eq!(
+            denied.decision,
+            SecretAuthorizationDecision::NoMatchingAllowRule
+        );
+        assert_eq!(denied.detail.as_deref(), Some("rule 1: unlisted body.bcc"));
+        assert_eq!(denied.reason.as_deref(), Some("unlisted_field:body.bcc"));
+    }
+
+    #[test]
     fn reports_one_based_matching_rule_numbers_with_deny_precedence() {
         let policy = SecretHttpPolicy::Rules(vec![
             AgentHttpRule {
+                allow_fields: None,
+                body: Default::default(),
                 effect: AgentHttpRuleEffect::Allow,
                 hosts: vec!["api.example.com".to_owned()],
                 methods: vec!["GET".to_owned()],
                 paths: vec!["/repos/*".to_owned()],
             },
             AgentHttpRule {
+                allow_fields: None,
+                body: Default::default(),
                 effect: AgentHttpRuleEffect::Deny,
                 hosts: vec!["api.example.com".to_owned()],
                 methods: vec!["GET".to_owned()],

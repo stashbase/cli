@@ -1,0 +1,120 @@
+# HTTP body conditions ([[secrets.*.rules]] with body / allow_fields), testable
+# against httpbin.org, which echoes each request back. No real API key needed:
+#   cp docs/agent-profiles/examples/http-body-conditions.toml .stashbase/agents/
+#   echo 'MAIL_KEY=test-key-123' > .stashbase/http-body-conditions.env
+#   stashbase agent validate --profile http-body-conditions
+#   stashbase agent policy test --profile http-body-conditions
+#   stashbase agent run --profile http-body-conditions -- sh -c \
+#     'curl -s https://httpbin.org/anything/messages -H "Authorization: Bearer $MAIL_KEY" \
+#        -H "Content-Type: application/json" -d "{\"send\": false, \"to\": [\"support@acme.com\"]}"'
+# httpbin echoes "Authorization: Bearer test-key-123" when the credential was
+# injected; a refused request gets a 403 from the proxy naming the rule and field.
+
+file = ".stashbase/http-body-conditions.env"
+egress_hosts = ["httpbin.org"]
+
+[secrets.MAIL_KEY]
+env = "MAIL_KEY"
+
+# Drafts only, to listed recipients, and no fields besides to, send, subject, text.
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["httpbin.org"]
+methods = ["POST"]
+paths = ["/anything/messages"]
+body = { send = false, to = ["support@acme.com", "ops@acme.com"] }
+allow_fields = ["subject", "text"]
+
+# Payouts in usd up to 5000, or eur up to 4000; separate rules are alternatives.
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["httpbin.org"]
+methods = ["POST"]
+paths = ["/anything/payouts"]
+body = { currency = "usd", amount = { min = 1, max = 5000 } }
+
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["httpbin.org"]
+methods = ["POST"]
+paths = ["/anything/payouts"]
+body = { currency = "eur", amount = { min = 1, max = 4000 } }
+
+# Best-effort carve-out (validate warns): never pay out to a card.
+[[secrets.MAIL_KEY.rules]]
+effect = "deny"
+hosts = ["httpbin.org"]
+methods = ["POST"]
+paths = ["/anything/payouts"]
+body = { "destination.type" = "card" }
+
+[[policy_tests]]
+name = "draft to support"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/messages"
+body = '{"send": false, "to": ["support@acme.com"], "subject": "Hi"}'
+expect = "allow"
+
+[[policy_tests]]
+name = "sending is refused"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/messages"
+body = '{"send": true, "to": ["support@acme.com"]}'
+expect = "deny"
+
+[[policy_tests]]
+name = "unknown recipient is refused"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/messages"
+body = '{"send": false, "to": ["support@acme.com", "x@evil.com"]}'
+expect = "deny"
+
+[[policy_tests]]
+name = "unlisted bcc is refused"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/messages"
+body = '{"send": false, "to": ["support@acme.com"], "bcc": ["x@evil.com"]}'
+expect = "deny"
+
+[[policy_tests]]
+name = "usd payout within limit"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/payouts"
+body = '{"currency": "usd", "amount": 4500, "destination": {"type": "bank"}}'
+expect = "allow"
+
+[[policy_tests]]
+name = "eur payout over its limit"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/payouts"
+body = '{"currency": "eur", "amount": 4500}'
+expect = "deny"
+
+[[policy_tests]]
+name = "card payout is refused"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/payouts"
+body = '{"currency": "usd", "amount": 10, "destination": {"type": "card"}}'
+expect = "deny"
+
+[[policy_tests]]
+name = "no body is refused"
+secret = "MAIL_KEY"
+method = "POST"
+host = "httpbin.org"
+path = "/anything/payouts"
+expect = "deny"

@@ -157,6 +157,17 @@ pub struct AgentMcpRule {
     /// applies to every call of a matching tool.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub arguments: BTreeMap<String, AgentFieldCondition>,
+    /// When set, the call's arguments may contain only fields named in
+    /// `arguments` or here; any other field fails the rule. Allow rules only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_fields: Option<Vec<String>>,
+}
+
+impl AgentMcpRule {
+    /// Whether the rule looks at the call's arguments at all.
+    pub fn has_conditions(&self) -> bool {
+        !self.arguments.is_empty() || self.allow_fields.is_some()
+    }
 }
 
 /// A user-facing MCP tool rule. `allow_tools` and `deny_tools` are shorthand
@@ -169,6 +180,17 @@ pub struct AgentMcpToolRule {
     /// Dotted field paths under `params.arguments`, each with one condition.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub arguments: BTreeMap<String, AgentFieldCondition>,
+    /// When set, the call's arguments may contain only fields named in
+    /// `arguments` or here; any other field fails the rule. Allow rules only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_fields: Option<Vec<String>>,
+}
+
+impl AgentMcpToolRule {
+    /// Whether the rule looks at the call's arguments at all.
+    pub fn has_conditions(&self) -> bool {
+        !self.arguments.is_empty() || self.allow_fields.is_some()
+    }
 }
 
 impl AgentMcpServer {
@@ -191,15 +213,13 @@ pub fn shadowed_tool_conditions(
         .chain(
             tool_rules
                 .iter()
-                .filter(|rule| {
-                    rule.effect == AgentHttpRuleEffect::Allow && rule.arguments.is_empty()
-                })
+                .filter(|rule| rule.effect == AgentHttpRuleEffect::Allow && !rule.has_conditions())
                 .flat_map(|rule| &rule.tools),
         )
         .collect::<Vec<_>>();
     let mut shadowed = Vec::new();
     for (index, rule) in tool_rules.iter().enumerate() {
-        if rule.effect != AgentHttpRuleEffect::Allow || rule.arguments.is_empty() {
+        if rule.effect != AgentHttpRuleEffect::Allow || !rule.has_conditions() {
             continue;
         }
         for tool in &rule.tools {
@@ -394,6 +414,9 @@ pub struct AgentPolicyTestCase {
     pub method: String,
     pub host: String,
     pub path: String,
+    /// JSON request body as sent, for rules with `body` or `allow_fields`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
     pub expect: AgentPolicyTestExpectation,
 }
 
@@ -437,11 +460,27 @@ pub struct AgentBindingProfile {
 
 /// An HTTP action rule applied before a secret is injected.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentHttpRule {
     pub effect: AgentHttpRuleEffect,
     pub hosts: Vec<String>,
     pub methods: Vec<String>,
     pub paths: Vec<String>,
+    /// Conditions on dotted fields of a JSON request body. Empty means the
+    /// rule matches on host, method and path alone, and the body is not read.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub body: BTreeMap<String, AgentFieldCondition>,
+    /// When set, the JSON body may contain only fields named in `body` or
+    /// here; any other field fails the rule. Allow rules only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_fields: Option<Vec<String>>,
+}
+
+impl AgentHttpRule {
+    /// Whether the rule looks at the request body at all.
+    pub fn has_conditions(&self) -> bool {
+        !self.body.is_empty() || self.allow_fields.is_some()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
