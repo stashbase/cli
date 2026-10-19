@@ -204,12 +204,9 @@ fn evaluate_case(
     let mut parsed = None;
     let body = match &test.body {
         None => RequestBody::NotRead,
-        Some(body) => read_request_body(
-            Some(test.content_type.as_deref().unwrap_or("application/json")),
-            None,
-            body.as_bytes(),
-            &mut parsed,
-        ),
+        Some(body) => {
+            read_request_body(Some("application/json"), None, body.as_bytes(), &mut parsed)
+        }
     };
     let authorization = authorize_secret_request(
         &policy,
@@ -387,7 +384,6 @@ mod tests {
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
                 body: None,
-                content_type: None,
                 expect: AgentPolicyTestExpectation::Allow,
             },
             1,
@@ -405,7 +401,6 @@ mod tests {
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
                 body: None,
-                content_type: None,
                 expect: AgentPolicyTestExpectation::Deny,
             },
             2,
@@ -433,7 +428,6 @@ mod tests {
             host: "api.github.com".to_owned(),
             path: "/user".to_owned(),
             body: body.map(str::to_owned),
-            content_type: None,
             expect,
         };
         let run = |test| evaluate_case(&profile, &test, 1).unwrap();
@@ -467,7 +461,6 @@ mod tests {
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
                 body: None,
-                content_type: None,
                 expect: AgentPolicyTestExpectation::Deny,
             },
             1,
@@ -490,7 +483,6 @@ mod tests {
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
                 body: None,
-                content_type: None,
                 expect: AgentPolicyTestExpectation::Allow,
             },
             1,
@@ -517,7 +509,6 @@ mod tests {
             &legacy,
             &AgentPolicyTestCase {
                 body: None,
-                content_type: None,
                 name: None,
                 secret: "GITHUB_TOKEN".to_owned(),
                 method: "DELETE".to_owned(),
@@ -554,7 +545,6 @@ mod tests {
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
                 body: None,
-                content_type: None,
                 expect: AgentPolicyTestExpectation::Deny,
             },
             3,
@@ -568,7 +558,6 @@ mod tests {
         let mut profile = profile();
         profile.policy_tests = vec![AgentPolicyTestCase {
             body: None,
-            content_type: None,
             name: Some("embedded".to_owned()),
             secret: "GITHUB_TOKEN".to_owned(),
             method: "GET".to_owned(),
@@ -603,7 +592,6 @@ mod tests {
         let mut profile = profile();
         profile.policy_tests = vec![AgentPolicyTestCase {
             body: None,
-            content_type: None,
             name: Some("embedded".to_owned()),
             secret: "GITHUB_TOKEN".to_owned(),
             method: "GET".to_owned(),

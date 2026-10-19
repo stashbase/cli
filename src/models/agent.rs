@@ -418,12 +418,9 @@ pub struct AgentPolicyTestCase {
     pub method: String,
     pub host: String,
     pub path: String,
-    /// Request body as sent, for rules with `body` or `allow_fields`.
+    /// JSON request body as sent, for rules with `body` or `allow_fields`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
-    /// Content type of `body`. Defaults to `application/json`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
     pub expect: AgentPolicyTestExpectation,
 }
 
