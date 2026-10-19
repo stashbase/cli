@@ -57,22 +57,47 @@ pub fn handle_agent_policy_test_command(
     if json {
         println!("{}", get_formatted_json_string(&report, true)?);
     } else {
-        println!("Agent policy tests: `{}`", report.profile);
-        println!("Profile source: {}", report.source);
-        println!("Test source: {}", report.test_source);
+        let paint = crate::handlers::agent::mcp::Paint::new();
+        let effect = |effect: AgentPolicyTestExpectation| match effect {
+            AgentPolicyTestExpectation::Allow => paint.allowed_soft("allow"),
+            AgentPolicyTestExpectation::Deny => paint.denied_soft("deny"),
+        };
+        println!(
+            "{} `{}`",
+            paint.header("Agent policy tests:"),
+            report.profile
+        );
+        println!("{} {}", paint.dim("Profile source:"), report.source);
+        println!("{} {}", paint.dim("Test source:"), report.test_source);
         for result in &report.tests {
-            let marker = if result.passed { "✓" } else { "✗" };
+            let marker = if result.passed {
+                paint.allowed("✓")
+            } else {
+                paint.denied("✗")
+            };
             let detail = result
                 .detail
                 .as_deref()
                 .map(|detail| format!(", {detail}"))
                 .unwrap_or_default();
             println!(
-                "{marker} {}: expected {}, got {} ({}{detail})",
-                result.name, result.expected, result.actual, result.reason
+                "{marker} {}: expected {}, got {} {}",
+                result.name,
+                effect(result.expected),
+                effect(result.actual),
+                paint.dim(&format!("({}{detail})", result.reason))
             );
         }
-        println!("{} passed, {} failed", report.passed, report.failed);
+        let failed = format!("{} failed", report.failed);
+        println!(
+            "{}, {}",
+            paint.allowed_soft(&format!("{} passed", report.passed)),
+            if report.failed > 0 {
+                paint.denied(&failed)
+            } else {
+                paint.dim(&failed)
+            }
+        );
     }
     Ok(failed)
 }
@@ -203,7 +228,7 @@ fn evaluate_case(
     // Mirrors the proxy: a missing body is read as no body at all.
     let mut parsed = None;
     let body = match &test.body {
-        None => RequestBody::NotRead,
+        None => RequestBody::Unreadable("no_body"),
         Some(body) => {
             read_request_body(Some("application/json"), None, body.as_bytes(), &mut parsed)
         }

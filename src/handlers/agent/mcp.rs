@@ -724,14 +724,14 @@ fn print_warnings(warnings: &[String], paint: Paint) {
 /// keys and dimmed secondary text, plus magenta argument types. Plain text when
 /// color is disabled.
 #[derive(Clone, Copy)]
-struct Paint(bool);
+pub(crate) struct Paint(bool);
 
 impl Paint {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(is_color_enabled(true))
     }
 
-    fn header(self, text: &str) -> String {
+    pub(crate) fn header(self, text: &str) -> String {
         self.style(text, |text| text.cyan().bold().to_string())
     }
 
@@ -747,23 +747,23 @@ impl Paint {
         self.style(text, |text| text.magenta().to_string())
     }
 
-    fn dim(self, text: &str) -> String {
+    pub(crate) fn dim(self, text: &str) -> String {
         self.style(text, |text| text.bright_black().to_string())
     }
 
-    fn allowed(self, text: &str) -> String {
+    pub(crate) fn allowed(self, text: &str) -> String {
         self.style(text, |text| text.green().bold().to_string())
     }
 
-    fn denied(self, text: &str) -> String {
+    pub(crate) fn denied(self, text: &str) -> String {
         self.style(text, |text| text.red().bold().to_string())
     }
 
-    fn allowed_soft(self, text: &str) -> String {
+    pub(crate) fn allowed_soft(self, text: &str) -> String {
         self.style(text, |text| text.green().to_string())
     }
 
-    fn denied_soft(self, text: &str) -> String {
+    pub(crate) fn denied_soft(self, text: &str) -> String {
         self.style(text, |text| text.red().to_string())
     }
 
