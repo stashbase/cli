@@ -28,6 +28,8 @@ pub enum AgentSessionInputValidationError {
     InvalidId,
     BulkScopeRequired,
     ProfileNotFound { profile: String, source: String },
+    McpServerNotFound { server: String },
+    McpToolNotFound { server: String, tool: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -1045,6 +1047,24 @@ impl AgentSessionInputValidationError {
                     format!(
                         "Profile '{}' was not found in the {} config. Use `stashbase agent profiles list` to see available profiles.",
                         profile, source
+                    )
+                    .into_boxed_str(),
+                )),
+            ),
+            AgentSessionInputValidationError::McpServerNotFound { server } => (
+                "MCP server was not found in the profile.",
+                Some(Box::leak(
+                    format!(
+                        "The profile has no [mcp_servers.{server}] entry. Check --server against the profile's [mcp_servers] names."
+                    )
+                    .into_boxed_str(),
+                )),
+            ),
+            AgentSessionInputValidationError::McpToolNotFound { server, tool } => (
+                "MCP tool was not found on the server.",
+                Some(Box::leak(
+                    format!(
+                        "MCP server '{server}' does not offer a tool named '{tool}'. Run `stashbase agent mcp tools` without --tool to list its tools."
                     )
                     .into_boxed_str(),
                 )),

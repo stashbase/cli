@@ -26,7 +26,7 @@ paths = ["/mcp"]
 [mcp_servers.linear]
 url = "https://mcp.linear.app/mcp"
 binding = "LINEAR_API_KEY"
-allow_tools = ["search_issues", "get_issue", "create_issue"]
+allow_tools = ["list_issues", "get_issue", "save_issue"]
 ```
 
 Run:
@@ -109,7 +109,7 @@ paths = ["/mcp"]
 [mcp_servers.linear]
 url = "https://mcp.linear.app/mcp"
 binding = "LINEAR_API_KEY"
-allow_tools = ["search_issues", "get_issue", "create_issue"]
+allow_tools = ["list_issues", "get_issue", "save_issue"]
 ```
 
 The HTTP rule controls credential injection at the endpoint. The MCP server entry controls which tools are available. Both are required.
@@ -275,7 +275,7 @@ paths = ["/mcp"]
 [mcp_servers.linear]
 url = "https://mcp.linear.app/mcp"
 binding = "LINEAR_API_KEY"
-allow_tools = ["search_issues", "get_issue"]
+allow_tools = ["list_issues", "get_issue"]
 ```
 
 Run with `--remote`:

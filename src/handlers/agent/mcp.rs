@@ -1,7 +1,7 @@
 //! Read-only inspection of configured HTTP MCP servers.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt, fs,
     path::Path,
     sync::{Arc, RwLock},
@@ -12,6 +12,7 @@ use dialoguer::{
     theme::{ColorfulTheme, Theme},
     Confirm, MultiSelect,
 };
+use owo_colors::OwoColorize;
 use serde_json::{json, Value};
 
 use crate::{
@@ -34,16 +35,41 @@ use crate::{
     },
     models::{
         agent::{
-            AgentBindingProfile, AgentHttpRuleEffect, AgentMcpRule, AgentMcpServer, AgentProfile,
+            AgentBindingProfile, AgentFieldCondition, AgentHttpRuleEffect, AgentMcpRule,
+            AgentMcpServer, AgentProfile, AgentScalar,
         },
         config::Config,
+        validation::{AgentSessionInputValidationError, InputValidationError},
     },
     utils::{
-        output::get_formatted_json_string,
+        output::{get_formatted_json_string, is_color_enabled},
         secrets::read_secrets_from_file,
         spinner::{request_spinner, Spinner},
     },
 };
+
+/// Agent input errors print as `{"error": ...}` under --json, like a missing
+/// profile does.
+fn agent_input_error(error: AgentSessionInputValidationError, json: bool) -> anyhow::Error {
+    let error = InputValidationError::AgentSession(error);
+    let fallback = error.to_string();
+    anyhow::anyhow!(error.format_error_output(json).unwrap_or(fallback))
+}
+
+fn mcp_server<'a>(
+    profile: &'a AgentProfile,
+    server: &str,
+    json: bool,
+) -> Result<&'a AgentMcpServer> {
+    profile.mcp_servers.get(server).ok_or_else(|| {
+        agent_input_error(
+            AgentSessionInputValidationError::McpServerNotFound {
+                server: server.to_owned(),
+            },
+            json,
+        )
+    })
+}
 
 pub async fn handle_agent_mcp_tools_command(
     command: AgentMcpToolsCommand,
@@ -99,10 +125,7 @@ pub async fn handle_agent_mcp_tools_command(
                 })?,
         }
     };
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, json_format)?;
     let url = mcp_url(server)?;
     let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
@@ -133,12 +156,34 @@ pub async fn handle_agent_mcp_tools_command(
     .await?;
     let tools = list_mcp_tools(&client, &url, &auth, session.as_deref()).await?;
     spinner.finish();
+    let warnings = tool_rule_warnings(server, &tools);
+    if let Some(name) = command.tool.as_deref() {
+        let tool = tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+            .ok_or_else(|| {
+                agent_input_error(
+                    AgentSessionInputValidationError::McpToolNotFound {
+                        server: command.server.clone(),
+                        tool: name.to_owned(),
+                    },
+                    json_format,
+                )
+            })?;
+        return print_tool_details(&command.server, server, tool, &warnings, json_format);
+    }
     let rows = tools
         .iter()
         .filter_map(|tool| {
             let name = tool.get("name")?.as_str()?.to_owned();
             let (allowed, reason) = tool_decision(server, &name);
-            Some(json!({"name": name, "description": tool.get("description"), "allowed": allowed, "reason": reason}))
+            Some(json!({
+                "name": name,
+                "description": tool.get("description"),
+                "allowed": allowed,
+                "reason": reason,
+                "input_schema": tool.get("inputSchema"),
+            }))
         })
         .collect::<Vec<_>>();
     let mut rows = rows;
@@ -156,11 +201,13 @@ pub async fn handle_agent_mcp_tools_command(
                     "binding": server.binding,
                     "tools": rows,
                     "policy_hidden_tools": policy_hidden_tools,
+                    "warnings": warnings,
                 }),
                 true,
             )?
         );
     } else {
+        let paint = Paint::new();
         println!("MCP server: {}", command.server);
         println!("Endpoint: {url}");
         println!("Binding: {}", server.binding.as_deref().unwrap_or("none"));
@@ -174,20 +221,536 @@ pub async fn handle_agent_mcp_tools_command(
             .collect::<Vec<_>>();
         if !allowed.is_empty() {
             println!();
-            println!("Allowed tools:");
+            println!("{}", paint.header("Allowed tools:"));
             for row in allowed {
                 println!("- {}", row["name"]);
             }
         }
         if !denied.is_empty() {
             println!();
-            println!("Denied tools:");
+            println!("{}", paint.header("Denied tools:"));
             for row in denied {
                 println!("- {}", row["name"]);
             }
         }
+        print_warnings(&warnings, paint);
+        println!();
+        println!(
+            "{}",
+            paint.dim("Show a tool's arguments with --tool <NAME>.")
+        );
     }
     Ok(())
+}
+
+/// One argument of an MCP tool, flattened from its JSON Schema `inputSchema`
+/// into the dotted paths that tool rule `arguments` use.
+#[derive(Debug, PartialEq)]
+struct ToolArgument {
+    path: String,
+    kind: String,
+    required: bool,
+    values: Vec<String>,
+    description: Option<String>,
+}
+
+fn tool_arguments(schema: &Value) -> Vec<ToolArgument> {
+    let mut arguments = Vec::new();
+    collect_tool_arguments(schema, "", &mut arguments);
+    arguments
+}
+
+fn collect_tool_arguments(schema: &Value, prefix: &str, arguments: &mut Vec<ToolArgument>) {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return;
+    };
+    let required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    for (name, property) in properties {
+        let path = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}.{name}")
+        };
+        arguments.push(ToolArgument {
+            path: path.clone(),
+            kind: schema_type(property),
+            required: required.contains(name.as_str()),
+            values: property
+                .get("enum")
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .map(|value| match value {
+                            Value::String(value) => value.clone(),
+                            other => other.to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            description: property
+                .get("description")
+                .and_then(Value::as_str)
+                .and_then(|description| description.lines().next())
+                .map(|line| line.trim().to_owned())
+                .filter(|line| !line.is_empty()),
+        });
+        collect_tool_arguments(property, &path, arguments);
+    }
+}
+
+/// A short type label such as `string`, `number[]` or `string|number`.
+fn schema_type(schema: &Value) -> String {
+    let variants = |types: Vec<String>| {
+        let mut types = types
+            .into_iter()
+            .filter(|kind| kind != "null")
+            .collect::<Vec<_>>();
+        types.dedup();
+        if types.is_empty() {
+            "null".to_owned()
+        } else {
+            types.join("|")
+        }
+    };
+    match schema.get("type") {
+        Some(Value::String(kind)) if kind == "array" => format!(
+            "{}[]",
+            schema.get("items").map_or("any".to_owned(), schema_type)
+        ),
+        Some(Value::String(kind)) => kind.clone(),
+        Some(Value::Array(kinds)) => variants(
+            kinds
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+        ),
+        _ => match schema
+            .get("anyOf")
+            .or_else(|| schema.get("oneOf"))
+            .and_then(Value::as_array)
+        {
+            Some(options) => variants(options.iter().map(schema_type).collect()),
+            None => "any".to_owned(),
+        },
+    }
+}
+
+/// Profile mistakes that only the server's tool list reveals: tools the
+/// server does not offer, and argument fields a tool does not declare. A
+/// misspelled field never matches, so its allow rule denies every call.
+fn tool_rule_warnings(server: &AgentMcpServer, tools: &[Value]) -> Vec<String> {
+    let find = |name: &str| {
+        tools
+            .iter()
+            .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+    };
+    let mut warnings = Vec::new();
+    for name in server.allow_tools.iter().filter(|name| *name != "*") {
+        if find(name).is_none() {
+            warnings.push(format!(
+                "allow_tools names '{name}', which the server does not offer."
+            ));
+        }
+    }
+    for (rule, tool) in server.shadowed_tool_conditions() {
+        warnings.push(format!(
+            "Tool rule {rule}: {}",
+            crate::handlers::agent::validate::shadowed_condition_message(&tool)
+        ));
+    }
+    for (index, rule) in server.tool_rules.iter().enumerate() {
+        for name in rule.tools.iter().filter(|name| *name != "*") {
+            let Some(tool) = find(name) else {
+                warnings.push(format!(
+                    "Tool rule {} names '{name}', which the server does not offer.",
+                    index + 1
+                ));
+                continue;
+            };
+            let schema = tool.get("inputSchema").unwrap_or(&Value::Null);
+            if schema.get("properties").is_none() {
+                continue;
+            }
+            let declared = tool_arguments(schema)
+                .into_iter()
+                .map(|argument| argument.path)
+                .collect::<HashSet<_>>();
+            for path in rule.arguments.keys() {
+                if !declared.contains(path) {
+                    warnings.push(format!(
+                        "Tool rule {}: arguments.{path} is not an argument of '{name}'.",
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
+    warnings
+}
+
+fn format_conditions(arguments: &BTreeMap<String, AgentFieldCondition>) -> String {
+    let scalar = |value: &AgentScalar| match value {
+        AgentScalar::Bool(value) => value.to_string(),
+        AgentScalar::Integer(value) => value.to_string(),
+        AgentScalar::Float(value) => value.to_string(),
+        AgentScalar::String(value) => format!("{value:?}"),
+    };
+    arguments
+        .iter()
+        .map(|(path, condition)| match condition {
+            AgentFieldCondition::Equals(value) => format!("{path} = {}", scalar(value)),
+            AgentFieldCondition::OneOf(values) => format!(
+                "{path} = [{}]",
+                values.iter().map(scalar).collect::<Vec<_>>().join(", ")
+            ),
+            AgentFieldCondition::Range(range) => {
+                let bounds = [("min", range.min), ("max", range.max)]
+                    .into_iter()
+                    .filter_map(|(name, bound)| bound.map(|bound| format!("{name} = {bound}")))
+                    .collect::<Vec<_>>();
+                format!("{path} = {{ {} }}", bounds.join(", "))
+            }
+            AgentFieldCondition::Absent(_) => format!("{path} = {{ absent = true }}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// One entry of the server's policy that decides calls of a tool.
+#[derive(Debug, PartialEq)]
+struct RuleLine {
+    /// `1. ` for tool rules; empty for `allow_tools` / `deny_tools`.
+    number: String,
+    effect: &'static str,
+    /// Argument conditions; `None` for `allow_tools` / `deny_tools`.
+    conditions: Option<String>,
+}
+
+impl RuleLine {
+    /// The printed line, with `effect:` padded to `effect_width` so conditions align.
+    fn render(&self, effect_width: usize, paint: Paint) -> String {
+        let effect = match self.effect {
+            "allow" | "allow_tools" => paint.allowed_soft(self.effect),
+            _ => paint.denied_soft(self.effect),
+        };
+        match &self.conditions {
+            None => format!("{}{effect}", self.number),
+            Some(conditions) => {
+                let padding = " ".repeat(effect_width.saturating_sub(self.effect.len()));
+                format!("{}{effect}: {padding}{conditions}", self.number)
+            }
+        }
+    }
+}
+
+/// Which parts of the server entry decide calls of `name`, in profile order.
+fn tool_rule_lines(server: &AgentMcpServer, name: &str) -> Vec<RuleLine> {
+    let names_tool = |tools: &[String]| tools.iter().any(|tool| tool == "*" || tool == name);
+    let mut lines = Vec::new();
+    for (listed, effect) in [
+        (&server.allow_tools, "allow_tools"),
+        (&server.deny_tools, "deny_tools"),
+    ] {
+        if names_tool(listed) {
+            lines.push(RuleLine {
+                number: String::new(),
+                effect,
+                conditions: None,
+            });
+        }
+    }
+    for (index, rule) in server.tool_rules.iter().enumerate() {
+        if names_tool(&rule.tools) {
+            lines.push(RuleLine {
+                number: format!("{}. ", index + 1),
+                effect: match rule.effect {
+                    AgentHttpRuleEffect::Allow => "allow",
+                    AgentHttpRuleEffect::Deny => "deny",
+                },
+                conditions: Some(if rule.arguments.is_empty() {
+                    "any arguments".to_owned()
+                } else {
+                    format_conditions(&rule.arguments)
+                }),
+            });
+        }
+    }
+    lines
+}
+
+/// Rule lines as printed, aligned so conditions start in one column.
+fn render_rule_lines(lines: &[RuleLine], paint: Paint) -> Vec<String> {
+    let effect_width = lines
+        .iter()
+        .filter(|line| line.conditions.is_some())
+        .map(|line| line.effect.len())
+        .max()
+        .unwrap_or(0);
+    lines
+        .iter()
+        .map(|line| line.render(effect_width, paint))
+        .collect()
+}
+
+fn print_tool_details(
+    server_name: &str,
+    server: &AgentMcpServer,
+    tool: &Value,
+    warnings: &[String],
+    json_format: bool,
+) -> Result<()> {
+    let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
+    let (allowed, reason) = tool_decision(server, name);
+    let schema = tool.get("inputSchema").unwrap_or(&Value::Null);
+    let arguments = tool_arguments(schema);
+    let rules = tool_rule_lines(server, name);
+    let warnings = warnings
+        .iter()
+        .filter(|warning| warning.contains(&format!("'{name}'")))
+        .cloned()
+        .collect::<Vec<_>>();
+    if json_format {
+        println!(
+            "{}",
+            get_formatted_json_string(
+                &json!({
+                    "schema_version": 1,
+                    "server": server_name,
+                    "tool": name,
+                    "description": tool.get("description"),
+                    "allowed": allowed,
+                    "reason": reason,
+                    "arguments": arguments.iter().map(|argument| json!({
+                        "path": argument.path,
+                        "type": argument.kind,
+                        "required": argument.required,
+                        "values": argument.values,
+                        "description": argument.description,
+                    })).collect::<Vec<_>>(),
+                    "rules": render_rule_lines(&rules, Paint(false)),
+                    "warnings": warnings,
+                    "input_schema": tool.get("inputSchema"),
+                }),
+                true,
+            )?
+        );
+        return Ok(());
+    }
+    println!("MCP server: {server_name}");
+    match tool.get("description").and_then(Value::as_str) {
+        Some(description) => println!("Tool: {name} - {}", first_sentence(description)),
+        None => println!("Tool: {name}"),
+    }
+    let paint = Paint::new();
+    let decision = if allowed {
+        paint.allowed("ALLOWED")
+    } else {
+        paint.denied("DENIED")
+    };
+    println!("Decision: {decision} {}", paint.dim(&format!("({reason})")));
+    println!();
+    if arguments.is_empty() {
+        println!("{} none declared", paint.header("Arguments:"));
+    } else {
+        print_argument_table(&arguments, &rule_fields(server, name), paint);
+    }
+    println!();
+    if rules.is_empty() {
+        println!("{} none name this tool", paint.header("Profile rules:"));
+    } else {
+        println!("{}", paint.header("Profile rules:"));
+        for line in render_rule_lines(&rules, paint) {
+            println!("  {line}");
+        }
+    }
+    print_warnings(&warnings, paint);
+    Ok(())
+}
+
+/// Argument paths that tool rules naming `name` put conditions on.
+fn rule_fields(server: &AgentMcpServer, name: &str) -> HashSet<String> {
+    server
+        .tool_rules
+        .iter()
+        .filter(|rule| rule.tools.iter().any(|tool| tool == "*" || tool == name))
+        .flat_map(|rule| rule.arguments.keys().cloned())
+        .collect()
+}
+
+/// One line per argument, sized to the terminal: fields the profile's rules
+/// use come first, and descriptions are cut to their first sentence. `--json`
+/// keeps the full schema.
+fn print_argument_table(arguments: &[ToolArgument], rule_fields: &HashSet<String>, paint: Paint) {
+    let mut rows = arguments.iter().collect::<Vec<_>>();
+    rows.sort_by_key(|argument| !rule_fields.contains(&argument.path));
+    let any_required = rows.iter().any(|argument| argument.required);
+    let path_width = rows
+        .iter()
+        .map(|argument| argument.path.chars().count())
+        .max()
+        .unwrap_or(0);
+    let kind_width = rows
+        .iter()
+        .map(|argument| argument.kind.chars().count())
+        .max()
+        .unwrap_or(0);
+    let (terminal_width, _) = crate::utils::term_size::get_terminal_size();
+    let fixed = 4 + path_width + 2 + kind_width + 2 + if any_required { 10 } else { 0 };
+    let detail_width = terminal_width.saturating_sub(fixed);
+    if rule_fields.is_empty() {
+        println!("{}", paint.header(&format!("Arguments ({}):", rows.len())));
+    } else {
+        println!(
+            "{} {}",
+            paint.header(&format!("Arguments ({}):", rows.len())),
+            paint.dim("* = used by a profile rule")
+        );
+    }
+    for argument in rows {
+        let mut detail = argument
+            .description
+            .as_deref()
+            .map(first_sentence)
+            .unwrap_or_default()
+            .to_owned();
+        if !argument.values.is_empty() {
+            if !detail.is_empty() {
+                detail.push(' ');
+            }
+            detail.push_str(&format!("[{}]", argument.values.join(", ")));
+        }
+        let used = rule_fields.contains(&argument.path);
+        let marker = if used { "*" } else { " " };
+        let required = match (any_required, argument.required) {
+            (false, _) => String::new(),
+            (true, true) => "required  ".to_owned(),
+            (true, false) => " ".repeat(10),
+        };
+        // Pad before coloring: escape codes would otherwise count as width.
+        let path = format!("{:path_width$}", argument.path);
+        let kind = format!("{:kind_width$}", argument.kind);
+        let detail = truncate(&detail, detail_width);
+        let line = format!(
+            "  {} {}  {}  {required}{detail}",
+            paint.key(marker, used),
+            paint.key(&path, used),
+            paint.kind(&kind),
+        );
+        println!("{}", line.trim_end());
+    }
+    println!(
+        "{}",
+        paint.dim("Descriptions are shortened; --json prints the full input schema.")
+    );
+}
+
+/// Text up to and including the first sentence-ending period, or the first
+/// line when there is none.
+fn first_sentence(text: &str) -> &str {
+    let line = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    match line.find(". ") {
+        Some(end) => &line[..=end],
+        None => line,
+    }
+}
+
+fn truncate(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_owned();
+    }
+    if width < 2 {
+        return String::new();
+    }
+    let mut cut = text.chars().take(width - 1).collect::<String>();
+    cut.truncate(cut.trim_end().len());
+    cut.push('…');
+    cut
+}
+
+fn print_warnings(warnings: &[String], paint: Paint) {
+    if warnings.is_empty() {
+        return;
+    }
+    println!();
+    println!("{}", paint.header("Warnings:"));
+    for warning in warnings {
+        println!("- {}", paint.warning(warning));
+    }
+}
+
+/// Terminal styles matching `agent profiles show`: cyan section headers, blue
+/// keys and dimmed secondary text, plus magenta argument types. Plain text when
+/// color is disabled.
+#[derive(Clone, Copy)]
+struct Paint(bool);
+
+impl Paint {
+    fn new() -> Self {
+        Self(is_color_enabled(true))
+    }
+
+    fn header(self, text: &str) -> String {
+        self.style(text, |text| text.cyan().bold().to_string())
+    }
+
+    fn key(self, text: &str, emphasized: bool) -> String {
+        if emphasized {
+            self.style(text, |text| text.blue().bold().to_string())
+        } else {
+            self.style(text, |text| text.blue().to_string())
+        }
+    }
+
+    fn kind(self, text: &str) -> String {
+        self.style(text, |text| text.magenta().to_string())
+    }
+
+    fn dim(self, text: &str) -> String {
+        self.style(text, |text| text.bright_black().to_string())
+    }
+
+    fn allowed(self, text: &str) -> String {
+        self.style(text, |text| text.green().bold().to_string())
+    }
+
+    fn denied(self, text: &str) -> String {
+        self.style(text, |text| text.red().bold().to_string())
+    }
+
+    fn allowed_soft(self, text: &str) -> String {
+        self.style(text, |text| text.green().to_string())
+    }
+
+    fn denied_soft(self, text: &str) -> String {
+        self.style(text, |text| text.red().to_string())
+    }
+
+    fn warning(self, text: &str) -> String {
+        self.style(text, |text| text.yellow().to_string())
+    }
+
+    fn style(self, text: &str, paint: impl Fn(&str) -> String) -> String {
+        if self.0 {
+            paint(text)
+        } else {
+            text.to_owned()
+        }
+    }
 }
 
 #[derive(Default)]
@@ -221,11 +784,7 @@ pub async fn handle_agent_mcp_configure_command(
     silent: bool,
 ) -> Result<()> {
     let (profile, profile_path) = load_mcp_profile_for_edit(&command, global_config)?;
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .cloned()
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, false)?.clone();
     let url = mcp_url(&server)?;
     let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
@@ -297,9 +856,13 @@ pub async fn handle_agent_mcp_configure_command(
             .iter()
             .map(|name| current_tools.contains(name))
             .collect::<Vec<_>>();
+        let labels = names
+            .iter()
+            .map(|name| configure_item_label(&server, name))
+            .collect::<Vec<_>>();
         let selected = MultiSelect::with_theme(&McpMultiSelectTheme::default())
-            .with_prompt("Select allowed tools")
-            .items(&names)
+            .with_prompt("Select tools to allow with any arguments")
+            .items(&labels)
             .defaults(&defaults)
             .interact()?;
         selected
@@ -318,9 +881,18 @@ pub async fn handle_agent_mcp_configure_command(
             if selected.len() == 1 { "" } else { "s" }
         )
     };
+    // allow_tools allows every call of a tool, so selecting a tool that a
+    // conditioned tool rule covers would quietly stop enforcing the rule.
+    let shadowed = crate::models::agent::shadowed_tool_conditions(&selected, &server.tool_rules);
+    for (rule, tool) in &shadowed {
+        eprintln!(
+            "Warning: tool rule {rule}: {}",
+            crate::handlers::agent::validate::shadowed_condition_message(tool)
+        );
+    }
     if !Confirm::with_theme(&ColorfulTheme::default())
         .with_prompt(format!("Save {summary} to the profile?"))
-        .default(true)
+        .default(shadowed.is_empty())
         .interact()?
     {
         bail!("MCP profile was not changed.");
@@ -337,6 +909,34 @@ pub async fn handle_agent_mcp_configure_command(
     })?;
     println!("Updated MCP tools in {}.", profile_path.display());
     Ok(())
+}
+
+/// A picker item: the tool name, plus a note when tool rules already decide
+/// its calls, so it isn't selected (and its conditions bypassed) by mistake.
+fn configure_item_label(server: &AgentMcpServer, name: &str) -> String {
+    let rules = server
+        .tool_rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.tools.iter().any(|tool| tool == name))
+        .map(|(index, rule)| {
+            let effect = match rule.effect {
+                AgentHttpRuleEffect::Allow => "allow",
+                AgentHttpRuleEffect::Deny => "deny",
+            };
+            let conditions = if rule.arguments.is_empty() {
+                ""
+            } else {
+                " with conditions"
+            };
+            format!("rule {} {effect}{conditions}", index + 1)
+        })
+        .collect::<Vec<_>>();
+    if rules.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{name}  (tool {})", rules.join(", "))
+    }
 }
 
 fn load_mcp_profile_for_edit(
@@ -497,10 +1097,7 @@ pub async fn handle_agent_mcp_verify_command(
                 })?,
         }
     };
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, json_format)?;
     let url = mcp_url(server)?;
     let mut spinner = SpinnerGuard::new(!silent);
     let inspection = if command.remote {
@@ -639,20 +1236,7 @@ async fn proxied_client(
     json_format: bool,
 ) -> Result<(Proxy, reqwest::Client, Option<(String, String)>)> {
     let (host, path) = mcp_endpoint_parts(server)?;
-    let mut mcp_rules = vec![AgentMcpRule {
-        effect: AgentHttpRuleEffect::Allow,
-        hosts: vec![host.clone()],
-        paths: vec![path.clone()],
-        tools: server.allow_tools.clone(),
-    }];
-    if !server.deny_tools.is_empty() {
-        mcp_rules.push(AgentMcpRule {
-            effect: AgentHttpRuleEffect::Deny,
-            hosts: vec![host.clone()],
-            paths: vec![path],
-            tools: server.deny_tools.clone(),
-        });
-    }
+    let mcp_rules = server_mcp_rules(server, &host, &path);
     let (secrets, secret_policies, secret_injections, auth) =
         inspection_binding_policy(profile, server, &host, api_key, json_format).await?;
     let policy = ProxyPolicy {
@@ -698,6 +1282,42 @@ async fn proxied_client(
     Ok((proxy, client, auth))
 }
 
+/// The proxy rules for one MCP server: `allow_tools`, `deny_tools` and every
+/// tool rule with its argument conditions.
+pub(crate) fn server_mcp_rules(
+    server: &AgentMcpServer,
+    host: &str,
+    path: &str,
+) -> Vec<AgentMcpRule> {
+    let rule = |effect: AgentHttpRuleEffect, tools: &[String], arguments| AgentMcpRule {
+        effect,
+        hosts: vec![host.to_owned()],
+        paths: vec![path.to_owned()],
+        tools: tools.to_vec(),
+        arguments,
+    };
+    let mut rules = vec![rule(
+        AgentHttpRuleEffect::Allow,
+        &server.allow_tools,
+        Default::default(),
+    )];
+    if !server.deny_tools.is_empty() {
+        rules.push(rule(
+            AgentHttpRuleEffect::Deny,
+            &server.deny_tools,
+            Default::default(),
+        ));
+    }
+    for tool_rule in &server.tool_rules {
+        rules.push(rule(
+            tool_rule.effect.clone(),
+            &tool_rule.tools,
+            tool_rule.arguments.clone(),
+        ));
+    }
+    rules
+}
+
 async fn remote_proxied_client(
     profile: &AgentProfile,
     server: &AgentMcpServer,
@@ -715,7 +1335,7 @@ async fn remote_proxied_client(
         "Remote MCP inspection requires a Stashbase API key.\n\n\
          Hint: run 'stashbase config api-key set' or run the command without '--remote'.",
     )?;
-    let (host, _path) = mcp_endpoint_parts(server)?;
+    let (host, path) = mcp_endpoint_parts(server)?;
     let all_bindings = remote_bindings(profile);
     let bindings = server
         .binding
@@ -728,20 +1348,7 @@ async fn remote_proxied_client(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let mut mcp_rules = vec![crate::api::remote_proxy::RemoteMcpRule {
-        effect: AgentHttpRuleEffect::Allow,
-        hosts: vec![host.clone()],
-        paths: vec![_path.clone()],
-        tools: server.allow_tools.clone(),
-    }];
-    if !server.deny_tools.is_empty() {
-        mcp_rules.push(crate::api::remote_proxy::RemoteMcpRule {
-            effect: AgentHttpRuleEffect::Deny,
-            hosts: vec![host.clone()],
-            paths: vec![_path],
-            tools: server.deny_tools.clone(),
-        });
-    }
+    let mcp_rules = server_mcp_rules(server, &host, &path);
     let request = crate::api::remote_proxy::RemoteProxySessionRequest {
         api_key: api_key.to_owned(),
         project_identifier: profile.secrets.project.clone(),
@@ -749,7 +1356,11 @@ async fn remote_proxied_client(
         egress_hosts: profile.egress_hosts.clone().unwrap_or_default(),
         deny_hosts: profile.deny_hosts.clone().unwrap_or_default(),
         bindings: bindings.clone(),
-        mcp_rules: mcp_rules.clone(),
+        mcp_rules: mcp_rules
+            .iter()
+            .cloned()
+            .map(crate::api::remote_proxy::RemoteMcpRule::from)
+            .collect(),
         agent_type: None,
         session_purpose: Some("mcp_inspection".to_owned()),
         previous_session_token: None,
@@ -832,15 +1443,7 @@ async fn remote_proxied_client(
         allow_network_listeners: false,
         egress_hosts_configured: profile.egress_hosts.is_some(),
         strict_deny: true,
-        mcp_rules: mcp_rules
-            .iter()
-            .map(|rule| AgentMcpRule {
-                effect: rule.effect.clone(),
-                hosts: rule.hosts.clone(),
-                paths: rule.paths.clone(),
-                tools: rule.tools.clone(),
-            })
-            .collect(),
+        mcp_rules,
         backend: profile.sandbox.backend,
         sandbox_image: profile.sandbox.image.clone(),
         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),
@@ -1192,10 +1795,7 @@ pub fn handle_agent_mcp_check_command(
                 })?,
         }
     };
-    let server = profile
-        .mcp_servers
-        .get(&command.server)
-        .context("MCP server was not found in the profile")?;
+    let server = mcp_server(&profile, &command.server, json_format)?;
     let (allowed, reason) = tool_decision(server, &command.tool);
     let report = json!({
         "schema_version": 1,
@@ -1218,36 +1818,70 @@ pub fn handle_agent_mcp_check_command(
 }
 
 fn tool_decision(server: &AgentMcpServer, name: &str) -> (bool, &'static str) {
-    if server
-        .deny_tools
-        .iter()
-        .any(|tool| tool == "*" || tool == name)
-    {
+    let names_tool = |tools: &[String]| tools.iter().any(|tool| tool == "*" || tool == name);
+    let tool_rules = |effect: AgentHttpRuleEffect, conditioned: bool| {
+        server.tool_rules.iter().any(|rule| {
+            rule.effect == effect
+                && rule.arguments.is_empty() != conditioned
+                && names_tool(&rule.tools)
+        })
+    };
+    if names_tool(&server.deny_tools) {
         return (false, "matched deny_tools");
     }
-    if server.allow_tools.is_empty() {
-        return (false, "allow_tools is empty; no tools are allowed");
+    if tool_rules(AgentHttpRuleEffect::Deny, false) {
+        return (false, "matched a deny tool rule");
     }
-    if server
-        .allow_tools
+    let shadowed = server
+        .shadowed_tool_conditions()
         .iter()
-        .any(|tool| tool == "*" || tool == name)
-    {
+        .any(|(_, tool)| tool == "*" || tool == name);
+    let (allowed, reason) = if shadowed {
+        (
+            true,
+            "allowed with any arguments; tool rule conditions have no effect because allow_tools or a rule without arguments also allows it",
+        )
+    } else if names_tool(&server.allow_tools) {
         (true, "matched allow_tools")
-    } else {
+    } else if tool_rules(AgentHttpRuleEffect::Allow, false) {
+        (true, "matched an allow tool rule")
+    } else if tool_rules(AgentHttpRuleEffect::Allow, true) {
+        (
+            true,
+            "allowed only when an allow tool rule's argument conditions hold",
+        )
+    } else if server.allow_tools.is_empty() && server.tool_rules.is_empty() {
+        (false, "allow_tools is empty; no tools are allowed")
+    } else if server.tool_rules.is_empty() {
         (false, "not present in allow_tools")
+    } else {
+        (false, "not present in allow_tools or an allow tool rule")
+    };
+    if allowed && tool_rules(AgentHttpRuleEffect::Deny, true) {
+        let reason = if reason.starts_with("allowed only") {
+            "allowed only when an allow tool rule's argument conditions hold, except calls whose arguments match a deny tool rule"
+        } else {
+            "allowed, except calls whose arguments match a deny tool rule"
+        };
+        return (true, reason);
     }
+    (allowed, reason)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{collections::HashMap, fs};
 
     use super::{
-        binding_source_name, local_binding_value, mcp_tools_page, replace_mcp_allow_tools,
-        tool_decision,
+        agent_input_error, binding_source_name, configure_item_label, first_sentence,
+        format_conditions, local_binding_value, mcp_tools_page, render_rule_lines,
+        replace_mcp_allow_tools, tool_arguments, tool_decision, tool_rule_lines,
+        tool_rule_warnings, truncate, Paint,
     };
-    use crate::models::agent::{AgentBindingProfile, AgentMcpServer};
+    use crate::models::{
+        agent::{AgentBindingProfile, AgentMcpServer},
+        validation::AgentSessionInputValidationError,
+    };
     use uuid::Uuid;
 
     fn server(allow_tools: &[&str], deny_tools: &[&str]) -> AgentMcpServer {
@@ -1258,6 +1892,7 @@ mod tests {
             value_template: None,
             allow_tools: allow_tools.iter().map(|tool| (*tool).to_owned()).collect(),
             deny_tools: deny_tools.iter().map(|tool| (*tool).to_owned()).collect(),
+            tool_rules: Vec::new(),
         }
     }
 
@@ -1287,6 +1922,246 @@ mod tests {
             tool_decision(&server(&["read_file"], &[]), "write_file"),
             (false, "not present in allow_tools")
         );
+    }
+
+    #[test]
+    fn tool_decision_reports_tool_rules() {
+        let mut server = server(&["search"], &[]);
+        server.tool_rules = toml::from_str::<std::collections::HashMap<String, Vec<_>>>(
+            r#"
+rules = [
+  { effect = "allow", tools = ["send_message"], arguments = { mode = "draft" } },
+  { effect = "deny", tools = ["search"], arguments = { scope = "all" } },
+  { effect = "deny", tools = ["delete_message"] },
+]
+"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        assert_eq!(
+            tool_decision(&server, "send_message"),
+            (
+                true,
+                "allowed only when an allow tool rule's argument conditions hold"
+            )
+        );
+        assert_eq!(
+            tool_decision(&server, "search"),
+            (
+                true,
+                "allowed, except calls whose arguments match a deny tool rule"
+            )
+        );
+        assert_eq!(
+            tool_decision(&server, "delete_message"),
+            (false, "matched a deny tool rule")
+        );
+        assert_eq!(
+            tool_decision(&server, "other"),
+            (false, "not present in allow_tools or an allow tool rule")
+        );
+    }
+
+    fn save_issue_tool() -> serde_json::Value {
+        serde_json::json!({
+            "name": "save_issue",
+            "inputSchema": {
+                "type": "object",
+                "required": ["title"],
+                "properties": {
+                    "id": {"type": "string", "description": "Issue ID.\nUpdates when set."},
+                    "title": {"type": "string"},
+                    "priority": {"type": ["number", "null"], "enum": [0, 1, 2, 3, 4]},
+                    "labels": {"type": "array", "items": {"type": "string"}},
+                    "team": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                    "project": {
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}}
+                    }
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn tool_arguments_flatten_the_input_schema_into_rule_paths() {
+        let arguments = tool_arguments(&save_issue_tool()["inputSchema"]);
+        let summary = arguments
+            .iter()
+            .map(|argument| {
+                (
+                    argument.path.as_str(),
+                    argument.kind.as_str(),
+                    argument.required,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            summary,
+            vec![
+                ("id", "string", false),
+                ("labels", "string[]", false),
+                ("priority", "number", false),
+                ("project", "object", false),
+                ("project.id", "string", false),
+                ("team", "string", false),
+                ("title", "string", true),
+            ]
+        );
+        assert_eq!(arguments[0].description.as_deref(), Some("Issue ID."));
+        assert_eq!(arguments[2].values, vec!["0", "1", "2", "3", "4"]);
+    }
+
+    #[test]
+    fn tool_rule_warnings_catch_unknown_tools_and_fields() {
+        let mut server = server(&["list_issues", "save_issue"], &[]);
+        server.tool_rules = toml::from_str::<HashMap<String, Vec<_>>>(
+            r#"
+rules = [
+  { effect = "allow", tools = ["save_issue"], arguments = { team = "ENG", "project.id" = "p", teem = "ENG" } },
+  { effect = "deny", tools = ["save_isue"], arguments = { priority = 1 } },
+]
+"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        assert_eq!(
+            tool_rule_warnings(&server, &[save_issue_tool()]),
+            vec![
+                "allow_tools names 'list_issues', which the server does not offer.",
+                "Tool rule 1: Argument conditions for 'save_issue' have no effect: allow_tools or a tool rule without arguments already allows every call. Remove 'save_issue' from those to enforce the conditions.",
+                "Tool rule 1: arguments.teem is not an argument of 'save_issue'.",
+                "Tool rule 2 names 'save_isue', which the server does not offer.",
+            ]
+        );
+    }
+
+    #[test]
+    fn tool_rule_lines_show_conditions_in_profile_syntax() {
+        let mut server = server(&[], &[]);
+        server.tool_rules = toml::from_str::<HashMap<String, Vec<_>>>(
+            r#"
+rules = [
+  { effect = "allow", tools = ["save_issue"], arguments = { team = ["ENG", "OPS"], id = { absent = true }, estimate = { min = 1, max = 5 } } },
+  { effect = "deny", tools = ["*"], arguments = { priority = 1 } },
+  { effect = "allow", tools = ["save_issue"] },
+]
+"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        assert_eq!(
+            render_rule_lines(&tool_rule_lines(&server, "save_issue"), Paint(false)),
+            vec![
+                r#"1. allow: estimate = { min = 1, max = 5 }, id = { absent = true }, team = ["ENG", "OPS"]"#,
+                "2. deny:  priority = 1",
+                "3. allow: any arguments",
+            ]
+        );
+        assert_eq!(format_conditions(&Default::default()), "");
+    }
+
+    #[test]
+    fn paint_is_plain_without_color_and_styled_with_it() {
+        let plain = Paint(false);
+        assert_eq!(plain.header("Arguments:"), "Arguments:");
+        assert_eq!(plain.key("team", true), "team");
+        assert_eq!(plain.warning("check this"), "check this");
+        let colored = Paint(true);
+        assert!(colored.header("Arguments:").contains("\u{1b}["));
+        assert!(colored.denied("DENIED").contains("DENIED"));
+    }
+
+    #[test]
+    fn argument_descriptions_are_cut_to_a_sentence_and_width() {
+        assert_eq!(
+            first_sentence(
+                "Only for updating an existing issue. Pass the issue ID (e.g., LIN-123)."
+            ),
+            "Only for updating an existing issue."
+        );
+        assert_eq!(first_sentence("0=None, 1=Urgent\nmore"), "0=None, 1=Urgent");
+        assert_eq!(first_sentence("Version 1.2 is fine"), "Version 1.2 is fine");
+        assert_eq!(truncate("Team name or ID", 40), "Team name or ID");
+        assert_eq!(truncate("Team name or ID", 10), "Team name…");
+        assert_eq!(truncate("Team name", 1), "");
+    }
+
+    #[test]
+    fn configure_labels_tools_that_tool_rules_decide() {
+        let mut server = server(&[], &[]);
+        server.tool_rules = toml::from_str::<HashMap<String, Vec<_>>>(
+            r#"
+rules = [
+  { effect = "allow", tools = ["save_issue"], arguments = { team = "ENG" } },
+  { effect = "deny", tools = ["save_issue"], arguments = { priority = 1 } },
+  { effect = "deny", tools = ["delete_issue"] },
+]
+"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        assert_eq!(
+            configure_item_label(&server, "save_issue"),
+            "save_issue  (tool rule 1 allow with conditions, rule 2 deny with conditions)"
+        );
+        assert_eq!(
+            configure_item_label(&server, "delete_issue"),
+            "delete_issue  (tool rule 3 deny)"
+        );
+        assert_eq!(configure_item_label(&server, "list_issues"), "list_issues");
+    }
+
+    #[test]
+    fn tool_decision_reports_shadowed_conditions() {
+        let mut server = server(&["*"], &[]);
+        server.tool_rules = toml::from_str::<HashMap<String, Vec<_>>>(
+            r#"rules = [{ effect = "allow", tools = ["save_issue"], arguments = { team = "ENG" } }]"#,
+        )
+        .unwrap()
+        .remove("rules")
+        .unwrap();
+        let (allowed, reason) = tool_decision(&server, "save_issue");
+        assert!(allowed);
+        assert!(reason.contains("conditions have no effect"), "{reason}");
+        assert!(tool_rule_warnings(&server, &[save_issue_tool()])
+            .iter()
+            .any(|warning| warning.contains("'save_issue' have no effect")));
+    }
+
+    #[test]
+    fn not_found_errors_are_json_under_json_output() {
+        let error = agent_input_error(
+            AgentSessionInputValidationError::McpToolNotFound {
+                server: "linear".to_owned(),
+                tool: "list_projectss".to_owned(),
+            },
+            true,
+        );
+        let value: serde_json::Value = serde_json::from_str(&error.to_string()).unwrap();
+        assert_eq!(value["error"]["type"], "input_validation_error");
+        assert_eq!(
+            value["error"]["message"],
+            "MCP tool was not found on the server."
+        );
+        assert!(value["error"]["hint"]
+            .as_str()
+            .unwrap()
+            .contains("'linear' does not offer a tool named 'list_projectss'"));
+
+        let text = agent_input_error(
+            AgentSessionInputValidationError::McpServerNotFound {
+                server: "lineer".to_owned(),
+            },
+            false,
+        )
+        .to_string();
+        assert!(text.contains("MCP server was not found in the profile."));
+        assert!(text.contains("[mcp_servers.lineer]"));
     }
 
     #[test]

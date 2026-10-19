@@ -153,6 +153,109 @@ pub struct AgentMcpRule {
     pub paths: Vec<String>,
     #[serde(default)]
     pub tools: Vec<String>,
+    /// Conditions on `params.arguments` of a `tools/call`. Empty means the rule
+    /// applies to every call of a matching tool.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub arguments: BTreeMap<String, AgentFieldCondition>,
+}
+
+/// A user-facing MCP tool rule. `allow_tools` and `deny_tools` are shorthand
+/// for tool rules without argument conditions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentMcpToolRule {
+    pub effect: AgentHttpRuleEffect,
+    pub tools: Vec<String>,
+    /// Dotted field paths under `params.arguments`, each with one condition.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub arguments: BTreeMap<String, AgentFieldCondition>,
+}
+
+impl AgentMcpServer {
+    /// Conditioned allow tool rules that an unconditional allow makes moot.
+    pub fn shadowed_tool_conditions(&self) -> Vec<(usize, String)> {
+        shadowed_tool_conditions(&self.allow_tools, &self.tool_rules)
+    }
+}
+
+/// Allow rules combine with OR, so when `allow_tools` or an allow tool rule
+/// without `arguments` already allows a tool, argument conditions on another
+/// allow rule for it never limit anything. Returns (one-based rule number,
+/// tool) pairs.
+pub fn shadowed_tool_conditions(
+    allow_tools: &[String],
+    tool_rules: &[AgentMcpToolRule],
+) -> Vec<(usize, String)> {
+    let unconditional = allow_tools
+        .iter()
+        .chain(
+            tool_rules
+                .iter()
+                .filter(|rule| {
+                    rule.effect == AgentHttpRuleEffect::Allow && rule.arguments.is_empty()
+                })
+                .flat_map(|rule| &rule.tools),
+        )
+        .collect::<Vec<_>>();
+    let mut shadowed = Vec::new();
+    for (index, rule) in tool_rules.iter().enumerate() {
+        if rule.effect != AgentHttpRuleEffect::Allow || rule.arguments.is_empty() {
+            continue;
+        }
+        for tool in &rule.tools {
+            if unconditional
+                .iter()
+                .any(|allowed| *allowed == "*" || *allowed == tool)
+            {
+                shadowed.push((index + 1, tool.clone()));
+            } else if tool == "*" {
+                shadowed.extend(
+                    unconditional
+                        .iter()
+                        .map(|allowed| (index + 1, (*allowed).clone())),
+                );
+            }
+        }
+    }
+    shadowed.dedup();
+    shadowed
+}
+
+/// A condition on one JSON field. A scalar must equal the field, a list must
+/// contain it (or every element of a non-empty array field), a range bounds a
+/// number inclusively, and `{ absent = true }` requires the field to be
+/// missing or null.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentFieldCondition {
+    Equals(AgentScalar),
+    OneOf(Vec<AgentScalar>),
+    Range(AgentNumberRange),
+    Absent(AgentAbsent),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AgentScalar {
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
+    String(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentAbsent {
+    pub absent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentNumberRange {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
 }
 
 /// User-facing MCP server policy. The endpoint and binding association are
@@ -177,6 +280,8 @@ pub struct AgentMcpServer {
     pub allow_tools: Vec<String>,
     #[serde(default)]
     pub deny_tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_rules: Vec<AgentMcpToolRule>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -349,6 +454,58 @@ pub enum AgentHttpRuleEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unconditional_allows_shadow_conditioned_tool_rules() {
+        let server: AgentMcpServer = toml::from_str(
+            r#"
+url = "https://mcp.example.com/mcp"
+allow_tools = ["list_issues", "save_issue"]
+
+[[tool_rules]]
+effect = "allow"
+tools = ["save_issue"]
+arguments = { team = "ENG" }
+
+[[tool_rules]]
+effect = "allow"
+tools = ["create_comment"]
+arguments = { issue = "ENG-1" }
+
+[[tool_rules]]
+effect = "allow"
+tools = ["create_comment"]
+
+[[tool_rules]]
+effect = "deny"
+tools = ["save_issue"]
+arguments = { priority = 1 }
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            server.shadowed_tool_conditions(),
+            vec![
+                (1, "save_issue".to_owned()),
+                (2, "create_comment".to_owned())
+            ]
+        );
+
+        let all: AgentMcpServer = toml::from_str(
+            "url = \"https://mcp.example.com/mcp\"\nallow_tools = [\"*\"]\n[[tool_rules]]\neffect = \"allow\"\ntools = [\"save_issue\"]\narguments = { team = \"ENG\" }\n",
+        )
+        .unwrap();
+        assert_eq!(
+            all.shadowed_tool_conditions(),
+            vec![(1, "save_issue".to_owned())]
+        );
+
+        let enforced: AgentMcpServer = toml::from_str(
+            "url = \"https://mcp.example.com/mcp\"\nallow_tools = [\"list_issues\"]\n[[tool_rules]]\neffect = \"allow\"\ntools = [\"save_issue\"]\narguments = { team = \"ENG\" }\n",
+        )
+        .unwrap();
+        assert!(enforced.shadowed_tool_conditions().is_empty());
+    }
 
     #[test]
     fn worktree_lives_under_workspace_not_sandbox() {

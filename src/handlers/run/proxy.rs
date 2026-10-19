@@ -62,8 +62,9 @@ use uuid::Uuid;
 
 use crate::{
     handlers::agent::policy::{
-        evaluate_secret_authorization, host_matches, normalize_secret_http_policy,
-        SecretAuthorizationDecision, SecretHttpPolicy,
+        evaluate_secret_authorization, first_unmet_condition, host_matches,
+        normalize_secret_http_policy, parse_json_with_unique_keys, SecretAuthorizationDecision,
+        SecretHttpPolicy,
     },
     models::agent::{AgentHttpRuleEffect, AgentMcpRule, SandboxBackend},
     REQUEST_TIMEOUT_SECS,
@@ -218,13 +219,20 @@ pub struct ProxyAuditLogEvent {
     /// Bytes actually relayed from the destination to the child.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_bytes: Option<u64>,
+    /// Short code for why the proxy refused an MCP request, such as
+    /// `allow_condition_failed:arguments.team`. Names profile field paths only,
+    /// never request values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
-/// Exact-match filters for the local audit-log viewer.
+/// Filters for the local audit-log viewer: exact matches, except that a bare
+/// `reason` code also matches its field-specific variants.
 #[derive(Debug, Clone, Default)]
 pub struct ProxyAuditLogFilter {
     pub profile: Option<String>,
     pub action: Option<String>,
+    pub reason: Option<String>,
     pub host: Option<String>,
     pub session: Option<String>,
     pub id: Option<String>,
@@ -239,6 +247,12 @@ impl ProxyAuditLogFilter {
                 .action
                 .as_ref()
                 .is_none_or(|value| value == &event.action)
+            && self.reason.as_ref().is_none_or(|value| {
+                event
+                    .reason
+                    .as_ref()
+                    .is_some_and(|reason| reason_matches(value, reason))
+            })
             && self.host.as_ref().is_none_or(|value| {
                 event
                     .destination_host
@@ -254,6 +268,15 @@ impl ProxyAuditLogFilter {
                 .as_ref()
                 .is_none_or(|value| value == &event.event_id)
     }
+}
+
+/// `allow_condition_failed` matches `allow_condition_failed:arguments.team`
+/// as well as itself; a full reason matches only exactly.
+fn reason_matches(filter: &str, reason: &str) -> bool {
+    reason == filter
+        || reason
+            .strip_prefix(filter)
+            .is_some_and(|rest| rest.starts_with(':'))
 }
 
 /// Private, metadata-only audit log for one proxy session.
@@ -367,6 +390,7 @@ impl ProxyAuditLog {
             Some(path),
             Some(operation),
             None,
+            None,
         );
         id
     }
@@ -420,6 +444,7 @@ impl ProxyAuditLog {
             None,
             None,
             None,
+            None,
         );
     }
 
@@ -438,6 +463,7 @@ impl ProxyAuditLog {
         path: Option<&str>,
         operation: Option<&str>,
         mcp_tool: Option<&str>,
+        reason: Option<&str>,
     ) {
         // Every audit event, including streamed request outcomes, passes
         // through here. Only the action kind is counted, never its details.
@@ -512,6 +538,7 @@ impl ProxyAuditLog {
             duration_ms: duration.and_then(|duration| u64::try_from(duration.as_millis()).ok()),
             request_bytes,
             response_bytes,
+            reason: reason.map(str::to_owned),
         };
         if let Ok(mut file) = self.file.lock() {
             let _ = writeln!(
@@ -595,6 +622,7 @@ impl AuditedResponseStream {
                 self.path.as_deref(),
                 None,
                 self.mcp_tool.as_deref(),
+                None,
             );
         }
     }
@@ -1088,11 +1116,12 @@ impl ProxyPolicy {
                 paths.sort();
                 tools.sort();
                 format!(
-                    "{:?};{};{};{}",
+                    "{:?};{};{};{};{}",
                     rule.effect,
                     hosts.join(","),
                     paths.join(","),
-                    tools.join(",")
+                    tools.join(","),
+                    serde_json::to_string(&rule.arguments).unwrap_or_default()
                 )
             })
             .collect::<Vec<_>>();
@@ -2204,36 +2233,25 @@ fn proxy_request(
                 }
             };
             let mcp_tool = mcp_tool_name(&bytes);
-            if let Err(message) =
+            if let Err(denial) =
                 authorize_mcp_request(&bytes, &state.policy, host.as_deref(), &mcp_path)
             {
-                if let Some(tool) = mcp_tool.as_deref() {
-                    state.record_mcp_tool_with_request(
-                        &request_id,
-                        "mcp_tool_denied",
-                        tool,
-                        host.as_deref(),
-                        Some(&mcp_path),
-                        Some(&method),
-                        None,
-                        Some(StatusCode::FORBIDDEN),
-                        Some(started.elapsed()),
-                    );
-                } else {
-                    state.record_audit_with_request(
-                        &request_id,
-                        "mcp_tool_denied",
-                        host.as_deref(),
-                        Some(&method),
-                        None,
-                        Some(StatusCode::FORBIDDEN),
-                        Some(started.elapsed()),
-                    );
-                }
+                state.record_mcp_tool_with_request(
+                    &request_id,
+                    "mcp_tool_denied",
+                    mcp_tool.as_deref(),
+                    host.as_deref(),
+                    Some(&mcp_path),
+                    Some(&method),
+                    None,
+                    Some(StatusCode::FORBIDDEN),
+                    Some(started.elapsed()),
+                    Some(&denial.reason),
+                );
                 return Ok(proxy_error_response_with_id(
                     StatusCode::FORBIDDEN,
                     "proxy.mcp_tool_not_allowed",
-                    message,
+                    &denial.message,
                     Some(&request_id),
                 ));
             }
@@ -3539,13 +3557,14 @@ impl ProxyState {
         &self,
         request_id: &str,
         action: &str,
-        tool: &str,
+        tool: Option<&str>,
         host: Option<&str>,
         path: Option<&str>,
         method: Option<&Method>,
         secret_name: Option<&str>,
         status: Option<StatusCode>,
         duration: Option<Duration>,
+        reason: Option<&str>,
     ) {
         if let Some(audit_log) = &self.audit_log {
             audit_log.record_with_bytes(
@@ -3560,7 +3579,8 @@ impl ProxyState {
                 None,
                 path,
                 None,
-                Some(tool),
+                tool,
+                reason,
             );
         }
     }
@@ -3624,26 +3644,55 @@ fn mcp_tool_name(bytes: &[u8]) -> Option<String> {
         .flatten()
 }
 
+/// Why a configured MCP endpoint refused a request: `message` goes to the
+/// agent and `reason` is a short audit code. Both name field paths from the
+/// profile, never request values.
+#[derive(Debug, PartialEq, Eq)]
+struct McpDenial {
+    message: String,
+    reason: String,
+}
+
+impl McpDenial {
+    fn new(message: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            reason: reason.into(),
+        }
+    }
+}
+
 fn authorize_mcp_request(
     body: &[u8],
     policy: &ProxyPolicy,
     host: Option<&str>,
     path: &str,
-) -> std::result::Result<(), &'static str> {
-    if !policy.mcp_rules.iter().any(|candidate| {
-        candidate
-            .hosts
+) -> std::result::Result<(), McpDenial> {
+    let endpoint_matches = |rule: &AgentMcpRule| {
+        rule.hosts
             .iter()
             .any(|allowed| host.is_some_and(|host| host_matches(allowed, host)))
-            && candidate
-                .paths
-                .iter()
-                .any(|pattern| path_matches(pattern, path))
-    }) {
+            && rule.paths.iter().any(|pattern| path_matches(pattern, path))
+    };
+    if !policy.mcp_rules.iter().any(endpoint_matches) {
         return Ok(());
     }
-    let value: serde_json::Value =
-        serde_json::from_slice(body).map_err(|_| "MCP request body is not valid JSON")?;
+    let value: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|_| McpDenial::new("MCP request body is not valid JSON", "invalid_json"))?;
+    if value.is_array() {
+        // The 2025-06-18 MCP revision removed JSON-RPC batching. Rejecting it
+        // keeps every tools/call visible to the checks below.
+        return Err(McpDenial::new(
+            "MCP batch requests are not supported by the agent proxy",
+            "batch_request",
+        ));
+    }
+    if parse_json_with_unique_keys(body).is_none() {
+        return Err(McpDenial::new(
+            "MCP request body repeats an object key",
+            "duplicate_key",
+        ));
+    }
     let Some(method) = value.get("method").and_then(serde_json::Value::as_str) else {
         // JSON-RPC responses to server-initiated requests have no method. They
         // must pass through so MCP capabilities such as sampling and
@@ -3658,44 +3707,98 @@ fn authorize_mcp_request(
         .and_then(|params| params.get("name"))
         .and_then(serde_json::Value::as_str)
     else {
-        return Err("MCP tools/call is missing params.name");
+        return Err(McpDenial::new(
+            "MCP tools/call is missing params.name",
+            "missing_tool_name",
+        ));
     };
-    let allowed = policy.mcp_rules.iter().any(|candidate| {
-        candidate.effect == AgentHttpRuleEffect::Allow
-            && candidate
-                .hosts
-                .iter()
-                .any(|allowed| host.is_some_and(|host| host_matches(allowed, host)))
-            && candidate
-                .paths
-                .iter()
-                .any(|pattern| path_matches(pattern, path))
-            && candidate
+    // Absent arguments are an empty object; any other non-object is unreadable,
+    // so conditioned allow rules do not match and conditioned deny rules do.
+    let empty = serde_json::Value::Object(Default::default());
+    let arguments = match value.pointer("/params/arguments") {
+        None => Some(&empty),
+        Some(arguments) if arguments.is_object() => Some(arguments),
+        Some(_) => None,
+    };
+    let not_object = || {
+        McpDenial::new(
+            "MCP tools/call arguments must be a JSON object",
+            "arguments_not_object",
+        )
+    };
+    let tool_matches = |rule: &AgentMcpRule| {
+        endpoint_matches(rule)
+            && rule
                 .tools
                 .iter()
                 .any(|candidate_tool| candidate_tool == "*" || candidate_tool == tool)
-    });
-    let denied = policy.mcp_rules.iter().any(|candidate| {
-        candidate.effect == AgentHttpRuleEffect::Deny
-            && host.is_some_and(|host| {
-                candidate
-                    .hosts
-                    .iter()
-                    .any(|allowed| host_matches(allowed, host))
-            })
-            && candidate
-                .paths
-                .iter()
-                .any(|pattern| path_matches(pattern, path))
-            && candidate
-                .tools
-                .iter()
-                .any(|candidate_tool| candidate_tool == "*" || candidate_tool == tool)
-    });
-    if allowed && !denied {
-        Ok(())
-    } else {
-        Err("MCP tool is not allowed by the agent profile")
+    };
+    if let Some(rule) = policy.mcp_rules.iter().find(|rule| {
+        rule.effect == AgentHttpRuleEffect::Deny
+            && tool_matches(rule)
+            && (arguments.is_none() || unmet_mcp_argument(rule, arguments).is_none())
+    }) {
+        if rule.arguments.is_empty() {
+            return Err(McpDenial::new(
+                "MCP tool is not allowed by the agent profile",
+                "tool_denied",
+            ));
+        }
+        if arguments.is_none() {
+            return Err(not_object());
+        }
+        let fields = rule
+            .arguments
+            .keys()
+            .map(|field| format!("arguments.{field}"))
+            .collect::<Vec<_>>();
+        return Err(McpDenial::new(
+            format!(
+                "MCP tool arguments are denied by the agent profile ({})",
+                fields.join(", ")
+            ),
+            format!("deny_condition_matched:{}", fields.join(",")),
+        ));
+    }
+    let allow_rules = policy
+        .mcp_rules
+        .iter()
+        .filter(|rule| rule.effect == AgentHttpRuleEffect::Allow && tool_matches(rule))
+        .collect::<Vec<_>>();
+    if allow_rules
+        .iter()
+        .any(|rule| unmet_mcp_argument(rule, arguments).is_none())
+    {
+        return Ok(());
+    }
+    match allow_rules
+        .iter()
+        .find_map(|rule| unmet_mcp_argument(rule, arguments))
+    {
+        Some(_) if arguments.is_none() => Err(not_object()),
+        Some(field) => Err(McpDenial::new(
+            format!("MCP tool arguments are not allowed by the agent profile (arguments.{field})"),
+            format!("allow_condition_failed:arguments.{field}"),
+        )),
+        None => Err(McpDenial::new(
+            "MCP tool is not allowed by the agent profile",
+            "tool_not_allowed",
+        )),
+    }
+}
+
+/// The first argument condition of `rule` that does not hold, or `None` when
+/// the rule has no conditions or all hold. Unreadable arguments meet nothing.
+fn unmet_mcp_argument<'a>(
+    rule: &'a AgentMcpRule,
+    arguments: Option<&serde_json::Value>,
+) -> Option<&'a str> {
+    if rule.arguments.is_empty() {
+        return None;
+    }
+    match arguments {
+        Some(arguments) => first_unmet_condition(&rule.arguments, arguments),
+        None => Some("arguments"),
     }
 }
 
@@ -3731,8 +3834,11 @@ fn filter_mcp_tools_list_response(
                     .iter()
                     .any(|candidate| candidate == "*" || candidate == name)
         });
+        // A deny with argument conditions blocks only some calls, so the tool
+        // stays listed.
         let denied = policy.mcp_rules.iter().any(|rule| {
             rule.effect == AgentHttpRuleEffect::Deny
+                && rule.arguments.is_empty()
                 && host.is_some_and(|host| {
                     rule.hosts.iter().any(|allowed| host_matches(allowed, host))
                 })
@@ -4098,12 +4204,14 @@ mod tests {
                     hosts: vec!["mcp.example.com".to_owned()],
                     paths: vec!["/mcp".to_owned()],
                     tools: vec!["*".to_owned()],
+                    arguments: Default::default(),
                 },
                 AgentMcpRule {
                     effect: AgentHttpRuleEffect::Deny,
                     hosts: vec!["mcp.example.com".to_owned()],
                     paths: vec!["/mcp".to_owned()],
                     tools: vec!["list_projects".to_owned()],
+                    arguments: Default::default(),
                 },
             ],
             backend: SandboxBackend::Native,
@@ -4253,8 +4361,290 @@ mod tests {
                 Some("mcp.example.com"),
                 "/mcp",
             ),
-            Err("MCP tool is not allowed by the agent profile")
+            Err(McpDenial::new(
+                "MCP tool is not allowed by the agent profile",
+                "tool_denied"
+            ))
         );
+    }
+
+    fn mcp_argument_policy() -> ProxyPolicy {
+        let rule = |effect, tools: &[&str], arguments: &str| AgentMcpRule {
+            effect,
+            hosts: vec!["mcp.example.com".to_owned()],
+            paths: vec!["/mcp".to_owned()],
+            tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
+            arguments: toml::from_str::<crate::models::agent::AgentMcpToolRule>(&format!(
+                "effect = \"allow\"\ntools = []\n{arguments}"
+            ))
+            .unwrap()
+            .arguments,
+        };
+        let mut policy = mcp_test_policy();
+        policy.mcp_rules = vec![
+            rule(AgentHttpRuleEffect::Allow, &["search"], ""),
+            rule(
+                AgentHttpRuleEffect::Allow,
+                &["send_message"],
+                r#"arguments = { mode = "draft", to = ["support@acme.com", "ops@acme.com"] }"#,
+            ),
+            rule(
+                AgentHttpRuleEffect::Deny,
+                &["send_message"],
+                r#"arguments = { priority = "urgent" }"#,
+            ),
+        ];
+        policy
+    }
+
+    fn authorize_mcp_call(policy: &ProxyPolicy, body: &str) -> std::result::Result<(), String> {
+        authorize_mcp_request(body.as_bytes(), policy, Some("mcp.example.com"), "/mcp")
+            .map_err(|denial| denial.message)
+    }
+
+    fn tools_call(name: &str, arguments: serde_json::Value) -> String {
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments}
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn mcp_tools_call_is_allowed_only_when_argument_conditions_hold() {
+        let policy = mcp_argument_policy();
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call(
+                    "send_message",
+                    serde_json::json!({"mode": "draft", "to": ["support@acme.com"], "text": "hi"})
+                )
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call(
+                    "send_message",
+                    serde_json::json!({"mode": "send", "to": ["support@acme.com"]})
+                )
+            ),
+            Err(
+                "MCP tool arguments are not allowed by the agent profile (arguments.mode)"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call(
+                    "send_message",
+                    serde_json::json!({"mode": "draft", "to": ["support@acme.com", "x@evil.com"]})
+                )
+            ),
+            Err(
+                "MCP tool arguments are not allowed by the agent profile (arguments.to)".to_owned()
+            )
+        );
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call("search", serde_json::json!({"q": "x"}))
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn mcp_conditioned_deny_blocks_only_matching_calls() {
+        let policy = mcp_argument_policy();
+        let urgent = serde_json::json!({
+            "mode": "draft",
+            "to": ["ops@acme.com"],
+            "priority": "urgent"
+        });
+        assert_eq!(
+            authorize_mcp_call(&policy, &tools_call("send_message", urgent)),
+            Err(
+                "MCP tool arguments are denied by the agent profile (arguments.priority)"
+                    .to_owned()
+            )
+        );
+        let normal =
+            serde_json::json!({"mode": "draft", "to": ["ops@acme.com"], "priority": "low"});
+        assert_eq!(
+            authorize_mcp_call(&policy, &tools_call("send_message", normal)),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn mcp_unreadable_arguments_fail_closed() {
+        let policy = mcp_argument_policy();
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call("send_message", serde_json::json!("draft"))
+            ),
+            Err("MCP tools/call arguments must be a JSON object".to_owned()),
+            "a conditioned deny matches when arguments are not an object"
+        );
+        let missing = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "send_message"}
+        });
+        assert_eq!(
+            authorize_mcp_call(&policy, &missing.to_string()),
+            Err(
+                "MCP tool arguments are not allowed by the agent profile (arguments.mode)"
+                    .to_owned()
+            )
+        );
+        assert_eq!(
+            authorize_mcp_call(&policy, &tools_call("search", serde_json::json!(["x"]))),
+            Ok(()),
+            "rules without conditions do not inspect arguments"
+        );
+    }
+
+    #[test]
+    fn mcp_unreadable_arguments_without_a_conditioned_deny_report_the_shape() {
+        let mut policy = mcp_argument_policy();
+        policy.mcp_rules.pop();
+        assert_eq!(
+            authorize_mcp_call(&policy, &tools_call("send_message", serde_json::json!(1))),
+            Err("MCP tools/call arguments must be a JSON object".to_owned())
+        );
+    }
+
+    #[test]
+    fn mcp_denials_carry_an_audit_reason_without_values() {
+        let policy = mcp_argument_policy();
+        let reason = |body: String| {
+            authorize_mcp_request(body.as_bytes(), &policy, Some("mcp.example.com"), "/mcp")
+                .unwrap_err()
+                .reason
+        };
+        assert_eq!(
+            reason(tools_call(
+                "send_message",
+                serde_json::json!({"mode": "draft", "to": ["x@evil.com"]})
+            )),
+            "allow_condition_failed:arguments.to"
+        );
+        assert_eq!(
+            reason(tools_call(
+                "send_message",
+                serde_json::json!({"mode": "draft", "to": ["ops@acme.com"], "priority": "urgent"})
+            )),
+            "deny_condition_matched:arguments.priority"
+        );
+        assert_eq!(
+            reason(tools_call("send_message", serde_json::json!(1))),
+            "arguments_not_object"
+        );
+        assert_eq!(
+            reason(tools_call("delete_message", serde_json::json!({}))),
+            "tool_not_allowed"
+        );
+        assert_eq!(
+            reason(format!("[{}]", tools_call("search", serde_json::json!({})))),
+            "batch_request"
+        );
+    }
+
+    #[test]
+    fn mcp_absent_condition_allows_creates_but_not_updates() {
+        let mut policy = mcp_test_policy();
+        policy.mcp_rules = vec![AgentMcpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["mcp.example.com".to_owned()],
+            paths: vec!["/mcp".to_owned()],
+            tools: vec!["save_issue".to_owned()],
+            arguments: toml::from_str::<crate::models::agent::AgentMcpToolRule>(
+                "effect = \"allow\"\ntools = []\narguments = { id = { absent = true }, team = \"ENG\" }",
+            )
+            .unwrap()
+            .arguments,
+        }];
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call(
+                    "save_issue",
+                    serde_json::json!({"team": "ENG", "title": "x"})
+                )
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call("save_issue", serde_json::json!({"team": "ENG", "id": null}))
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            authorize_mcp_call(
+                &policy,
+                &tools_call(
+                    "save_issue",
+                    serde_json::json!({"team": "ENG", "id": "ENG-1"})
+                )
+            ),
+            Err(
+                "MCP tool arguments are not allowed by the agent profile (arguments.id)".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn mcp_batches_and_duplicate_keys_are_rejected() {
+        let policy = mcp_test_policy();
+        let batch = format!("[{}]", tools_call("list_projects", serde_json::json!({})));
+        assert_eq!(
+            authorize_mcp_call(&policy, &batch),
+            Err("MCP batch requests are not supported by the agent proxy".to_owned())
+        );
+        let duplicate = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_projects","name":"list_project_labels","arguments":{}}}"#;
+        assert_eq!(
+            authorize_mcp_call(&policy, duplicate),
+            Err("MCP request body repeats an object key".to_owned())
+        );
+    }
+
+    #[test]
+    fn mcp_tools_list_keeps_tools_with_conditioned_denies() {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"tools": [
+                {"name": "search"},
+                {"name": "send_message"},
+                {"name": "delete_message"}
+            ]}
+        });
+        let filtered = filter_mcp_tools_list_response(
+            body.to_string().as_bytes(),
+            &mcp_argument_policy(),
+            Some("mcp.example.com"),
+            "/mcp",
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&filtered).unwrap();
+        let names = value["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["search", "send_message"]);
     }
 
     #[test]
@@ -5369,6 +5759,7 @@ mod tests {
             duration_ms: Some(42),
             request_bytes: Some(10),
             response_bytes: Some(20),
+            reason: None,
         };
 
         assert!(ProxyAuditLogFilter {
@@ -5377,10 +5768,31 @@ mod tests {
             host: Some("api.github.com".to_owned()),
             session: Some("session-1".to_owned()),
             id: Some("evt_test".to_owned()),
+            ..Default::default()
         }
         .matches(&event));
         assert!(!ProxyAuditLogFilter {
             host: Some("example.com".to_owned()),
+            ..Default::default()
+        }
+        .matches(&event));
+        let mut denied = event.clone();
+        denied.reason = Some("allow_condition_failed:arguments.team".to_owned());
+        for (filter, expected) in [
+            ("allow_condition_failed", true),
+            ("allow_condition_failed:arguments.team", true),
+            ("allow_condition_failed:arguments", false),
+            ("allow_condition", false),
+            ("tool_denied", false),
+        ] {
+            let filter = ProxyAuditLogFilter {
+                reason: Some(filter.to_owned()),
+                ..Default::default()
+            };
+            assert_eq!(filter.matches(&denied), expected, "{filter:?}");
+        }
+        assert!(!ProxyAuditLogFilter {
+            reason: Some("tool_denied".to_owned()),
             ..Default::default()
         }
         .matches(&event));
@@ -5500,6 +5912,7 @@ mod tests {
             hosts: vec!["MCP.EXAMPLE.COM".to_owned(), "other.example.com".to_owned()],
             paths: vec!["/second".to_owned(), "/mcp".to_owned()],
             tools: vec!["write".to_owned(), "read".to_owned()],
+            arguments: Default::default(),
         }];
         let mut equivalent = rule_policy(Vec::new());
         equivalent.mcp_rules = vec![AgentMcpRule {
@@ -5507,6 +5920,7 @@ mod tests {
             hosts: vec!["other.example.com".to_owned(), "mcp.example.com".to_owned()],
             paths: vec!["/mcp".to_owned(), "/second".to_owned()],
             tools: vec!["read".to_owned(), "write".to_owned()],
+            arguments: Default::default(),
         }];
         let mut different = equivalent.clone();
         different.mcp_rules[0].tools = vec!["read".to_owned()];

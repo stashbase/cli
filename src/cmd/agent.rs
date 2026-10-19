@@ -434,6 +434,11 @@ pub struct AgentMcpToolsCommand {
     /// Resolve MCP bindings through a short-lived remote Agent Proxy session
     #[arg(long)]
     pub remote: bool,
+
+    /// Show one tool's arguments, the profile's rules for it, and rule fields
+    /// the tool does not declare
+    #[arg(long, value_name = "NAME")]
+    pub tool: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -600,6 +605,11 @@ pub struct AgentLogsCommand {
     #[arg(long)]
     pub action: Option<String>,
 
+    /// Only show events with this denial reason; a code alone (for example:
+    /// allow_condition_failed) also matches its field-specific variants
+    #[arg(long)]
+    pub reason: Option<String>,
+
     /// Only show events for this destination host
     #[arg(long)]
     pub host: Option<String>,
@@ -643,6 +653,11 @@ pub struct AgentLogsListCommand {
     #[arg(long)]
     pub action: Option<String>,
 
+    /// Only show events with this denial reason; a code alone (for example:
+    /// allow_condition_failed) also matches its field-specific variants
+    #[arg(long)]
+    pub reason: Option<String>,
+
     /// Only show events for this destination host
     #[arg(long)]
     pub host: Option<String>,
@@ -677,6 +692,11 @@ pub struct AgentLogsSummaryCommand {
     /// Only include events with this proxy action
     #[arg(long)]
     pub action: Option<String>,
+
+    /// Only show events with this denial reason; a code alone (for example:
+    /// allow_condition_failed) also matches its field-specific variants
+    #[arg(long)]
+    pub reason: Option<String>,
 
     /// Only include events for this destination host
     #[arg(long)]

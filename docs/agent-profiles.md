@@ -207,10 +207,46 @@ paths = ["/mcp"]
 [mcp_servers.linear]
 url = "https://mcp.linear.app/mcp"
 binding = "LINEAR_API_KEY"
-allow_tools = ["search_issues", "get_issue"]
+allow_tools = ["list_issues", "get_issue"]
 ```
 
 The HTTP rule controls credential injection at the endpoint. The MCP rule controls which tools the agent may call. Omit `allow_tools` or leave it empty to deny all tools by default. Use `allow_tools = ["*"]` to allow all tools (a matching `deny_tools` still takes precedence).
+
+### Argument conditions
+
+A tool name often isn't enough: the same tool can draft or send, create or update. `[[mcp_servers.*.tool_rules]]` allows or denies a tool only when its call arguments match:
+
+```toml
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+binding = "LINEAR_API_KEY"
+allow_tools = ["list_issues", "get_issue"]
+
+# Create issues in one team only. save_issue also updates when given an id.
+[[mcp_servers.linear.tool_rules]]
+effect = "allow"
+tools = ["save_issue"]
+arguments = { team = ["Engineering"], id = { absent = true } }
+```
+
+Each key under `arguments` is a field of the call's `params.arguments`, with dots for nested objects (`"project.id"`). Each value is one condition:
+
+| Condition | Holds when the field |
+|---|---|
+| `mode = "draft"` (string, number or bool) | equals the value, with the same JSON type (`"5"` is not `5`) |
+| `to = ["a@acme.com", "b@acme.com"]` | is one of the values; for an array field, is non-empty and every element is one of them |
+| `amount = { min = 1, max = 5000 }` | is a number in the range; both bounds are inclusive and optional |
+| `id = { absent = true }` | is missing or `null` |
+
+All conditions in a rule must hold, separate rules are alternatives, and a matching deny always wins. `allow_tools` and `deny_tools` are tool rules without conditions, so a tool listed in `allow_tools` (or covered by `allow_tools = ["*"]`) is allowed with any arguments and its conditioned allow rules have no effect. `stashbase agent validate`, `agent mcp tools` and `agent mcp configure` warn when that happens. A field that is missing, `null` or of another type fails every condition except `absent`.
+
+Arguments that aren't a JSON object fail closed: allow rules with conditions don't match and deny rules with conditions do. The proxy also rejects JSON-RPC batch requests and request bodies that repeat a key, so it never decides on a different reading of the request than the MCP server.
+
+Prefer allow rules with conditions. A deny with conditions is best-effort, because an agent can often reach the same result with other arguments, and `stashbase agent validate` warns about it. Conditions check single calls; they don't limit how many calls the agent makes.
+
+A refused call returns 403 with the field that decided it, for example `MCP tool arguments are not allowed by the agent profile (arguments.team)`. The audit log records the same as `reason=allow_condition_failed:arguments.team`, never the argument values. `stashbase agent mcp check` shows whether a tool is allowed only under conditions. The remote proxy (`--remote`) enforces the same conditions.
+
+Argument names come from the MCP server, and a misspelled field never matches, so its allow rule denies every call. `stashbase agent mcp tools --profile <name> --server <server> --tool <tool>` lists the tool's arguments (dotted paths, types, required, allowed values) and the profile's rules for it. Without `--tool`, the command warns about rule fields a tool doesn't declare and about tools the server doesn't offer. See [examples/linear-tool-rules.toml](./agent-profiles/examples/linear-tool-rules.toml).
 
 ## API Hooks
 

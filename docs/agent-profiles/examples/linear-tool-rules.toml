@@ -1,0 +1,54 @@
+# Linear MCP with argument conditions on tool calls ([[mcp_servers.*.tool_rules]]).
+# Read tools are allowed outright; save_issue only creates, in one team, and not as Urgent.
+#   cp docs/agent-profiles/examples/linear-tool-rules.toml .stashbase/agents/
+#   stashbase agent validate --profile linear-tool-rules
+#   stashbase agent mcp tools --profile linear-tool-rules --server linear
+#   stashbase agent mcp tools --profile linear-tool-rules --server linear --tool save_issue
+#   stashbase agent mcp check --profile linear-tool-rules --server linear --tool save_issue
+#   stashbase agent run --profile linear-tool-rules -- claude
+#
+# Tool and argument names come from the Linear MCP server, not Stashbase. List
+# them with `agent mcp tools --tool <name>`, which also warns about rule fields
+# the tool doesn't declare: a misspelled argument never matches, so the allow
+# rule denies every call.
+egress_hosts = ["api.anthropic.com", "platform.claude.com", "mcp.linear.app"]
+
+[secrets]
+project = "my-project"
+environment = "development"
+
+[secrets.LINEAR_API_KEY]
+env = "LINEAR_API_KEY"
+
+[[secrets.LINEAR_API_KEY.rules]]
+effect = "allow"
+hosts = ["mcp.linear.app"]
+methods = ["GET", "POST"]
+paths = ["/mcp"]
+
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+binding = "LINEAR_API_KEY"
+allow_tools = ["list_issues", "get_issue", "list_teams"]
+
+# save_issue is not in allow_tools, so this rule is the only way to call it:
+# the team must be the one listed (use the team name or ID the server expects).
+# Linear's save_issue both creates and updates, and an update passes `id`, so
+# requiring `id` to be absent allows creating issues but not editing them.
+[[mcp_servers.linear.tool_rules]]
+effect = "allow"
+tools = ["save_issue"]
+arguments = { team = ["Engineering"], id = { absent = true } }
+
+# Best-effort carve-out (validate warns): block Urgent (priority 1) issues.
+[[mcp_servers.linear.tool_rules]]
+effect = "deny"
+tools = ["save_issue"]
+arguments = { priority = 1 }
+
+# Other forms, for reference:
+#   arguments = { title = "exact" }                    equals
+#   arguments = { labels = ["bug", "chore"] }          every label from the list
+#   arguments = { estimate = { min = 1, max = 5 } }    inclusive number range
+#   arguments = { "project.id" = "..." }               nested field
+#   arguments = { id = { absent = true } }             field missing or null
