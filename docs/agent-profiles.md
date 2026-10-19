@@ -190,6 +190,32 @@ paths = ["*"]
 
 See [credential-policies.md](./agent-profiles/credential-policies.md) for detailed rule syntax.
 
+### Body conditions
+
+The same `POST` can save a draft or send to a customer. An optional `body` on a rule matches JSON request bodies, with the same conditions as [MCP argument conditions](#argument-conditions):
+
+```toml
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+body = { send = false, to = ["support@acme.com", "ops@acme.com"] }
+
+[[secrets.PAYMENTS_KEY.rules]]
+effect = "allow"
+hosts = ["api.example.com"]
+methods = ["POST"]
+paths = ["/v1/payouts"]
+body = { currency = "usd", amount = { min = 1, max = 5000 }, "destination.type" = "bank" }
+```
+
+A rule without `body` behaves as before, and the proxy streams the request without reading it. When a credential has a rule with `body` that matches the host, method and path, the proxy reads the body before injecting the credential and forwards exactly the bytes it checked.
+
+The body is readable only when `Content-Type` is `application/json` or `application/*+json`, there is no `Content-Encoding`, it is at most 1 MiB, and it is a JSON object without repeated keys. Any other body, including no body, fails closed: allow rules with `body` don't match and deny rules with `body` do.
+
+A refused request returns 403 naming the rule and field, for example `The supplied credential is not allowed for this request (rule 1: body.send)`, and the audit log records `reason=allow_condition_failed:body.send` (or `deny_condition_matched:…`, `body_unreadable:encoding`), never the values. `stashbase agent validate` warns when an allow rule without `body` makes body conditions moot and that deny rules with `body` are best-effort. `stashbase agent explain` reports a request decided only by body conditions as eligible only if the body meets them. `--remote` refuses profiles with `body` for now; body conditions are enforced by the local proxy only.
+
 ## MCP Tool Restrictions
 
 HTTP-based MCP servers can be configured with tool-level access control:
