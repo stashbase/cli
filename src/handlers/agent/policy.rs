@@ -102,7 +102,7 @@ pub fn secret_policy_needs_body(
 ) -> bool {
     matches!(policy, SecretHttpPolicy::Rules(rules) if rules
         .iter()
-        .any(|rule| !rule.body.is_empty() && rule_matches(rule, host, method, path)))
+        .any(|rule| rule.has_conditions() && rule_matches(rule, host, method, path)))
 }
 
 /// Whether some request body could make this credential eligible: no deny
@@ -122,7 +122,7 @@ pub fn could_allow_with_body(
             .iter()
             .filter(|rule| rule_matches(rule, host, method, path))
     };
-    !matching().any(|rule| rule.effect == AgentHttpRuleEffect::Deny && rule.body.is_empty())
+    !matching().any(|rule| rule.effect == AgentHttpRuleEffect::Deny && !rule.has_conditions())
         && matching().any(|rule| rule.effect == AgentHttpRuleEffect::Allow)
 }
 
@@ -173,8 +173,13 @@ pub fn authorize_secret_request(
                 .iter()
                 .map(|field| format!("body.{field}"))
                 .collect::<Vec<_>>();
+            let unlisted = if code == "unlisted_field" {
+                "unlisted "
+            } else {
+                ""
+            };
             (
-                format!("rule {}: {}", index + 1, fields.join(", ")),
+                format!("rule {}: {unlisted}{}", index + 1, fields.join(", ")),
                 format!("{code}:{}", fields.join(",")),
             )
         }
@@ -186,14 +191,21 @@ pub fn authorize_secret_request(
         .enumerate()
         .filter(|(_, rule)| rule_matches(rule, host, method, path))
     {
-        let unmet = match (rule.body.is_empty(), body) {
-            (true, _) => None,
-            (false, RequestBody::Readable(value)) => first_unmet_condition(&rule.body, value),
-            (false, _) => Some(""),
+        let unmet = match (rule.has_conditions(), body) {
+            (false, _) => None,
+            (true, RequestBody::Readable(value)) => first_unmet_condition(&rule.body, value)
+                .map(|field| (field.to_owned(), "allow_condition_failed"))
+                .or_else(|| {
+                    // Deny rules cannot set allow_fields (validation rejects it).
+                    let allow_fields = rule.allow_fields.as_deref()?;
+                    first_unlisted_field(&rule.body, allow_fields, value)
+                        .map(|field| (field, "unlisted_field"))
+                }),
+            (true, _) => Some((String::new(), "allow_condition_failed")),
         };
         match rule.effect {
             AgentHttpRuleEffect::Deny => {
-                if rule.body.is_empty() {
+                if !rule.has_conditions() {
                     return decided(SecretAuthorizationDecision::DeniedRule);
                 }
                 if unreadable.is_some() || unmet.is_none() {
@@ -208,10 +220,8 @@ pub fn authorize_secret_request(
             }
             AgentHttpRuleEffect::Allow => match unmet {
                 None => allowed = true,
-                Some(field) => {
-                    first_unmet.get_or_insert_with(|| {
-                        body_outcome(index, &[field], "allow_condition_failed")
-                    });
+                Some((field, code)) => {
+                    first_unmet.get_or_insert_with(|| body_outcome(index, &[&field], code));
                 }
             },
         }
@@ -381,6 +391,49 @@ pub fn first_unmet_condition<'a>(
         .iter()
         .find(|(path, condition)| !condition_holds(condition, lookup(value, path)))
         .map(|(path, _)| path.as_str())
+}
+
+/// The first field of `value` that is neither a condition path nor listed in
+/// `allow_fields`, as a dotted path. A listed path allows its whole subtree; a
+/// field that is only a prefix of listed paths may contain just those paths.
+pub fn first_unlisted_field(
+    conditions: &BTreeMap<String, AgentFieldCondition>,
+    allow_fields: &[String],
+    value: &Value,
+) -> Option<String> {
+    let listed = conditions
+        .keys()
+        .chain(allow_fields)
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    fn walk(
+        object: &serde_json::Map<String, Value>,
+        prefix: &str,
+        listed: &[&str],
+    ) -> Option<String> {
+        for (key, value) in object {
+            let path = if prefix.is_empty() {
+                key.clone()
+            } else {
+                format!("{prefix}.{key}")
+            };
+            if listed.contains(&path.as_str()) {
+                continue;
+            }
+            let parent = format!("{path}.");
+            if !listed.iter().any(|listed| listed.starts_with(&parent)) {
+                return Some(path);
+            }
+            // A non-object here fails the nested condition instead.
+            if let Value::Object(nested) = value {
+                if let Some(unlisted) = walk(nested, &path, listed) {
+                    return Some(unlisted);
+                }
+            }
+        }
+        None
+    }
+    walk(value.as_object()?, "", &listed)
 }
 
 /// Where a dotted field path leads. `Blocked` means an intermediate segment
@@ -683,6 +736,7 @@ mod tests {
             authorize_secret_request, read_request_body, RequestBody, SecretAuthorizationDecision,
         };
         let rule = |effect, body: &str| AgentHttpRule {
+            allow_fields: None,
             effect,
             hosts: vec!["api.example.com".to_owned()],
             methods: vec!["POST".to_owned()],
@@ -776,9 +830,61 @@ mod tests {
     }
 
     #[test]
+    fn allow_fields_list_the_only_fields_a_body_may_have() {
+        use super::{
+            authorize_secret_request, first_unlisted_field, RequestBody,
+            SecretAuthorizationDecision,
+        };
+        let value = |json: &str| serde_json::from_str::<serde_json::Value>(json).unwrap();
+        let conditions = toml::from_str(r#""project.id" = "P""#).unwrap();
+        let fields = ["subject".to_owned(), "meta".to_owned()];
+        let unlisted = |json: &str| first_unlisted_field(&conditions, &fields, &value(json));
+        assert_eq!(
+            unlisted(r#"{"project":{"id":"P"},"subject":"s","meta":{"any":{"x":1}}}"#),
+            None
+        );
+        assert_eq!(unlisted(r#"{"bcc":"x"}"#).as_deref(), Some("bcc"));
+        assert_eq!(
+            unlisted(r#"{"project":{"id":"P","owner":"x"}}"#).as_deref(),
+            Some("project.owner")
+        );
+
+        let policy = SecretHttpPolicy::Rules(vec![AgentHttpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["api.mail.example".to_owned()],
+            methods: vec!["POST".to_owned()],
+            paths: vec!["/v1/messages".to_owned()],
+            body: toml::from_str("send = false").unwrap(),
+            allow_fields: Some(vec!["to".to_owned()]),
+        }]);
+        let decide = |json: &str| {
+            let body = value(json);
+            authorize_secret_request(
+                &policy,
+                "api.mail.example",
+                "POST",
+                "/v1/messages",
+                &RequestBody::Readable(&body),
+            )
+        };
+        assert_eq!(
+            decide(r#"{"send":false,"to":"a"}"#).decision,
+            SecretAuthorizationDecision::AllowedRule
+        );
+        let denied = decide(r#"{"send":false,"to":"a","bcc":"b"}"#);
+        assert_eq!(
+            denied.decision,
+            SecretAuthorizationDecision::NoMatchingAllowRule
+        );
+        assert_eq!(denied.detail.as_deref(), Some("rule 1: unlisted body.bcc"));
+        assert_eq!(denied.reason.as_deref(), Some("unlisted_field:body.bcc"));
+    }
+
+    #[test]
     fn reports_one_based_matching_rule_numbers_with_deny_precedence() {
         let policy = SecretHttpPolicy::Rules(vec![
             AgentHttpRule {
+                allow_fields: None,
                 body: Default::default(),
                 effect: AgentHttpRuleEffect::Allow,
                 hosts: vec!["api.example.com".to_owned()],
@@ -786,6 +892,7 @@ mod tests {
                 paths: vec!["/repos/*".to_owned()],
             },
             AgentHttpRule {
+                allow_fields: None,
                 body: Default::default(),
                 effect: AgentHttpRuleEffect::Deny,
                 hosts: vec!["api.example.com".to_owned()],

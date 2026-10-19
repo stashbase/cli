@@ -92,6 +92,8 @@ pub struct RemoteMcpRule {
     pub tools: Vec<String>,
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub arguments: std::collections::BTreeMap<String, crate::models::agent::AgentFieldCondition>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_fields: Option<Vec<String>>,
 }
 
 impl From<crate::models::agent::AgentMcpRule> for RemoteMcpRule {
@@ -102,6 +104,7 @@ impl From<crate::models::agent::AgentMcpRule> for RemoteMcpRule {
             paths: rule.paths,
             tools: rule.tools,
             arguments: rule.arguments,
+            allow_fields: rule.allow_fields,
         }
     }
 }
@@ -803,6 +806,7 @@ mod tests {
         let mut session = session_request(None);
         session.session_purpose = Some("mcp_inspection".to_owned());
         session.mcp_rules = vec![RemoteMcpRule {
+            allow_fields: None,
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: vec!["mcp.linear.app".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -830,6 +834,7 @@ mod tests {
         let client = reqwest::Client::new();
         let mut session = session_request(None);
         session.mcp_rules = vec![RemoteMcpRule {
+            allow_fields: Some(vec!["title".to_owned()]),
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: vec!["mcp.linear.app".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -853,6 +858,10 @@ mod tests {
                 "id": { "absent": true },
                 "team": ["Engineering"],
             })
+        );
+        assert_eq!(
+            body["mcp_rules"][0]["allow_fields"],
+            serde_json::json!(["title"])
         );
     }
 

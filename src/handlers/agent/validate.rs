@@ -333,7 +333,7 @@ fn validate_min_cli_version(profile: &AgentProfile, checks: &mut Vec<Check>) {
         .bindings
         .values()
         .chain(profile.personal_credentials.values())
-        .any(|binding| binding.rules.iter().any(|rule| !rule.body.is_empty()));
+        .any(|binding| binding.rules.iter().any(|rule| rule.has_conditions()));
     let body_version = parse_version(BODY_CONDITIONS_CLI_VERSION);
     if uses_body && required.is_none_or(|required| Some(required) < body_version) {
         checks.push(fail(
@@ -918,6 +918,13 @@ fn validate_http_rule(target: &str, index: usize, rule: &AgentHttpRule, checks: 
         }
     }
     validate_field_conditions(&label, "body", &rule.body, checks);
+    validate_allow_fields(
+        &label,
+        "body",
+        rule.effect.clone(),
+        rule.allow_fields.as_deref(),
+        checks,
+    );
     if rule.effect == AgentHttpRuleEffect::Deny && !rule.body.is_empty() {
         checks.push(warn(
             label,
@@ -1002,6 +1009,13 @@ fn validate_mcp_server(
         }
         validate_mcp_server_tools(&rule_label, "tools", &rule.tools, checks);
         validate_field_conditions(&rule_label, "arguments", &rule.arguments, checks);
+        validate_allow_fields(
+            &rule_label,
+            "arguments",
+            rule.effect.clone(),
+            rule.allow_fields.as_deref(),
+            checks,
+        );
         if rule.effect == AgentHttpRuleEffect::Deny && !rule.arguments.is_empty() {
             checks.push(warn(
                 rule_label,
@@ -1022,6 +1036,31 @@ pub(crate) fn shadowed_condition_message(tool: &str) -> String {
     format!(
         "Argument conditions for '{tool}' have no effect: allow_tools or a tool rule without arguments already allows every call. Remove '{tool}' from those to enforce the conditions."
     )
+}
+
+fn validate_allow_fields(
+    label: &str,
+    prefix: &str,
+    effect: AgentHttpRuleEffect,
+    allow_fields: Option<&[String]>,
+    checks: &mut Vec<Check>,
+) {
+    let Some(fields) = allow_fields else { return };
+    if effect == AgentHttpRuleEffect::Deny {
+        checks.push(fail(
+            format!("{label} allow_fields"),
+            "'allow_fields' applies to allow rules only; a deny rule cannot limit which fields a request has.".to_owned(),
+        ));
+    }
+    for field in fields {
+        if field.split('.').any(|segment| segment.trim().is_empty()) {
+            checks.push(fail(
+                format!("{label} allow_fields {prefix}.{field}"),
+                "Field paths are dot-separated object keys and cannot have empty segments."
+                    .to_owned(),
+            ));
+        }
+    }
 }
 
 /// Largest integer every JSON parser represents exactly as an f64.
@@ -1139,10 +1178,10 @@ fn lint_http_rules(target: &str, rules: &[AgentHttpRule], checks: &mut Vec<Check
             ));
         }
         if rule.effect == AgentHttpRuleEffect::Allow
-            && !rule.body.is_empty()
+            && rule.has_conditions()
             && rules.iter().any(|other| {
                 other.effect == AgentHttpRuleEffect::Allow
-                    && other.body.is_empty()
+                    && !other.has_conditions()
                     && rule_covers(other, rule)
             })
         {
@@ -1182,7 +1221,7 @@ fn rule_fingerprint(rule: &AgentHttpRule) -> String {
 /// A deny with body conditions blocks only some requests, so it never fully
 /// shadows an allow.
 fn rule_is_fully_denied(allow: &AgentHttpRule, deny: &AgentHttpRule) -> bool {
-    deny.effect == AgentHttpRuleEffect::Deny && deny.body.is_empty() && rule_covers(deny, allow)
+    deny.effect == AgentHttpRuleEffect::Deny && !deny.has_conditions() && rule_covers(deny, allow)
 }
 
 /// Whether `broad` matches every host, method and path that `narrow` does.
@@ -1644,6 +1683,7 @@ mod tests {
     #[test]
     fn rejects_malformed_http_action_rules() {
         let rule = AgentHttpRule {
+            allow_fields: None,
             body: Default::default(),
             effect: crate::models::agent::AgentHttpRuleEffect::Allow,
             hosts: Vec::new(),
@@ -1671,6 +1711,7 @@ mod tests {
     #[test]
     fn lints_duplicate_broad_and_shadowed_http_rules() {
         let allow = AgentHttpRule {
+            allow_fields: None,
             body: Default::default(),
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["api.example.com".to_owned()],
@@ -1678,6 +1719,7 @@ mod tests {
             paths: vec!["/repos/*".to_owned()],
         };
         let deny = AgentHttpRule {
+            allow_fields: None,
             body: Default::default(),
             effect: AgentHttpRuleEffect::Deny,
             hosts: vec!["api.example.com".to_owned()],
@@ -2166,6 +2208,59 @@ body = {{ send = false }}
             too_new[0].contains("requires Stashbase CLI 99.0.0"),
             "{too_new:?}"
         );
+    }
+
+    #[test]
+    fn allow_fields_are_for_allow_rules_and_need_min_cli_version() {
+        let profile: AgentProfile = toml::from_str(
+            r#"
+[secrets.MAIL_KEY]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "allow"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+allow_fields = ["to", "subject."]
+
+[[secrets.MAIL_KEY.rules]]
+effect = "deny"
+hosts = ["api.mail.example"]
+methods = ["POST"]
+paths = ["/v1/messages"]
+allow_fields = []
+
+[mcp_servers.mail]
+url = "https://mcp.mail.example/mcp"
+
+[[mcp_servers.mail.tool_rules]]
+effect = "deny"
+tools = ["send_message"]
+allow_fields = ["to"]
+"#,
+        )
+        .unwrap();
+        let checks = validate_profile(&profile);
+        let failed = |name: &str, text: &str| {
+            checks.iter().any(|check| {
+                check.status == Status::Fail
+                    && check.name.starts_with(name)
+                    && check.message.contains(text)
+            })
+        };
+        assert!(failed(
+            "Secret 'MAIL_KEY' rule 1 allow_fields",
+            "empty segments"
+        ));
+        assert!(failed(
+            "Secret 'MAIL_KEY' rule 2 allow_fields",
+            "allow rules only"
+        ));
+        assert!(failed(
+            "MCP server 'mail' tool rule 1 allow_fields",
+            "allow rules only"
+        ));
+        assert!(failed("min_cli_version", "need min_cli_version"));
     }
 
     #[test]

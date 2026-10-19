@@ -314,7 +314,7 @@ pub(crate) fn reject_remote_body_rules(
 ) -> anyhow::Result<()> {
     if bindings
         .iter()
-        .any(|binding| binding.rules.iter().any(|rule| !rule.body.is_empty()))
+        .any(|binding| binding.rules.iter().any(|rule| rule.has_conditions()))
     {
         anyhow::bail!(
             "--remote does not support HTTP rules with 'body' yet; body conditions are enforced only by the local proxy."

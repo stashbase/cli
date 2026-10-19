@@ -10,8 +10,8 @@ use crate::{
     config::config,
     handlers::{
         agent::policy::{
-            configured_host_matches, evaluate_secret_authorization, SecretAuthorizationDecision,
-            SecretHttpPolicy,
+            authorize_secret_request, configured_host_matches, read_request_body, RequestBody,
+            SecretAuthorizationDecision, SecretHttpPolicy,
         },
         agent::validate::ensure_profile_is_valid_for_run,
     },
@@ -62,8 +62,13 @@ pub fn handle_agent_policy_test_command(
         println!("Test source: {}", report.test_source);
         for result in &report.tests {
             let marker = if result.passed { "✓" } else { "✗" };
+            let detail = result
+                .detail
+                .as_deref()
+                .map(|detail| format!(", {detail}"))
+                .unwrap_or_default();
             println!(
-                "{marker} {}: expected {}, got {} ({})",
+                "{marker} {}: expected {}, got {} ({}{detail})",
                 result.name, result.expected, result.actual, result.reason
             );
         }
@@ -195,7 +200,25 @@ fn evaluate_case(
         SecretHttpPolicy::Rules(secret.rules.clone())
     };
     let path = test.path.split('?').next().unwrap_or(&test.path);
-    let credential_decision = evaluate_secret_authorization(&policy, &host, &test.method, path);
+    // Mirrors the proxy: a missing body is read as no body at all.
+    let mut parsed = None;
+    let body = match &test.body {
+        None => RequestBody::NotRead,
+        Some(body) => read_request_body(
+            Some(test.content_type.as_deref().unwrap_or("application/json")),
+            None,
+            body.as_bytes(),
+            &mut parsed,
+        ),
+    };
+    let authorization = authorize_secret_request(
+        &policy,
+        &host,
+        &test.method.to_ascii_uppercase(),
+        path,
+        &body,
+    );
+    let credential_decision = authorization.decision;
     let (actual, reason) = if denied_by_global_hosts {
         (
             AgentPolicyTestExpectation::Deny,
@@ -231,6 +254,7 @@ fn evaluate_case(
         method: test.method.to_ascii_uppercase(),
         host,
         path: path.to_owned(),
+        detail: authorization.detail.filter(|_| !denied_by_global_hosts),
         expected: test.expect,
         actual,
         reason,
@@ -262,6 +286,9 @@ struct PolicyTestResult {
     method: String,
     host: String,
     path: String,
+    /// Which rule and field decided, when body conditions did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
     expected: AgentPolicyTestExpectation,
     actual: AgentPolicyTestExpectation,
     reason: PolicyTestReason,
@@ -327,6 +354,7 @@ mod tests {
                 AgentBindingProfile {
                     hosts: Vec::new(),
                     rules: vec![AgentHttpRule {
+                        allow_fields: None,
                         body: Default::default(),
                         effect: AgentHttpRuleEffect::Allow,
                         hosts: vec!["api.github.com".to_owned()],
@@ -358,6 +386,8 @@ mod tests {
                 method: "get".to_owned(),
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
+                body: None,
+                content_type: None,
                 expect: AgentPolicyTestExpectation::Allow,
             },
             1,
@@ -374,6 +404,8 @@ mod tests {
                 method: "POST".to_owned(),
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
+                body: None,
+                content_type: None,
                 expect: AgentPolicyTestExpectation::Deny,
             },
             2,
@@ -381,6 +413,45 @@ mod tests {
         .unwrap();
         assert!(deny.passed);
         assert!(matches!(deny.reason, PolicyTestReason::NoMatchingAllowRule));
+    }
+
+    #[test]
+    fn evaluates_body_conditions_from_the_test_case_body() {
+        let mut profile = profile();
+        let rule = &mut profile
+            .secrets
+            .bindings
+            .get_mut("GITHUB_TOKEN")
+            .unwrap()
+            .rules[0];
+        rule.methods = vec!["POST".to_owned()];
+        rule.body = toml::from_str("draft = true").unwrap();
+        let case = |body: Option<&str>, expect| AgentPolicyTestCase {
+            name: None,
+            secret: "GITHUB_TOKEN".to_owned(),
+            method: "POST".to_owned(),
+            host: "api.github.com".to_owned(),
+            path: "/user".to_owned(),
+            body: body.map(str::to_owned),
+            content_type: None,
+            expect,
+        };
+        let run = |test| evaluate_case(&profile, &test, 1).unwrap();
+        assert!(
+            run(case(
+                Some(r#"{"draft": true}"#),
+                AgentPolicyTestExpectation::Allow
+            ))
+            .passed
+        );
+        let denied = run(case(
+            Some(r#"{"draft": false}"#),
+            AgentPolicyTestExpectation::Deny,
+        ));
+        assert!(denied.passed);
+        assert_eq!(denied.detail.as_deref(), Some("rule 1: body.draft"));
+        // Like the proxy, a case without a body cannot meet body conditions.
+        assert!(run(case(None, AgentPolicyTestExpectation::Deny)).passed);
     }
 
     #[test]
@@ -395,6 +466,8 @@ mod tests {
                 method: "GET".to_owned(),
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
+                body: None,
+                content_type: None,
                 expect: AgentPolicyTestExpectation::Deny,
             },
             1,
@@ -416,6 +489,8 @@ mod tests {
                 method: "GET".to_owned(),
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
+                body: None,
+                content_type: None,
                 expect: AgentPolicyTestExpectation::Allow,
             },
             1,
@@ -441,6 +516,8 @@ mod tests {
         let result = evaluate_case(
             &legacy,
             &AgentPolicyTestCase {
+                body: None,
+                content_type: None,
                 name: None,
                 secret: "GITHUB_TOKEN".to_owned(),
                 method: "DELETE".to_owned(),
@@ -461,6 +538,7 @@ mod tests {
             .unwrap()
             .rules
             .push(AgentHttpRule {
+                allow_fields: None,
                 body: Default::default(),
                 effect: AgentHttpRuleEffect::Deny,
                 hosts: vec!["api.github.com".to_owned()],
@@ -475,6 +553,8 @@ mod tests {
                 method: "GET".to_owned(),
                 host: "api.github.com".to_owned(),
                 path: "/user".to_owned(),
+                body: None,
+                content_type: None,
                 expect: AgentPolicyTestExpectation::Deny,
             },
             3,
@@ -487,6 +567,8 @@ mod tests {
     fn explicit_test_file_overrides_embedded_policy_tests() {
         let mut profile = profile();
         profile.policy_tests = vec![AgentPolicyTestCase {
+            body: None,
+            content_type: None,
             name: Some("embedded".to_owned()),
             secret: "GITHUB_TOKEN".to_owned(),
             method: "GET".to_owned(),
@@ -520,6 +602,8 @@ mod tests {
     fn embedded_policy_tests_are_used_without_an_explicit_file() {
         let mut profile = profile();
         profile.policy_tests = vec![AgentPolicyTestCase {
+            body: None,
+            content_type: None,
             name: Some("embedded".to_owned()),
             secret: "GITHUB_TOKEN".to_owned(),
             method: "GET".to_owned(),

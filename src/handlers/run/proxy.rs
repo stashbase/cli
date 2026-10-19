@@ -62,7 +62,7 @@ use uuid::Uuid;
 
 use crate::{
     handlers::agent::policy::{
-        authorize_secret_request, first_unmet_condition, host_matches,
+        authorize_secret_request, first_unlisted_field, first_unmet_condition, host_matches,
         normalize_secret_http_policy, parse_json_with_unique_keys, read_request_body,
         secret_policy_needs_body, RequestBody, SecretAuthorization, SecretAuthorizationDecision,
         SecretHttpPolicy,
@@ -3814,9 +3814,12 @@ fn authorize_mcp_request(
     if let Some(rule) = policy.mcp_rules.iter().find(|rule| {
         rule.effect == AgentHttpRuleEffect::Deny
             && tool_matches(rule)
-            && (arguments.is_none() || unmet_mcp_argument(rule, arguments).is_none())
+            && (arguments.is_none()
+                || arguments.is_some_and(|arguments| {
+                    first_unmet_condition(&rule.arguments, arguments).is_none()
+                }))
     }) {
-        if rule.arguments.is_empty() {
+        if !rule.has_conditions() {
             return Err(McpDenial::new(
                 "MCP tool is not allowed by the agent profile",
                 "tool_denied",
@@ -3854,7 +3857,13 @@ fn authorize_mcp_request(
         .find_map(|rule| unmet_mcp_argument(rule, arguments))
     {
         Some(_) if arguments.is_none() => Err(not_object()),
-        Some(field) => Err(McpDenial::new(
+        Some((field, "unlisted_field")) => Err(McpDenial::new(
+            format!(
+                "MCP tool arguments include a field the agent profile does not allow (arguments.{field})"
+            ),
+            format!("unlisted_field:arguments.{field}"),
+        )),
+        Some((field, _)) => Err(McpDenial::new(
             format!("MCP tool arguments are not allowed by the agent profile (arguments.{field})"),
             format!("allow_condition_failed:arguments.{field}"),
         )),
@@ -3865,19 +3874,25 @@ fn authorize_mcp_request(
     }
 }
 
-/// The first argument condition of `rule` that does not hold, or `None` when
-/// the rule has no conditions or all hold. Unreadable arguments meet nothing.
-fn unmet_mcp_argument<'a>(
-    rule: &'a AgentMcpRule,
+/// The first argument condition of `rule` that does not hold, or the first
+/// field `allow_fields` does not list, with its reason code. `None` when the
+/// rule has no conditions or all hold. Unreadable arguments meet nothing.
+fn unmet_mcp_argument(
+    rule: &AgentMcpRule,
     arguments: Option<&serde_json::Value>,
-) -> Option<&'a str> {
-    if rule.arguments.is_empty() {
+) -> Option<(String, &'static str)> {
+    if !rule.has_conditions() {
         return None;
     }
-    match arguments {
-        Some(arguments) => first_unmet_condition(&rule.arguments, arguments),
-        None => Some("arguments"),
+    let Some(arguments) = arguments else {
+        return Some(("arguments".to_owned(), "allow_condition_failed"));
+    };
+    if let Some(field) = first_unmet_condition(&rule.arguments, arguments) {
+        return Some((field.to_owned(), "allow_condition_failed"));
     }
+    let allow_fields = rule.allow_fields.as_deref()?;
+    first_unlisted_field(&rule.arguments, allow_fields, arguments)
+        .map(|field| (field, "unlisted_field"))
 }
 
 fn filter_mcp_tools_list_response(
@@ -3916,7 +3931,7 @@ fn filter_mcp_tools_list_response(
         // stays listed.
         let denied = policy.mcp_rules.iter().any(|rule| {
             rule.effect == AgentHttpRuleEffect::Deny
-                && rule.arguments.is_empty()
+                && !rule.has_conditions()
                 && host.is_some_and(|host| {
                     rule.hosts.iter().any(|allowed| host_matches(allowed, host))
                 })
@@ -4382,6 +4397,7 @@ mod tests {
             strict_deny: true,
             mcp_rules: vec![
                 AgentMcpRule {
+                    allow_fields: None,
                     effect: AgentHttpRuleEffect::Allow,
                     hosts: vec!["mcp.example.com".to_owned()],
                     paths: vec!["/mcp".to_owned()],
@@ -4389,6 +4405,7 @@ mod tests {
                     arguments: Default::default(),
                 },
                 AgentMcpRule {
+                    allow_fields: None,
                     effect: AgentHttpRuleEffect::Deny,
                     hosts: vec!["mcp.example.com".to_owned()],
                     paths: vec!["/mcp".to_owned()],
@@ -4552,6 +4569,7 @@ mod tests {
 
     fn mcp_argument_policy() -> ProxyPolicy {
         let rule = |effect, tools: &[&str], arguments: &str| AgentMcpRule {
+            allow_fields: None,
             effect,
             hosts: vec!["mcp.example.com".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -4592,6 +4610,32 @@ mod tests {
             "params": {"name": name, "arguments": arguments}
         })
         .to_string()
+    }
+
+    #[test]
+    fn mcp_allow_fields_reject_unlisted_arguments() {
+        let mut policy = mcp_test_policy();
+        policy.mcp_rules = vec![AgentMcpRule {
+            effect: AgentHttpRuleEffect::Allow,
+            hosts: vec!["mcp.example.com".to_owned()],
+            paths: vec!["/mcp".to_owned()],
+            tools: vec!["send_message".to_owned()],
+            arguments: toml::from_str(r#"to = ["support@acme.com"]"#).unwrap(),
+            allow_fields: Some(vec!["subject".to_owned(), "text".to_owned()]),
+        }];
+        let call = |arguments| {
+            authorize_mcp_request(
+                tools_call("send_message", arguments).as_bytes(),
+                &policy,
+                Some("mcp.example.com"),
+                "/mcp",
+            )
+        };
+        assert!(call(serde_json::json!({"to": "support@acme.com", "subject": "Hi"})).is_ok());
+        let denial =
+            call(serde_json::json!({"to": "support@acme.com", "bcc": "x@evil.com"})).unwrap_err();
+        assert_eq!(denial.reason, "unlisted_field:arguments.bcc");
+        assert!(denial.message.contains("does not allow (arguments.bcc)"));
     }
 
     #[test]
@@ -4745,6 +4789,7 @@ mod tests {
     fn mcp_absent_condition_allows_creates_but_not_updates() {
         let mut policy = mcp_test_policy();
         policy.mcp_rules = vec![AgentMcpRule {
+            allow_fields: None,
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["mcp.example.com".to_owned()],
             paths: vec!["/mcp".to_owned()],
@@ -5107,6 +5152,7 @@ mod tests {
     async fn remote_relay_decision_matches_agent_explain_evaluator() {
         let rules = vec![
             AgentHttpRule {
+                allow_fields: None,
                 body: Default::default(),
                 effect: AgentHttpRuleEffect::Allow,
                 hosts: vec!["api.github.com".to_owned()],
@@ -5114,6 +5160,7 @@ mod tests {
                 paths: vec!["/user".to_owned()],
             },
             AgentHttpRule {
+                allow_fields: None,
                 body: Default::default(),
                 effect: AgentHttpRuleEffect::Deny,
                 hosts: vec!["api.github.com".to_owned()],
@@ -6031,6 +6078,7 @@ mod tests {
 
     fn rule(effect: AgentHttpRuleEffect, methods: &[&str], paths: &[&str]) -> AgentHttpRule {
         AgentHttpRule {
+            allow_fields: None,
             body: Default::default(),
             effect,
             hosts: vec!["api.github.com".to_owned()],
@@ -6093,6 +6141,7 @@ mod tests {
     fn policy_fingerprint_includes_normalized_mcp_rules() {
         let mut left = rule_policy(Vec::new());
         left.mcp_rules = vec![AgentMcpRule {
+            allow_fields: None,
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["MCP.EXAMPLE.COM".to_owned(), "other.example.com".to_owned()],
             paths: vec!["/second".to_owned(), "/mcp".to_owned()],
@@ -6101,6 +6150,7 @@ mod tests {
         }];
         let mut equivalent = rule_policy(Vec::new());
         equivalent.mcp_rules = vec![AgentMcpRule {
+            allow_fields: None,
             effect: AgentHttpRuleEffect::Allow,
             hosts: vec!["other.example.com".to_owned(), "mcp.example.com".to_owned()],
             paths: vec!["/mcp".to_owned(), "/second".to_owned()],
@@ -6770,6 +6820,7 @@ mod tests {
                 "GITHUB_TOKEN".to_owned(),
                 SecretHttpPolicy::Rules(vec![
                     AgentHttpRule {
+                        allow_fields: None,
                         body: Default::default(),
                         effect: AgentHttpRuleEffect::Allow,
                         hosts: vec!["127.0.0.1".to_owned()],
@@ -6777,6 +6828,7 @@ mod tests {
                         paths: vec!["/allowed".to_owned()],
                     },
                     AgentHttpRule {
+                        allow_fields: None,
                         body: Default::default(),
                         effect: AgentHttpRuleEffect::Deny,
                         hosts: vec!["127.0.0.1".to_owned()],
@@ -6865,6 +6917,7 @@ mod tests {
             secret_policies: HashMap::from([(
                 "MAIL_KEY".to_owned(),
                 SecretHttpPolicy::Rules(vec![AgentHttpRule {
+                    allow_fields: None,
                     effect: AgentHttpRuleEffect::Allow,
                     hosts: vec!["127.0.0.1".to_owned()],
                     methods: vec!["POST".to_owned()],
@@ -6982,6 +7035,7 @@ mod tests {
             secret_policies: HashMap::from([(
                 "GITHUB_TOKEN".to_owned(),
                 SecretHttpPolicy::Rules(vec![AgentHttpRule {
+                    allow_fields: None,
                     body: Default::default(),
                     effect: AgentHttpRuleEffect::Allow,
                     hosts: vec!["127.0.0.1".to_owned()],
