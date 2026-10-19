@@ -1341,6 +1341,7 @@ async fn remote_proxied_client(
         hosts: vec![host.clone()],
         paths: vec![_path.clone()],
         tools: server.allow_tools.clone(),
+        arguments: Default::default(),
     }];
     if !server.deny_tools.is_empty() {
         mcp_rules.push(crate::api::remote_proxy::RemoteMcpRule {
@@ -1348,6 +1349,7 @@ async fn remote_proxied_client(
             hosts: vec![host.clone()],
             paths: vec![_path],
             tools: server.deny_tools.clone(),
+            arguments: Default::default(),
         });
     }
     let request = crate::api::remote_proxy::RemoteProxySessionRequest {

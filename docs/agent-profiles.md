@@ -244,7 +244,7 @@ Arguments that aren't a JSON object fail closed: allow rules with conditions don
 
 Prefer allow rules with conditions. A deny with conditions is best-effort, because an agent can often reach the same result with other arguments, and `stashbase agent validate` warns about it. Conditions check single calls; they don't limit how many calls the agent makes.
 
-A refused call returns 403 with the field that decided it, for example `MCP tool arguments are not allowed by the agent profile (arguments.team)`. The audit log records the same as `reason=allow_condition_failed:arguments.team`, never the argument values. `stashbase agent mcp check` shows whether a tool is allowed only under conditions. Argument conditions are enforced by the local proxy only; `--remote` refuses profiles that use them.
+A refused call returns 403 with the field that decided it, for example `MCP tool arguments are not allowed by the agent profile (arguments.team)`. The audit log records the same as `reason=allow_condition_failed:arguments.team`, never the argument values. `stashbase agent mcp check` shows whether a tool is allowed only under conditions. The remote proxy (`--remote`) enforces the same conditions.
 
 Argument names come from the MCP server, and a misspelled field never matches, so its allow rule denies every call. `stashbase agent mcp tools --profile <name> --server <server> --tool <tool>` lists the tool's arguments (dotted paths, types, required, allowed values) and the profile's rules for it. Without `--tool`, the command warns about rule fields a tool doesn't declare and about tools the server doesn't offer. See [examples/linear-tool-rules.toml](./agent-profiles/examples/linear-tool-rules.toml).
 

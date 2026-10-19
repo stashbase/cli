@@ -1149,19 +1149,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             .collect::<Vec<_>>();
                         let deny_hosts = profile.deny_hosts.clone().unwrap_or_default();
                         let bindings = remote_bindings(&profile);
-                        let mcp_rules = compiled_mcp_rules(&profile);
-                        if mcp_rules.iter().any(|rule| !rule.arguments.is_empty()) {
-                            anyhow::bail!(
-                                "--remote does not support MCP tool_rules with 'arguments' yet; argument conditions are enforced only by the local proxy."
-                            );
-                        }
-                        let mcp_rules = mcp_rules
+                        let mcp_rules = compiled_mcp_rules(&profile)
                             .into_iter()
                             .map(|rule| crate::api::remote_proxy::RemoteMcpRule {
                                 effect: rule.effect,
                                 hosts: rule.hosts,
                                 paths: rule.paths,
                                 tools: rule.tools,
+                                arguments: rule.arguments,
                             })
                             .collect();
                         let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {

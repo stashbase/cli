@@ -90,6 +90,8 @@ pub struct RemoteMcpRule {
     pub hosts: Vec<String>,
     pub paths: Vec<String>,
     pub tools: Vec<String>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub arguments: std::collections::BTreeMap<String, crate::models::agent::AgentFieldCondition>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -793,6 +795,7 @@ mod tests {
             hosts: vec!["mcp.linear.app".to_owned()],
             paths: vec!["/mcp".to_owned()],
             tools: vec!["search_issues".to_owned()],
+            arguments: Default::default(),
         }];
         let request = create_session_http_request(&client, &session)
             .build()
@@ -806,6 +809,38 @@ mod tests {
         assert_eq!(
             body["mcp_rules"][0]["tools"],
             serde_json::json!(["search_issues"])
+        );
+        assert!(body["mcp_rules"][0].get("arguments").is_none());
+    }
+
+    #[test]
+    fn session_request_serializes_mcp_argument_conditions() {
+        let client = reqwest::Client::new();
+        let mut session = session_request(None);
+        session.mcp_rules = vec![RemoteMcpRule {
+            effect: crate::models::agent::AgentHttpRuleEffect::Allow,
+            hosts: vec!["mcp.linear.app".to_owned()],
+            paths: vec!["/mcp".to_owned()],
+            tools: vec!["save_issue".to_owned()],
+            arguments: toml::from_str(
+                "team = [\"Engineering\"]\nid = { absent = true }\nestimate = { min = 1, max = 5 }",
+            )
+            .unwrap(),
+        }];
+        let request = create_session_http_request(&client, &session)
+            .build()
+            .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(request.body().and_then(reqwest::Body::as_bytes).unwrap())
+                .unwrap();
+
+        assert_eq!(
+            body["mcp_rules"][0]["arguments"],
+            serde_json::json!({
+                "estimate": { "min": 1.0, "max": 5.0 },
+                "id": { "absent": true },
+                "team": ["Engineering"],
+            })
         );
     }
 
