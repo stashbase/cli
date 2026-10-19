@@ -192,6 +192,8 @@ See [credential-policies.md](./agent-profiles/credential-policies.md) for detail
 
 ### Body conditions
 
+See [request-conditions.md](./agent-profiles/request-conditions.md) for the full guide to body and argument conditions, with examples.
+
 The same `POST` can save a draft or send to a customer. An optional `body` on a rule matches JSON request bodies, with the same conditions as [MCP argument conditions](#argument-conditions):
 
 ```toml
@@ -259,6 +261,8 @@ allow_tools = ["list_issues", "get_issue"]
 The HTTP rule controls credential injection at the endpoint. The MCP rule controls which tools the agent may call. Omit `allow_tools` or leave it empty to deny all tools by default. Use `allow_tools = ["*"]` to allow all tools (a matching `deny_tools` still takes precedence).
 
 ### Argument conditions
+
+See [request-conditions.md](./agent-profiles/request-conditions.md) for the full guide, shared with HTTP body conditions.
 
 A tool name often isn't enough: the same tool can draft or send, create or update. `[[mcp_servers.*.tool_rules]]` allows or denies a tool only when its call arguments match:
 
