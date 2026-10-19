@@ -94,6 +94,18 @@ pub struct RemoteMcpRule {
     pub arguments: std::collections::BTreeMap<String, crate::models::agent::AgentFieldCondition>,
 }
 
+impl From<crate::models::agent::AgentMcpRule> for RemoteMcpRule {
+    fn from(rule: crate::models::agent::AgentMcpRule) -> Self {
+        Self {
+            effect: rule.effect,
+            hosts: rule.hosts,
+            paths: rule.paths,
+            tools: rule.tools,
+            arguments: rule.arguments,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteBindingSource {

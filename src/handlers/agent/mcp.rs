@@ -1236,31 +1236,7 @@ async fn proxied_client(
     json_format: bool,
 ) -> Result<(Proxy, reqwest::Client, Option<(String, String)>)> {
     let (host, path) = mcp_endpoint_parts(server)?;
-    let mut mcp_rules = vec![AgentMcpRule {
-        effect: AgentHttpRuleEffect::Allow,
-        hosts: vec![host.clone()],
-        paths: vec![path.clone()],
-        tools: server.allow_tools.clone(),
-        arguments: Default::default(),
-    }];
-    if !server.deny_tools.is_empty() {
-        mcp_rules.push(AgentMcpRule {
-            effect: AgentHttpRuleEffect::Deny,
-            hosts: vec![host.clone()],
-            paths: vec![path.clone()],
-            tools: server.deny_tools.clone(),
-            arguments: Default::default(),
-        });
-    }
-    for rule in &server.tool_rules {
-        mcp_rules.push(AgentMcpRule {
-            effect: rule.effect.clone(),
-            hosts: vec![host.clone()],
-            paths: vec![path.clone()],
-            tools: rule.tools.clone(),
-            arguments: rule.arguments.clone(),
-        });
-    }
+    let mcp_rules = server_mcp_rules(server, &host, &path);
     let (secrets, secret_policies, secret_injections, auth) =
         inspection_binding_policy(profile, server, &host, api_key, json_format).await?;
     let policy = ProxyPolicy {
@@ -1306,6 +1282,42 @@ async fn proxied_client(
     Ok((proxy, client, auth))
 }
 
+/// The proxy rules for one MCP server: `allow_tools`, `deny_tools` and every
+/// tool rule with its argument conditions.
+pub(crate) fn server_mcp_rules(
+    server: &AgentMcpServer,
+    host: &str,
+    path: &str,
+) -> Vec<AgentMcpRule> {
+    let rule = |effect: AgentHttpRuleEffect, tools: &[String], arguments| AgentMcpRule {
+        effect,
+        hosts: vec![host.to_owned()],
+        paths: vec![path.to_owned()],
+        tools: tools.to_vec(),
+        arguments,
+    };
+    let mut rules = vec![rule(
+        AgentHttpRuleEffect::Allow,
+        &server.allow_tools,
+        Default::default(),
+    )];
+    if !server.deny_tools.is_empty() {
+        rules.push(rule(
+            AgentHttpRuleEffect::Deny,
+            &server.deny_tools,
+            Default::default(),
+        ));
+    }
+    for tool_rule in &server.tool_rules {
+        rules.push(rule(
+            tool_rule.effect.clone(),
+            &tool_rule.tools,
+            tool_rule.arguments.clone(),
+        ));
+    }
+    rules
+}
+
 async fn remote_proxied_client(
     profile: &AgentProfile,
     server: &AgentMcpServer,
@@ -1323,7 +1335,7 @@ async fn remote_proxied_client(
         "Remote MCP inspection requires a Stashbase API key.\n\n\
          Hint: run 'stashbase config api-key set' or run the command without '--remote'.",
     )?;
-    let (host, _path) = mcp_endpoint_parts(server)?;
+    let (host, path) = mcp_endpoint_parts(server)?;
     let all_bindings = remote_bindings(profile);
     let bindings = server
         .binding
@@ -1336,22 +1348,7 @@ async fn remote_proxied_client(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let mut mcp_rules = vec![crate::api::remote_proxy::RemoteMcpRule {
-        effect: AgentHttpRuleEffect::Allow,
-        hosts: vec![host.clone()],
-        paths: vec![_path.clone()],
-        tools: server.allow_tools.clone(),
-        arguments: Default::default(),
-    }];
-    if !server.deny_tools.is_empty() {
-        mcp_rules.push(crate::api::remote_proxy::RemoteMcpRule {
-            effect: AgentHttpRuleEffect::Deny,
-            hosts: vec![host.clone()],
-            paths: vec![_path],
-            tools: server.deny_tools.clone(),
-            arguments: Default::default(),
-        });
-    }
+    let mcp_rules = server_mcp_rules(server, &host, &path);
     let request = crate::api::remote_proxy::RemoteProxySessionRequest {
         api_key: api_key.to_owned(),
         project_identifier: profile.secrets.project.clone(),
@@ -1359,7 +1356,11 @@ async fn remote_proxied_client(
         egress_hosts: profile.egress_hosts.clone().unwrap_or_default(),
         deny_hosts: profile.deny_hosts.clone().unwrap_or_default(),
         bindings: bindings.clone(),
-        mcp_rules: mcp_rules.clone(),
+        mcp_rules: mcp_rules
+            .iter()
+            .cloned()
+            .map(crate::api::remote_proxy::RemoteMcpRule::from)
+            .collect(),
         agent_type: None,
         session_purpose: Some("mcp_inspection".to_owned()),
         previous_session_token: None,
@@ -1442,16 +1443,7 @@ async fn remote_proxied_client(
         allow_network_listeners: false,
         egress_hosts_configured: profile.egress_hosts.is_some(),
         strict_deny: true,
-        mcp_rules: mcp_rules
-            .iter()
-            .map(|rule| AgentMcpRule {
-                effect: rule.effect.clone(),
-                hosts: rule.hosts.clone(),
-                paths: rule.paths.clone(),
-                tools: rule.tools.clone(),
-                arguments: Default::default(),
-            })
-            .collect(),
+        mcp_rules,
         backend: profile.sandbox.backend,
         sandbox_image: profile.sandbox.image.clone(),
         sandbox_dockerfile: profile.sandbox.dockerfile.clone(),

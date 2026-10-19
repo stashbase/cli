@@ -315,31 +315,9 @@ pub(crate) fn compiled_mcp_rules(
         let Some((host, path)) = mcp_server_endpoint(server) else {
             continue;
         };
-        rules.push(crate::models::agent::AgentMcpRule {
-            effect: crate::models::agent::AgentHttpRuleEffect::Allow,
-            hosts: vec![host.clone()],
-            paths: vec![path.clone()],
-            tools: server.allow_tools.clone(),
-            arguments: Default::default(),
-        });
-        if !server.deny_tools.is_empty() {
-            rules.push(crate::models::agent::AgentMcpRule {
-                effect: crate::models::agent::AgentHttpRuleEffect::Deny,
-                hosts: vec![host.clone()],
-                paths: vec![path.clone()],
-                tools: server.deny_tools.clone(),
-                arguments: Default::default(),
-            });
-        }
-        for rule in &server.tool_rules {
-            rules.push(crate::models::agent::AgentMcpRule {
-                effect: rule.effect.clone(),
-                hosts: vec![host.clone()],
-                paths: vec![path.clone()],
-                tools: rule.tools.clone(),
-                arguments: rule.arguments.clone(),
-            });
-        }
+        rules.extend(crate::handlers::agent::mcp::server_mcp_rules(
+            server, &host, &path,
+        ));
     }
     rules
 }
@@ -1151,13 +1129,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         let bindings = remote_bindings(&profile);
                         let mcp_rules = compiled_mcp_rules(&profile)
                             .into_iter()
-                            .map(|rule| crate::api::remote_proxy::RemoteMcpRule {
-                                effect: rule.effect,
-                                hosts: rule.hosts,
-                                paths: rule.paths,
-                                tools: rule.tools,
-                                arguments: rule.arguments,
-                            })
+                            .map(crate::api::remote_proxy::RemoteMcpRule::from)
                             .collect();
                         let session_request = crate::api::remote_proxy::RemoteProxySessionRequest {
                             api_key: api_key.clone(),
