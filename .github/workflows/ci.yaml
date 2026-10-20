@@ -32,7 +32,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap apparmor-profiles
-          sudo apparmor_parser -r /usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+          # Newer runner images (Ubuntu 26.04, AppArmor 5) no longer ship this
+          # profile; allow unprivileged user namespaces for bwrap instead.
+          profile=/usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+          if [ -f "$profile" ]; then
+            sudo apparmor_parser -r "$profile"
+          else
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
 
       - name: Run tests
         run: cargo test --locked
