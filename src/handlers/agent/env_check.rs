@@ -290,17 +290,25 @@ pub(crate) fn credential_looking_inherited_env(
     profile: &AgentProfile,
     inherited: impl IntoIterator<Item = (String, String)>,
 ) -> Vec<(String, &'static str)> {
-    let provided = |name: &str| {
-        name.eq_ignore_ascii_case("STASHBASE_API_KEY")
-            || RESERVED_CHILD_ENV
-                .iter()
-                .any(|reserved| reserved.eq_ignore_ascii_case(name))
-            || conflicting_binding(profile, name).is_some()
-            || profile
-                .config_env
-                .keys()
-                .any(|other| other.eq_ignore_ascii_case(name))
-    };
+    // Exact names, unlike `conflicting_binding`: the native backend only runs
+    // on Unix, where `GITHUB_TOKEN` survives removing or setting `github_token`.
+    let bindings = profile
+        .secrets
+        .bindings
+        .iter()
+        .chain(&profile.personal_credentials);
+    let mut provided = bindings
+        .flat_map(|(name, binding)| {
+            [
+                binding.env.as_deref().unwrap_or(name),
+                binding.from.as_deref().unwrap_or(name),
+            ]
+        })
+        .chain(profile.config_env.keys().map(String::as_str))
+        .chain(RESERVED_CHILD_ENV.iter().copied())
+        .collect::<std::collections::HashSet<_>>();
+    provided.insert("STASHBASE_API_KEY");
+    let provided = |name: &str| provided.contains(name);
     let mut flagged = inherited
         .into_iter()
         .filter(|(_, value)| {
@@ -614,6 +622,18 @@ mod tests {
     }
 
     #[test]
+    fn matches_inherited_names_exactly_like_unix() {
+        let profile = profile_with(
+            HashMap::from([("github_token".to_owned(), binding(None, None))]),
+            HashMap::new(),
+        );
+        assert_eq!(
+            flagged_names(&profile, &[("GITHUB_TOKEN", "x"), ("github_token", "x")]),
+            ["GITHUB_TOKEN"]
+        );
+    }
+
+    #[test]
     fn skips_inherited_names_the_profile_provides() {
         let mut profile = profile_with(
             HashMap::from([
@@ -639,6 +659,6 @@ mod tests {
                 ("AWS_SECRET_ACCESS_KEY", "x"),
             ],
         );
-        assert_eq!(names, ["AWS_SECRET_ACCESS_KEY"]);
+        assert_eq!(names, ["AWS_SECRET_ACCESS_KEY", "public_token"]);
     }
 }
