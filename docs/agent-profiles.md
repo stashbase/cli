@@ -132,6 +132,21 @@ The audit log's `session_started` event lists the names of the variables set for
 
 A complete example profile is in [examples/config-env.toml](agent-profiles/examples/config-env.toml). It includes commented-out lines that show the warning and the validation errors.
 
+## Inherited Shell Variables
+
+The native backend passes your shell's environment to the agent (only `STASHBASE_API_KEY` is removed). A token you exported, like `GITHUB_TOKEN` or `OPENAI_API_KEY`, reaches the agent as a real value and skips the placeholder model. The Docker backend doesn't have this problem: the container gets only the variables the sandbox passes explicitly, so the check below is skipped there.
+
+At startup, a native `agent run` (local or `--remote`) prints one line with how many credential-looking variables the agent would inherit, and `--silent` hides it. `stashbase agent validate --profile <name>` lists them by name. Values are never printed. To keep a variable from the agent, blank it in the profile, bind it under `[secrets]` if the agent needs it, or use the Docker backend:
+
+```toml
+[config_env]
+GITHUB_TOKEN = ""
+```
+
+`[config_env]` overrides inherited variables, and an empty value isn't flagged as sensitive.
+
+The check is best-effort. A name matches if it contains `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY`, `PRIVATE_KEY` or `CREDENTIAL`. A value matches if it has a known token format (`ghp_`, `sk-`, `AKIA`, ...) or is a URL with a password. Unlike the `[config_env]` check, random-looking values aren't flagged, because a shell environment has too many session ids and hashes. Skipped: values that are paths (`GH_TOKEN_FILE=/run/secrets/gh`), names the sandbox sets, and names a binding or `[config_env]` already provides. A credential with an unusual name, or a capability like `SSH_AUTH_SOCK`, isn't recognized. Use `[filesystem] deny_read` for credential files.
+
 ## Network Access and HTTP Rules
 
 By default, the proxy denies all connections. Allow specific destinations:
