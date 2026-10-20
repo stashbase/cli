@@ -280,16 +280,21 @@ pub fn confirm_config_env(profile: &AgentProfile, silent: bool) -> anyhow::Resul
 /// Credential-looking variables in `inherited` (the environment `agent run`
 /// was started from) that a native-backend agent would inherit, sorted by
 /// name. Best-effort: oddly named credentials and capabilities such as
-/// `SSH_AUTH_SOCK` are not recognized. Skips names the sandbox already sets
-/// or removes, names a binding or `[config_env]` provides, and values that
-/// are paths (`GIT_ASKPASS`,
+/// `SSH_AUTH_SOCK` are not recognized. Skips `STASHBASE_API_KEY` (the
+/// launcher removes it), names the sandbox sets, names a binding or
+/// `[config_env]` provides, and values that are paths (`GIT_ASKPASS`,
 /// `*_TOKEN_FILE`), which point at a credential rather than hold one.
+/// Other `STASHBASE_*` names are reserved for profiles but still inherited,
+/// so they are checked like any other variable.
 pub(crate) fn credential_looking_inherited_env(
     profile: &AgentProfile,
     inherited: impl IntoIterator<Item = (String, String)>,
 ) -> Vec<(String, &'static str)> {
     let provided = |name: &str| {
-        reserved_env_reason(name).is_some()
+        name.eq_ignore_ascii_case("STASHBASE_API_KEY")
+            || RESERVED_CHILD_ENV
+                .iter()
+                .any(|reserved| reserved.eq_ignore_ascii_case(name))
             || conflicting_binding(profile, name).is_some()
             || profile
                 .config_env
@@ -593,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_inherited_paths_empty_values_and_sandbox_names() {
+    fn skips_inherited_paths_empty_values_and_the_removed_api_key() {
         let profile: AgentProfile = toml::from_str("").unwrap();
         let names = flagged_names(
             &profile,
@@ -602,9 +607,10 @@ mod tests {
                 ("NPM_TOKEN_PATH", "~/.npm-token"),
                 ("EMPTY_TOKEN", ""),
                 ("STASHBASE_API_KEY", "sb_live"),
+                ("STASHBASE_CUSTOM_TOKEN", "x"),
             ],
         );
-        assert!(names.is_empty(), "{names:?}");
+        assert_eq!(names, ["STASHBASE_CUSTOM_TOKEN"]);
     }
 
     #[test]
