@@ -2137,6 +2137,37 @@ mod tests {
         assert!(!child_env.contains_key("PATH"));
     }
 
+    // `or_insert_with` only yields to values the sandbox put in the map. The
+    // child's environment is set explicitly over the inherited one, so a blank
+    // `[config_env]` entry replaces a credential exported in the shell, which
+    // is what lets `env_check` skip names `[config_env]` sets.
+    #[tokio::test]
+    async fn blank_config_env_replaces_an_inherited_credential() {
+        // Unique to this test, so no other test races on it.
+        const NAME: &str = "SB_TEST_INHERITED_BLANK_TOKEN";
+        std::env::set_var(NAME, "parent-token");
+        let mut child_env = HashMap::new();
+        apply_config_env(
+            &mut child_env,
+            &std::collections::BTreeMap::from([(NAME.to_owned(), String::new())]),
+        );
+
+        let status = crate::handlers::run::subprocess::run_command(
+            "sh",
+            vec!["-c".to_owned(), format!("test -z \"${NAME}\"")],
+            child_env,
+            Vec::new(),
+            false,
+            true,
+            true,
+        )
+        .await
+        .unwrap();
+
+        std::env::remove_var(NAME);
+        assert!(status.success());
+    }
+
     #[test]
     fn hook_broker_config_scans_the_run_workdir() {
         let workdir = std::path::Path::new("/repo/.stashbase/worktrees/feat");

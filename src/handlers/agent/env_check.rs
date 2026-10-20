@@ -4,7 +4,7 @@
 
 use std::io::IsTerminal;
 
-use crate::models::agent::{AgentEnvScalar, AgentEnvValue, AgentProfile};
+use crate::models::agent::{AgentEnvScalar, AgentEnvValue, AgentProfile, SandboxBackend};
 
 /// Variables the sandbox itself sets or strips. Letting a profile set one
 /// would break the session or weaken its containment (proxy routing, CA
@@ -128,6 +128,23 @@ const CREDENTIAL_PREFIXES: &[&str] = &[
 /// looks like ordinary config. A heuristic: it errs toward flagging, and a
 /// profile acknowledges a false positive with `not_sensitive = true`.
 pub(crate) fn secret_likeness(name: &str, value: &str) -> Option<&'static str> {
+    // An empty value holds nothing, and `NAME = ""` is how a profile blanks a
+    // credential the agent would otherwise inherit from the shell.
+    if value.trim().is_empty() {
+        return None;
+    }
+    if let Some(reason) = credential_likeness(name, value) {
+        return Some(reason);
+    }
+    if high_entropy(value.trim()) {
+        return Some("its value looks randomly generated, like a key or token");
+    }
+    None
+}
+
+/// [`secret_likeness`] without the entropy check, which is too noisy over a
+/// whole shell environment (session ids, hashes, terminal cookies).
+fn credential_likeness(name: &str, value: &str) -> Option<&'static str> {
     let upper_name = name.to_ascii_uppercase();
     if CREDENTIAL_NAME_PARTS
         .iter()
@@ -144,9 +161,6 @@ pub(crate) fn secret_likeness(name: &str, value: &str) -> Option<&'static str> {
     }
     if url_has_password(value) {
         return Some("its value is a URL containing a password");
-    }
-    if high_entropy(value) {
-        return Some("its value looks randomly generated, like a key or token");
     }
     None
 }
@@ -263,6 +277,66 @@ pub fn confirm_config_env(profile: &AgentProfile, silent: bool) -> anyhow::Resul
     Ok(())
 }
 
+/// Credential-looking variables in `inherited` (the environment `agent run`
+/// was started from) that a native-backend agent would inherit, sorted by
+/// name. Best-effort: oddly named credentials and capabilities such as
+/// `SSH_AUTH_SOCK` are not recognized. Skips `STASHBASE_API_KEY` (the
+/// launcher removes it), names the sandbox sets, names a binding or
+/// `[config_env]` provides, and values that are paths (`GIT_ASKPASS`,
+/// `*_TOKEN_FILE`), which point at a credential rather than hold one.
+/// Other `STASHBASE_*` names are reserved for profiles but still inherited,
+/// so they are checked like any other variable.
+pub(crate) fn credential_looking_inherited_env(
+    profile: &AgentProfile,
+    inherited: impl IntoIterator<Item = (String, String)>,
+) -> Vec<(String, &'static str)> {
+    // Exact names, unlike `conflicting_binding`: the native backend only runs
+    // on Unix, where `GITHUB_TOKEN` survives removing or setting `github_token`.
+    let bindings = profile
+        .secrets
+        .bindings
+        .iter()
+        .chain(&profile.personal_credentials);
+    let mut provided = bindings
+        .flat_map(|(name, binding)| {
+            [
+                binding.env.as_deref().unwrap_or(name),
+                binding.from.as_deref().unwrap_or(name),
+            ]
+        })
+        .chain(profile.config_env.keys().map(String::as_str))
+        .chain(RESERVED_CHILD_ENV.iter().copied())
+        .collect::<std::collections::HashSet<_>>();
+    provided.insert("STASHBASE_API_KEY");
+    let provided = |name: &str| provided.contains(name);
+    let mut flagged = inherited
+        .into_iter()
+        .filter(|(_, value)| {
+            let value = value.trim();
+            !value.is_empty() && !value.starts_with('/') && !value.starts_with("~/")
+        })
+        .filter(|(name, _)| !provided(name))
+        .filter_map(|(name, value)| credential_likeness(&name, &value).map(|reason| (name, reason)))
+        .collect::<Vec<_>>();
+    flagged.sort();
+    flagged
+}
+
+/// Prints one line about credential-looking variables a native run would
+/// pass to the agent. `agent validate` lists them by name. Docker runs start
+/// from a clean environment, so they are skipped. Values are never printed.
+pub fn warn_inherited_env(profile: &AgentProfile, profile_name: &str, silent: bool) {
+    if silent || profile.sandbox.backend == SandboxBackend::Docker {
+        return;
+    }
+    let count = credential_looking_inherited_env(profile, std::env::vars()).len();
+    if count > 0 {
+        eprintln!(
+            "Warning: {count} credential-looking shell variable(s) are visible to the agent. See `stashbase agent validate --profile {profile_name}`."
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -305,6 +379,12 @@ mod tests {
     fn flags_high_entropy_values() {
         assert!(secret_likeness("VALUE", "Zq8vT2mXk4Lr9Wp1Ys6Bn3Hd").is_some());
         assert!(secret_likeness("VALUE", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b").is_some());
+    }
+
+    #[test]
+    fn empty_values_are_not_sensitive() {
+        assert_eq!(secret_likeness("GITHUB_TOKEN", ""), None);
+        assert_eq!(secret_likeness("GITHUB_TOKEN", "  "), None);
     }
 
     #[test]
@@ -491,5 +571,94 @@ mod tests {
             profile.config_env["BUILD"].value(),
             "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b"
         );
+    }
+
+    fn inherited(vars: &[(&str, &str)]) -> Vec<(String, String)> {
+        vars.iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect()
+    }
+
+    fn flagged_names(profile: &AgentProfile, vars: &[(&str, &str)]) -> Vec<String> {
+        credential_looking_inherited_env(profile, inherited(vars))
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
+    }
+
+    #[test]
+    fn flags_inherited_credentials_by_name_and_format_but_not_entropy() {
+        let profile: AgentProfile = toml::from_str("").unwrap();
+        let names = flagged_names(
+            &profile,
+            &[
+                ("OPENAI_API_KEY", "x"),
+                ("DEPLOY", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"),
+                ("DATABASE_URL", "postgres://app:hunter2@db:5432/app"),
+                (
+                    "TERM_SESSION_ID",
+                    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b",
+                ),
+                ("EDITOR", "nvim"),
+            ],
+        );
+        assert_eq!(names, ["DATABASE_URL", "DEPLOY", "OPENAI_API_KEY"]);
+    }
+
+    #[test]
+    fn skips_inherited_paths_empty_values_and_the_removed_api_key() {
+        let profile: AgentProfile = toml::from_str("").unwrap();
+        let names = flagged_names(
+            &profile,
+            &[
+                ("GH_TOKEN_FILE", "/run/secrets/gh"),
+                ("NPM_TOKEN_PATH", "~/.npm-token"),
+                ("EMPTY_TOKEN", ""),
+                ("STASHBASE_API_KEY", "sb_live"),
+                ("STASHBASE_CUSTOM_TOKEN", "x"),
+            ],
+        );
+        assert_eq!(names, ["STASHBASE_CUSTOM_TOKEN"]);
+    }
+
+    #[test]
+    fn matches_inherited_names_exactly_like_unix() {
+        let profile = profile_with(
+            HashMap::from([("github_token".to_owned(), binding(None, None))]),
+            HashMap::new(),
+        );
+        assert_eq!(
+            flagged_names(&profile, &[("GITHUB_TOKEN", "x"), ("github_token", "x")]),
+            ["GITHUB_TOKEN"]
+        );
+    }
+
+    #[test]
+    fn skips_inherited_names_the_profile_provides() {
+        let mut profile = profile_with(
+            HashMap::from([
+                ("GITHUB_TOKEN".to_owned(), binding(None, None)),
+                (
+                    "NPM".to_owned(),
+                    binding(Some("NPM_SOURCE_TOKEN"), Some("NPM_TOKEN")),
+                ),
+            ]),
+            HashMap::new(),
+        );
+        profile.config_env.insert(
+            "PUBLIC_TOKEN".to_owned(),
+            AgentEnvValue::Plain(AgentEnvScalar::String("x".to_owned())),
+        );
+        let names = flagged_names(
+            &profile,
+            &[
+                ("GITHUB_TOKEN", "x"),
+                ("NPM_SOURCE_TOKEN", "x"),
+                ("NPM_TOKEN", "x"),
+                ("public_token", "x"),
+                ("AWS_SECRET_ACCESS_KEY", "x"),
+            ],
+        );
+        assert_eq!(names, ["AWS_SECRET_ACCESS_KEY", "public_token"]);
     }
 }

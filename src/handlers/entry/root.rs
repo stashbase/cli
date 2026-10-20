@@ -849,6 +849,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                     crate::handlers::agent::validate::ensure_profile_is_valid_for_run(&profile)?;
                     crate::handlers::agent::env_check::confirm_config_env(&profile, silent)?;
+                    crate::handlers::agent::env_check::warn_inherited_env(&profile, &agent_run.profile, silent);
                     // Egress policy is meaningful only when the child cannot opt out of
                     // its proxy environment. Contain every session to the loopback
                     // proxy, including remote sessions, so `env -u HTTPS_PROXY …` is

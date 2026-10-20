@@ -124,6 +124,7 @@ pub async fn handle_agent_validate_command(
     checks.extend(validate_profile(&profile));
     checks.extend(validate_hook_capabilities(&profile));
     checks.extend(validate_config_env(&profile));
+    checks.extend(inherited_env_exposure(&profile, std::env::vars()));
     checks.extend(validate_runtime_requirements(&profile));
     if command.remote {
         checks.extend(validate_remote_profile(&profile));
@@ -731,6 +732,37 @@ fn validate_hook_capabilities(profile: &AgentProfile) -> Vec<Check> {
             format!("Enabled: {}.", profile.allow_hooks.join(", "))
         },
     )]
+}
+
+/// Which credential-looking variables from `inherited` (this shell's
+/// environment) a native run would pass to the agent. `agent run`
+/// only counts them; this is where they are listed by name.
+fn inherited_env_exposure(
+    profile: &AgentProfile,
+    inherited: impl IntoIterator<Item = (String, String)>,
+) -> Vec<Check> {
+    if profile.sandbox.backend == crate::models::agent::SandboxBackend::Docker {
+        return Vec::new();
+    }
+    let names = env_check::credential_looking_inherited_env(profile, inherited)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    let check = if names.is_empty() {
+        ok(
+            "Inherited env",
+            "No credential-looking variables inherited from your shell.".to_owned(),
+        )
+    } else {
+        warn(
+            "Inherited env",
+            format!(
+                "Visible to the agent: {}. Blank one with `NAME = \"\"` in [config_env], or use the Docker backend for a clean environment.",
+                names.join(", ")
+            ),
+        )
+    };
+    vec![check]
 }
 
 /// `[config_env]` names must be valid, unowned by the sandbox and unused by a
@@ -2245,6 +2277,35 @@ arguments = { team = ["Engineering"] }
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].0, Status::Ok);
         assert!(config_env_statuses(&config_env_profile("")).is_empty());
+    }
+
+    fn exposure(profile: &AgentProfile, vars: &[(&str, &str)]) -> Vec<(Status, String)> {
+        inherited_env_exposure(
+            profile,
+            vars.iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+        )
+        .into_iter()
+        .map(|check| (check.status, check.message))
+        .collect()
+    }
+
+    #[test]
+    fn inherited_env_exposure_lists_names_without_values() {
+        let vars = [("GITHUB_TOKEN", "ghp_secretvalue"), ("EDITOR", "nvim")];
+        let warned = exposure(&config_env_profile(""), &vars);
+        assert_eq!(warned.len(), 1);
+        assert_eq!(warned[0].0, Status::Warn);
+        assert!(warned[0].1.contains("Visible to the agent: GITHUB_TOKEN."));
+        assert!(!warned[0].1.contains("ghp_secretvalue"));
+
+        let clean = exposure(&config_env_profile(""), &[("EDITOR", "nvim")]);
+        assert_eq!(clean[0].0, Status::Ok);
+        assert!(exposure(
+            &config_env_profile("[sandbox]\nbackend = \"docker\"\n"),
+            &vars
+        )
+        .is_empty());
     }
 
     fn config_env_failures(profile: &AgentProfile) -> Vec<String> {
