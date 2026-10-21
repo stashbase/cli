@@ -348,6 +348,46 @@ pub struct AgentWorkspaceProfile {
     /// current checkout. See `handlers::run::worktree`.
     #[serde(default)]
     pub worktree: bool,
+    /// Other local directories (relative to the working directory, e.g.
+    /// "../backend") the agent works on alongside the current repo. The
+    /// Docker backend mounts each at its own host path; the native backend
+    /// already sees them, so only `read_only` changes anything there. See
+    /// `handlers::run::extra_paths`.
+    #[serde(default)]
+    pub extra_paths: Vec<WorkspaceExtraPath>,
+}
+
+/// One `[workspace] extra_paths` entry: a bare path (read-write) or
+/// `{ path = "...", read_only = true }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceExtraPath {
+    Path(String),
+    Detailed(WorkspaceExtraPathEntry),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceExtraPathEntry {
+    pub path: String,
+    #[serde(default)]
+    pub read_only: bool,
+}
+
+impl WorkspaceExtraPath {
+    pub fn path(&self) -> &str {
+        match self {
+            Self::Path(path) => path,
+            Self::Detailed(entry) => &entry.path,
+        }
+    }
+
+    pub fn read_only(&self) -> bool {
+        match self {
+            Self::Path(_) => false,
+            Self::Detailed(entry) => entry.read_only,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -544,6 +584,27 @@ arguments = { priority = 1 }
         )
         .unwrap();
         assert!(enforced.shadowed_tool_conditions().is_empty());
+    }
+
+    #[test]
+    fn workspace_extra_paths_accept_bare_and_detailed_entries() {
+        let profile: super::AgentProfile = toml::from_str(
+            "[workspace]\nextra_paths = [\"../backend\", { path = \"../docs\", read_only = true }]\n",
+        )
+        .unwrap();
+        let paths = &profile.workspace.extra_paths;
+        assert_eq!(paths.len(), 2);
+        assert_eq!(
+            (paths[0].path(), paths[0].read_only()),
+            ("../backend", false)
+        );
+        assert_eq!((paths[1].path(), paths[1].read_only()), ("../docs", true));
+
+        let error = toml::from_str::<super::AgentProfile>(
+            "[workspace]\nextra_paths = [{ path = \"../docs\", readonly = true }]\n",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("extra_paths"), "{error}");
     }
 
     #[test]

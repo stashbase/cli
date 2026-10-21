@@ -239,6 +239,20 @@ Checks whether the Docker sandbox backend can actually run here — the `docker`
 
 This backend is opt-in only and does not change the default behavior of existing profiles.
 
+## Extra folders
+
+By default the Docker backend mounts only the directory you start the run from. To let the agent work on other local repos in the same run, list them under `[workspace] extra_paths` (see [Agent profiles](agent-profiles.md#extra-folders)):
+
+```toml
+[workspace]
+extra_paths = ["../backend", { path = "../docs", read_only = true }]
+```
+
+- **Docker backend**: each folder is mounted at the same absolute path as on the host, read-write or `:ro`. In a writable git repo, `.git/config`, `.git/hooks/` and `.git/modules/` are mounted read-only, so the agent can commit but can't plant anything your own `git` would later execute. `deny_read`/`deny_write` rules apply inside the extra folders too.
+- **Native backend**: the agent can already reach these folders, because the filesystem policy is a deny-list. A `read_only` entry is added to the run's `deny_write`.
+- stashbase refuses `/`, your home directory or any parent of it, credential directories (`~/.ssh`, `~/.aws`, `~/.config/stashbase`, …), folders that overlap the working directory or each other, and paths that don't exist. `stashbase agent validate` reports these.
+- A worktree (`worktree = true`) covers only the current repo. Extra folders are mounted as they are, so the agent's edits there land directly in those checkouts. The run prints a note when you combine the two.
+
 ## Worktrees
 
 `--worktree` (or `worktree = true` under `[workspace]` in the profile) runs the agent in a fresh git worktree on its own branch, `stashbase/<name>` — where `<name>` is a random readable passphrase such as `amber-river-storm` — instead of your checkout — so several agents can work on the same repository in parallel without touching each other's files or your working tree. Works with both backends (Docker: macOS and Linux for now — see below).

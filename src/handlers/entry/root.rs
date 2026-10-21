@@ -1041,6 +1041,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         worktree: profile.workspace.worktree,
                         worktree_resume: agent_run.resume.clone(),
                         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
+                        workspace_extra_paths: profile.workspace.extra_paths.clone(),
                         config_env: profile
                             .config_env
                             .iter()

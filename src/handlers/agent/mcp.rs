@@ -1295,6 +1295,7 @@ async fn proxied_client(
         worktree: profile.workspace.worktree,
         worktree_resume: None,
         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
+        workspace_extra_paths: profile.workspace.extra_paths.clone(),
         config_env: Default::default(),
     };
     let proxy = Proxy::start_with_port(secrets, policy, None, None).await?;
@@ -1472,6 +1473,7 @@ async fn remote_proxied_client(
         worktree: profile.workspace.worktree,
         worktree_resume: None,
         sandbox_isolated_paths: profile.sandbox.isolated_paths.clone(),
+        workspace_extra_paths: profile.workspace.extra_paths.clone(),
         config_env: Default::default(),
     };
     let proxy = Proxy::start_remote_with_port(

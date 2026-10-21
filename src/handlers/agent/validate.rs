@@ -457,6 +457,35 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
             checks.push(fail("Sandbox isolated path", error));
         }
     }
+    if !profile.workspace.extra_paths.is_empty() {
+        let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+        let resolved = std::env::current_dir()
+            .map_err(|error| error.to_string())
+            .and_then(|cwd| {
+                crate::handlers::run::extra_paths::resolve_extra_paths(
+                    &profile.workspace.extra_paths,
+                    &cwd,
+                    home.as_deref(),
+                )
+            });
+        match resolved {
+            Ok(paths) => checks.push(ok(
+                "Workspace extra paths",
+                paths
+                    .iter()
+                    .map(|extra| {
+                        format!(
+                            "{}{}",
+                            extra.path.display(),
+                            if extra.read_only { " (read-only)" } else { "" }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            )),
+            Err(error) => checks.push(fail("Workspace extra paths", error)),
+        }
+    }
 
     let mut bindings: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut child_envs: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -1621,6 +1650,9 @@ mod tests {
         profile.sandbox.memory = Some("not-a-memory-value".to_owned());
         profile.sandbox.cpus = Some("not-a-number".to_owned());
         profile.sandbox.isolated_paths = vec!["../outside".to_owned()];
+        profile.workspace.extra_paths = vec![crate::models::agent::WorkspaceExtraPath::Path(
+            ".".to_owned(),
+        )];
 
         let checks = validate_profile(&profile);
         assert!(checks
@@ -1632,6 +1664,9 @@ mod tests {
         assert!(checks
             .iter()
             .any(|check| check.status == Status::Fail && check.name == "Sandbox isolated path"));
+        assert!(checks
+            .iter()
+            .any(|check| check.status == Status::Fail && check.name == "Workspace extra paths"));
     }
 
     #[test]

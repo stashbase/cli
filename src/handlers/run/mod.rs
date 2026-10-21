@@ -1,5 +1,6 @@
 pub mod docker_sandbox;
 pub mod entry;
+pub mod extra_paths;
 pub mod format;
 pub mod fs_rules;
 pub mod proxy;
