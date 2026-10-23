@@ -239,6 +239,34 @@ Checks whether the Docker sandbox backend can actually run here — the `docker`
 
 This backend is opt-in only and does not change the default behavior of existing profiles.
 
+## Extra folders
+
+By default the Docker backend mounts only the directory you start the run from. To let the agent work on other local repos in the same run, list them under `[workspace] extra_paths` (see [Agent profiles](agent-profiles.md#extra-folders)):
+
+```toml
+[workspace]
+extra_paths = ["../backend", { path = "../docs", read_only = true }]
+```
+
+- **Docker backend**: each folder is mounted at the same absolute path as on the host, read-write or `:ro`, and `deny_read`/`deny_write` rules apply inside them too. Git works in them, and the agent can't plant anything your own `git` would later execute:
+  - In a writable repo, `.git/config`, `.git/hooks/`, `.git/modules/` and `.git/config.worktree` are mounted read-only. If the agent creates a `.git/commondir` (which would point your `git` at another repository's config), stashbase removes it when the run ends, or at the start of the next run if this one was killed, and prints a warning.
+  - If an extra folder is itself a git worktree, its repository's `.git` directory is mounted too, with the same protections as a [worktree](#worktrees) run. The worktree's own `.git` file and git pointer files are read-only.
+- **Native backend**: the agent can already reach these folders, because the filesystem policy is a deny-list. A `read_only` entry is added to the run's `deny_write`.
+- stashbase refuses `/`, your home directory or any parent of it, credential and app-data directories (`~/.ssh`, `~/.aws`, `~/.config/gh`, `~/Library` on macOS, stashbase's own config and data folders, …), a parent of the working directory, folders that overlap each other, and paths that don't exist. `stashbase agent validate` reports these. The list is a safety net against obvious mistakes, not a complete boundary: anything not on it is up to you.
+- An entry that is the working directory, or inside it, is skipped, since the agent already sees it. So a global profile can list every repo of a set and work from any of them:
+
+  ```toml
+  [workspace]
+  extra_paths = ["~/Projects/cli", "~/Projects/backend-monorepo"]
+  ```
+
+  Global profiles must use `~/` or absolute paths; a relative one is refused, since it would resolve from wherever you start the run. A `read_only` entry inside the working directory is refused instead of skipped; use `[filesystem] deny_write` for that. `stashbase agent validate` lists skipped entries, and a run says so when every entry was skipped (for example when started from `~/Projects`, where the agent then sees that whole folder).
+- Whatever the profile says, stashbase refuses to start an agent from `/`, your home directory (or a parent of it) or a credential directory. Both backends give the agent the working directory, so it would get everything there, credentials included. Run from a project directory, and list other folders under `extra_paths`.
+- A worktree (`worktree = true`) covers only the current repo. Extra folders are mounted as they are, so the agent's edits there land directly in those checkouts. The run prints a note when you combine the two.
+- Limits on the Docker backend:
+  - Docker Desktop can only mount folders it shares with its VM (by default `/Users`, `/Volumes`, `/private`, `/tmp` and `/var/folders` on macOS). A folder elsewhere fails with Docker's own mount error; add it under Docker Desktop → Settings → Resources → File sharing.
+  - Paths containing `:` are refused, because Docker's `-v` syntax can't express them. This rules out Windows paths such as `C:\code\backend`, so extra folders don't work with the Docker backend on Windows yet.
+
 ## Worktrees
 
 `--worktree` (or `worktree = true` under `[workspace]` in the profile) runs the agent in a fresh git worktree on its own branch, `stashbase/<name>` — where `<name>` is a random readable passphrase such as `amber-river-storm` — instead of your checkout — so several agents can work on the same repository in parallel without touching each other's files or your working tree. Works with both backends (Docker: macOS and Linux for now — see below).

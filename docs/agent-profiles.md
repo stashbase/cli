@@ -98,6 +98,17 @@ worktree = true
 
 Or per run: `stashbase agent run --profile coding --worktree -- claude` (`--worktree=false` skips it when the profile turns it on). Works with the native backend and, on macOS/Linux, the Docker backend. Review and merge the agent's work from your checkout with `stashbase agent worktrees list`, `merge <name>` and `clean` — see **[Worktrees](sandboxing.md#worktrees)**.
 
+## Extra Folders
+
+Give the agent other local folders to work on next to the current repo, e.g. a backend checkout beside the CLI:
+
+```toml
+[workspace]
+extra_paths = ["../backend", { path = "../docs", read_only = true }]
+```
+
+Paths are relative to the directory you start the run from (`~/` works too). Entries are read-write unless marked `read_only`. An entry that is the directory you run from is skipped, so a global profile can list a whole set of repos and be used from any of them. Global profiles must use `~/` or absolute paths. See **[Extra folders](sandboxing.md#extra-folders)** for how each backend handles them.
+
 ## Config Environment Variables
 
 Set non-sensitive configuration for the agent with `[config_env]`. Values are stored in plaintext in the profile, and both sandbox backends apply them. The Docker backend otherwise starts the container with an empty environment. A value can be a string, a number or a boolean (`PORT = 3000` and `DEBUG = true` work without quotes), and the agent always receives it as a string.

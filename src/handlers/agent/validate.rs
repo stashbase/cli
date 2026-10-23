@@ -126,10 +126,51 @@ pub async fn handle_agent_validate_command(
     checks.extend(validate_config_env(&profile));
     checks.extend(inherited_env_exposure(&profile, std::env::vars()));
     checks.extend(validate_runtime_requirements(&profile));
+    checks.push(validate_working_directory());
+    if !directory_profile {
+        if let Err(error) = crate::handlers::run::extra_paths::ensure_global_entries_are_anchored(
+            &profile.workspace.extra_paths,
+        ) {
+            checks.push(fail("Workspace extra paths", error));
+        }
+    }
     if command.remote {
         checks.extend(validate_remote_profile(&profile));
     }
     print_report(command.profile, checks, json_format)
+}
+
+/// Refuses to start an agent from `/`, your home directory (or a parent of
+/// it) or a credential directory — see
+/// `extra_paths::ensure_working_directory_is_not_too_broad`. Separate from
+/// `ensure_profile_is_valid_for_run`, which `agent explain` and `policy test`
+/// share and which don't depend on where they run.
+pub fn ensure_working_directory_is_safe_for_run() -> Result<()> {
+    match validate_working_directory() {
+        Check {
+            status: Status::Fail,
+            message,
+            ..
+        } => anyhow::bail!("Refusing to start the agent: {message}"),
+        _ => Ok(()),
+    }
+}
+
+fn validate_working_directory() -> Check {
+    let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+    let result = std::env::current_dir()
+        .map_err(|error| error.to_string())
+        .and_then(|cwd| {
+            crate::handlers::run::extra_paths::ensure_working_directory_is_not_too_broad(
+                &cwd,
+                home.as_deref(),
+            )
+            .map(|()| cwd)
+        });
+    match result {
+        Ok(cwd) => ok("Working directory", cwd.display().to_string()),
+        Err(error) => fail("Working directory", error),
+    }
 }
 
 /// Enforces the static profile checks before an agent is started. Keeping this
@@ -455,6 +496,25 @@ fn validate_profile(profile: &AgentProfile) -> Vec<Check> {
     for path in &profile.sandbox.isolated_paths {
         if let Err(error) = crate::handlers::run::docker_sandbox::normalize_isolated_path(path) {
             checks.push(fail("Sandbox isolated path", error));
+        }
+    }
+    if !profile.workspace.extra_paths.is_empty() {
+        let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+        let resolved = std::env::current_dir()
+            .map_err(|error| error.to_string())
+            .and_then(|cwd| {
+                crate::handlers::run::extra_paths::resolve_extra_paths(
+                    &profile.workspace.extra_paths,
+                    &cwd,
+                    home.as_deref(),
+                )
+            });
+        match resolved {
+            Ok(resolution) if resolution.paths.is_empty() => {
+                checks.push(warn("Workspace extra paths", resolution.summary()))
+            }
+            Ok(resolution) => checks.push(ok("Workspace extra paths", resolution.summary())),
+            Err(error) => checks.push(fail("Workspace extra paths", error)),
         }
     }
 
@@ -1621,6 +1681,9 @@ mod tests {
         profile.sandbox.memory = Some("not-a-memory-value".to_owned());
         profile.sandbox.cpus = Some("not-a-number".to_owned());
         profile.sandbox.isolated_paths = vec!["../outside".to_owned()];
+        profile.workspace.extra_paths = vec![crate::models::agent::WorkspaceExtraPath::Path(
+            "..".to_owned(),
+        )];
 
         let checks = validate_profile(&profile);
         assert!(checks
@@ -1632,6 +1695,9 @@ mod tests {
         assert!(checks
             .iter()
             .any(|check| check.status == Status::Fail && check.name == "Sandbox isolated path"));
+        assert!(checks
+            .iter()
+            .any(|check| check.status == Status::Fail && check.name == "Workspace extra paths"));
     }
 
     #[test]

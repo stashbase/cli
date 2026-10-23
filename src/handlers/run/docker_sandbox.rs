@@ -947,6 +947,7 @@ pub(crate) fn docker_run_command(
     memory_limit: Option<&str>,
     cpus_limit: Option<&str>,
     isolated_paths: &[String],
+    extra_paths: &[super::extra_paths::ResolvedExtraPath],
 ) -> Result<(String, Vec<String>), String> {
     // The agent's working directory: the caller's cwd, or for a
     // `--worktree` run the worktree (see `handlers::run::worktree`).
@@ -1023,6 +1024,14 @@ pub(crate) fn docker_run_command(
     if let Some(git_mounts) = git_mounts {
         append_git_mounts(&mut args, git_mounts)?;
     }
+    append_extra_path_mounts(
+        &mut args,
+        &cwd_str,
+        extra_paths,
+        git_mounts,
+        denied_read_paths,
+        denied_write_paths,
+    )?;
     append_ca_bundle_mount(&mut args, &cwd_str, env_vars)?;
     append_agent_hook_shim_mount(&mut args, env_vars)?;
 
@@ -1308,6 +1317,138 @@ impl From<&super::worktree::RunWorktree> for GitMounts {
     }
 }
 
+/// Mounts each `[workspace] extra_paths` directory at its own host path
+/// (read-only when the entry says so or a deny rule covers the whole
+/// directory), then shadows the deny rules nested under it, like the
+/// working directory's own mount. Paths arrive already validated (see
+/// `extra_paths::resolve_extra_paths`). Must come after the run's own git
+/// mounts, so a linked worktree's admin dir lands on top of their tmpfs.
+///
+/// Git keeps working in each extra repo, without giving the agent anything
+/// host git would later execute (see `append_git_mounts`):
+/// - A repo with a `.git` directory gets its `config`, `hooks/`,
+///   `modules/` and `config.worktree` overlaid read-only. `HEAD` and
+///   `index` stay writable — unlike the worktree case this *is* the
+///   checkout the agent works in. A `commondir` the agent creates can't be
+///   prevented by a mount; `extra_paths::GitDirWatch` removes it after the
+///   run.
+/// - A linked worktree (`.git` is a `gitdir:` file) also needs its
+///   repository's common dir, mounted like `append_git_common_mounts` does
+///   unless already visible through the working directory or another extra
+///   path. Its `.git` file and admin dir's `commondir`/`gitdir` pointers
+///   are read-only, so the agent can't redirect host git elsewhere.
+fn append_extra_path_mounts(
+    args: &mut Vec<String>,
+    cwd: &str,
+    extra_paths: &[super::extra_paths::ResolvedExtraPath],
+    run_git_mounts: Option<&GitMounts>,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> Result<(), String> {
+    let mut writable = Vec::new();
+    for extra in extra_paths {
+        let root = extra.path.to_string_lossy().into_owned();
+        if root.is_empty() || root == "/" || root.contains(':') {
+            return Err(format!("refusing to mount workspace extra path '{root}'"));
+        }
+        let (read_paths, write_paths) =
+            expand_denied_paths(cwd, &root, denied_read_paths, denied_write_paths)?;
+        let read_only = extra.read_only || write_paths.contains(&root);
+        if read_only {
+            args.extend(["-v".to_owned(), format!("{root}:{root}:ro")]);
+        } else {
+            args.extend(["-v".to_owned(), format!("{root}:{root}")]);
+            writable.push(extra.path.clone());
+        }
+        append_denied_path_shadows(args, &root, &read_paths, &write_paths)?;
+    }
+
+    let mut visible_roots: Vec<PathBuf> = vec![PathBuf::from(cwd)];
+    visible_roots.extend(extra_paths.iter().map(|extra| extra.path.clone()));
+    let mut mounted_common_dirs: Vec<PathBuf> = run_git_mounts
+        .map(|mounts| mounts.common_dir.clone())
+        .into_iter()
+        .collect();
+    let read_only_overlay = |args: &mut Vec<String>, path: &Path| {
+        if path.exists() {
+            let path = path.to_string_lossy();
+            args.extend(["-v".to_owned(), format!("{path}:{path}:ro")]);
+        }
+    };
+    for root in &writable {
+        let git = root.join(".git");
+        if git.is_dir() {
+            let hooks = git.join("hooks");
+            std::fs::create_dir_all(&hooks)
+                .map_err(|error| format!("failed to create {}: {error}", hooks.display()))?;
+            for name in ["config", "hooks", "modules", "config.worktree"] {
+                read_only_overlay(args, &git.join(name));
+            }
+            continue;
+        }
+        let Some(mounts) = linked_worktree_git_mounts(root)? else {
+            continue;
+        };
+        if visible_roots
+            .iter()
+            .any(|visible| mounts.common_dir.starts_with(visible))
+        {
+            // Already mounted with its parent; nothing to hide or restore.
+        } else {
+            if !mounted_common_dirs.contains(&mounts.common_dir) {
+                append_git_common_mounts(args, &mounts.common_dir)?;
+                mounted_common_dirs.push(mounts.common_dir.clone());
+            }
+            append_git_admin_mounts(args, &mounts.admin_dir)?;
+        }
+        read_only_overlay(args, &git);
+        for name in ["commondir", "gitdir"] {
+            read_only_overlay(args, &mounts.admin_dir.join(name));
+        }
+    }
+    Ok(())
+}
+
+/// For a linked worktree (its `.git` is a `gitdir: <admin dir>` file), the
+/// admin dir and the repository's common dir that the admin dir's
+/// `commondir` names. `None` for anything else.
+pub(crate) fn linked_worktree_git_mounts(worktree: &Path) -> Result<Option<GitMounts>, String> {
+    let pointer = worktree.join(".git");
+    if !std::fs::symlink_metadata(&pointer).is_ok_and(|meta| meta.is_file()) {
+        return Ok(None);
+    }
+    let contents = std::fs::read_to_string(&pointer)
+        .map_err(|error| format!("cannot read {}: {error}", pointer.display()))?;
+    let Some(admin) = contents.trim_end().strip_prefix("gitdir: ") else {
+        return Err(format!("{} has unexpected contents", pointer.display()));
+    };
+    let admin_dir = worktree
+        .join(admin)
+        .canonicalize()
+        .map_err(|_| format!("{} points at a missing git dir", pointer.display()))?;
+    let commondir_file = admin_dir.join("commondir");
+    let Ok(commondir) = std::fs::read_to_string(&commondir_file) else {
+        // A submodule's `.git` file points at its full git dir under the
+        // superproject's `modules/`; there is no separate common dir.
+        return Ok(None);
+    };
+    let common_dir = admin_dir
+        .join(commondir.trim_end())
+        .canonicalize()
+        .map_err(|_| format!("{} points at a missing directory", commondir_file.display()))?;
+    if admin_dir.parent() != Some(common_dir.join("worktrees").as_path()) {
+        return Err(format!(
+            "{} isn't a worktree of the repository at {}",
+            worktree.display(),
+            common_dir.display()
+        ));
+    }
+    Ok(Some(GitMounts {
+        common_dir,
+        admin_dir,
+    }))
+}
+
 /// Mounts the repo's common git dir so git inside the agent's worktree
 /// works, without giving the agent anything the *host's* git would later
 /// execute or act on.
@@ -1331,11 +1472,19 @@ impl From<&super::worktree::RunWorktree> for GitMounts {
 /// worktree (at the same host paths, so the worktree's `.git` pointer
 /// resolves inside the container).
 fn append_git_mounts(args: &mut Vec<String>, mounts: &GitMounts) -> Result<(), String> {
-    let common = mounts.common_dir.to_string_lossy().into_owned();
+    append_git_common_mounts(args, &mounts.common_dir)?;
+    append_git_admin_mounts(args, &mounts.admin_dir)
+}
+
+/// The common-dir half of `append_git_mounts`: the rw mount, its read-only
+/// overlays, and the tmpfs over `worktrees/`. Admin dirs go back on top
+/// with `append_git_admin_mounts`.
+fn append_git_common_mounts(args: &mut Vec<String>, common_dir: &Path) -> Result<(), String> {
+    let common = common_dir.to_string_lossy().into_owned();
     if common.is_empty() || common == "/" {
         return Err("refusing to mount an empty or root git directory".to_owned());
     }
-    let hooks = mounts.common_dir.join("hooks");
+    let hooks = common_dir.join("hooks");
     std::fs::create_dir_all(&hooks)
         .map_err(|error| format!("failed to create {}: {error}", hooks.display()))?;
 
@@ -1348,25 +1497,26 @@ fn append_git_mounts(args: &mut Vec<String>, mounts: &GitMounts) -> Result<(), S
         "HEAD",
         "index",
     ] {
-        let path = mounts.common_dir.join(name);
+        let path = common_dir.join(name);
         if path.exists() {
             let path = path.to_string_lossy();
             args.extend(["-v".to_owned(), format!("{path}:{path}:ro")]);
         }
     }
-    let worktrees = mounts
-        .common_dir
-        .join("worktrees")
-        .to_string_lossy()
-        .into_owned();
-    let admin = mounts.admin_dir.to_string_lossy().into_owned();
+    let worktrees = common_dir.join("worktrees").to_string_lossy().into_owned();
     args.extend(["--tmpfs".to_owned(), worktrees]);
+    Ok(())
+}
+
+/// Mounts one worktree's admin dir back over the common dir's hidden
+/// `worktrees/`, with its worktree config read-only on top (see
+/// `worktree::WORKTREE_CONFIG_PLACEHOLDER`).
+fn append_git_admin_mounts(args: &mut Vec<String>, admin_dir: &Path) -> Result<(), String> {
+    let admin = admin_dir.to_string_lossy().into_owned();
     args.extend(["-v".to_owned(), format!("{admin}:{admin}")]);
-    // This run's worktree config stays read-only on top of its writable
-    // admin dir (see `worktree::WORKTREE_CONFIG_PLACEHOLDER`). The run
-    // creates the placeholder; create it here too if missing, since an
-    // absent mount target would let the agent create it.
-    let worktree_config = mounts.admin_dir.join("config.worktree");
+    // The run creates the placeholder; create it here too if missing, since
+    // an absent mount target would let the agent create it.
+    let worktree_config = admin_dir.join("config.worktree");
     if std::fs::symlink_metadata(&worktree_config).is_err() {
         std::fs::write(&worktree_config, "")
             .map_err(|error| format!("failed to create {}: {error}", worktree_config.display()))?;
@@ -1385,13 +1535,8 @@ fn append_filesystem_mounts(
     denied_read_paths: &[String],
     denied_write_paths: &[String],
 ) -> Result<(), String> {
-    // Only the cwd is visible in the container, so pattern expansion never
-    // needs to look outside it.
-    let scope = Some(Path::new(cwd));
-    let read_paths =
-        super::fs_rules::expand_policy_entries(denied_read_paths, Path::new(cwd), scope)?;
-    let write_paths =
-        super::fs_rules::expand_policy_entries(denied_write_paths, Path::new(cwd), scope)?;
+    let (read_paths, write_paths) =
+        expand_denied_paths(cwd, cwd, denied_read_paths, denied_write_paths)?;
 
     let cwd_is_denied_write = write_paths.iter().any(|path| path == cwd);
     if cwd_is_denied_write {
@@ -1399,13 +1544,40 @@ fn append_filesystem_mounts(
     } else {
         args.extend(["-v".to_owned(), format!("{cwd}:{cwd}")]);
     }
+    append_denied_path_shadows(args, cwd, &read_paths, &write_paths)
+}
 
-    for path in &read_paths {
+/// Expands the deny rules (relative entries resolve against `cwd`) for one
+/// mounted root. Only the mounted roots are visible in the container, so
+/// pattern expansion never needs to look outside `root`.
+fn expand_denied_paths(
+    cwd: &str,
+    root: &str,
+    denied_read_paths: &[String],
+    denied_write_paths: &[String],
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let scope = Some(Path::new(root));
+    let read_paths =
+        super::fs_rules::expand_policy_entries(denied_read_paths, Path::new(cwd), scope)?;
+    let write_paths =
+        super::fs_rules::expand_policy_entries(denied_write_paths, Path::new(cwd), scope)?;
+    Ok((read_paths, write_paths))
+}
+
+/// Shadows the denied paths nested under one mounted root. Must come after
+/// that root's own bind mount.
+fn append_denied_path_shadows(
+    args: &mut Vec<String>,
+    root: &str,
+    read_paths: &[String],
+    write_paths: &[String],
+) -> Result<(), String> {
+    for path in read_paths {
         // A missing mount target inside the cwd bind mount makes Docker
         // create an empty placeholder at that path on the host, which then
         // reappears every session even after the user deletes it. Nothing
         // to hide if it doesn't exist.
-        if !is_nested_under(path, cwd) || !Path::new(path).exists() {
+        if !is_nested_under(path, root) || !Path::new(path).exists() {
             continue;
         }
         // `--tmpfs` only accepts a directory target; a file target fails
@@ -1428,9 +1600,9 @@ fn append_filesystem_mounts(
         }
     }
 
-    for path in &write_paths {
+    for path in write_paths {
         // Same as above: a missing source would be created on the host.
-        if path == cwd || !is_nested_under(path, cwd) || !Path::new(path).exists() {
+        if path == root || !is_nested_under(path, root) || !Path::new(path).exists() {
             continue;
         }
         if read_paths
@@ -2523,6 +2695,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
 
@@ -2557,6 +2730,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         let cwd = std::env::current_dir()
@@ -2588,6 +2762,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -2623,6 +2798,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -2697,6 +2873,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         assert!(!args.contains(&"--tmpfs".to_owned()));
@@ -2757,6 +2934,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         let nested_mount = args
@@ -2790,6 +2968,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         assert!(
@@ -2820,6 +2999,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -2992,6 +3172,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         std::fs::remove_dir_all(&repo).unwrap();
@@ -3022,6 +3203,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -3065,6 +3247,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         // Must mount only the exact file — mounting its parent directory
@@ -3098,6 +3281,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         );
         assert!(result.is_err());
     }
@@ -3123,6 +3307,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         );
         assert!(result.is_err());
     }
@@ -3145,6 +3330,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -3170,6 +3356,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -3230,6 +3417,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         assert!(args.contains(&"-t".to_owned()));
@@ -3253,6 +3441,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -3312,6 +3501,7 @@ mod tests {
             None,
             None,
             &["./node_modules/".to_owned()],
+            &[],
         )
         .unwrap();
         let cwd = std::env::current_dir()
@@ -3328,6 +3518,210 @@ mod tests {
             .position(|arg| *arg == format!("{cwd}:{cwd}"))
             .unwrap();
         assert!(cwd_at < isolated_at);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn docker_run_command_refuses_windows_extra_paths() {
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let error = docker_run_command(
+            "claude",
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+            &[super::super::extra_paths::ResolvedExtraPath {
+                path: std::env::temp_dir(),
+                read_only: false,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("refusing to mount workspace extra path"),
+            "{error}"
+        );
+    }
+
+    // Docker can't mount Windows paths (see `append_extra_path_mounts`).
+    #[cfg(unix)]
+    #[test]
+    fn docker_run_command_mounts_workspace_extra_paths_at_their_host_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "stashbase-docker-extra-paths-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let backend = root.join("backend");
+        let docs = root.join("docs");
+        std::fs::create_dir_all(backend.join(".git")).unwrap();
+        std::fs::write(backend.join(".git/config"), "").unwrap();
+        std::fs::write(backend.join(".git/config.worktree"), "").unwrap();
+        std::fs::create_dir_all(backend.join("secrets")).unwrap();
+        std::fs::create_dir_all(docs.join(".git")).unwrap();
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let extra_paths = [
+            super::super::extra_paths::ResolvedExtraPath {
+                path: backend.clone(),
+                read_only: false,
+            },
+            super::super::extra_paths::ResolvedExtraPath {
+                path: docs.clone(),
+                read_only: true,
+            },
+        ];
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[backend.join("secrets").to_string_lossy().into_owned()],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+            &extra_paths,
+        )
+        .unwrap();
+        let specs = mount_specs(&args);
+        let b = backend.to_string_lossy();
+        let d = docs.to_string_lossy();
+        let backend_at = specs
+            .iter()
+            .position(|spec| *spec == format!("-v {b}:{b}"))
+            .unwrap();
+        let config_at = specs
+            .iter()
+            .position(|spec| *spec == format!("-v {b}/.git/config:{b}/.git/config:ro"))
+            .unwrap();
+        assert!(backend_at < config_at);
+        assert!(specs.contains(&format!("-v {b}/.git/hooks:{b}/.git/hooks:ro")));
+        assert!(specs.contains(&format!(
+            "-v {b}/.git/config.worktree:{b}/.git/config.worktree:ro"
+        )));
+        assert!(backend.join(".git/hooks").is_dir(), "hooks dir pre-created");
+        assert!(specs.contains(&format!("-v {d}:{d}:ro")));
+        assert!(
+            !specs
+                .iter()
+                .any(|spec| spec.starts_with(&format!("-v {d}/.git"))),
+            "a read-only repo needs no git overlays: {specs:?}"
+        );
+        let secrets = backend.join("secrets").to_string_lossy().into_owned();
+        let tmpfs_at = args.iter().position(|arg| *arg == secrets).unwrap();
+        assert_eq!(args[tmpfs_at - 1], "--tmpfs");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // Docker can't mount Windows paths (see `append_extra_path_mounts`).
+    #[cfg(unix)]
+    #[test]
+    fn docker_run_command_mounts_a_linked_worktree_extra_path_with_its_repository() {
+        let root = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "stashbase-docker-extra-worktree-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let main = root.join("main");
+        let feature = root.join("feature");
+        std::fs::create_dir_all(&main).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&main)
+                .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "init"]);
+        git(&["worktree", "add", "-q", feature.to_str().unwrap()]);
+        let network = DockerRunNetwork {
+            name: "n".to_owned(),
+            gateway_ip: "172.30.0.1".to_owned(),
+        };
+        let mounts = linked_worktree_git_mounts(&feature).unwrap().unwrap();
+        let common = main.join(".git");
+        assert_eq!(mounts.common_dir, common);
+        let (_, args) = docker_run_command(
+            "claude",
+            &network,
+            &std::env::current_dir().unwrap(),
+            None,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            false,
+            DEFAULT_SANDBOX_IMAGE,
+            None,
+            None,
+            &[],
+            &[super::super::extra_paths::ResolvedExtraPath {
+                path: feature.clone(),
+                read_only: false,
+            }],
+        )
+        .unwrap();
+        let specs = mount_specs(&args);
+        let at = |spec: String| {
+            specs
+                .iter()
+                .position(|candidate| *candidate == spec)
+                .unwrap_or_else(|| panic!("missing {spec} in {specs:?}"))
+        };
+        let c = common.to_string_lossy();
+        let admin = mounts.admin_dir.to_string_lossy();
+        let f = feature.to_string_lossy();
+        let common_at = at(format!("-v {c}:{c}"));
+        let config_at = at(format!("-v {c}/config:{c}/config:ro"));
+        let tmpfs_at = at(format!("--tmpfs {c}/worktrees"));
+        let admin_at = at(format!("-v {admin}:{admin}"));
+        assert!(common_at < config_at && config_at < tmpfs_at && tmpfs_at < admin_at);
+        assert!(admin_at < at(format!("-v {f}/.git:{f}/.git:ro")));
+        assert!(admin_at < at(format!("-v {admin}/commondir:{admin}/commondir:ro")));
+        assert!(admin_at < at(format!("-v {admin}/gitdir:{admin}/gitdir:ro")));
+        at(format!(
+            "-v {admin}/config.worktree:{admin}/config.worktree:ro"
+        ));
+        at(format!("-v {c}/HEAD:{c}/HEAD:ro"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn linked_worktree_git_mounts_ignores_plain_repos_and_folders() {
+        let root = std::env::temp_dir().join(format!(
+            "stashbase-docker-extra-plain-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("repo/.git")).unwrap();
+        std::fs::create_dir_all(root.join("folder")).unwrap();
+        assert!(linked_worktree_git_mounts(&root.join("repo"))
+            .unwrap()
+            .is_none());
+        assert!(linked_worktree_git_mounts(&root.join("folder"))
+            .unwrap()
+            .is_none());
+        std::fs::write(root.join("folder/.git"), "nonsense\n").unwrap();
+        assert!(linked_worktree_git_mounts(&root.join("folder")).is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -3349,6 +3743,7 @@ mod tests {
             None,
             None,
             &["../elsewhere".to_owned()],
+            &[],
         )
         .is_err());
     }
@@ -3400,6 +3795,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         let cap_drop_index = args.iter().position(|arg| arg == "--cap-drop").unwrap();
@@ -3436,6 +3832,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         assert!(args.contains(&"--init".to_owned()));
@@ -3462,6 +3859,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         assert!(!args.contains(&"--memory".to_owned()));
@@ -3486,6 +3884,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             Some("2g"),
             Some("1.5"),
+            &[],
             &[],
         )
         .unwrap();
@@ -3514,6 +3913,7 @@ mod tests {
             None,
             None,
             &[],
+            &[],
         )
         .unwrap();
         let network_index = args.iter().position(|arg| arg == "--network").unwrap();
@@ -3538,6 +3938,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -3581,6 +3982,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();
@@ -3711,6 +4113,7 @@ mod tests {
             DEFAULT_SANDBOX_IMAGE,
             None,
             None,
+            &[],
             &[],
         )
         .unwrap();

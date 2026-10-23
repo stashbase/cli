@@ -105,6 +105,7 @@ pub async fn run_command_with_filesystem_policy(
         None,
         None,
         &[],
+        &[],
         None,
         None,
     )
@@ -136,6 +137,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
     sandbox_memory: Option<&str>,
     sandbox_cpus: Option<&str>,
     sandbox_isolated_paths: &[String],
+    extra_paths: &[super::extra_paths::ResolvedExtraPath],
     workdir: Option<&Path>,
     git_mounts: Option<&super::docker_sandbox::GitMounts>,
 ) -> Result<ExitStatus> {
@@ -166,6 +168,24 @@ pub async fn run_command_with_filesystem_policy_and_network(
                 );
             }
         }
+        let mut git_dirs: Vec<PathBuf> = git_mounts
+            .map(|mounts| mounts.common_dir.clone())
+            .into_iter()
+            .collect();
+        for extra in extra_paths.iter().filter(|extra| !extra.read_only) {
+            let git = extra.path.join(".git");
+            if git.is_dir() {
+                git_dirs.push(git);
+            } else if let Ok(Some(mounts)) =
+                super::docker_sandbox::linked_worktree_git_mounts(&extra.path)
+            {
+                git_dirs.push(mounts.common_dir);
+            }
+        }
+        let (git_dir_watch, warnings) = super::extra_paths::GitDirWatch::start(git_dirs);
+        for warning in warnings {
+            eprintln!("{warning}");
+        }
         let (program, launcher_args) = super::docker_sandbox::docker_run_command(
             command,
             network,
@@ -179,6 +199,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
             sandbox_memory,
             sandbox_cpus,
             sandbox_isolated_paths,
+            extra_paths,
         )
         .map_err(|error| anyhow::anyhow!("failed to build Docker sandbox invocation: {error}"))?;
         // Added only after `docker_run_command` has built its `-e` args, so
@@ -189,7 +210,7 @@ pub async fn run_command_with_filesystem_policy_and_network(
         if let Some(agent) = herdr_agent_hint(command, &env_vars, |key| env::var(key).ok()) {
             env_vars.insert("HERDR_AGENT".to_owned(), agent);
         }
-        return run_built_command(
+        let result = run_built_command(
             program,
             launcher_args,
             args,
@@ -203,6 +224,10 @@ pub async fn run_command_with_filesystem_policy_and_network(
             current_dir,
         )
         .await;
+        for warning in git_dir_watch.remove_new_commondirs() {
+            eprintln!("{warning}");
+        }
+        return result;
     }
 
     #[cfg(target_os = "macos")]
@@ -229,6 +254,11 @@ pub async fn run_command_with_filesystem_policy_and_network(
         denied_write_paths,
         codex_boundary,
         &current_dir,
+        &extra_paths
+            .iter()
+            .filter(|extra| !extra.read_only)
+            .map(|extra| extra.path.clone())
+            .collect::<Vec<_>>(),
     )?;
     run_built_command(
         program,
@@ -663,6 +693,7 @@ fn sandbox_command(
         &[],
         CodexSandboxBoundary::FullAccess,
         &env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+        &[],
     )
 }
 
@@ -676,9 +707,10 @@ fn sandbox_command_with_filesystem_policy(
     denied_write_paths: &[String],
     codex_boundary: CodexSandboxBoundary,
     current_dir: &Path,
+    extra_write_roots: &[PathBuf],
 ) -> Result<(String, Vec<String>)> {
     #[cfg(target_os = "linux")]
-    let _ = env_vars;
+    let _ = (env_vars, extra_write_roots);
 
     if !sandbox {
         #[cfg(all(target_os = "linux"))]
@@ -753,7 +785,7 @@ fn sandbox_command_with_filesystem_policy(
             {}
             {}
         "#,
-            codex_workspace_rules(codex_boundary, current_dir),
+            codex_workspace_rules(codex_boundary, current_dir, extra_write_roots),
             denied_file_rules(denied_read_paths, denied_write_paths, current_dir)?
         );
         return Ok((
@@ -799,7 +831,11 @@ fn sandbox_command_with_filesystem_policy(
 }
 
 #[cfg(target_os = "macos")]
-fn codex_workspace_rules(boundary: CodexSandboxBoundary, current_dir: &Path) -> String {
+fn codex_workspace_rules(
+    boundary: CodexSandboxBoundary,
+    current_dir: &Path,
+    extra_write_roots: &[PathBuf],
+) -> String {
     if boundary == CodexSandboxBoundary::FullAccess {
         return String::new();
     }
@@ -818,8 +854,14 @@ fn codex_workspace_rules(boundary: CodexSandboxBoundary, current_dir: &Path) -> 
     if let Some(codex_home) = codex_home {
         writable_paths.push(codex_home);
     }
+    // Writable `[workspace] extra_paths` are part of the workspace too.
+    let workspace_paths = std::iter::once(&current_dir)
+        .chain(extra_write_roots)
+        .cloned()
+        .collect::<Vec<_>>();
+    writable_paths.extend(extra_write_roots.iter().cloned());
     for path in writable_paths {
-        if boundary == CodexSandboxBoundary::ReadOnly && path == current_dir {
+        if boundary == CodexSandboxBoundary::ReadOnly && workspace_paths.contains(&path) {
             continue;
         }
         rules.push(format!(
@@ -1714,6 +1756,7 @@ mod tests {
             &[],
             CodexSandboxBoundary::FullAccess,
             &std::env::current_dir().unwrap(),
+            &[],
         )
         .unwrap();
 
@@ -1733,6 +1776,7 @@ mod tests {
             &["re:^/srv/[a-z]+/locked$".to_owned()],
             CodexSandboxBoundary::FullAccess,
             std::path::Path::new("/work/repo"),
+            &[],
         )
         .unwrap();
 
@@ -1753,6 +1797,7 @@ mod tests {
             &[],
             CodexSandboxBoundary::FullAccess,
             std::path::Path::new("/work/repo"),
+            &[],
         )
         .unwrap_err();
         assert!(error.to_string().contains("must start with"));
@@ -1871,14 +1916,32 @@ mod tests {
             "(allow file-write* (subpath \"{}\"))",
             escape_sbpl_path(&codex_home.to_string_lossy())
         );
-        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite, &cwd);
+        let workspace = codex_workspace_rules(CodexSandboxBoundary::WorkspaceWrite, &cwd, &[]);
         assert!(workspace.contains("(deny file-write* (subpath \"/\"))"));
         assert!(workspace.contains(&cwd_rule));
         assert!(workspace.contains(&codex_home_rule));
 
-        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly, &cwd);
+        let read_only = codex_workspace_rules(CodexSandboxBoundary::ReadOnly, &cwd, &[]);
         assert!(read_only.contains("(deny file-write* (subpath \"/\"))"));
         assert!(!read_only.contains(&cwd_rule));
+
+        let backend = std::path::PathBuf::from("/tmp/stashbase-extra-backend");
+        let backend_rule = format!(
+            "(allow file-write* (subpath \"{}\"))",
+            escape_sbpl_path(&backend.to_string_lossy())
+        );
+        let with_extra = codex_workspace_rules(
+            CodexSandboxBoundary::WorkspaceWrite,
+            &cwd,
+            std::slice::from_ref(&backend),
+        );
+        assert!(with_extra.contains(&backend_rule));
+        let read_only = codex_workspace_rules(
+            CodexSandboxBoundary::ReadOnly,
+            &cwd,
+            std::slice::from_ref(&backend),
+        );
+        assert!(!read_only.contains(&backend_rule));
     }
 
     #[cfg(target_os = "macos")]
@@ -1904,6 +1967,7 @@ mod tests {
             &["blocked.txt".to_owned()],
             CodexSandboxBoundary::FullAccess,
             &std::env::current_dir().unwrap(),
+            &[],
         )
         .unwrap();
         let status = Command::new(program)
@@ -1953,6 +2017,7 @@ mod tests {
             &denied_write,
             CodexSandboxBoundary::FullAccess,
             &wt.workdir,
+            &[],
         )
         .unwrap();
         let run = |script: &str| {

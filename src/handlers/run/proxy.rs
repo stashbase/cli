@@ -855,6 +855,8 @@ pub struct ProxyPolicy {
     /// Docker backend only: repo-relative directories backed by a per-repo
     /// volume instead of the host's copy (see `append_isolated_path_mounts`).
     pub sandbox_isolated_paths: Vec<String>,
+    /// `[workspace] extra_paths`, unresolved (see `extra_paths`).
+    pub workspace_extra_paths: Vec<crate::models::agent::WorkspaceExtraPath>,
     /// The profile's plaintext `[config_env]`, added to the child's
     /// environment underneath everything the sandbox sets. Configuration the
     /// agent sees, not what it may do — so not part of the fingerprint.
@@ -1003,6 +1005,7 @@ impl ProxyPolicy {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         }
     }
@@ -1041,6 +1044,18 @@ impl ProxyPolicy {
             format!(
                 "sandbox_isolated_paths={}",
                 self.sandbox_isolated_paths.join(",")
+            ),
+            format!(
+                "workspace_extra_paths={}",
+                self.workspace_extra_paths
+                    .iter()
+                    .map(|entry| format!(
+                        "{}{}",
+                        fingerprint_extra_path(entry.path()),
+                        if entry.read_only() { ":ro" } else { "" }
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(",")
             ),
         ];
         let mut egress = normalize_hosts(self.allowed_egress_hosts.clone())
@@ -3977,6 +3992,22 @@ fn filter_mcp_tools_list_sse_response(
 
 /// Body or argument conditions plus allowed fields, in a stable order, so
 /// policies that differ only in their conditions get different fingerprints.
+/// The absolute directory an extra path names from the current directory,
+/// so the same relative entry run from two places fingerprints differently.
+/// Falls back to the entry as written when it doesn't resolve (the run
+/// itself then refuses it).
+fn fingerprint_extra_path(path: &str) -> String {
+    let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+    let expanded = match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => std::path::PathBuf::from(path),
+    };
+    std::env::current_dir()
+        .and_then(|cwd| cwd.join(expanded).canonicalize())
+        .map(|resolved| resolved.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_owned())
+}
+
 fn fingerprint_conditions(
     conditions: &std::collections::BTreeMap<String, crate::models::agent::AgentFieldCondition>,
     allow_fields: Option<&[String]>,
@@ -4443,6 +4474,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         }
     }
@@ -5144,6 +5176,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         let proxy = Proxy::start_remote_with_port(remote, policy, None, None)
@@ -5330,6 +5363,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         }
     }
@@ -6126,6 +6160,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
 
@@ -6155,6 +6190,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn fingerprint_uses_resolved_workspace_extra_paths() {
+        use crate::models::agent::{WorkspaceExtraPath, WorkspaceExtraPathEntry};
+        let with = |entry: WorkspaceExtraPath| {
+            let mut policy = ProxyPolicy::permissive();
+            policy.workspace_extra_paths = vec![entry];
+            policy.fingerprint()
+        };
+        let parent = std::env::current_dir()
+            .unwrap()
+            .join("..")
+            .canonicalize()
+            .unwrap();
+        let relative = with(WorkspaceExtraPath::Path("..".to_owned()));
+        assert_eq!(
+            relative,
+            with(WorkspaceExtraPath::Path(
+                parent.to_string_lossy().into_owned()
+            ))
+        );
+        assert_ne!(relative, ProxyPolicy::permissive().fingerprint());
+        assert_ne!(
+            relative,
+            with(WorkspaceExtraPath::Detailed(WorkspaceExtraPathEntry {
+                path: "..".to_owned(),
+                read_only: true,
+            }))
+        );
+    }
+
     fn rule_policy(rules: Vec<AgentHttpRule>) -> ProxyPolicy {
         ProxyPolicy {
             secret_policies: HashMap::from([(
@@ -6178,6 +6243,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         }
     }
@@ -6423,6 +6489,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         assert!(secret_allows_request(
@@ -6967,6 +7034,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         let proxy = Proxy::start(
@@ -7173,6 +7241,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         let proxy = Proxy::start(
@@ -7232,6 +7301,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
 
@@ -7267,6 +7337,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         let state = ProxyState {
@@ -7317,6 +7388,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         let state = ProxyState {
@@ -7403,6 +7475,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         let proxy = Proxy::start(
@@ -7462,6 +7535,7 @@ mod tests {
             worktree: false,
             worktree_resume: None,
             sandbox_isolated_paths: Vec::new(),
+            workspace_extra_paths: Vec::new(),
             config_env: Default::default(),
         };
         let proxy = Proxy::start(
@@ -7835,6 +7909,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                workspace_extra_paths: Vec::new(),
                 config_env: Default::default(),
             },
             None,
@@ -7881,6 +7956,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                workspace_extra_paths: Vec::new(),
                 config_env: Default::default(),
             },
             None,
@@ -7928,6 +8004,7 @@ mod tests {
                 worktree: false,
                 worktree_resume: None,
                 sandbox_isolated_paths: Vec::new(),
+                workspace_extra_paths: Vec::new(),
                 config_env: Default::default(),
             },
             None,

@@ -298,6 +298,42 @@ impl Drop for RunWorktreeGuard {
     }
 }
 
+/// Resolves `[workspace] extra_paths` against the directory the run
+/// started in (see `extra_paths::resolve_extra_paths`). Read-only entries
+/// are added to `denied_write_paths`, which is all the native backend
+/// needs; the Docker backend mounts every entry itself. A worktree only
+/// covers the current repo, so the run says the extra paths aren't
+/// isolated.
+fn prepare_extra_paths(
+    entries: &[crate::models::agent::WorkspaceExtraPath],
+    worktree: bool,
+    silent: bool,
+    denied_write_paths: &mut Vec<String>,
+) -> anyhow::Result<Vec<super::extra_paths::ResolvedExtraPath>> {
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let home = directories::BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
+    let resolution = super::extra_paths::resolve_extra_paths(
+        entries,
+        &std::env::current_dir()?,
+        home.as_deref(),
+    )
+    .map_err(anyhow::Error::msg)?;
+    let resolved = resolution.paths.clone();
+    denied_write_paths.extend(super::extra_paths::read_only_deny_entries(&resolved));
+    let notes = [
+        resolution.all_skipped_note(),
+        super::extra_paths::worktree_note(worktree, &resolved),
+    ];
+    for note in notes.into_iter().flatten() {
+        if !silent {
+            eprintln!("{note}");
+        }
+    }
+    Ok(resolved)
+}
+
 /// `prepare_run_worktree` for the native backend, whose filesystem policy
 /// is a deny-list: also adds the paths `RunWorktree::native_protected_paths`
 /// names to the run's `deny_write`, so the agent can't touch the user's
@@ -484,6 +520,13 @@ pub async fn handle_remote_agent_run(
     let sandbox_cpus = policy.sandbox_cpus.clone();
     let sandbox_isolated_paths = policy.sandbox_isolated_paths.clone();
     let worktree_request = policy.worktree_request();
+    crate::handlers::agent::validate::ensure_working_directory_is_safe_for_run()?;
+    let extra_paths = prepare_extra_paths(
+        &policy.workspace_extra_paths,
+        worktree_request.is_some(),
+        silent,
+        &mut denied_write_paths,
+    )?;
     let command_audit_log = audit_log.clone();
     let mut setup_spinner: Option<Spinner> = None;
     let run_worktree;
@@ -655,6 +698,7 @@ pub async fn handle_remote_agent_run(
         sandbox_memory.as_deref(),
         sandbox_cpus.as_deref(),
         &sandbox_isolated_paths,
+        &extra_paths,
         run_worktree.workdir(),
         run_worktree.git_mounts().as_ref(),
     )
@@ -1751,6 +1795,20 @@ async fn handle_run(
         .as_ref()
         .map(|policy| policy.sandbox_isolated_paths.clone())
         .unwrap_or_default();
+    // Agent runs carry a policy; a plain `stashbase run` has none and keeps
+    // working from any directory, since nothing there is sandboxed.
+    if proxy_policy.is_some() {
+        crate::handlers::agent::validate::ensure_working_directory_is_safe_for_run()?;
+    }
+    let extra_paths = prepare_extra_paths(
+        proxy_policy
+            .as_ref()
+            .map(|policy| policy.workspace_extra_paths.as_slice())
+            .unwrap_or_default(),
+        worktree_request.is_some(),
+        silent,
+        &mut denied_write_paths,
+    )?;
     let config_env = proxy_policy
         .as_ref()
         .map(|policy| policy.config_env.clone())
@@ -1935,6 +1993,7 @@ async fn handle_run(
             sandbox_memory.as_deref(),
             sandbox_cpus.as_deref(),
             &sandbox_isolated_paths,
+            &extra_paths,
             run_worktree.workdir(),
             git_mounts.as_ref(),
         ));
