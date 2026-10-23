@@ -100,7 +100,6 @@ pub async fn handle_docker_status_command(
 /// by hand first.
 pub async fn handle_docker_build_command(
     command: AgentDockerBuildCommand,
-    global_config: &crate::models::config::Config,
     raw_output: bool,
     silent: bool,
 ) -> Result<()> {
@@ -111,23 +110,23 @@ pub async fn handle_docker_build_command(
     let source = match &command.profile {
         None => crate::handlers::run::docker_sandbox::AgentImageSource::Default,
         Some(profile_name) => {
-            let global_profile = || {
-                global_config
-                    .agent_profiles
-                    .as_ref()
-                    .and_then(|profiles| profiles.get(profile_name))
-                    .cloned()
+            let global_profile = || -> anyhow::Result<Option<_>> {
+                Ok(
+                    crate::config::config::get_global_agent_profile(profile_name)?
+                        .map(|loaded| loaded.profile),
+                )
             };
             let profile = match command.profile_source {
-                crate::cmd::agent::AgentProfileSource::Global => global_profile(),
+                crate::cmd::agent::AgentProfileSource::Global => global_profile()?,
                 crate::cmd::agent::AgentProfileSource::Directory => {
                     crate::config::config::get_directory_agent_profile(profile_name)?
                         .map(|loaded| loaded.profile)
                 }
                 crate::cmd::agent::AgentProfileSource::Auto => {
-                    crate::config::config::get_directory_agent_profile(profile_name)?
-                        .map(|loaded| loaded.profile)
-                        .or_else(global_profile)
+                    match crate::config::config::get_directory_agent_profile(profile_name)? {
+                        Some(profile) => Some(profile.profile),
+                        None => global_profile()?,
+                    }
                 }
             };
             let Some(profile) = profile else {

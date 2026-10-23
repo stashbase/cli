@@ -38,7 +38,6 @@ use crate::{
             AgentBindingProfile, AgentFieldCondition, AgentHttpRuleEffect, AgentMcpRule,
             AgentMcpServer, AgentProfile, AgentScalar,
         },
-        config::Config,
         validation::{AgentSessionInputValidationError, InputValidationError},
     },
     utils::{
@@ -73,7 +72,6 @@ fn mcp_server<'a>(
 
 pub async fn handle_agent_mcp_tools_command(
     command: AgentMcpToolsCommand,
-    global_config: &Config,
     api_key: Option<&str>,
     json_format: bool,
     silent: bool,
@@ -83,11 +81,7 @@ pub async fn handle_agent_mcp_tools_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global = global_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
+    let global = config::get_global_agent_profile(&command.profile)?.map(|loaded| loaded.profile);
     let profile = if let Some(profile) = explicit {
         profile.profile
     } else {
@@ -806,11 +800,10 @@ impl Theme for McpMultiSelectTheme {
 
 pub async fn handle_agent_mcp_configure_command(
     command: AgentMcpConfigureCommand,
-    global_config: &Config,
     api_key: Option<&str>,
     silent: bool,
 ) -> Result<()> {
-    let (profile, profile_path) = load_mcp_profile_for_edit(&command, global_config)?;
+    let (profile, profile_path) = load_mcp_profile_for_edit(&command)?;
     let server = mcp_server(&profile, &command.server, false)?.clone();
     let url = mcp_url(&server)?;
     let mut spinner = SpinnerGuard::new(!silent);
@@ -968,7 +961,6 @@ fn configure_item_label(server: &AgentMcpServer, name: &str) -> String {
 
 fn load_mcp_profile_for_edit(
     command: &AgentMcpConfigureCommand,
-    global_config: &Config,
 ) -> Result<(AgentProfile, std::path::PathBuf)> {
     if let Some(path) = command.policy_file.as_deref() {
         let loaded = config::get_explicit_agent_profile(path)?;
@@ -981,10 +973,7 @@ fn load_mcp_profile_for_edit(
         return Ok((loaded.profile, loaded.path));
     }
     if matches!(command.profile_source, AgentProfileSource::Auto)
-        && global_config
-            .agent_profiles
-            .as_ref()
-            .is_some_and(|profiles| profiles.contains_key(&command.profile))
+        && config::get_global_agent_profile(&command.profile)?.is_some()
     {
         bail!(
             "MCP configure cannot modify the global agent profile '{}'. Use --policy-file or create a repository-local profile.",
@@ -1072,7 +1061,6 @@ fn format_allow_tools(indent: usize, tools: &[String]) -> Result<Vec<String>> {
 
 pub async fn handle_agent_mcp_verify_command(
     command: AgentMcpVerifyCommand,
-    global_config: &Config,
     json_format: bool,
     api_key: Option<&str>,
     silent: bool,
@@ -1082,11 +1070,7 @@ pub async fn handle_agent_mcp_verify_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global = global_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
+    let global = config::get_global_agent_profile(&command.profile)?.map(|loaded| loaded.profile);
     let profile = if let Some(profile) = explicit {
         profile.profile
     } else {
@@ -1770,7 +1754,6 @@ fn mcp_inspection_headers(proxy: &Proxy) -> Result<reqwest::header::HeaderMap> {
 
 pub fn handle_agent_mcp_check_command(
     command: AgentMcpCheckCommand,
-    global_config: &Config,
     json_format: bool,
 ) -> Result<bool> {
     let explicit = command
@@ -1778,11 +1761,7 @@ pub fn handle_agent_mcp_check_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global = global_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
+    let global = config::get_global_agent_profile(&command.profile)?.map(|loaded| loaded.profile);
     let profile = if let Some(profile) = explicit {
         profile.profile
     } else {

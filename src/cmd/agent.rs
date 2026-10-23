@@ -14,7 +14,7 @@ pub struct AgentCommand {
 pub enum AgentSubcommand {
     /// Manage agent hooks
     Hooks(AgentHooksCommand),
-    /// Create a safe starter profile in .stashbase/agents
+    /// Create a safe starter profile in .stashbase/agents (or, with --global, the global profiles)
     Init(AgentInitCommand),
     /// Run an agent through the Stashbase Agent Proxy
     Run(AgentRunCommand),
@@ -236,8 +236,13 @@ pub enum AgentMcpSubcommand {
 #[derive(Debug, Args)]
 #[command(override_usage = "agent init <PROFILE> [--force]")]
 pub struct AgentInitCommand {
-    /// Name for the new repository-local profile
+    /// Name for the new profile
     pub profile: String,
+
+    /// Create a global profile (agents/<profile>.toml next to config.toml),
+    /// usable from any directory, instead of a repository-local one
+    #[arg(long)]
+    pub global: bool,
 
     /// Replace an existing profile file
     #[arg(long)]
@@ -730,11 +735,11 @@ pub enum AgentAuditGroupBy {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum AgentProfileSource {
-    /// User-level Stashbase config
+    /// Global profiles: agents/<profile>.toml next to the Stashbase config.toml
     Global,
     /// .stashbase/agents/<profile>.toml in the current directory
     Directory,
-    /// Directory profile when present, otherwise user-level config
+    /// Directory profile when present, otherwise the global profile
     Auto,
 }
 

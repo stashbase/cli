@@ -19,7 +19,7 @@ Create a profile template:
 stashbase agent init my-profile
 ```
 
-This creates `.stashbase/agents/my-profile.toml` with placeholder sections. Edit it to configure your secrets and policies, then run:
+This creates `.stashbase/agents/my-profile.toml` with placeholder sections (add `--global` for a profile you can use from any directory; see [Repository and Global Profiles](#repository-and-global-profiles)). Edit it to configure your secrets and policies, then run:
 
 ```bash
 stashbase agent run --profile my-profile -- <your-command>
@@ -30,6 +30,17 @@ For a remote session:
 ```bash
 stashbase agent run --remote --profile my-profile -- <your-command>
 ```
+
+## Repository and Global Profiles
+
+A profile is one TOML file, in one of two places:
+
+- **Repository profile:** `.stashbase/agents/<name>.toml` in the directory you run from. Commit it so everyone working on the repo gets the same policy.
+- **Global profile:** `agents/<name>.toml` in the Stashbase config directory (`~/Library/Application Support/stashbase/agents/` on macOS, `~/.config/stashbase/agents/` on Linux), usable from any directory. Create one with `stashbase agent init <name> --global`.
+
+Both use the same format, so moving a profile between them is a file copy. `--profile-source` picks where to look: `directory`, `global`, or `auto` (the default: the repository profile when present, otherwise the global one). `stashbase agent profiles list` shows each profile's file.
+
+Global profiles used to be `[agent_profiles.<name>]` tables in `config.toml`. Those are no longer read: agent commands stop with an error naming each table until it's moved to its own file.
 
 ## Simple Profile Example
 

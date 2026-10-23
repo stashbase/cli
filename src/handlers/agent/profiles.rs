@@ -15,7 +15,6 @@ use crate::{
     handlers::agent::policy::{normalize_secret_http_policy, SecretHttpPolicy},
     models::{
         agent::AgentProfile,
-        config::Config,
         validation::{AgentSessionInputValidationError, InputValidationError},
     },
     utils::output::{get_formatted_json_string, is_color_enabled},
@@ -23,13 +22,12 @@ use crate::{
 
 pub fn handle_agent_profiles_command(
     command: AgentProfilesCommand,
-    global_config: &Config,
     silent: bool,
     json: bool,
 ) -> Result<()> {
     match command.subcommand {
-        AgentProfilesSubcommand::List(command) => handle_list(command, global_config, silent, json),
-        AgentProfilesSubcommand::Show(command) => handle_show(command, global_config, silent, json),
+        AgentProfilesSubcommand::List(command) => handle_list(command, silent, json),
+        AgentProfilesSubcommand::Show(command) => handle_show(command, silent, json),
     }
 }
 
@@ -56,13 +54,8 @@ pub(crate) fn profile_not_found_error_with_output(
     profile_not_found_error(profile, source, json)
 }
 
-fn handle_list(
-    command: AgentProfilesListCommand,
-    global_config: &Config,
-    silent: bool,
-    json: bool,
-) -> Result<()> {
-    let profiles = profiles_for_source(command.profile_source, global_config)?;
+fn handle_list(command: AgentProfilesListCommand, silent: bool, json: bool) -> Result<()> {
+    let profiles = profiles_for_source(command.profile_source)?;
     let report = profiles
         .into_iter()
         .map(|(name, (profile, source))| ProfileSummary {
@@ -101,17 +94,12 @@ fn handle_list(
     Ok(())
 }
 
-fn handle_show(
-    command: AgentProfilesShowCommand,
-    global_config: &Config,
-    silent: bool,
-    json: bool,
-) -> Result<()> {
+fn handle_show(command: AgentProfilesShowCommand, silent: bool, json: bool) -> Result<()> {
     let profiles = if let Some(path) = command.policy_file.as_deref() {
         let profile = config::get_explicit_agent_profile(path)?;
         BTreeMap::from([(command.profile.clone(), (profile.profile, profile.source))])
     } else {
-        profiles_for_source(command.profile_source, global_config)?
+        profiles_for_source(command.profile_source)?
     };
     let Some((profile, source)) = profiles.get(&command.profile) else {
         return Err(profile_not_found_error_with_output(
@@ -251,16 +239,14 @@ fn colorize_toml(toml: &str, color: bool) -> String {
 
 fn profiles_for_source(
     source: AgentProfileSource,
-    global_config: &Config,
 ) -> Result<BTreeMap<String, (AgentProfile, String)>> {
     let global = || {
-        global_config
-            .agent_profiles
-            .clone()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(name, profile)| (name, (profile, "user-level config".to_owned())))
-            .collect::<BTreeMap<_, _>>()
+        config::get_global_agent_profiles().map(|profiles| {
+            profiles
+                .into_iter()
+                .map(|(name, profile)| (name, (profile.profile, profile.source)))
+                .collect::<BTreeMap<_, _>>()
+        })
     };
     let directory = || {
         config::get_directory_agent_profiles().map(|profiles| {
@@ -271,10 +257,10 @@ fn profiles_for_source(
         })
     };
     match source {
-        AgentProfileSource::Global => Ok(global()),
+        AgentProfileSource::Global => global(),
         AgentProfileSource::Directory => directory(),
         AgentProfileSource::Auto => {
-            let mut profiles = global();
+            let mut profiles = global()?;
             profiles.extend(directory()?);
             Ok(profiles)
         }

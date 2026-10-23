@@ -17,7 +17,6 @@ use crate::{
         agent::validate::{ensure_profile_is_valid_for_run, uses_live_pattern_matching},
         run::{fs_rules::is_pattern_entry, subprocess::filesystem_backend_for_policy},
     },
-    models::config::Config,
     utils::output::get_formatted_json_string,
 };
 
@@ -25,7 +24,6 @@ use crate::{
 /// opens a network connection.
 pub fn handle_agent_explain_command(
     command: AgentExplainCommand,
-    profile_config: &Config,
     silent: bool,
     json: bool,
 ) -> Result<()> {
@@ -44,16 +42,16 @@ pub fn handle_agent_explain_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = profile_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
+    let global_profile = config::get_global_agent_profile(&command.profile)?
+        .map(|loaded| (loaded.profile, loaded.source));
     let (profile, source) = if let Some(profile) = explicit_profile {
         (Some(profile.profile), profile.source)
     } else {
         match command.profile_source {
-            AgentProfileSource::Global => (global_profile, "user-level config".to_owned()),
+            AgentProfileSource::Global => match global_profile {
+                Some((profile, source)) => (Some(profile), source),
+                None => (None, "global config".to_owned()),
+            },
             AgentProfileSource::Directory => {
                 match config::get_directory_agent_profile(&command.profile)? {
                     Some(profile) => (Some(profile.profile), profile.source),
@@ -65,7 +63,10 @@ pub fn handle_agent_explain_command(
                 if let Some(profile) = directory_profile {
                     (Some(profile.profile), profile.source)
                 } else {
-                    (global_profile, "user-level config".to_owned())
+                    match global_profile {
+                        Some((profile, source)) => (Some(profile), source),
+                        None => (None, "global config".to_owned()),
+                    }
                 }
             }
         }

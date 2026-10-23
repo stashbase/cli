@@ -644,7 +644,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                     crate::cmd::agent::AgentDockerSubcommand::Build(command) => {
                         crate::handlers::agent::docker::handle_docker_build_command(
-                            command, &config, raw_output, silent,
+                            command, raw_output, silent,
                         )
                         .await
                         .into_exit()
@@ -682,15 +682,14 @@ pub async fn handle_cli(args: Cli) -> Exit {
                 }
                 AgentSubcommand::Mcp(agent_mcp) => match agent_mcp.subcommand {
                     crate::cmd::agent::AgentMcpSubcommand::Tools(command) => {
-                        handle_agent_mcp_tools_command(command, &config, Some(api_key.as_str()), raw_output, silent).await.into_exit()
+                        handle_agent_mcp_tools_command(command, Some(api_key.as_str()), raw_output, silent).await.into_exit()
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Configure(command) => {
-                        handle_agent_mcp_configure_command(command, &config, Some(api_key.as_str()), silent).await.into_exit()
+                        handle_agent_mcp_configure_command(command, Some(api_key.as_str()), silent).await.into_exit()
                     }
                     crate::cmd::agent::AgentMcpSubcommand::Check(command) => {
                         match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
                             command,
-                            &config,
                             raw_output,
                         ) {
                             Ok(failed) => Ok(check_exit(failed)),
@@ -700,7 +699,6 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     crate::cmd::agent::AgentMcpSubcommand::Verify(command) => {
                         match crate::handlers::agent::mcp::handle_agent_mcp_verify_command(
                             command,
-                            &config,
                             raw_output,
                             Some(api_key.as_str()),
                             silent,
@@ -713,12 +711,11 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                 },
                 AgentSubcommand::McpTools(agent_mcp) => {
-                    handle_agent_mcp_tools_command(agent_mcp, &config, Some(api_key.as_str()), raw_output, silent).await.into_exit()
+                    handle_agent_mcp_tools_command(agent_mcp, Some(api_key.as_str()), raw_output, silent).await.into_exit()
                 }
                 AgentSubcommand::McpCheck(agent_mcp) => {
                     match crate::handlers::agent::mcp::handle_agent_mcp_check_command(
                         agent_mcp,
-                        &config,
                         raw_output,
                     ) {
                         Ok(failed) => Ok(check_exit(failed)),
@@ -726,19 +723,18 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                 }
                 AgentSubcommand::Validate(agent_validate) => {
-                    match handle_agent_validate_command(agent_validate, &config, raw_output).await {
+                    match handle_agent_validate_command(agent_validate, raw_output).await {
                         Ok(failed) => Ok(check_exit(failed)),
                         Err(error) => Err(error),
                     }
                 }
                 AgentSubcommand::Explain(agent_explain) => {
-                    handle_agent_explain_command(agent_explain, &config, silent, raw_output).into_exit()
+                    handle_agent_explain_command(agent_explain, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Policy(agent_policy) => match agent_policy.subcommand {
                     crate::cmd::agent::AgentPolicySubcommand::Test(agent_policy_test) => {
                         match handle_agent_policy_test_command(
                             agent_policy_test,
-                            &config,
                             silent,
                             raw_output,
                         ) {
@@ -748,7 +744,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     }
                 },
                 AgentSubcommand::Profiles(agent_profiles) => {
-                    handle_agent_profiles_command(agent_profiles, &config, silent, raw_output).into_exit()
+                    handle_agent_profiles_command(agent_profiles, silent, raw_output).into_exit()
                 }
                 AgentSubcommand::Run(agent_run) => async {
                     let explicit_profile = agent_run
@@ -756,11 +752,7 @@ pub async fn handle_cli(args: Cli) -> Exit {
                         .as_deref()
                         .map(config::get_explicit_agent_profile)
                         .transpose()?;
-                    let global_profile = config
-                        .agent_profiles
-                        .as_ref()
-                        .and_then(|profiles| profiles.get(&agent_run.profile))
-                        .cloned();
+                    let global_profile = config::get_global_agent_profile(&agent_run.profile)?;
                     let (profile, directory_source, profile_path) = if let Some(profile) = explicit_profile {
                         (
                             Some(profile.profile),
@@ -768,9 +760,11 @@ pub async fn handle_cli(args: Cli) -> Exit {
                             Some(profile.path),
                         )
                     } else { match agent_run.profile_source {
-                        AgentProfileSource::Global => {
-                            (global_profile, None, Some(config::get_config_path()?))
-                        }
+                        AgentProfileSource::Global => (
+                            global_profile.as_ref().map(|loaded| loaded.profile.clone()),
+                            None,
+                            global_profile.as_ref().map(|loaded| loaded.path.clone()),
+                        ),
                         AgentProfileSource::Directory => {
                             let profile = config::get_directory_agent_profile(&agent_run.profile)?;
                             let source = profile.as_ref().map(|profile| profile.source.clone());
@@ -785,9 +779,11 @@ pub async fn handle_cli(args: Cli) -> Exit {
                                 .map(|profile| profile.source.clone());
                             let path = directory_profile.as_ref().map(|profile| profile.path.clone());
                             (
-                                directory_profile.map(|profile| profile.profile).or(global_profile),
+                                directory_profile
+                                    .map(|profile| profile.profile)
+                                    .or_else(|| global_profile.as_ref().map(|loaded| loaded.profile.clone())),
                                 source,
-                                path.or(Some(config::get_config_path()?)),
+                                path.or_else(|| global_profile.as_ref().map(|loaded| loaded.path.clone())),
                             )
                         }
                     }};
@@ -1060,7 +1056,8 @@ pub async fn handle_cli(args: Cli) -> Exit {
                     let policy_fingerprint = policy.fingerprint();
                     let profile_source = directory_source
                         .clone()
-                        .unwrap_or_else(|| "user-level config".to_owned());
+                        .or_else(|| global_profile.as_ref().map(|loaded| loaded.source.clone()))
+                        .context("Agent profile source is unavailable")?;
                     let profile_provenance = ProfileAuditProvenance::from_file(
                         profile_source,
                         profile_path.as_deref().context("Agent profile source path is unavailable")?,

@@ -28,9 +28,12 @@ const CONFIG_FILE_MODE: u32 = 0o600;
 /// Each direct profile is stored in its own file.
 pub const DIRECTORY_AGENT_PROFILES_DIR: &str = ".stashbase/agents";
 const REMOVED_DIRECTORY_AGENT_PROFILE_FILE: &str = "stashbase-agent.toml";
+/// Global profiles: `agents/<name>.toml` next to `config.toml`, the same
+/// one-file-per-profile format as directory profiles.
+pub const GLOBAL_AGENT_PROFILES_DIR: &str = "agents";
 
 #[derive(Debug, Clone)]
-pub struct LoadedDirectoryAgentProfile {
+pub struct LoadedAgentProfile {
     pub profile: AgentProfile,
     pub source: String,
     pub path: PathBuf,
@@ -209,15 +212,13 @@ pub fn set_default_profile(name: &str) -> Result<()> {
 
 /// Load a repository-local profile from `.stashbase/agents/<name>.toml`. These
 /// files never create config directories and are ignored when absent.
-pub fn get_directory_agent_profile(
-    profile_name: &str,
-) -> Result<Option<LoadedDirectoryAgentProfile>> {
+pub fn get_directory_agent_profile(profile_name: &str) -> Result<Option<LoadedAgentProfile>> {
     let current_dir = std::env::current_dir()?;
     get_directory_agent_profile_from_dir(&current_dir, profile_name)
 }
 
 /// Load one direct profile file for explicit CI or automation use.
-pub fn get_explicit_agent_profile(path: &Path) -> Result<LoadedDirectoryAgentProfile> {
+pub fn get_explicit_agent_profile(path: &Path) -> Result<LoadedAgentProfile> {
     let path = path
         .canonicalize()
         .with_context(|| format!("Could not resolve agent policy file '{}'.", path.display()))?;
@@ -228,7 +229,7 @@ pub fn get_explicit_agent_profile(path: &Path) -> Result<LoadedDirectoryAgentPro
         .with_context(|| format!("Could not read agent policy file '{}'.", path.display()))?;
     let profile = toml::from_str::<AgentProfile>(&content)
         .with_context(|| format!("Could not parse agent policy file '{}'.", path.display()))?;
-    Ok(LoadedDirectoryAgentProfile {
+    Ok(LoadedAgentProfile {
         profile,
         source: path.display().to_string(),
         path,
@@ -236,19 +237,101 @@ pub fn get_explicit_agent_profile(path: &Path) -> Result<LoadedDirectoryAgentPro
 }
 
 /// List every repository-local profile from `.stashbase/agents`.
-pub fn get_directory_agent_profiles() -> Result<Vec<(String, LoadedDirectoryAgentProfile)>> {
+pub fn get_directory_agent_profiles() -> Result<Vec<(String, LoadedAgentProfile)>> {
     let current_dir = std::env::current_dir()?;
     get_directory_agent_profiles_from_dir(&current_dir)
 }
 
 fn get_directory_agent_profiles_from_dir(
     directory: &Path,
-) -> Result<Vec<(String, LoadedDirectoryAgentProfile)>> {
+) -> Result<Vec<(String, LoadedAgentProfile)>> {
     ensure_removed_directory_profile_file_is_absent(directory)?;
+    load_agent_profiles_in(&directory.join(DIRECTORY_AGENT_PROFILES_DIR), |path| {
+        display_directory_profile_path(directory, path)
+    })
+}
+
+fn get_directory_agent_profile_from_dir(
+    directory: &Path,
+    profile_name: &str,
+) -> Result<Option<LoadedAgentProfile>> {
+    if !is_safe_profile_file_name(profile_name) {
+        bail!(
+            "Agent profile name '{profile_name}' must be a plain file name when using directory profiles."
+        );
+    }
+    ensure_removed_directory_profile_file_is_absent(directory)?;
+    load_agent_profile_in(
+        &directory.join(DIRECTORY_AGENT_PROFILES_DIR),
+        profile_name,
+        |path| display_directory_profile_path(directory, path),
+    )
+}
+
+/// The directory holding global profiles. Not created here: a missing
+/// directory just means there are no global profiles.
+pub fn global_agent_profiles_dir() -> Result<PathBuf> {
+    let dirs =
+        ProjectDirs::from("", "", "stashbase").context("Could not find config directory.")?;
+    Ok(dirs.config_dir().join(GLOBAL_AGENT_PROFILES_DIR))
+}
+
+/// Load a global profile from `agents/<name>.toml` next to `config.toml`.
+pub fn get_global_agent_profile(profile_name: &str) -> Result<Option<LoadedAgentProfile>> {
+    if !is_safe_profile_file_name(profile_name) {
+        bail!("Agent profile name '{profile_name}' must be a plain file name.");
+    }
+    let agents_directory = global_agent_profiles_dir()?;
+    ensure_removed_global_profiles_are_absent(&agents_directory)?;
+    load_agent_profile_in(&agents_directory, profile_name, display_global_profile_path)
+}
+
+/// List every global profile.
+pub fn get_global_agent_profiles() -> Result<Vec<(String, LoadedAgentProfile)>> {
+    let agents_directory = global_agent_profiles_dir()?;
+    ensure_removed_global_profiles_are_absent(&agents_directory)?;
+    load_agent_profiles_in(&agents_directory, display_global_profile_path)
+}
+
+/// Global profiles used to be `[agent_profiles.<name>]` tables in
+/// `config.toml`. They are no longer read; rather than ignore them silently,
+/// say where they go now.
+fn ensure_removed_global_profiles_are_absent(agents_directory: &Path) -> Result<()> {
+    let config = get_config()?;
+    match removed_global_profiles_error(&config, agents_directory, &get_config_path()?) {
+        Some(error) => bail!(error),
+        None => Ok(()),
+    }
+}
+
+fn removed_global_profiles_error(
+    config: &Config,
+    agents_directory: &Path,
+    config_path: &Path,
+) -> Option<String> {
+    let names = config
+        .removed_agent_profiles
+        .as_ref()
+        .map(|table| table.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if names.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Global agent profiles are no longer read from config.toml. Move each [agent_profiles.<name>] table ({}) to its own file, {}/<name>.toml, without the 'agent_profiles.<name>' prefix, then remove it from {}.",
+        names.join(", "),
+        display_global_path(agents_directory),
+        display_global_path(config_path)
+    ))
+}
+
+fn load_agent_profiles_in(
+    agents_directory: &Path,
+    display: impl Fn(&Path) -> String,
+) -> Result<Vec<(String, LoadedAgentProfile)>> {
     let mut profiles = std::collections::BTreeMap::new();
-    let agents_directory = directory.join(DIRECTORY_AGENT_PROFILES_DIR);
     if agents_directory.is_dir() {
-        for entry in fs::read_dir(&agents_directory).with_context(|| {
+        for entry in fs::read_dir(agents_directory).with_context(|| {
             format!(
                 "Could not read agent profiles directory '{}'.",
                 agents_directory.display()
@@ -268,60 +351,57 @@ fn get_directory_agent_profiles_from_dir(
             if !is_safe_profile_file_name(name) {
                 continue;
             }
-            let content = fs::read_to_string(&path).with_context(|| {
-                format!("Could not read agent profile file '{}'.", path.display())
-            })?;
-            let profile = toml::from_str::<AgentProfile>(&content).with_context(|| {
-                format!("Could not parse agent profile file '{}'.", path.display())
-            })?;
+            let profile = read_agent_profile_file(&path)?;
             profiles.insert(
                 name.to_owned(),
-                LoadedDirectoryAgentProfile {
+                LoadedAgentProfile {
                     profile,
-                    source: display_directory_profile_path(directory, &path),
+                    source: display(&path),
                     path,
                 },
             );
         }
     }
-
     Ok(profiles.into_iter().collect())
 }
 
-fn get_directory_agent_profile_from_dir(
-    directory: &Path,
+fn load_agent_profile_in(
+    agents_directory: &Path,
     profile_name: &str,
-) -> Result<Option<LoadedDirectoryAgentProfile>> {
-    if !is_safe_profile_file_name(profile_name) {
-        bail!(
-            "Agent profile name '{profile_name}' must be a plain file name when using directory profiles."
-        );
-    }
-    ensure_removed_directory_profile_file_is_absent(directory)?;
-
-    let modern_path = directory
-        .join(DIRECTORY_AGENT_PROFILES_DIR)
-        .join(format!("{profile_name}.toml"));
-    if !modern_path.is_file() {
+    display: impl Fn(&Path) -> String,
+) -> Result<Option<LoadedAgentProfile>> {
+    let path = agents_directory.join(format!("{profile_name}.toml"));
+    if !path.is_file() {
         return Ok(None);
     }
-    let content = fs::read_to_string(&modern_path).with_context(|| {
-        format!(
-            "Could not read agent profile file '{}'.",
-            modern_path.display()
-        )
-    })?;
-    let profile = toml::from_str::<AgentProfile>(&content).with_context(|| {
-        format!(
-            "Could not parse agent profile file '{}'.",
-            modern_path.display()
-        )
-    })?;
-    Ok(Some(LoadedDirectoryAgentProfile {
+    let profile = read_agent_profile_file(&path)?;
+    Ok(Some(LoadedAgentProfile {
         profile,
-        source: display_directory_profile_path(directory, &modern_path),
-        path: modern_path,
+        source: display(&path),
+        path,
     }))
+}
+
+fn read_agent_profile_file(path: &Path) -> Result<AgentProfile> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Could not read agent profile file '{}'.", path.display()))?;
+    toml::from_str::<AgentProfile>(&content)
+        .with_context(|| format!("Could not parse agent profile file '{}'.", path.display()))
+}
+
+/// A global path for messages, with the home directory shown as `~`.
+pub fn display_global_path(path: &Path) -> String {
+    directories::BaseDirs::new()
+        .and_then(|dirs| {
+            path.strip_prefix(dirs.home_dir())
+                .ok()
+                .map(|relative| format!("~/{}", relative.display()))
+        })
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+fn display_global_profile_path(path: &Path) -> String {
+    display_global_path(path)
 }
 
 fn ensure_removed_directory_profile_file_is_absent(directory: &Path) -> Result<()> {
@@ -404,9 +484,10 @@ mod tests {
     };
 
     use super::{
-        get_directory_agent_profile_from_dir, get_directory_agent_profiles_from_dir,
-        get_explicit_agent_profile, resolve_profile_name, DEFAULT_PROFILE,
-        DIRECTORY_AGENT_PROFILES_DIR,
+        display_global_path, get_directory_agent_profile_from_dir,
+        get_directory_agent_profiles_from_dir, get_explicit_agent_profile, load_agent_profile_in,
+        load_agent_profiles_in, removed_global_profiles_error, resolve_profile_name,
+        DEFAULT_PROFILE, DIRECTORY_AGENT_PROFILES_DIR,
     };
     use crate::models::config::{Config, ProfileConfig};
 
@@ -495,6 +576,68 @@ mod tests {
             ["codex"]
         );
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn loads_and_lists_profile_files_from_a_global_agents_directory() {
+        let directory = temporary_directory();
+        let agents = directory.join("agents");
+        fs::create_dir_all(&agents).unwrap();
+        fs::write(
+            agents.join("multi-repo.toml"),
+            "egress_hosts = [\"api.anthropic.com\"]\n[workspace]\nextra_paths = [\"~/Projects/cli\"]\n",
+        )
+        .unwrap();
+        fs::write(agents.join("notes.txt"), "ignored").unwrap();
+
+        let loaded = load_agent_profile_in(&agents, "multi-repo", display_global_path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.path, agents.join("multi-repo.toml"));
+        assert_eq!(loaded.source, display_global_path(&loaded.path));
+        assert_eq!(loaded.profile.workspace.extra_paths.len(), 1);
+        assert!(
+            load_agent_profile_in(&agents, "missing", display_global_path)
+                .unwrap()
+                .is_none()
+        );
+
+        let names = load_agent_profiles_in(&agents, display_global_path)
+            .unwrap()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["multi-repo"]);
+        assert!(
+            load_agent_profiles_in(&directory.join("absent"), display_global_path)
+                .unwrap()
+                .is_empty()
+        );
+
+        fs::write(agents.join("broken.toml"), "egress_hosts = 3\n").unwrap();
+        let error = format!(
+            "{:#}",
+            load_agent_profiles_in(&agents, display_global_path).unwrap_err()
+        );
+        assert!(error.contains("broken.toml"), "{error}");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_leftover_agent_profiles_table_points_to_the_new_location() {
+        let config: Config =
+            toml::from_str("[agent_profiles.coding]\negress_hosts = []\n[agent_profiles.ci]\n")
+                .unwrap();
+        let agents = std::path::Path::new("/stashbase-config/agents");
+        let error =
+            removed_global_profiles_error(&config, agents, &agents.with_file_name("config.toml"))
+                .unwrap();
+        assert!(error.contains("(ci, coding)"), "{error}");
+        assert!(
+            error.contains("/stashbase-config/agents/<name>.toml"),
+            "{error}"
+        );
+        assert!(removed_global_profiles_error(&Config::new(), agents, agents).is_none());
     }
 
     #[test]

@@ -19,12 +19,9 @@ use crate::{
     cmd::agent::{AgentProfileSource, AgentValidateCommand},
     config::config,
     handlers::agent::env_check,
-    models::{
-        agent::{
-            AgentFieldCondition, AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile,
-            AgentScalar,
-        },
-        config::Config,
+    models::agent::{
+        AgentFieldCondition, AgentHttpRule, AgentHttpRuleEffect, AgentMcpServer, AgentProfile,
+        AgentScalar,
     },
     utils::output::{get_formatted_json_string, ColorizeIfColoredOutput},
 };
@@ -53,7 +50,6 @@ struct Report {
 
 pub async fn handle_agent_validate_command(
     command: AgentValidateCommand,
-    global_config: &Config,
     json_format: bool,
 ) -> Result<bool> {
     let mut checks = Vec::new();
@@ -62,11 +58,9 @@ pub async fn handle_agent_validate_command(
         .as_deref()
         .map(config::get_explicit_agent_profile)
         .transpose()?;
-    let global_profile = global_config
-        .agent_profiles
-        .as_ref()
-        .and_then(|profiles| profiles.get(&command.profile))
-        .cloned();
+    let global_profile = config::get_global_agent_profile(&command.profile)?;
+    let global_source = global_profile.as_ref().map(|loaded| loaded.source.clone());
+    let global_profile = global_profile.map(|loaded| loaded.profile);
     let (profile, directory_source) = if let Some(profile) = explicit_profile {
         (Some(profile.profile), Some(profile.source))
     } else {
@@ -110,7 +104,10 @@ pub async fn handle_agent_validate_command(
         if directory_profile {
             format!("Loaded from {}", directory_source.as_deref().unwrap())
         } else {
-            "Loaded from user-level config".to_owned()
+            format!(
+                "Loaded from {}",
+                global_source.as_deref().unwrap_or("the global config")
+            )
         },
     ));
     if directory_profile && matches!(command.profile_source, AgentProfileSource::Auto) {
